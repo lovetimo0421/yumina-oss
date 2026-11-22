@@ -11,6 +11,20 @@
 export const FREE_ROUTER_MODEL = "openrouter/free";
 
 /**
+ * A model the player pays nothing for: Yumina Free, or an OpenRouter `:free`
+ * variant. An empty wallet must not stop these — "out of mushies" on the one
+ * model that costs no mushies told players Free was not free.
+ */
+export function isZeroCostPlayModel(model: string): boolean {
+  return model === FREE_ROUTER_MODEL || model.endsWith(":free");
+}
+
+/** Prices that round every turn to zero mushies; such a turn can never run a wallet dry. */
+export function isZeroCostRates(rates: { inputPricePerM: number; outputPricePerM: number } | null | undefined): boolean {
+  return !!rates && rates.inputPricePerM <= 0 && rates.outputPricePerM <= 0;
+}
+
+/**
  * Where a Yumina Free TEXT turn goes when the free pool is exhausted.
  *
  * The free pool's daily cap is per-ACCOUNT, not per-user: once it trips, every

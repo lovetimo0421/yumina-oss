@@ -21,8 +21,16 @@ import { authMiddleware, optionalAuthMiddleware } from "../middleware/auth.js";
 import { adminMiddleware } from "../middleware/admin.js";
 import { db } from "../db/index.js";
 import { user as userTable } from "../db/schema.js";
-import { entryView, renderChangelogMarkdown, type ChangelogEntry } from "../lib/changelog.js";
-import { allLanguages, ChangelogStoreError, createChangelogStore, type ChangelogStore, type MergedChangelogEntry } from "../lib/changelog-store.js";
+import { renderChangelogMarkdown, type ChangelogEntry } from "../lib/changelog.js";
+import {
+  allLanguages,
+  ChangelogStoreError,
+  createChangelogStore,
+  sharedChangelogStore,
+  visibleEntries,
+  type ChangelogStore,
+  type MergedChangelogEntry,
+} from "../lib/changelog-store.js";
 import { ChangelogTranslateError, translateChangelogEntry } from "../lib/changelog-translate.js";
 import { getUnrestrictEligibility } from "../lib/unrestrict.js";
 
@@ -52,17 +60,6 @@ export interface ChangelogRouteDeps {
   isUnrestricted?: (c: Context<AppEnv>) => Promise<boolean>;
   authenticate?: boolean;
   translate?: typeof translateChangelogEntry;
-}
-
-/** What one viewer may see. Hidden and internal entries reach admins only;
- *  unrestricted entries also reach 解除限制-eligible accounts. */
-export function visibleEntries(entries: MergedChangelogEntry[], viewer: { isAdmin: boolean; unrestricted?: boolean }, lang: string | null | undefined) {
-  return entries
-    .filter((e) => viewer.isAdmin || (!e.hidden && (e.audience === "public" || (e.audience === "unrestricted" && viewer.unrestricted === true))))
-    .map((e) => {
-      const view = entryView(e, lang);
-      return viewer.isAdmin ? { ...view, admin: { hasFile: e.hasFile, fromWeb: e.fromWeb, hidden: e.hidden, revision: e.revision } } : view;
-    });
 }
 
 function editable(e: MergedChangelogEntry): ChangelogEditable {
@@ -98,7 +95,7 @@ async function jsonBody<T>(c: Context<AppEnv>, schema: z.ZodType<T>): Promise<T 
 }
 
 export function createChangelogRoutes(deps: ChangelogRouteDeps = {}) {
-  const store = deps.store ?? createChangelogStore(deps.entries ? { files: deps.entries } : {});
+  const store = deps.store ?? (deps.entries ? createChangelogStore({ files: deps.entries }) : sharedChangelogStore());
   const isAdmin = deps.isAdmin ?? viewerIsAdmin;
   const isUnrestricted = deps.isUnrestricted ?? viewerIsUnrestricted;
   const translate = deps.translate ?? translateChangelogEntry;

@@ -13,12 +13,14 @@ export const Route = createFileRoute("/app/library")({
   validateSearch: (search: {
     worldId?: unknown;
     view?: unknown;
+    section?: unknown;
     assetId?: unknown;
     returnTo?: unknown;
     returnKey?: unknown;
     sub?: unknown;
   } & SearchSchemaInput) => ({
     worldId: (search.worldId as string) || undefined,
+    section: search.section === "reviews" || search.section === "discussion" ? search.section as "reviews" | "discussion" : undefined,
     view: (search.view as string) || undefined,
     assetId: (search.assetId as string) || undefined,
     returnTo: parseSafeInternalReturnUrl(search.returnTo),

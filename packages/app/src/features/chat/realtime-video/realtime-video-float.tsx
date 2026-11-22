@@ -12,6 +12,7 @@ import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { useUserProfileStore } from "@/stores/user-profile";
+import { useChatStore } from "@/stores/chat";
 import { DEFAULT_ENGINE, DIRECTOR_MODELS, FILM_SETTINGS_KEY, getVideoController, type VideoEngine, type VideoStartOptions, type VideoState, type VideoStep } from "./controller";
 import { filmText, shortReason, type FilmT } from "./film-text";
 
@@ -70,7 +71,27 @@ export function RealtimeVideoFloat({ sessionId, defaultOpen = false, suppressIdl
   const [panel, setPanel] = useState<Panel>("none");
   const [rect, setRect] = useState<Rect>(() => load(RECT_KEY, defaultRect()));
   const [mobileH, setMobileH] = useState(() => Math.round(Math.min(window.innerWidth, 767) * 9 / 16) + 44);
-  const [settings, setSettings] = useState<Settings>(() => load(SETTINGS_KEY, DEFAULT_SETTINGS));
+  // The look is remembered per playthrough (one story live action, another anime); a new one
+  // starts with the look picked last.
+  const styleKey = `${SETTINGS_KEY}:style:${sessionId}`;
+  const [settings, setSettingsRaw] = useState<Settings>(() => {
+    const base = load(SETTINGS_KEY, DEFAULT_SETTINGS);
+    let own: string | null = null;
+    try { own = localStorage.getItem(styleKey); } catch { /* private mode */ }
+    return own && STYLE_KEYS[own] ? { ...base, style: own } : base;
+  });
+  // A look picked while films run starts with the next reply: until it comes, say so.
+  const replies = useChatStore((s) => s.messages.filter((m) => m.role === "assistant").length);
+  const [lookFrom, setLookFrom] = useState<number | null>(null);
+  const setSettings = (next: Settings) => {
+    if (next.style !== settings.style) {
+      try { localStorage.setItem(styleKey, next.style); } catch { /* private mode */ }
+      controller.setStyle(next.style);
+      if (state.status === "live" || state.status === "starting") setLookFrom(replies);
+    }
+    setSettingsRaw(next);
+  };
+  const lookPending = lookFrom != null && replies === lookFrom;
   const [uploaded, setUploaded] = useState<string>("");
   const [muted, setMuted] = useState(true);
   const [draft, setDraft] = useState("");
@@ -158,6 +179,14 @@ export function RealtimeVideoFloat({ sessionId, defaultOpen = false, suppressIdl
     : t("film.failed", { error: e ?? "" });
 
   if (!offered && !state.consent) return null;
+  // A card showing the film on its own stage is the player's film window; this one would only take
+  // the picture from it (its stage went black). The stage carries the host's cost and stop
+  // (world-renderer); the first-use question still needs this window.
+  if (state.cardStage && !state.consent) {
+    // When the card puts its stage away for a moment, only the launcher comes back, not the window.
+    if (open) setOpen(false);
+    return null;
+  }
   if (!open) {
     if (suppressIdleLauncher && !running) return null;
     return (
@@ -216,7 +245,16 @@ export function RealtimeVideoFloat({ sessionId, defaultOpen = false, suppressIdl
                   <button type="button" onClick={start} className="flex items-center gap-1.5 rounded bg-rose-600 px-4 py-1.5 text-white hover:bg-rose-500"><Play className="h-4 w-4" />{t("film.start")}</button>
                   <button type="button" onClick={() => togglePanel("settings")} className="flex items-center gap-1.5 rounded border border-white/20 px-3 py-1.5 hover:bg-white/10"><Settings2 className="h-4 w-4" />{t("film.settings")}</button>
                 </div>
-                <div className="text-[11px] text-white/45">{`${engineLabel(t, settings.engine)} · ${styleLabel(t, settings.style)}`}</div>
+                <div className="flex flex-wrap items-center justify-center gap-1.5 text-[11px]" role="radiogroup" aria-label={t("film.style")}>
+                  <span className="text-white/45">{t("film.style")}</span>
+                  {Object.keys(STYLE_KEYS).map((k) => (
+                    <button key={k} type="button" role="radio" aria-checked={settings.style === k} data-film-style={k}
+                      onClick={() => setSettings({ ...settings, style: k })}
+                      className={`rounded-full border px-2 py-0.5 ${settings.style === k ? "border-rose-400 bg-rose-500/20 text-white" : "border-white/20 text-white/65 hover:bg-white/10"}`}>
+                      {styleLabel(t, k)}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
             {running && state.engine !== "fal" && state.engine !== "shorts" && state.waiting && <div className="absolute bottom-2 left-2 z-[1] rounded bg-black/60 px-2 py-0.5 text-xs">{t("film.nextClip")}</div>}
@@ -226,6 +264,20 @@ export function RealtimeVideoFloat({ sessionId, defaultOpen = false, suppressIdl
           </div>
 
           {running && state.engine === "shorts" && <ShortStrip t={t} state={state} onJump={(clip) => controller.jumpShort(clip)} onRetry={() => controller.regenerate()} />}
+
+          {running && (
+            <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-t border-white/10 bg-neutral-900 px-2.5 py-1.5 text-[11px]" role="radiogroup" aria-label={t("film.style")}>
+              <span className="text-white/45">{t("film.style")}</span>
+              {Object.keys(STYLE_KEYS).map((k) => (
+                <button key={k} type="button" role="radio" aria-checked={settings.style === k} data-film-style={k}
+                  onPointerDown={(e) => e.stopPropagation()} onClick={() => setSettings({ ...settings, style: k })}
+                  className={`rounded-full border px-2 py-0.5 ${settings.style === k ? "border-rose-400 bg-rose-500/20 text-white" : "border-white/20 text-white/65 hover:bg-white/10"}`}>
+                  {styleLabel(t, k)}
+                </button>
+              ))}
+              {lookPending && <span className="text-amber-300">{t("film.lookNext")}</span>}
+            </div>
+          )}
 
           {/* Toolbar */}
           <div className="flex h-10 shrink-0 items-center gap-0.5 border-t border-white/10 bg-neutral-900 px-1.5">
@@ -400,7 +452,9 @@ function SettingsForm({ value, onChange, running, uploaded, onUpload }: { value:
         </select></label>
       {value.engine === "shorts" ? (
         <div className="text-[11px] leading-relaxed text-white/55 sm:col-span-2">{t("film.shortsHint")}</div>
-      ) : (<>
+      ) : (<details className="grid gap-3 sm:col-span-2 [&[open]>summary]:mb-3">
+      <summary className="cursor-pointer text-[11px] text-white/50">{t("film.advanced")}</summary>
+      <div className="grid gap-3 sm:grid-cols-2">
       <label className={field}><span className="text-[11px] text-white/50">{t("film.director")}</span>
         <select className={input} value={value.directorModel} onChange={(e) => set("directorModel", e.target.value)}>
           {DIRECTOR_MODELS.map((m, i) => <option key={m.id} value={m.id}>{i === 0 ? `${m.label} (${t("film.defaultTag")})` : m.label}</option>)}
@@ -432,7 +486,8 @@ function SettingsForm({ value, onChange, running, uploaded, onUpload }: { value:
         <input type="number" min={30} max={1800} className={input} value={value.idleSeconds} onChange={(e) => set("idleSeconds", clamp(Number(e.target.value) || 120, 30, 1800))} /></label>
       <label className={field}><span className="text-[11px] text-white/50">{t("film.limitSeconds")}</span>
         <input type="number" min={60} max={3600} className={input} value={value.limitSeconds} onChange={(e) => set("limitSeconds", clamp(Number(e.target.value) || 600, 60, 3600))} /></label>
-      </>)}
+      </div>
+      </details>)}
       <button type="button" className="justify-self-start rounded border border-white/15 px-2 py-1 text-[11px] text-white/60 sm:col-span-2" onClick={() => onChange(DEFAULT_SETTINGS)}>{t("film.reset")}</button>
     </div>
   );

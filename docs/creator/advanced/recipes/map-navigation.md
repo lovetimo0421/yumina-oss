@@ -1,3 +1,8 @@
+---
+title: "Map & scene navigation"
+description: "Build a tappable map in a Yumina card where choosing a place moves the scene, swaps the lore the AI reads and fades the music, without writing code."
+---
+
 <div v-pre>
 
 # Map & Scene Navigation
@@ -179,7 +184,7 @@ Click **Play** in the top bar.
 
 If you write your own interface, here's a map panel under the last message that also limits where the player can go from where they are. It sets the same Location variable and sends the same line, so the lore and music from Steps 2 and 3 work unchanged.
 
-**Panels → Front End Code** → open `index.tsx` and replace the default `return <Chat />`:
+**Panels → Interface code** → open `index.tsx` and replace the default `return <Chat />`:
 
 ```tsx
 export default function MyWorld() {
@@ -277,7 +282,7 @@ export default function MyWorld() {
 - `!msg.isStreaming` hides the map while the AI is still writing, so the player can't travel mid-reply
 - `gridTemplateColumns: "1fr 1fr"` lays the four places out two by two; use `"1fr 1fr 1fr"` for three columns
 
-The status next to the file in **Panels → Front End Code** should read a green **OK**.
+The status next to the file in **Panels → Interface code** should read a green **OK**.
 
 ::: tip Don't want to write code yourself?
 Click **Creation assistant** at the top right of the canvas and describe the map you want.

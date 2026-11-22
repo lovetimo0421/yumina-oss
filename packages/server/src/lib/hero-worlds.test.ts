@@ -55,3 +55,12 @@ test("exact-world pins stay exact, duplicate groups are removed, and missing or 
   assert.deepEqual(resolveHeroWorlds(slots, [english, spanish], "es"), [english]);
   assert.deepEqual(resolveHeroWorlds(slots, [], "es"), []);
 });
+
+test("a Korean viewer gets a group's Korean version, then English", () => {
+  const rows = [
+    { id: "en", language: "en", languageGroupId: "g", isPrimaryVariant: true, createdAt: "2026-01-01" },
+    { id: "ko", language: "ko", languageGroupId: "g", isPrimaryVariant: false, createdAt: "2026-11-18" },
+  ];
+  assert.equal(resolveHeroWorlds([{ slot: 1, kind: "group", id: "g" }], rows, "ko")[0]?.id, "ko");
+  assert.equal(resolveHeroWorlds([{ slot: 1, kind: "group", id: "g" }], rows, "en")[0]?.id, "en");
+});

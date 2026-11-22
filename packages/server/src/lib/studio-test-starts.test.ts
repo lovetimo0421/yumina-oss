@@ -14,7 +14,7 @@ process.env.BETTER_AUTH_SECRET ||= "studio-test-local-only-secret";
 process.env.REDIS_URL = "";
 process.env.NODE_ENV = "test";
 const { db } = await import("../db/index.js");
-const { user, worlds, playSessions, messages, checkpoints, worldPendingEdits } = await import("../db/schema.js");
+const { user, worlds, playSessions, messages, checkpoints, worldPendingEdits, worldCollaborators } = await import("../db/schema.js");
 const { saveTestStart, listTestStarts, runTestStart, deleteTestStart, TestStartError, STUDIO_TEST_HOLDER_PREFIX } = await import("./studio-test-starts.js");
 const creatorId = `test-start-creator-${crypto.randomUUID()}`;
 const playerId = `test-start-player-${crypto.randomUUID()}`;
@@ -29,7 +29,7 @@ before(async () => {
   // Generate only the participating tables from the shipped Drizzle schema.
   // The legacy global bootstrap currently ALTERs unrelated absent social
   // tables; these tests need the real session/checkpoint FKs, not that system.
-  const tables = [user, worlds, playSessions, messages, checkpoints, worldPendingEdits];
+  const tables = [user, worlds, playSessions, messages, checkpoints, worldPendingEdits, worldCollaborators];
   const dialect = new PgDialect();
   const executeDdl = (statement: ReturnType<typeof sql>) => db.execute(sql.raw(dialect.sqlToQuery(statement.inlineParams()).sql));
   await db.execute(sql`CREATE EXTENSION IF NOT EXISTS vector`);
@@ -159,4 +159,33 @@ test("installed cleanup keeps saved holders, reaps stale temporary runs, and pre
   assert.equal((await db.select().from(playSessions).where(eq(playSessions.id, ordinary!.id))).length, 1);
   assert.equal((await db.select().from(checkpoints).where(eq(checkpoints.id, saved.id))).length, 1);
   assert.ok((await listTestStarts(creatorId, worldId)).some((row) => row.id === saved.id));
+});
+
+test("an editor collaborator keeps their own test starts on the card; a viewer collaborator cannot", async () => {
+  const editorId = `test-start-editor-${crypto.randomUUID()}`;
+  const viewerId = `test-start-viewer-${crypto.randomUUID()}`;
+  await db.insert(user).values([
+    { id: editorId, name: "Editor", email: `${editorId}@test.local`, emailVerified: true },
+    { id: viewerId, name: "Viewer", email: `${viewerId}@test.local`, emailVerified: true },
+  ]);
+  try {
+    await db.insert(worldCollaborators).values([
+      { worldId, userId: editorId, role: "editor", status: "accepted" },
+      { worldId, userId: viewerId, role: "viewer", status: "accepted" },
+    ]);
+    assert.deepEqual(await listTestStarts(editorId, worldId), []);
+    await assert.rejects(listTestStarts(viewerId, worldId), TestStartError);
+    // A grant on one card does not reach the creator's other cards.
+    await assert.rejects(listTestStarts(editorId, otherWorldId), TestStartError);
+    const [source] = await db.insert(playSessions).values({ userId: editorId, worldId, ephemeral: true, state: originalState }).returning();
+    const saved = await saveTestStart(editorId, worldId, source!.id, "Editor start");
+    assert.deepEqual((await listTestStarts(editorId, worldId)).map((s) => s.id), [saved.id]);
+    assert.ok(!(await listTestStarts(creatorId, worldId)).some((s) => s.id === saved.id));
+    const run = await runTestStart(editorId, worldId, saved.id);
+    const [runRow] = await db.select().from(playSessions).where(eq(playSessions.id, run.id));
+    assert.equal(runRow!.userId, editorId);
+  } finally {
+    await db.delete(user).where(eq(user.id, editorId));
+    await db.delete(user).where(eq(user.id, viewerId));
+  }
 });

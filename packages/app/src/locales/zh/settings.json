@@ -7,7 +7,11 @@
     "results": "找到 {{count}} 项设置",
     "noResults": "没有找到相关设置",
     "noResultsHint": "换个关键词试试，例如「语言」或「隐私」。",
-    "aiConfigDescription": "模型、服务商、API 密钥与生成偏好。"
+    "aiConfigDescription": "模型、服务商、API 密钥与生成偏好。",
+    "byokTitle": "私有 API 连接",
+    "byokDescription": "用你自己的 API 密钥",
+    "localModelTitle": "用你自己的电脑跑",
+    "localModelDescription": "用这台电脑上的模型免费玩"
   },
   "nav": {
     "aiConfig": "AI 配置",
@@ -21,7 +25,8 @@
     "prompts": "提示词"
   },
   "aiConfig": {
-    "title": "AI 配置"
+    "title": "AI 配置",
+    "ownAi": "进阶：用你自己的 AI"
   },
   "account": {
     "saved": "已保存",
@@ -61,7 +66,8 @@
       "revoked": "设备已退出登录",
       "revokedOthers": "其他设备已全部退出登录",
       "revokeError": "无法退出该设备，请稍后再试。",
-      "propagationNote": "被踢下线的设备最多需要 5 分钟才会真正登出。修改密码会立即登出其他所有设备。"
+      "propagationNote": "被踢下线的设备最多需要 5 分钟才会真正登出。修改密码会立即登出其他所有设备。",
+      "showAll": "显示全部 {{n}} 台设备"
     },
     "deleteAccount": {
       "title": "注销账户",
@@ -198,7 +204,7 @@
     },
     "sensitive": {
       "label": "无限制",
-      "description": "没有内容限制。模型还是不肯写的话，可以去提示词广场装「解除限制」。"
+      "description": "没有内容限制。"
     },
     "minorRestriction": "此账号无法使用「无限制」模式。",
     "audiencePreference": {
@@ -220,6 +226,13 @@
     "blurSensitive": {
       "title": "模糊敏感封面",
       "description": "敏感封面默认以朦胧效果隐藏，点击后仅显示当前封面。关闭此选项可显示所有封面，不会更改内容模式。"
+    },
+    "hiddenWorlds": {
+      "title": "已隐藏的作品",
+      "subtitle": "在发现页点了「不感兴趣」的作品",
+      "empty": "没有隐藏的作品。",
+      "show": "重新显示",
+      "failed": "没能恢复，请再试一次"
     }
   },
   "privacy": {
@@ -296,13 +309,25 @@
     }
   },
   "display": {
+    "readingAppearance": {
+      "title": "游玩界面外观",
+      "description": "选择默认游玩界面的深色或浅色模式。设置保存在当前浏览器中。",
+      "dark": "深色",
+      "light": "浅色"
+    },
     "turnImages": {
       "title": "剧情插图",
       "description": "回复下方会有「画出这一幕」按钮。",
       "auto": "每条回复自动画插图",
       "free": "还能免费画 {{count}} 张，之后每张 {{price}} 蘑菇币",
       "price": "每张 {{price}} 蘑菇币",
-      "unlimited": "包含在你的套餐里"
+      "unlimited": "包含在你的套餐里",
+      "style": {
+        "default": "快速",
+        "detailed": "精绘",
+        "vivid": "亮彩"
+      },
+      "vividTag": "单人画面"
     },
     "title": "显示",
     "language": {
@@ -315,6 +340,7 @@
       "default": "默认",
       "large": "大",
       "xLarge": "超大",
+      "xxLarge": "最大",
       "hint": "更改会立即生效并保存到此设备。"
     },
     "autoFullscreenOnPlay": {
@@ -409,6 +435,10 @@
     "sceneVideo": {
       "title": "影游（实验性）",
       "description": "打开后，游玩页的菜单和带影片屏幕的卡里会出现影游。两种看法：实时拍、跟着剧情走（约每分钟 5,800 蘑菇币）；或每条回复拍成一部带配音的短片，写完几分钟后出片（每条约 100–1,400 蘑菇币）。"
+    },
+    "halloween": {
+      "title": "节日装饰",
+      "description": "万圣节期间 Mushies 和 Logo 换上节日装扮，偶尔飞过一只小蝙蝠。卡片自己的画面不受影响。"
     }
   },
   "wallpaper": {
@@ -495,7 +525,7 @@
     "versionValue": "梦坞 v1.0.0",
     "termsOfService": "服务条款",
     "privacyPolicy": "隐私政策",
-    "licenses": "GitHub OSS",
+    "licenses": "开源代码",
     "contactSupport": "联系梦坞",
     "messageOfficial": "私信 {{username}}",
     "emailSupport": "邮件支持",

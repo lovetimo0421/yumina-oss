@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
+import { HalloweenSpinner } from "@/components/halloween-decor";
+import { useHalloweenDecor } from "@/lib/halloween-decor";
 
 /**
  * Suspense fallback for lazily-loaded routes. Renders nothing for a short grace
@@ -10,6 +12,7 @@ import { Loader2 } from "lucide-react";
  */
 export function RouteFallback({ delayMs = 250 }: { delayMs?: number }) {
   const [show, setShow] = useState(false);
+  const halloween = useHalloweenDecor();
   useEffect(() => {
     const timer = setTimeout(() => setShow(true), delayMs);
     return () => clearTimeout(timer);
@@ -19,7 +22,7 @@ export function RouteFallback({ delayMs = 250 }: { delayMs?: number }) {
 
   return (
     <div className="flex min-h-[60vh] w-full items-center justify-center">
-      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground/40" />
+      {halloween ? <HalloweenSpinner /> : <Loader2 className="h-6 w-6 animate-spin text-muted-foreground/40" />}
     </div>
   );
 }

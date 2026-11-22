@@ -39,19 +39,18 @@ docs/
 
 ## How this repo relates to the private monorepo
 
-Yumina is developed in a private monorepo that also holds the hosted service (yumina.io). This
-public repo is exported from it on every release. Each release lands here as one squashed commit.
+The hosted service (yumina.io) is built from a private monorepo that holds everything in this repo
+plus the hosted-only modules (billing, hub, moderation). File paths are the same on both sides.
 
 What that means for you:
 
-- **Your PR is reviewed here.** Discussion, review, and approval happen on this repo.
-- **A maintainer ports it.** Because file paths are the same on both sides, an accepted PR is
-  applied to the private main with `git am`. Your commits keep your name and email as author.
-- **It comes back in the next release.** The next squashed release commit includes your change.
-  Release notes credit you. Expect a delay between "merged" and "in a release"; releases are not
-  daily.
-- **Do not be surprised by squashes.** Your commit hash will not appear in this repo's history, but
-  your authorship is preserved in the private repo and in the release notes.
+- **Your PR is reviewed and merged here**, like in any other open-source project. We squash-merge,
+  so your PR lands on `main` as one commit with you as its author.
+- **We mirror it into the private monorepo.** After the merge a maintainer applies the same commit
+  there with `git am`, so yumina.io gets your change too and your name stays on it.
+- **Our own changes arrive as releases.** Work done on the private side lands here as one commit
+  per release, "Yumina vX.Y.Z", on top of what is already on `main`. A release never undoes a
+  merged PR: the release script refuses to publish while a merged PR is not mirrored yet.
 
 ## What is in scope
 
@@ -126,7 +125,8 @@ Signing is one comment on the PR:
 
 > I have read the CLA Document and I hereby sign the CLA
 
-A bot checks for it. You sign once; it covers all your later PRs.
+The CLA bot posts that sentence on your first PR and turns its check green once you have posted it.
+You sign once; it covers all your later PRs.
 
 **Why we need it.** The code is AGPL-3.0. AGPL says that if you run modified code as a network
 service, you must offer the whole corresponding source to the people who use it. The hosted service

@@ -40,6 +40,8 @@ function harness(opts: { resume?: "reject" | "pending"; context?: boolean; deny?
     sonner: { toast: { error() {}, info() {} } },
     "@/lib/i18n": { default: { language: "en", t: (_key: string, fallback: string) => fallback } },
     "@/lib/tts-stop-signal": { haltTts() {} },
+    // No WebAudio decoding here: the clip goes up as recorded.
+    "@/lib/wav": { toWav: async () => null },
   };
   const module = { exports: {} as typeof import("./voice-input") };
   const source = readFileSync(new URL("./voice-input.ts", import.meta.url), "utf8").replaceAll("import.meta.env.VITE_API_URL", '""');

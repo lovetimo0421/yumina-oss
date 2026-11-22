@@ -1,5 +1,8 @@
 @import "tailwindcss";
+@import "./play-reading-appearance.css";
 @import "./modal-backdrop.css";
+@import "./library-activity.css";
+@import "./clear-tint.css";
 
 /* Self-hosted Inter (latin subset). The UI font stack has always led with
    "Inter" but the face was never shipped — the only webfont we load is Nunito
@@ -190,6 +193,26 @@ html, body, #root {
     sans-serif;
   --font-family-ui: var(--font-family-sans);
   --font-family-display: var(--font-family-sans);
+  /* Korean UI: Hangul faces ahead of the Chinese ones, so Windows doesn't draw
+     Hangul from whatever fallback it finds after Microsoft YaHei. Scoped to the
+     Korean UI so Chinese text keeps its Chinese glyph shapes. */
+  &:lang(ko) {
+    --font-family-sans:
+      "Nunito Sans",
+      "Inter",
+      ui-sans-serif,
+      -apple-system,
+      BlinkMacSystemFont,
+      "Apple SD Gothic Neo",
+      "Segoe UI",
+      "Malgun Gothic",
+      "Noto Sans KR",
+      Roboto,
+      "Noto Sans SC",
+      "PingFang SC",
+      "Microsoft YaHei",
+      sans-serif;
+  }
   --font-family-chat: var(--font-family-sans);
   --font-family-marketing: var(--font-family-sans);
   --font-family-mono:
@@ -219,7 +242,6 @@ html, body, #root {
   --content-max: 84rem;
   --play-page-gutter: clamp(1rem, 0.8rem + 0.8vw, 1.75rem);
   --play-surface-max: 76rem;
-  --play-ui-scale: 1;
   --play-response-scale: 1;
   --play-header-min-height: 3.25rem;
   --play-header-pad-y: 0.3rem;
@@ -862,6 +884,14 @@ html[data-mobile-page-scroll="hub-main"] .discovery-feed-start {
   display: none;
 }
 
+/* The generation page draws its own header: the app bar shows there only on a
+   phone, where its menu is the way to the rest of the site. */
+@media (min-width: 768px) {
+  .topbar-shell--generate {
+    display: none;
+  }
+}
+
 /* ── Desktop app sidebar rail ── */
 .desktop-sidebar-rail {
   position: fixed;
@@ -910,6 +940,15 @@ html[data-mobile-page-scroll="hub-main"] .discovery-feed-start {
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   pointer-events: auto;
+}
+
+.sidebar-logo-link {
+  border-radius: 12px;
+  outline: none;
+}
+
+.sidebar-logo-link:focus-visible {
+  box-shadow: 0 0 0 2px rgba(223, 196, 143, 0.85);
 }
 
 .sidebar-logo-mark {
@@ -1575,10 +1614,18 @@ html:lang(zh) .hub-hero--world .hub-hero-subtitle {
 }
 
 .play-header-inner {
-  width: min(calc(100% / var(--play-ui-scale)), calc(var(--play-surface-max) / var(--play-ui-scale)));
+  width: min(calc(100% / var(--play-header-scale, 1)), calc(var(--play-surface-max) / var(--play-header-scale, 1)));
   min-height: var(--play-header-min-height);
   margin-inline: auto;
   transform-origin: top center;
+}
+
+/* The guest preview header has always drawn at 80%: that was the default of
+   the retired per-player play zoom, the only header it still reached once the
+   transcript moved into the card sandbox. Pinned so retiring the zoom leaves it
+   as players knew it. */
+.play-preview-header {
+  --play-header-scale: 0.8;
 }
 
 .play-session-header,
@@ -1598,8 +1645,8 @@ html:lang(zh) .hub-hero--world .hub-hero-subtitle {
 }
 
 /* Replay headers have a wider primary action than normal play headers. Keep
-   the title and controls as two atomic groups; when laptop sidebars, browser
-   scaling, or Play UI zoom leave too little room, the controls wrap together
+   the title and controls as two atomic groups; when laptop sidebars or browser
+   scaling leave too little room, the controls wrap together
    instead of letting the Continue button get clipped by the play surface. */
 .play-replay-header {
   display: flex;
@@ -1693,9 +1740,8 @@ html:lang(zh) .hub-hero--world .hub-hero-subtitle {
 }
 
 .play-message-stack {
-  width: min(calc(100% / var(--play-ui-scale)), calc(var(--play-surface-max) / var(--play-ui-scale)));
+  width: min(100%, var(--play-surface-max));
   margin-inline: auto;
-  transform-origin: top center;
 }
 
 .play-message-row {
@@ -1749,8 +1795,8 @@ html:lang(zh) .hub-hero--world .hub-hero-subtitle {
 
 .play-composer-inner {
   /* The composer is application chrome, not story content. Keep its controls at
-     viewport scale so play zoom cannot shrink touch targets or distort the
-     toolbar's responsive-width measurement. */
+     viewport scale (never zoomed) so touch targets and the toolbar's
+     responsive-width measurement stay true. */
   width: min(100%, var(--play-surface-max));
   margin-inline: auto;
 }
@@ -1816,34 +1862,9 @@ html:lang(zh) .hub-hero--world .hub-hero-subtitle {
   min-width: 2.25rem;
 }
 
-.play-zoom-trigger {
-  min-height: 2.25rem;
-  min-width: 2.25rem;
-}
-
-.play-zoom-slider::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  height: 14px;
-  width: 14px;
-  border-radius: 50%;
-  background: var(--color-primary);
-  cursor: pointer;
-  border: none;
-}
-
-.play-zoom-slider::-moz-range-thumb {
-  height: 14px;
-  width: 14px;
-  border-radius: 50%;
-  background: var(--color-primary);
-  cursor: pointer;
-  border: none;
-}
-
 @supports (zoom: 1) {
-  .play-page-root .play-header-inner,
-  .play-page-root .play-message-stack {
-    zoom: var(--play-ui-scale);
+  .play-page-root .play-header-inner {
+    zoom: var(--play-header-scale, 1);
   }
 
   /* Replay controls are application chrome, not card content. Keeping this
@@ -1864,6 +1885,18 @@ html:lang(zh) .hub-hero--world .hub-hero-subtitle {
 .play-custom-component-shell {
   width: 100%;
   overflow: hidden;
+}
+
+/* The player's font size for a card-drawn message bubble. Its text is mostly
+   px, which the scaled root font-size never reaches, so zoom the bubble; the
+   font-size line undoes the root scale it inherits so text that simply
+   inherits isn't scaled twice. --yumina-font-scale is set only inside the
+   play sandbox (sandbox/font-scale.ts) and only when it isn't 1. */
+@supports (zoom: 1) {
+  .play-custom-component-shell {
+    zoom: var(--yumina-font-scale, 1);
+    font-size: calc(100% / var(--yumina-font-scale, 1));
+  }
 }
 
 .play-custom-component-scale {
@@ -2120,45 +2153,6 @@ html:lang(zh) .hub-hero--world .hub-hero-subtitle {
   width: 4rem;
 }
 
-.play-zoom-slider::-webkit-slider-runnable-track {
-  height: 0.5rem;
-  border-radius: 9999px;
-  background: transparent;
-}
-
-.play-zoom-slider::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 0.9rem;
-  height: 0.9rem;
-  margin-top: -0.2rem;
-  border-radius: 9999px;
-  border: 2px solid rgba(12, 11, 13, 0.9);
-  background: var(--color-primary);
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.12);
-}
-
-.play-zoom-slider::-moz-range-track {
-  height: 0.5rem;
-  border-radius: 9999px;
-  background: rgba(255, 255, 255, 0.12);
-}
-
-.play-zoom-slider::-moz-range-progress {
-  height: 0.5rem;
-  border-radius: 9999px;
-  background: var(--color-primary);
-}
-
-.play-zoom-slider::-moz-range-thumb {
-  width: 0.9rem;
-  height: 0.9rem;
-  border: 2px solid rgba(12, 11, 13, 0.9);
-  border-radius: 9999px;
-  background: var(--color-primary);
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.12);
-}
-
 .library-page-shell {
   padding: 0 var(--library-page-gutter) var(--library-page-gutter);
 }
@@ -2329,7 +2323,8 @@ html.dm-mobile-selection-locked body * {
     html[data-mobile-viewport]:not([data-mobile-page-scroll]) body,
     html[data-mobile-viewport]:not([data-mobile-page-scroll]) #root,
     .app-shell-root,
-    .app-shell-content {
+    .app-shell-content,
+    .app-shell-main-editor {
       overflow: clip;
     }
   }
@@ -3161,11 +3156,11 @@ html.dm-mobile-selection-locked body * {
   .library-detail-hero-media {
     position: relative !important;
     inset: auto !important;
-    height: 10rem;
+    height: auto;
+    aspect-ratio: 16 / 9;
     margin: 0 0.25rem;
     overflow: hidden;
     border-radius: 1rem;
-    border: 1px solid rgba(255, 255, 255, 0.08);
     box-shadow: 0 12px 30px rgba(0, 0, 0, 0.24);
   }
 
@@ -3180,7 +3175,7 @@ html.dm-mobile-selection-locked body * {
     right: auto;
     bottom: auto;
     z-index: 1;
-    margin-top: -1.4rem;
+    margin-top: 1rem;
     padding: 0 0.25rem 0;
   }
 
@@ -3726,7 +3721,7 @@ html.dm-mobile-selection-locked body * {
   }
 
   .play-header-inner {
-    width: calc(100% / max(var(--play-ui-scale), 1));
+    width: 100%;
     max-width: 100%;
     min-height: auto;
   }
@@ -3787,7 +3782,7 @@ html.dm-mobile-selection-locked body * {
   }
 
   .play-message-stack {
-    width: calc(100% / max(var(--play-ui-scale), 1));
+    width: 100%;
     max-width: 100%;
   }
 
@@ -3855,7 +3850,6 @@ html.dm-mobile-selection-locked body * {
     min-width: var(--mobile-touch-target);
   }
 
-  .play-zoom-trigger,
   .play-choice-dismiss {
     min-height: var(--mobile-touch-target);
     min-width: var(--mobile-touch-target);
@@ -4054,6 +4048,9 @@ iframe[title="Yumina Sandbox"] {
   .app-shell-root[data-play-page="true"],
   html[data-mobile-viewport][data-mobile-message-canvas]:not([data-mobile-page-scroll]) .app-shell-root {
     position: absolute;
+    /* Absolute canvases follow the visual viewport's document coordinate.
+       offsetTop alone omits native focus scrolling and exposes a black band. */
+    top: var(--mobile-viewport-page-top, 0px);
   }
 
   /* Tighten the gap below the iPhone status row without moving the canvas.
@@ -4160,15 +4157,12 @@ iframe[title="Yumina Sandbox"] {
 
 .library-detail-actions-dropdown {
   border-color: rgba(255, 255, 255, 0.12);
-  background:
-    radial-gradient(115% 90% at 0% 0%, rgba(201, 162, 94, 0.08), transparent 52%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.018)),
-    rgba(34, 28, 32, 0.94);
+  background: var(--clear-tint-floating-background);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.06),
     0 20px 48px rgba(0, 0, 0, 0.34);
-  -webkit-backdrop-filter: blur(18px) saturate(128%);
-  backdrop-filter: blur(18px) saturate(128%);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 /* ═══ Glass morphism ═══ */
@@ -4185,57 +4179,32 @@ iframe[title="Yumina Sandbox"] {
   position: relative;
   overflow: hidden;
   isolation: isolate;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.012)),
-    rgba(12, 13, 16, 0.055);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.05),
-    0 16px 38px rgba(4, 6, 10, 0.08);
-  -webkit-backdrop-filter: blur(18px) saturate(128%);
-  backdrop-filter: blur(18px) saturate(128%);
+  background: var(--clear-tint-background);
+  border: 1px solid var(--clear-tint-border);
+  box-shadow: var(--clear-tint-shadow);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
-/* Soft — lighter for sidebars, secondary areas */
-.clouded-glass-panel--soft {
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0.008)),
-    rgba(12, 13, 16, 0.035);
-  border-color: rgba(255, 255, 255, 0.06);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.035),
-    0 12px 28px rgba(4, 6, 10, 0.06);
-}
-
-/* Strong — more opaque for main content panels */
-.clouded-glass-panel--strong {
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.022)),
-    rgba(12, 13, 16, 0.14);
-  border-color: rgba(255, 255, 255, 0.11);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.07),
-    0 20px 44px rgba(4, 6, 10, 0.12);
+/* Variants share one tint; inset surfaces must not stack dark layers. */
+.clouded-glass-inset,
+.library-detail-section-surface--inset,
+.library-overview-surface--inset {
+  background: rgba(255, 255, 255, 0.02);
 }
 
 /* ═══ Profile announcement wall — banner for the pinned/latest post ═══
-   Restraint over wash: dark glass base (text stays high-contrast) with only a
-   whisper of gold in the top-left corner and a hairline gold border. */
+   Uses the same flat Creator Hub material as the profile cards. */
 .wall-banner {
   position: relative;
   overflow: hidden;
   isolation: isolate;
-  border: 1px solid rgba(201, 162, 94, 0.22);
+  border: 1px solid var(--clear-tint-border);
   border-radius: 1rem;
-  background:
-    radial-gradient(120% 90% at 0% 0%, rgba(201, 162, 94, 0.07), transparent 55%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.015)),
-    rgba(12, 13, 16, 0.14);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    0 14px 34px rgba(4, 6, 10, 0.12);
-  -webkit-backdrop-filter: blur(18px) saturate(128%);
-  backdrop-filter: blur(18px) saturate(128%);
+  background: var(--clear-tint-background);
+  box-shadow: var(--clear-tint-shadow);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 /* ═══ Community — clean white panels ═══ */
@@ -4313,6 +4282,13 @@ iframe[title="Yumina Sandbox"] {
   border-left: 3px solid #C9A25E;
 }
 
+/* Artwork already fills this surface. Avoid a live backdrop-filter layer
+   beneath clipped, animated covers. */
+.library-game-card-cover {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
 .library-overview-surface--interactive {
   transition:
     transform 0.2s ease,
@@ -4324,12 +4300,8 @@ iframe[title="Yumina Sandbox"] {
 @media (hover: hover) {
   .library-overview-surface--interactive:hover {
     border-color: rgba(255, 255, 255, 0.12);
-    background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.018)),
-      rgba(12, 13, 16, 0.075);
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.055),
-      0 18px 42px rgba(4, 6, 10, 0.1);
+    background: rgba(255, 255, 255, 0.05);
+    box-shadow: none;
   }
 }
 
@@ -4368,16 +4340,12 @@ iframe[title="Yumina Sandbox"] {
 
 .library-overview-action-button,
 .library-asset-overlay-button {
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.05)),
-    rgba(14, 16, 22, 0.28);
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.12),
-    0 18px 34px rgba(3, 5, 10, 0.2);
+  background: var(--clear-tint-background);
+  border: 1px solid var(--clear-tint-border);
+  box-shadow: var(--clear-tint-shadow);
   color: rgba(255, 255, 255, 1);
-  backdrop-filter: blur(18px) saturate(128%);
-  -webkit-backdrop-filter: blur(18px) saturate(128%);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .library-overview-action-button:hover,
@@ -4435,67 +4403,36 @@ iframe[title="Yumina Sandbox"] {
     0 16px 38px rgba(4, 6, 10, 0.08);
 }
 
-/* ═══ Hub card hover ═══ */
+/* Shared profile panels use the flat Creator Hub material. */
 .profile-window-glass {
-  --profile-glass-background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.012)),
-    rgba(12, 13, 16, 0.055);
+  --profile-glass-background: var(--clear-tint-background);
+  --profile-glass-shadow: var(--clear-tint-shadow);
   background: var(--profile-glass-background);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  --profile-glass-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.05),
-    0 16px 38px rgba(4, 6, 10, 0.08);
+  border: 1px solid var(--clear-tint-border);
   box-shadow: var(--profile-glass-shadow);
-  backdrop-filter: blur(18px) saturate(128%);
-  -webkit-backdrop-filter: blur(18px) saturate(128%);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
-/* Editing surfaces need more separation from bright profile banners. */
+/* Floating editing surfaces need separation from content behind the dialog. */
 .profile-window-glass--dialog {
-  --profile-glass-background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.012)),
-    rgba(18, 19, 24, 0.40);
-  backdrop-filter: blur(56px) saturate(115%);
-  -webkit-backdrop-filter: blur(56px) saturate(115%);
-}
-
-.profile-window-glass--soft {
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.012)),
-    rgba(12, 13, 16, 0.055);
-  border-color: rgba(255, 255, 255, 0.08);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.05),
-    0 16px 38px rgba(4, 6, 10, 0.08);
-  backdrop-filter: blur(18px) saturate(128%);
-  -webkit-backdrop-filter: blur(18px) saturate(128%);
+  --profile-glass-background: var(--clear-tint-floating-background);
 }
 
 .profile-overview-glass {
   position: relative;
   overflow: hidden;
   isolation: isolate;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.012)),
-    rgba(12, 13, 16, 0.055);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.05),
-    0 16px 38px rgba(4, 6, 10, 0.08);
-  backdrop-filter: blur(18px) saturate(128%);
-  -webkit-backdrop-filter: blur(18px) saturate(128%);
 }
 
+.profile-window-glass--soft,
+.profile-overview-glass,
 .profile-overview-glass--soft {
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.012)),
-    rgba(12, 13, 16, 0.055);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.05),
-    0 16px 38px rgba(4, 6, 10, 0.08);
-  backdrop-filter: blur(18px) saturate(128%);
-  -webkit-backdrop-filter: blur(18px) saturate(128%);
+  background: var(--clear-tint-background);
+  border: 1px solid var(--clear-tint-border);
+  box-shadow: var(--clear-tint-shadow);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .profile-overview-glass input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not(.sr-only),
@@ -4507,25 +4444,21 @@ iframe[title="Yumina Sandbox"] {
 .profile-overview-glass button[aria-haspopup="menu"],
 .profile-overview-glass--soft button[aria-haspopup="menu"],
 .profile-overview-control-surface,
-.profile-overview-input-surface,
-.profile-overview-dropdown-surface {
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.012)),
-    rgba(12, 13, 16, 0.055) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.05),
-    0 16px 38px rgba(4, 6, 10, 0.08) !important;
-  -webkit-backdrop-filter: blur(18px) saturate(128%);
-  backdrop-filter: blur(18px) saturate(128%);
+.profile-overview-input-surface {
+  background: var(--recessed-field-background, var(--light-recessed-background)) !important;
+  box-shadow: var(--recessed-field-shadow, var(--light-recessed-shadow)) !important;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
-@media (hover: hover) {
-  .profile-overview-control-surface:hover,
-  .profile-overview-input-surface:hover {
-    background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.016)),
-      rgba(12, 13, 16, 0.065) !important;
-  }
+/* Portaled menus are outside the page root. Keep text behind them from
+   showing through, using the same neutral palette without live blur. */
+.profile-overview-dropdown-surface {
+  background: var(--clear-tint-floating-background) !important;
+  border-color: var(--clear-tint-border);
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1) !important;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 .hub-card-glow {
@@ -4886,6 +4819,15 @@ html[data-mobile-page-scroll="dm-page-conversation-list"] :is(.dm-page-frame, .d
   border-color: transparent;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
+}
+
+/* The phone's inbox has no pane of its own (above), so it gets the desktop
+   page's grey-black the only way that reaches the bottom edge: as the veil of
+   the document canvas. Names, previews and times then read over the wallpaper
+   as they do on the page. !important because the wallpaper's own veil is set
+   inline on <html>. */
+html[data-mobile-page-scroll="dm-page-conversation-list"] {
+  --reading-canvas-veil: linear-gradient(rgba(17, 17, 22, 0.88), rgba(17, 17, 22, 0.88)) !important;
 }
 
 html[data-mobile-page-scroll="create-picker"] .create-mobile-grid {
@@ -5473,3 +5415,223 @@ html[data-mobile-page-scroll] .topbar-shell:not(.topbar-shell--profile)[data-pre
   -webkit-text-fill-color: var(--composer-guard-placeholder) !important;
   opacity: 0.75 !important;
 }
+
+/* Library games: quick filters beside the shelf title. */
+.library-filter-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-left: 10px; }
+.library-filter-chip { min-height: 30px; padding: 0 13px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.1); background: rgba(255, 255, 255, 0.03); color: var(--color-muted-foreground); font-size: 13px; font-weight: 600; transition: color .15s ease, border-color .15s ease, background-color .15s ease; }
+.library-filter-chip:hover { color: var(--color-foreground); border-color: rgba(255, 255, 255, 0.22); }
+.library-filter-chip[aria-pressed="true"] { color: var(--color-primary); border-color: color-mix(in srgb, var(--color-primary) 50%, transparent); background: color-mix(in srgb, var(--color-primary) 12%, transparent); }
+.library-filter-chip:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.library-collections-picker { margin-left: 0; }
+.library-collection-tag { display: inline-flex; align-items: center; color: var(--color-foreground); cursor: default; }
+.library-collection-tag:hover { border-color: rgba(255, 255, 255, 0.1); }
+.library-collection-chip { display: inline-flex; align-items: center; }
+.library-collection-chip[data-active] .library-filter-chip { border-top-right-radius: 0; border-bottom-right-radius: 0; padding-right: 9px; }
+.library-collection-chip-more { min-height: 30px; padding: 0 8px; border-radius: 0 999px 999px 0; border: 1px solid color-mix(in srgb, var(--color-primary) 50%, transparent); border-left: 0; background: color-mix(in srgb, var(--color-primary) 12%, transparent); color: var(--color-primary); display: inline-flex; align-items: center; }
+.library-collection-chip-more:hover { background: color-mix(in srgb, var(--color-primary) 20%, transparent); }
+.library-filter-chip--icon { display: inline-flex; align-items: center; justify-content: center; padding: 0 9px; }
+.library-collection-picker { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 12px; }
+.library-collection-pick { min-width: 0; }
+.library-collection-pick:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.library-collection-pick__tick { position: absolute; right: 6px; top: 6px; z-index: 1; display: flex; width: 22px; height: 22px; align-items: center; justify-content: center; border-radius: 999px; background: var(--color-primary); color: var(--color-primary-foreground); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35); opacity: 0; transform: scale(.6); transition: opacity .15s ease, transform .15s ease; }
+.library-collection-pick.is-on .library-collection-pick__tick { opacity: 1; transform: scale(1); }
+@media (hover: hover) {
+  .library-collection-pick:not(.is-on):hover .library-collection-pick__tick { opacity: 1; transform: scale(1); background: rgba(0, 0, 0, 0.4); color: transparent; box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.75); }
+}
+.library-collection-search::-webkit-search-cancel-button { display: none; }
+.library-collection-editor__stack { display: flex; flex-shrink: 0; }
+.library-collection-editor__stack > span { display: block; width: 24px; height: 32px; overflow: hidden; border-radius: 5px; background: rgba(255, 255, 255, 0.08); box-shadow: 0 0 0 2px var(--color-card); }
+.library-collection-editor__stack > span + span { margin-left: -9px; }
+@media (max-width: 767px) {
+  .library-filter-chips { margin-left: 0; width: 100%; }
+  .library-filter-chip { min-height: 36px; }
+  .library-collections-picker { width: auto; }
+  .library-collection-chip-more { min-height: 36px; }
+  .library-collection-picker { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+}
+
+/* ── Community feed: author first, readable type, actions you can hit ── */
+.community-feed-card { padding: 1.1rem 1.25rem 0.95rem; border-radius: 14px; }
+.community-feed-card--official { border-left: 3px solid #c9a25e; }
+.community-feed-card__head { display: flex; align-items: center; gap: 0.7rem; }
+.community-feed-card__avatar {
+  display: flex;
+  width: 2.5rem;
+  height: 2.5rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  color: #fff;
+  font-size: 0.875rem;
+  font-weight: 700;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.06);
+}
+.community-feed-card--official .community-feed-card__avatar { box-shadow: 0 0 0 2px #fff, 0 0 0 3.5px #c9a25e; }
+.community-feed-card__author {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #2a2620;
+  font-size: 14.5px;
+  font-weight: 700;
+}
+.community-feed-card__author:hover { color: #9a7b3e; text-decoration: underline; }
+.community-feed-card__time { display: block; margin-top: 1px; color: #8a8275; font-size: 12.5px; }
+.community-feed-card__tags { display: flex; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; gap: 0.35rem; max-width: 45%; }
+.community-feed-card__title {
+  display: -webkit-box;
+  margin-top: 0.8rem;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: #17140f;
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1.35;
+  transition: color 150ms ease;
+}
+.community-feed-card:hover .community-feed-card__title { color: #7a5c20; }
+.community-feed-card__preview {
+  display: -webkit-box;
+  margin-top: 0.35rem;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: #4d463b;
+  font-size: 15px;
+  line-height: 1.65;
+}
+.community-feed-card__actions { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.85rem; }
+
+.community-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.55rem;
+  border-radius: 9999px;
+  background: #f6f3ee;
+  color: #8a8275;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.community-tag svg { width: 12px; height: 12px; }
+.community-tag--pin { color: #9a7b3e; background: #faf3e3; }
+.community-tag--featured { color: #b7791f; background: #fdf3df; }
+.community-tag--reward { color: #059669; background: #e9f8f1; }
+
+.community-verified {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.2rem;
+  color: #a8812f;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+.community-verified svg { width: 15px; height: 15px; }
+.community-verified--dark { color: #e3c47e; }
+
+.community-action {
+  display: inline-flex;
+  min-height: 2.25rem;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0 0.95rem;
+  border: 1px solid #ebe5da;
+  border-radius: 9999px;
+  background: #fff;
+  color: #5f584c;
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  transition: color 150ms ease, border-color 150ms ease, background-color 150ms ease;
+}
+.community-action svg { width: 18px; height: 18px; }
+.community-action__word { font-weight: 600; }
+.community-action--like:hover { border-color: #f2c2ca; background: #fff5f6; color: #d9415a; }
+.community-action--like:active { transform: scale(0.96); }
+.community-action--liked { border-color: #f2c2ca; background: #fff1f3; color: #d9415a; }
+.community-action--liked svg { fill: currentColor; }
+.community-action--like:focus-visible { outline: 2px solid #d9415a; outline-offset: 2px; }
+.community-feed-card:hover .community-action--reply { border-color: #e6d6b3; background: #fdf8ee; color: #8a6a2c; }
+
+/* Official feature cards share the feed width and stack on smaller screens. */
+.community-announcements { display: grid; gap: 1rem; margin-bottom: 1rem; }
+@media (min-width: 1024px) {
+  .community-announcements { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+.community-action--static { color: #8a8275; }
+.community-action--sm { min-height: 2rem; padding: 0 0.8rem; font-size: 13px; }
+.community-action--sm svg { width: 16px; height: 16px; }
+.community-action--reply-btn:hover,
+.community-action--bookmark:hover { border-color: #e6d6b3; background: #fdf8ee; color: #8a6a2c; }
+.community-action--bookmarked { border-color: #e6d6b3; background: #fdf8ee; color: #8a6a2c; }
+.community-action--bookmarked svg { fill: currentColor; }
+.community-action--reply-btn:focus-visible,
+.community-action--bookmark:focus-visible { outline: 2px solid #c9a25e; outline-offset: 2px; }
+
+/* Profile: the same underline tabs as the library. */
+.profile-tabs { gap: 2rem; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
+.profile-tabs .library-tab-button { margin-bottom: -1px; }
+@media (max-width: 640px) {
+  .community-feed-card { padding: 0.95rem 1rem 0.85rem; }
+  .community-feed-card__head { flex-wrap: wrap; row-gap: 0.4rem; }
+  .community-feed-card__tags { width: 100%; max-width: none; justify-content: flex-start; padding-left: 3.2rem; }
+  .community-feed-card__title { font-size: 17px; }
+}
+
+/* Slimmer feed: one line of who/when, one line of preview, shorter buttons. */
+.community-feed-card { padding: 0.85rem 1.25rem 0.75rem; }
+.community-feed-card__avatar { width: 2.125rem; height: 2.125rem; font-size: 0.8125rem; }
+.community-feed-card__time { display: inline; margin: 0 0 0 0.35rem; white-space: nowrap; }
+.community-feed-card__title { margin-top: 0.5rem; font-size: 17px; -webkit-line-clamp: 1; }
+.community-feed-card__preview { margin-top: 0.2rem; font-size: 14.5px; line-height: 1.6; -webkit-line-clamp: 1; }
+.community-feed-card__actions { margin-top: 0.6rem; }
+.community-feed-card .community-action { min-height: 2rem; padding: 0 0.8rem; font-size: 13.5px; }
+.community-feed-card .community-action svg { width: 16px; height: 16px; }
+.community-feed-card__time { flex-shrink: 0; }
+.community-feed-card__sub { display: none; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.4rem; margin-top: 0.1rem; }
+.community-feed-card__sub .community-feed-card__time { margin: 0; }
+.community-feed-card__sub .community-tag { padding: 0.05rem 0.45rem; font-size: 11.5px; }
+@media (max-width: 640px) {
+  .community-feed-card { padding: 0.8rem 1rem 0.7rem; }
+  .community-feed-card__tags { padding-left: 2.8rem; }
+  /* A phone line holds ~18 characters: let the title take two lines so it reads. */
+  .community-feed-card__title { -webkit-line-clamp: 2; }
+  /* Thumbs need room on touch screens. */
+  .community-feed-card .community-action { min-height: 2.25rem; }
+  .community-feed-card__head { flex-wrap: nowrap; align-items: flex-start; }
+  .community-feed-card__time--wide,
+  .community-feed-card__tags--wide { display: none; }
+  .community-feed-card__sub { display: flex; }
+}
+
+/* Quieter supporting text: titles keep their size, everything around them steps down. */
+.community-feed-card__author { font-size: 13.5px; }
+.community-feed-card__time { font-size: 12px; }
+.community-feed-card .community-tag { padding: 0.1rem 0.5rem; font-size: 11.5px; }
+.community-feed-card .community-tag svg { width: 11px; height: 11px; }
+.community-feed-card .community-verified { font-size: 12px; }
+.community-feed-card .community-verified svg { width: 14px; height: 14px; }
+.community-feed-card__preview { font-size: 13.5px; color: #6b6356; }
+.community-feed-card .community-action { min-height: 1.875rem; padding: 0 0.7rem; gap: 0.35rem; font-size: 12.5px; font-weight: 600; }
+.community-feed-card .community-action svg { width: 15px; height: 15px; }
+@media (max-width: 640px) {
+  .community-feed-card .community-action { min-height: 2.125rem; }
+}
+
+/* The generation page has no search: on a phone its empty search region would
+   still take a second row under the account controls (a blank dark band). */
+@media (max-width: 767px) {
+  .topbar-shell--generate .topbar-search-region:empty { display: none; }
+}
+
+/* The generation page is its own header at every width: on a phone the site's mark in that header opens the menu. */
+.topbar-shell--generate { display: none; }
+
+/* Where the messages side panel starts: just under the top bar, level with the page content. */
+:root { --dm-panel-top: calc(var(--topbar-height) + 0.65rem); }

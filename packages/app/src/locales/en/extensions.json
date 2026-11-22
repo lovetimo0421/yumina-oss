@@ -85,8 +85,8 @@
     },
     "session-memory-summary": {
       "name": "Session Memory & Story Summary (Beta)",
-      "shortDescription": "Summarizes older scenes and keeps notes on key facts. Beta.",
-      "longDescription": "Summarizes older scenes and records key facts such as relationships, items, and promises. The recap and notes are sent to the AI with each reply, so you can keep less of the original conversation in story memory.\n\nUpdating the notes usually costs less than 1 mushie. You can switch to the free model in the Memory panel.\n\nRead and edit the notes in the Memory panel above the chat box. Beta: notes can contain mistakes.",
+      "shortDescription": "The AI keeps its own list of key facts, and you can read and edit every recap chapter. Beta.",
+      "longDescription": "The recap and pinned notes are now there for everyone, no extension needed. This adds two things:\n\nThe AI keeps its own list of key facts (relationships, items, promises, goals), sent with every reply.\nYou can read and edit every chapter of the recap.\n\nWriting the notes costs a little, usually well under 1 mushie per update, and one tap switches it to the free model. Beta: it occasionally gets a detail wrong, and you can fix it.\n\nOpen it from Memory in the chat box's + menu.",
       "tags": {
         "memory": "memory",
         "context": "context",
@@ -95,12 +95,12 @@
       },
       "explanations": [
         {
-          "title": "Works with your story memory",
-          "body": "Set story memory to about 16,000 in AI settings. This carries everything older, so a small window stays cheap and sharp without losing the plot."
+          "title": "The AI keeps key facts",
+          "body": "Relationships, items, promises and goals, kept as a list and sent with every reply."
         },
         {
           "title": "You can read and change it",
-          "body": "Open the Memory panel above the chat box. Edit the notes, pin facts that must never drift, clear and regenerate, or switch the model it uses."
+          "body": "Under Memory in the + menu: edit the notes, read and edit each recap chapter."
         },
         {
           "title": "Uninstalling keeps your notes",

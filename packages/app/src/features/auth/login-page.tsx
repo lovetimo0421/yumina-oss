@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useLayoutEffect } from "react";
 import { Link, useRouter } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
-import { signIn, signOut, useSession } from "@/lib/auth-client";
+import { clearSessionCache, signIn, signOut, useSession } from "@/lib/auth-client";
 import { markLoginComplete } from "@/lib/auth-guard";
 import { getAuthErrorKey } from "@/lib/auth-errors";
 import { isCardReturnTo, isGameReturnTo, markAuthReturn, readSafeAuthReturnTo } from "@/lib/auth-return";
@@ -56,6 +56,9 @@ export function LoginPage() {
   // beforeLoad guard, which blocked every /login navigation on a session fetch.
   useLayoutEffect(() => {
     if (session) {
+      // The guard that sent us here may still hold a cached "signed out";
+      // without this the destination bounces straight back to /login.
+      clearSessionCache();
       // An outside AI's sign-in (OAuth) sent an already signed-in creator
       // here: pick the authorization back up instead of going to the hub.
       const resume = oauthAuthorizeResumeUrl(window.location.search);

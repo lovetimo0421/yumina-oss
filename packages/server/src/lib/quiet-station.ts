@@ -24,7 +24,8 @@ import { messages, playSessions } from "../db/schema.js";
 import { normalizeGameState } from "./game-state.js";
 import type { ChatMessage } from "./llm/types.js";
 import { applyModelRedirect } from "./llm/model-redirects.js";
-import { DEFAULT_STORY_SUMMARY_MODEL, generateStorySummaryText } from "./session-compaction.js";
+import { generateStorySummaryText } from "./session-compaction.js";
+import { worldAiModel } from "./role-model.js";
 import { thinSnapshotForStorage } from "./snapshot.js";
 import { SESSION_NOT_FOUND, withSessionRowLock } from "./session-lock.js";
 import { liveSceneMessage, takeStoryEvents, type LiveScene } from "./live-scene.js";
@@ -238,7 +239,7 @@ export async function runQuietTick(args: { sessionId: string; userId: string; wo
 
   const { speaker } = due;
   const station = resolveStation(speaker.book);
-  const model = applyModelRedirect((station?.model || session.summaryModel || DEFAULT_STORY_SUMMARY_MODEL).trim());
+  const model = applyModelRedirect(await worldAiModel(userId, station?.model, session.summaryModel));
   const history = tail
     .filter((m) => m.status !== "failed" && (m.role === "user" || m.role === "assistant"))
     .reverse();

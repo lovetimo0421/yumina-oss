@@ -2,6 +2,9 @@ import type { TFunction } from "i18next";
 import enSettings from "../../locales/en/settings.json";
 import esSettings from "../../locales/es/settings.json";
 import jaSettings from "../../locales/ja/settings.json";
+import idSettings from "../../locales/id/settings.json";
+import koSettings from "../../locales/ko/settings.json";
+import ruSettings from "../../locales/ru/settings.json";
 import zhSettings from "../../locales/zh/settings.json";
 import zhHantSettings from "../../locales/zh-Hant/settings.json";
 import {
@@ -57,6 +60,9 @@ const SETTINGS_TRANSLATION_RESOURCES = {
   "zh-Hant": zhHantSettings,
   es: esSettings,
   ja: jaSettings,
+  ko: koSettings,
+  id: idSettings,
+  ru: ruSettings,
 } satisfies Record<SupportedLanguage, TranslationResource>;
 
 export const SETTINGS_SEARCH_TRANSLATORS = SUPPORTED_LANGUAGES.map(

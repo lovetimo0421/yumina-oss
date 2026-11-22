@@ -1,4 +1,5 @@
 // Shared plan tier theme, icons, and helpers used by credit-indicator + AI provider tab
+import { useHalloweenDecor } from "./halloween-decor";
 
 export type PlanId = "free" | "go" | "plus" | "pro" | "ultra" | "internal";
 
@@ -22,6 +23,19 @@ export const PLAN_THEME: Record<PlanId, {
 };
 
 export function MushroomIcon({ className }: { className?: string }) {
+  // Halloween: the cap turns pumpkin and grows a glowing jack-o'-lantern face.
+  const halloween = useHalloweenDecor();
+  if (halloween) {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" className={className} xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 3C7.5 3 4 6.5 4 10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2 0-3.5-3.5-7-8-7z" fill="#F08A24" />
+        <path d="M8.2 4.9C7 6 6.2 7.6 6 9.4" stroke="#FFB15C" strokeWidth="0.9" strokeLinecap="round" opacity="0.6" />
+        <path d="M8 8.6l1.5-2 1.4 2zM13.1 8.6l1.4-2 1.5 2z" fill="#FFE08A" />
+        <path d="M8.6 9.7c1.4 1.4 5.4 1.4 6.8 0l-.9.4-.7-.4-.8.5-.8-.5-.8.5-.8-.5-.7.4z" fill="#FFE08A" />
+        <path d="M10 12h4v6c0 1.1-.9 2-2 2s-2-.9-2-2v-6z" fill="currentColor" opacity="0.4" />
+      </svg>
+    );
+  }
   return (
     <svg viewBox="0 0 24 24" fill="none" className={className} xmlns="http://www.w3.org/2000/svg">
       {/* Cap */}

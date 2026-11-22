@@ -152,7 +152,11 @@ export const useFolderBindingStore = create<FolderBindingState>((set, get) => ({
         { method: "DELETE", credentials: "include" },
       );
       if (!res.ok) {
-        unbindFailed(worldId, folderId);
+        // On a shared card only the creator or the folder's owner may unbind
+        // it: no Retry for that, just why.
+        const code = res.status === 403 ? ((await res.json().catch(() => ({}))) as { code?: string }).code : undefined;
+        if (code === "NOT_FOLDER_OWNER") feedback.error(tr("editor:collab.notYourFolder", "Only the card's author or the folder's owner can unbind it"));
+        else unbindFailed(worldId, folderId);
         // Re-sync from the server to undo the optimistic removal.
         refreshFolderBadges();
         if (stillActive()) await get().fetch(worldId);

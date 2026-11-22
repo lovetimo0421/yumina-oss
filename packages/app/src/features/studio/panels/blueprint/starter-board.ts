@@ -87,11 +87,13 @@ export function withStarterSlots(
     // Scene images the same: the slot is where the upload and the generate
     // button live, so it has to be there before the first picture is.
     slot("image", blockId.image());
-    // An unused chat background is not offered here: it is a picture most
-    // cards never need, and it is in 面板 for the ones that do.
+    // An unused chat background is a "+" here too. It used to be left to
+    // 面板, but 面板 does not list it and the 加东西 entry is gone, so a card
+    // without one had no way on the board to get one (owner, 11/07).
     if (tray && !tray.hasBackground && !tray.revealed.has("background")) {
       const at = result.findIndex(b => b.kind === "background");
       if (at >= 0) result.splice(at, 1);
+      offered.push("background");
     }
     // The packs stay on offer once every slot is in use: the tray is the one
     // place on the board they are offered, and it vanishing with the last

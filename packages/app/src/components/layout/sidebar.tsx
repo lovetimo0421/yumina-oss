@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useLocation, useRouter } from "@tanstack/react-router";
+import { Link, useLocation, useRouter } from "@tanstack/react-router";
 import { Compass, UserCircle, Plus, Library, ChevronRight, X, Clock3, Shield, LayoutList, MessageSquare, Download, RotateCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SidebarNavItem } from "./sidebar-nav-item";
@@ -15,6 +15,8 @@ import { floorMushies } from "@/lib/format-mushies";
 import { useLibrarySearchStore } from "@/stores/library-search";
 import { isIOS } from "@/hooks/use-touch-device";
 import { feedback } from "@/lib/feedback";
+import { isDiscoverAddress } from "@/lib/discover-genre";
+import { LogoWitchHat, SidebarPumpkinPatch } from "@/components/halloween-decor";
 import { useTranslation } from "react-i18next";
 
 interface BeforeInstallPromptEvent extends Event {
@@ -281,10 +283,19 @@ export function Sidebar() {
       <div className="desktop-sidebar-rail">
         <aside className="sidebar-shell">
           <div className="sidebar-logo-wrap">
-            <div className="group flex flex-col items-center">
-              <div className="sidebar-logo-mark" aria-label="Yumina">
+            {/* The mark brightens on hover like a link, so it is one: home (Discover),
+                or the library where the edition has no hub. */}
+            <Link
+              to={features.hub ? HOSTED_ROUTES.hub : "/app/library"}
+              preload="intent"
+              className="sidebar-logo-link group flex flex-col items-center"
+              aria-label={features.hub ? t("nav.discover") : t("nav.library")}
+              onClick={() => { if (!features.hub) requestLibraryDefaultView(); }}
+            >
+              <div className="sidebar-logo-mark">
                 <span className="sidebar-logo-mark__glow" aria-hidden />
-                <img src="/logo.png" alt="Yumina" />
+                <img src="/logo.png" alt="" />
+                <LogoWitchHat />
               </div>
               <span
                 aria-hidden="true"
@@ -292,7 +303,7 @@ export function Sidebar() {
               >
                 yumina
               </span>
-            </div>
+            </Link>
           </div>
 
           <nav className="sidebar-nav" aria-label={t("mobile.browse")}>
@@ -300,12 +311,15 @@ export function Sidebar() {
               to="/app/worlds/create"
               label={t("nav.create")}
               icon={Plus}
-              isActive={location.pathname.startsWith("/app/worlds/create")}
+              // The AI generation page is reached from 创建 and lives under it.
+              isActive={location.pathname.startsWith("/app/worlds/create") || location.pathname.startsWith("/app/generate")}
             />
 
             {visibleNavItems.map((item) => {
-              const isActive = location.pathname === item.to ||
-                (item.to !== "/" && location.pathname.startsWith(`${item.to}/`));
+              // Discover lives at "/", and at the genre and tag addresses.
+              const isActive = item.to === "/"
+                ? isDiscoverAddress(location.pathname)
+                : location.pathname === item.to || location.pathname.startsWith(`${item.to}/`);
 
               if (!isAuthenticated && item.gate === "profile") {
                 return (
@@ -351,6 +365,7 @@ export function Sidebar() {
               />
             )}
           </nav>
+          <SidebarPumpkinPatch />
         </aside>
       </div>
 
@@ -455,7 +470,7 @@ export function Sidebar() {
                 onClick={() => router.navigate({ to: HOSTED_ROUTES.hub })}
                 className={cn(
                   "mobile-nav-drawer__item",
-                  (location.pathname === "/" || location.pathname.startsWith("/app/hub")) && "mobile-nav-drawer__item--active"
+                  isDiscoverAddress(location.pathname) && "mobile-nav-drawer__item--active"
                 )}
               >
                 <span className="mobile-nav-drawer__item-icon">

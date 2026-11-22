@@ -1,0 +1,244 @@
+{
+  "name": "제한 해제",
+  "switchLabel": "제한 해제 켜기/끄기",
+  "loading": "불러오는 중…",
+  "cancel": "취소",
+  "tokensApprox": "약 {{n}} 토큰",
+  "status": {
+    "off": "꺼짐",
+    "on": "켜짐 · {{variant}} · 강도 {{strength}}",
+    "autoVariant": "자동 ({{variant}})"
+  },
+  "variants": {
+    "gemini": "Gemini 버전",
+    "claude": "Claude 버전",
+    "deepseek": "DeepSeek 버전",
+    "general": "범용 버전"
+  },
+  "strength": {
+    "title": "강도",
+    "light": "약",
+    "standard": "표준",
+    "strong": "강",
+    "hint": {
+      "light": "이야기 틀만 잡아 줘서 문체에 가장 영향을 적게 줘요.",
+      "standard": "기본 틀에 자주 쓰는 지침을 더했어요. 대부분의 경우 충분해요.",
+      "strong": "답장 전에 스스로 점검하는 안내를 추가해요. 토큰이 조금 더 들어요."
+    }
+  },
+  "card": {
+    "adjust": "조정"
+  },
+  "age": {
+    "title": "먼저 나이를 확인해 주세요",
+    "body": "출생 연도를 확인하면 켤 수 있어요.",
+    "placeholder": "출생 연도 (예: 1998)",
+    "confirm": "확인",
+    "invalid": "네 자리 연도를 입력해 주세요.",
+    "under18": "제한 해제 프롬프트는 만 18세 이상만 사용할 수 있어요."
+  },
+  "errors": {
+    "notEligible": "이 계정은 지금 제한 해제 프롬프트를 사용할 수 없어요",
+    "saveFailed": "저장하지 못했어요. 다시 시도해 주세요",
+    "copyFailed": "복사본을 만들지 못했어요. 다시 시도해 주세요"
+  },
+  "prompts": {
+    "title": "프롬프트",
+    "newFolder": "새 폴더",
+    "mine": "내 프롬프트",
+    "mineCount": "· 총 {{total}}개, {{on}}개 켜짐",
+    "mineCountLong": "총 {{total}}개, {{on}}개 켜짐",
+    "new": "새로 만들기",
+    "none": "아직 프롬프트가 없어요.",
+    "hubRow": "프롬프트 광장에서 더 찾아보기",
+    "manageInSettings": "설정 › 프롬프트에서 관리",
+    "pos": "순서 {{n}}",
+    "section": {
+      "system": "시작",
+      "inChat": "대화 중",
+      "final": "마지막"
+    },
+    "sectionFull": {
+      "system": "시작",
+      "inChat": "대화 중",
+      "final": "마지막"
+    },
+    "compose": {
+      "title": "나만의 프롬프트 쓰기",
+      "explain": "여기에 적은 내용은 메시지를 보낼 때마다 모든 카드에서 AI에게 함께 전달돼요. 그만 쓰고 싶다면 프롬프트에서 꺼 주세요.",
+      "name": "이름",
+      "namePlaceholder": "이름 (선택)",
+      "content": "프롬프트",
+      "contentPlaceholder": "예: 답장할 때마다 주변 풍경과 소리를 조금 더 묘사해 줘.",
+      "save": "저장",
+      "saved": "저장했어요. 다음 메시지부터 적용돼요.",
+      "failed": "저장하지 못했어요. 다시 시도해 주세요.",
+      "more": "더 많은 설정"
+    },
+    "sectionHint": {
+      "system": "캐릭터 설정과 함께 AI가 가장 먼저 읽어요. 문체나 시점처럼 항상 적용할 규칙에 좋아요.",
+      "inChat": "채팅 기록 중간에 들어가요. 아래 숫자는 가장 최근 메시지부터 거꾸로 센 위치예요.",
+      "final": "AI가 답장하기 직전에 마지막으로 읽어서 영향이 가장 커요. 꼭 지켜야 할 규칙에 좋아요."
+    }
+  },
+  "conflict": {
+    "paused": "“{{name}}”과(와) 공식 프롬프트가 모두 켜져 있어서, 내 프롬프트를 잠시 일시중지했어요.",
+    "pausedLong": "내 “{{name}}”과(와) 공식 프리셋이 모두 켜져 있어서, 내 프롬프트를 자동으로 일시중지했어요.",
+    "undo": "실행 취소",
+    "restored": "“{{name}}”을(를) 다시 켰어요. 둘 다 적용되어 서로 충돌할 수 있어요.",
+    "repause": "다시 일시중지"
+  },
+  "chips": {
+    "officialCopy": "공식 복사본",
+    "fromHub": "광장에서 가져옴",
+    "paused": "일시중지됨"
+  },
+  "page": {
+    "breadcrumb": "경로",
+    "crumbSettings": "설정"
+  },
+  "gone": {
+    "title": "존재하지 않는 페이지예요",
+    "body": "이 계정에서는 열 수 없는 링크예요.",
+    "cta": "설정 › 프롬프트로 이동"
+  },
+  "master": {
+    "currentModel": "현재 모델",
+    "noModel": "선택 안 됨",
+    "autoUses": "“{{variant}}”을(를) 자동으로 사용해요",
+    "manualUses": "“{{variant}}”을(를) 사용해요 (직접 선택)",
+    "off": "꺼짐"
+  },
+  "variantsCard": {
+    "title": "공식 프리셋",
+    "auto": "자동",
+    "autoPicked": "자동 선택됨",
+    "verified": "마지막 확인 {{date}}"
+  },
+  "what": {
+    "title": "어떤 기능인가요",
+    "one": "기본적으로 다른 모든 프롬프트보다 앞에 놓이고, 메시지를 보낼 때마다 함께 전달돼요. 위치와 내용은 아래에서 바꿀 수 있어요.",
+    "two": "같은 종류의 내 프롬프트를 잠시 일시중지해서 서로 충돌하지 않게 해요. 이 기능을 끄면 다시 돌아와요."
+  },
+  "honest": "일부 콘텐츠는 모델 제공사에서 직접 차단해서 어떤 프롬프트로도 바꿀 수 없어요. 이럴 땐 모델을 바꾸는 게 더 도움이 돼요.",
+  "adjust": {
+    "title": "내 조정",
+    "autoPicked": "(자동 선택됨)",
+    "copyLocked": "복사본의 텍스트를 직접 수정하세요"
+  },
+  "join": {
+    "title": "추가 방식",
+    "follow": "공식 버전 따라가기",
+    "default": "기본",
+    "followHint": "공식 버전이 개선되면 자동으로 업데이트돼요. 아래 옵션도 그대로 적용돼요.",
+    "copy": "내 복사본 만들기",
+    "copyHint": "“내 프롬프트”에 저장되어 자유롭게 수정할 수 있어요. 더 이상 자동으로 업데이트되지 않아요.",
+    "copyNote": "내 프롬프트에 저장했어요",
+    "backTitle": "공식 버전을 다시 따라갈까요?",
+    "backBody": "텍스트가 공식 버전으로 돌아가고 자동으로 업데이트돼요. “{{variant}} (내 복사본)”은 “내 프롬프트”에서 삭제돼요.",
+    "backOk": "공식 버전 따라가기"
+  },
+  "update": {
+    "banner": "공식 버전이 업데이트됐어요",
+    "compare": "비교",
+    "title": "공식 “{{variant}}” 새 버전",
+    "subtitle": "내 복사본을 사용 중이라 먼저 여쭤봐요",
+    "legend": "변경된 내용 (강조 = 추가, 취소선 = 삭제):",
+    "note": "“새 버전 사용”을 누르면 최신 공식 텍스트로 새 복사본을 만들어요. 수정한 내용은 바뀌어요.",
+    "keepMine": "내 버전 유지",
+    "useNew": "새 버전 사용"
+  },
+  "position": {
+    "title": "위치",
+    "first": {
+      "label": "맨 앞 (추천)",
+      "hint": "모델이 가장 먼저 읽어요. 가장 안정적이에요."
+    },
+    "after-char": {
+      "label": "캐릭터 뒤",
+      "hint": "카드 설정을 먼저 읽고 나서 읽어요. 설정이 아주 긴 카드에 좋아요."
+    },
+    "last": {
+      "label": "대화 끝",
+      "hint": "답변과 가장 가까워 효과가 강하지만, 문체가 끌려갈 수 있어요."
+    }
+  },
+  "modules": {
+    "title": "포함 항목",
+    "coreLocked": "핵심 항목이라 끌 수 없어요",
+    "core": {
+      "name": "스토리 틀",
+      "desc": "대화를 허구로 설정해요. 나머지 항목의 기반이 돼요."
+    },
+    "antiApology": {
+      "name": "사과 방지",
+      "desc": "거절당하면 표현을 바꿔서 계속 써요"
+    },
+    "antiEmpty": {
+      "name": "빈 답변 방지",
+      "desc": "한 줄짜리나 빈 답변을 피해요"
+    },
+    "noLecture": {
+      "name": "훈계 방지",
+      "desc": "끝에 안전 안내나 경고를 덧붙이지 않아요"
+    },
+    "adultWriting": {
+      "name": "성인 콘텐츠 스타일",
+      "desc": "성인 콘텐츠의 수위를 조절해요"
+    },
+    "strongReminder": {
+      "name": "답변 전 자체 점검"
+    }
+  },
+  "explicitness": {
+    "subtle": "은은하게",
+    "normal": "보통",
+    "explicit": "노골적으로"
+  },
+  "fullText": {
+    "open": "전체 텍스트 보기/편집",
+    "title": "{{variant}} · 전체 텍스트",
+    "followHint": "공식 버전을 따르는 중이라 텍스트는 읽기 전용이에요. 텍스트나 '편집'을 눌러 수정해 보세요.",
+    "copyHint": "내 사본이에요. 자유롭게 수정해 보세요.",
+    "strengthChip": "강도: {{value}}",
+    "positionChip": "위치: {{value}}",
+    "copyMissing": "사본이 비어 있어요.",
+    "restore": "공식 버전으로 복원",
+    "edit": "편집",
+    "done": "완료",
+    "saveDone": "저장",
+    "confirmTitle": "전체 텍스트 편집",
+    "confirmBody": "편집하면 나만의 사본이 되고, 더 이상 자동으로 업데이트되지 않아요. 사본은 '내 프롬프트'에 표시되며, 새 공식 버전이 나오면 알려 드려요.",
+    "confirmOk": "계속 편집"
+  },
+  "scope": {
+    "title": "사용할 카드",
+    "all": "모든 카드",
+    "some": "선택한 카드만",
+    "none": "선택한 카드가 없어서 아직 어디에도 사용되지 않아요.",
+    "unknownWorld": "(라이브러리에 없는 카드)",
+    "remove": "제거",
+    "add": "카드 추가",
+    "pickTitle": "카드 선택",
+    "search": "카드 검색",
+    "empty": "라이브러리가 비어 있어요.",
+    "pickSave": "완료 ({{n}})"
+  },
+  "footer": {
+    "withCost": "총 약 {{n}} 토큰 · 턴마다 약 {{cost}} 버섯코인 추가",
+    "tokensOnly": "총 약 {{n}} 토큰"
+  },
+  "community": {
+    "title": "다른 플레이어의 프롬프트",
+    "myUploads": "내가 업로드한 프롬프트",
+    "toHub": "프롬프트 광장으로 이동"
+  },
+  "bindings": {
+    "title": "모델별 자동 적용",
+    "hint": "모델 계열마다 자동으로 적용할 프롬프트를 선택하세요.",
+    "none": "끄기",
+    "families": {
+      "other": "기타"
+    }
+  }
+}

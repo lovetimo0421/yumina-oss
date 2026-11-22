@@ -4,6 +4,8 @@
 // crosses into the sandbox with the message: the chat shows a placeholder,
 // then the picture, or says why there isn't one.
 
+import { selectTurnImageInText } from "../../../sandbox/chat/turn-image-embeds";
+
 export type TurnImageFailureReason = "busy" | "timeout" | "unavailable" | "credits";
 export type TurnImageStatus = { status: "drawing"; cancelling?: boolean; cancelFailed?: boolean } | { status: "cancelled" } | { status: "failed"; reason: TurnImageFailureReason };
 
@@ -63,6 +65,47 @@ export async function cancelTurnImage(messageId: string): Promise<boolean> {
   return draw.cancellation;
 }
 
+/**
+ * Shows another of the pictures drawn for a reply (`key`: its storage key in
+ * the embed's version list, @yumina/shared turn-image-versions.ts). The step
+ * shows at once; the server saves it as the reply's picture, so it is the one
+ * a reload shows. Refused (another variant became active, a redraw landed,
+ * the request failed): the reply goes back to what it showed and this is false.
+ */
+export async function selectTurnImage(messageId: string, key: string, swipeIndex?: number): Promise<boolean> {
+  const { useChatStore } = await import("@/stores/chat");
+  const store = () => useChatStore.getState();
+  const message = store().messages.find((m) => m.id === messageId);
+  if (!message || message.role !== "assistant" || message.turnImage?.status === "drawing") return false;
+  const before = message.content;
+  const shown = selectTurnImageInText(before, key);
+  if (shown === null) return false;
+  if (shown === before) return true;
+  const setContent = (content: string, from: string) => {
+    const current = store().messages.find((m) => m.id === messageId);
+    // Something else changed the reply meanwhile: leave that alone.
+    if (!current || current.content !== from) return;
+    const active = current.activeSwipeIndex ?? 0;
+    const swipes = current.swipes?.map((s, i) => (i === active ? { ...s, content } : s));
+    store().updateMessage(messageId, { content, ...(swipes ? { swipes } : {}) });
+  };
+  setContent(shown, before);
+  try {
+    const r = await fetch(`${apiBase}/api/messages/${messageId}/illustrate/select`, {
+      method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key, ...(typeof swipeIndex === "number" ? { expectedSwipeIndex: swipeIndex } : {}) }),
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!r.ok) throw new Error(`select ${r.status}`);
+    const { data } = await r.json() as { data: { content: string } };
+    if (data.content !== shown) setContent(data.content, shown);
+    return true;
+  } catch {
+    setContent(before, shown);
+    return false;
+  }
+}
+
 async function turnImageSettings(): Promise<TurnImageSettings | null> {
   settings ??= fetch(`${apiBase}/api/messages/turn-images/settings`, { credentials: "include" })
     .then(async (r) => (r.ok ? ((await r.json()) as { data: TurnImageSettings }).data : null))
@@ -77,9 +120,14 @@ export function forgetTurnImageSettings(): void {
   settings = null;
 }
 
+/** What the player asked of one picture: a note on a redraw, the full
+ *  schedule, a passage of the reply to draw, or their own description. */
+export interface TurnImageRequest { note?: string; fine?: boolean; focus?: string; prompt?: string }
+
 /** Draws the picture for one reply. `auto` is the after-turn call (skipped
  *  when the player's switch is off); the "draw this scene" button passes false. */
-export async function drawTurnImage(messageId: string, auto: boolean, note?: string, fine = false): Promise<IllustrateResponse> {
+export async function drawTurnImage(messageId: string, auto: boolean, request: TurnImageRequest = {}): Promise<IllustrateResponse> {
+  const { note, fine, focus, prompt } = request;
   const { useChatStore } = await import("@/stores/chat");
   const store = () => useChatStore.getState();
   if (auto) {
@@ -101,7 +149,7 @@ export async function drawTurnImage(messageId: string, auto: boolean, note?: str
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ drawId: draw.id, auto, ...(note ? { note } : {}), ...(fine ? { fine } : {}) }),
+      body: JSON.stringify({ drawId: draw.id, auto, ...(note ? { note } : {}), ...(fine ? { fine } : {}), ...(focus ? { focus } : {}), ...(prompt ? { prompt } : {}) }),
     });
     // 403: the player switched it off (Settings › Display › Story illustrations) — end quietly.
     result = r.ok ? ((await r.json()) as { data: IllustrateResponse }).data

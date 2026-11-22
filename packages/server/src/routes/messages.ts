@@ -1,13 +1,21 @@
+import { activeWorldTesterSql, testerPlayGateSql } from "../lib/world-testers.js";
+import { followerWorldAudienceSql } from "../lib/world-follower-access.js";
+import { liveFacesFor } from "../lib/rig/faces.js";
 import { refreshSessionGreeting } from "../lib/refresh-session-greeting.js";
 import { historyCacheBreakpoint } from "../lib/history-cache-breakpoint.js";
+import { foldStateBlockIntoPlayerTurn, STATE_BLOCK_SEPARATOR } from "../lib/state-block-placement.js";
 import { bodyLimit } from "hono/body-limit";
 import { appendPendingContext } from "../lib/pending-context.js";
-import { loadMessagePage, messagePageCursor } from "../lib/message-page.js";
+import { countMessagesBefore, loadMessagePage, messagePageCursor } from "../lib/message-page.js";
+import { searchSessionMessages } from "../lib/message-search.js";
 import { validateChatImages, storeChatImages, restoreChatImages, imagePromptChars } from "../lib/chat-images.js";
 import { assertImageModel } from "../lib/llm/image-capability.js";
 import { usageObservation } from "../lib/usage-observation.js";
 import { edition } from "../edition/index.js";
-import { Hono } from "hono";
+import { Hono, type MiddlewareHandler } from "hono";
+import { canReadSessionAsRoomMember, markRoomTurnSent, resolveRoomTurn, roomWithholdsUnrestrict, type ResolvedRoomTurn } from "../lib/story-rooms.js";
+import { openStoryRoomTee, publishRoomTurnRejected, withStoryRoomTee } from "../lib/story-room-tee.js";
+import { chargeRoomReply } from "../lib/story-room-billing.js";
 import { guardPrompt, TurnOutputAttempt, appendTurnStateChanges } from "../lib/turn-output-validation.js";
 import type { StateValidationAudit } from "@yumina/shared";
 import { setImmediate as yieldForIO } from "node:timers/promises";
@@ -29,7 +37,8 @@ import { recordWallHit } from "../lib/wall-events.js";
 import { canReuseFallbackMessage, modelFallbackError, parseModelFallbackRecord } from "../lib/model-fallback.js";
 import { bumpWorldMessageCount } from "../lib/world-message-counter.js";
 import { onMessageSent, onUsageLogged, onRegenerate } from "../lib/achievements/engine.js";
-import { registerStream, stopSessionStream, isClientAbort, isShutdownAbort } from "../lib/stream-registry.js";
+import { registerStream, isClientAbort, isShutdownAbort } from "../lib/stream-registry.js";
+import { stopSessionStreamEverywhere } from "../lib/session-stop-relay.js";
 import {
   markTurnFailed,
   clearTurnFailure,
@@ -52,8 +61,10 @@ import { ensureOpenRouterCatalog, registerContextWindows, getCatalogImageSupport
 import {
   antiRepetitionInstructionForModel,
   detectDegenerateRepetitionForModel,
+  detectPartialTokenLoop,
 } from "../lib/llm/repetition-detector.js";
 import { detectRefusal } from "../lib/llm/refusal-detector.js";
+import { replyCutOf, type ReplyCut } from "../lib/llm/stop-reason.js";
 import { getUserApiKey, resolveOpenRouterKeyForUser, resolveProviderForModel } from "../lib/resolve-provider.js";
 import { isForkOrphaned } from "../lib/fork-orphan.js";
 import {
@@ -93,6 +104,7 @@ import { buildChangeTrace, describeDroppedAiWrites } from "../lib/change-trace.j
 import { appendVariableAudit, buildVariableAudit, type StoredVariableAudit } from "../lib/variable-audit.js";
 import { createPromptTracer } from "../lib/prompt-trace.js";
 import { liveSceneMessage, normalizeLiveScene, takeStoryEvents } from "../lib/live-scene.js";
+import { normalizePlayerNote, playerNoteMessage, resolveTurnNote, turnNoteRowId, turnPlayerNote } from "../lib/player-note.js";
 
 /** Last player line in a history slice — what the continuity judge reads
  *  alongside the reply on regenerate/continue, where no fresh message exists. */
@@ -112,6 +124,7 @@ import {
 import { pickNarratorModel } from "../lib/station-model.js";
 import { voiceTag } from "../lib/group-reply.js";
 import { scheduleRunSummary } from "../lib/run-summary.js";
+import { consentNeededForDone } from "../lib/background-consent.js";
 import { dueWorkers, scheduleWorkerRun } from "../lib/worker-station.js";
 import type { MessageContent, ContentPart } from "../lib/llm/types.js";
 import type { AppEnv } from "../lib/types.js";
@@ -121,17 +134,22 @@ import { applyPersonaMetadata } from "../lib/persona-metadata.js";
 import { loadUserPrompts } from "../lib/user-prompts.js";
 import { appendPersonaSystemMessage, buildPersonaSystemMessage } from "../lib/persona-prompt.js";
 import { resolvePersonaForSession } from "../lib/resolve-persona.js";
-import { checkRateLimit, acquireConcurrency, releaseConcurrency, checkTurnImageRate, claimTurnImageDaily } from "../middleware/rate-limit.js";
-import { fineAvailable, illustrateTurn, stripTurnImages } from "../lib/per-turn-image/illustrate.js";
+import { checkRateLimit, acquireConcurrency, releaseConcurrency, checkTurnImageRate, claimTurnImageDaily, claimCardImageSessionDaily } from "../middleware/rate-limit.js";
+import { animaDetailedAvailable, fineAvailable, illustrateTurn, stripTurnImages, vividAvailable } from "../lib/per-turn-image/illustrate.js";
+import { OWN_PROMPT_MAX, PASSAGE_MAX, passageIn, tidyPassage } from "../lib/per-turn-image/passage.js";
 import { stripTurnVideos } from "../lib/realtime-video/turn-clip.js";
-import { perTurnImagesEnabled, turnImagePrefs } from "../lib/per-turn-image/availability.js";
+import { allowCardImages, cardImagesAllowed, perTurnImagesEnabled, readTurnImagePrefs, TURN_IMAGE_STYLES, turnImagePrefs, userPreferences } from "../lib/per-turn-image/availability.js";
+import { withDrawnTurnImage, withTurnImageVersion } from "../lib/per-turn-image/embeds.js";
+import { loraSource, personaLoraFor, turnImageLorasEnabled } from "../lib/per-turn-image/loras.js";
 import { turnImageQuote } from "../lib/per-turn-image/billing.js";
 import { cancelTurnImageTask, deliverTurnImageTask, failTurnImageTask, recoverExpiredTurnImages, startTurnImageTask, watchTurnImageTask } from "../lib/per-turn-image/tasks.js";
 import { redis } from "../lib/redis.js";
-import { checkBalance, validateModelAccess, calculateCost, deductCreditsUpToBalance, getModelCostRates, estimateCreditsFromChars, estimateTokensFromChars } from "../lib/credit-service.js";
+import { checkBalance, validateModelAccess, calculateCost, deductCreditsUpToBalance, getModelCostRates, estimateTokensFromChars } from "../lib/credit-service.js";
+import { estimateTurnCredits } from "../lib/credit-estimate.js";
 import { insertHashedTransaction } from "../lib/transaction-hash.js";
 import { storySamplingParams } from "../lib/station-sampling.js";
-import { MidStreamTracker } from "../lib/credit-guard.js";
+import { MidStreamTracker, loadPromptCostCalibration } from "../lib/credit-guard.js";
+import { isZeroCostPlayModel, isZeroCostRates } from "../lib/llm/fallback-models.js";
 import { PLANS } from "../lib/plan-config.js";
 import { getAllModelPrices } from "../lib/model-price-cache.js";
 import { getModelPopularity } from "../lib/model-popularity.js";
@@ -149,6 +167,7 @@ import {
   scheduleTurnMemoryUpdates,
   type TurnPromptMessage,
 } from "../lib/turn-memory.js";
+import { applyPromptRegexRules } from "../lib/regex-rules/runner.js";
 import {
   collectExtensionInvalidation,
   runExtensionInvalidation,
@@ -158,7 +177,7 @@ import { generationBaseline, messageGenerationState, regenerationState, reconcil
 import { normalizeGameState, reconcileTurnState } from "../lib/game-state.js";
 import { thinSnapshotForStorage, pruneSessionSnapshots } from "../lib/snapshot.js";
 import { messageContentUpdate, messageEditWhere } from "../lib/message-edit.js";
-import { viewerSeesWorkingCopy } from "../lib/working-copy.js";
+import { draftAccessEnded, viewerCanEditSql, viewerSeesWorkingCopy } from "../lib/working-copy.js";
 import { resolveSessionVariables } from "../lib/pending-edit.js";
 import {
   diffStateVariables,
@@ -220,6 +239,8 @@ const messageRoutes = new Hono<AppEnv>();
 
 messageRoutes.use("/sessions/*", authMiddleware);
 messageRoutes.use("/messages/*", authMiddleware);
+messageRoutes.use("/card-images", authMiddleware);
+messageRoutes.use("/card-images/*", authMiddleware);
 messageRoutes.use("/models", authMiddleware);
 messageRoutes.use("/models/popularity", authMiddleware);
 
@@ -258,6 +279,8 @@ type SwipeWithUsage = {
   creditBalanceAfter?: number;
   /** Policy refusal detected on this reply (lib/llm/refusal-detector.ts). */
   refusal?: boolean;
+  /** The reply stopped before the model finished (lib/llm/stop-reason.ts). */
+  cut?: ReplyCut;
 };
 
 async function persistSwipeCredits(
@@ -522,8 +545,14 @@ function setCachedWorldDef(worldId: string, updatedAt: Date | null, worldDef: Wo
  * direction between the player and the card's creator reads as "not found",
  * matching GET /api/worlds/:id. It answers before the multi-MB schema load.
  * Edit/delete/swipe bookkeeping on the player's own rows leaves it off.
+ *
+ * `deferDraftGate`: the generation routes answer a never-published card the
+ * viewer no longer works on (tester or collaborator removed) with their own
+ * 403 WORLD_ACCESS_ENDED (draftAccessEnded), so the pre-release tester gate is
+ * left to them; every other caller keeps it here and reads such a session as
+ * not found.
  */
-async function loadSessionContext(sessionId: string, userId: string, opts: { closeWhenCreatorBlocked?: boolean } = {}) {
+async function loadSessionContext(sessionId: string, userId: string, opts: { closeWhenCreatorBlocked?: boolean; deferDraftGate?: boolean } = {}) {
   // Lightweight query: pull session + world metadata + updatedAt, but NOT the
   // multi-MB schema JSONB. Schema is fetched separately on cache miss only.
   const rows = await db
@@ -536,6 +565,15 @@ async function loadSessionContext(sessionId: string, userId: string, opts: { clo
       worldSourceWorldId: worlds.sourceWorldId,
       worldAllowEdit: worlds.allowEdit,
       worldAllowCustomApi: worlds.allowCustomApi,
+      worldSealedContent: worlds.sealedContent,
+      viewerCanReadFollowers: followerWorldAudienceSql(userId),
+      // The pre-release half of the live audience (lib/world-testers.ts).
+      viewerPassesTesterGate: testerPlayGateSql(userId),
+      // A tester also plays a card its creator unpublished (still in development).
+      viewerIsTester: activeWorldTesterSql(userId),
+      // Creator or accepted editor collaborator: one indexed EXISTS in this
+      // same round trip, so a turn pays no extra query for it.
+      viewerCanEdit: viewerCanEditSql(userId),
       sourceWorldStatus: sourceWorld.status,
       sourceWorldIsPublished: sourceWorld.isPublished,
       sourceWorldPublishedAt: sourceWorld.publishedAt,
@@ -554,7 +592,11 @@ async function loadSessionContext(sessionId: string, userId: string, opts: { clo
   if (rows.length === 0) return null;
 
   const row = rows[0]!;
-  if (opts.closeWhenCreatorBlocked && row.creatorBlocked) return null;
+  // Editor collaborators are the card's team: they pass the audience/tester gate.
+  const team = row.viewerCanEdit === true;
+  if ((!row.viewerCanReadFollowers && !team) || (opts.closeWhenCreatorBlocked && row.creatorBlocked)) return null;
+  const draftGateFailed = !row.viewerPassesTesterGate && !team;
+  if (draftGateFailed && !opts.deferDraftGate) return null;
   const sourceWorldTakenDown = isForkOrphaned({
     sourceWorldId: row.worldSourceWorldId,
     sourceStatus: row.sourceWorldStatus,
@@ -578,14 +620,16 @@ async function loadSessionContext(sessionId: string, userId: string, opts: { clo
     setCachedWorldDef(row.worldId, row.worldUpdatedAt, worldDef);
   }
 
-  // Creator-only overlay: when the author plays/prompts their OWN published
-  // world while a material edit is held for review, run the prompt off the
-  // held working copy so their unapproved entry/rule/frontend edits take effect
-  // immediately for them. Players and non-creators never enter this branch and
-  // keep getting the approved live worldDef above. Cheap probe (updatedAt only)
-  // gates the multi-MB schema fetch + migrate to a pending-cache miss.
+  // Creator/editor overlay: when the author (or an editor collaborator) plays/
+  // prompts a published world they work on while a material edit is held for
+  // review, run the prompt off the held working copy so the unapproved
+  // entry/rule/frontend edits take effect immediately for them. Players never
+  // enter this branch and keep getting the approved live worldDef above. Cheap
+  // probe (updatedAt only) gates the multi-MB schema fetch + migrate to a
+  // pending-cache miss.
+  const viewerCanEdit = row.viewerCanEdit === true || row.worldCreatorId === userId;
   let pendingVersion: string | null = null;
-  if (viewerSeesWorkingCopy(row.worldStatus, row.worldCreatorId, userId)) {
+  if (viewerSeesWorkingCopy(row.worldStatus, row.worldCreatorId, userId, viewerCanEdit)) {
     const [pendMeta] = await db
       .select({ updatedAt: worldPendingEdits.updatedAt })
       .from(worldPendingEdits)
@@ -617,7 +661,8 @@ async function loadSessionContext(sessionId: string, userId: string, opts: { clo
     worldDef = { ...worldDef, continuity: { ...worldDef.continuity, enabled: false } };
   }
 
-  await refreshSessionGreeting(sessionId, userId, worldDef);
+  // A session whose card is no longer the viewer's to play keeps its rows as they are.
+  if (!draftGateFailed) await refreshSessionGreeting(sessionId, userId, worldDef);
   const gameState = normalizeGameState(worldDef, row.session.state);
 
   return {
@@ -626,8 +671,17 @@ async function loadSessionContext(sessionId: string, userId: string, opts: { clo
     gameState,
     worldStatus: row.worldStatus,
     worldCreatorId: row.worldCreatorId,
+    /** A fork's source card and its author: the source's LoRA bindings may serve the fork. */
+    sourceWorldId: row.worldSourceWorldId,
+    sourceWorldCreatorId: row.sourceWorldCreatorId,
+    /** The creator or an accepted editor collaborator: plays the card like its creator. */
+    viewerCanEdit,
     worldAllowEdit: row.worldAllowEdit,
     worldAllowCustomApi: row.worldAllowCustomApi,
+    worldSealedContent: row.worldSealedContent,
+    viewerIsTester: row.viewerIsTester === true,
+    /** Failed the pre-release tester gate (only reachable with deferDraftGate). */
+    draftGateFailed,
     sourceWorldTakenDown,
     worldVersion: row.worldUpdatedAt?.toISOString() ?? null,
     pendingVersion,
@@ -650,9 +704,9 @@ messageRoutes.get("/sessions/:sessionId/messages", async (c) => {
   const rd = await readOwn(currentUser.id);
   const sessionId = c.req.param("sessionId");
 
-  // Verify session ownership
+  // Verify session ownership; members of an open story room on it read too.
   const sessionRows = await rd
-    .select()
+    .select({ id: playSessions.id })
     .from(playSessions)
     .where(
       and(
@@ -661,7 +715,7 @@ messageRoutes.get("/sessions/:sessionId/messages", async (c) => {
       )
     );
 
-  if (sessionRows.length === 0) {
+  if (sessionRows.length === 0 && !(await canReadSessionAsRoomMember(sessionId, currentUser.id))) {
     return c.json({ error: "Session not found" }, 404);
   }
 
@@ -688,7 +742,34 @@ messageRoutes.get("/sessions/:sessionId/messages", async (c) => {
     }
   }
 
-  return c.json({ data: result, meta: { hasMore: page.hasMore } });
+  // Rows older than this page, so the client numbers messages by their place
+  // in the whole session (#1 = the opening), not by the loaded window.
+  const earlier = page.hasMore && result[0]
+    ? await countMessagesBefore(rd, sessionId, { id: result[0].id, createdAt: result[0].createdAt })
+    : 0;
+
+  return c.json({ data: result, meta: { hasMore: page.hasMore, earlier } });
+});
+
+// GET /api/sessions/:sessionId/messages/search?q=…&before=<position> — keyword search over the
+// player's own session, newest first, with a snippet around each hit and the
+// message's position in the session. Owner only (a story-room member reads the
+// host's chat but does not search it). Primary DB: the transcript is the
+// player's own and was likely just written.
+messageRoutes.get("/sessions/:sessionId/messages/search", async (c) => {
+  const currentUser = c.get("user");
+  const rd = await readOwn(currentUser.id);
+  const limitRaw = Number(c.req.query("limit"));
+  const beforeRaw = Number(c.req.query("before"));
+  const result = await searchSessionMessages(rd, {
+    sessionId: c.req.param("sessionId"),
+    userId: currentUser.id,
+    query: c.req.query("q") ?? "",
+    ...(Number.isFinite(limitRaw) && limitRaw >= 1 ? { limit: limitRaw } : {}),
+    ...(Number.isFinite(beforeRaw) && beforeRaw >= 1 ? { beforePosition: beforeRaw } : {}),
+  });
+  if (!result) return c.json({ error: "Session not found" }, 404);
+  return c.json({ data: result.hits, meta: { hasMore: result.hasMore } });
 });
 
 /**
@@ -740,14 +821,32 @@ messageRoutes.post("/sessions/:sessionId/messages/stop", async (c) => {
     return c.json({ error: "Session not found" }, 404);
   }
 
-  const stopped = stopSessionStream(sessionId);
-  return c.json({ data: { stopped } });
+  // The generation may be streaming on the other replica; this stops it there too.
+  const { stopped, relayed } = await stopSessionStreamEverywhere(sessionId);
+  return c.json({ data: { stopped, relayed } });
 });
 
-messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 1024 * 1024 }), async (c) => {
+/** Room turns this request validated; read back once the handler has answered. */
+const roomTurnRequests = new WeakMap<Request, { roomId: string; turnId: string }>();
+/** A room turn the send rejected before streaming still ends the round for members. */
+const announceRejectedRoomTurn: MiddlewareHandler = async (c, next) => {
+  try {
+    await next();
+  } finally {
+    const turn = roomTurnRequests.get(c.req.raw);
+    if (turn && !c.res.headers.get("content-type")?.includes("text/event-stream")) {
+      await publishRoomTurnRejected(turn.roomId, turn.turnId);
+    }
+  }
+};
+
+messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 1024 * 1024 }), announceRejectedRoomTurn, async (c) => {
   const currentUser = c.get("user");
   const sessionId = c.req.param("sessionId");
   const body = await c.req.json<{
+    /** Story room: the turn the host claimed (POST /api/story-rooms/:code/turn).
+     *  The user message becomes that turn's merged content. */
+    roomTurnId?: string;
     content?: string;
     model?: string;
     continue?: boolean;
@@ -760,10 +859,14 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
     attachments?: Array<{ type: string; data: string; mimeType: string; name: string }>;
     /** 现场: what the card's interface shows right now (api.setScene). */
     scene?: unknown;
+    /** 给 AI 的话: the player's direction for this reply only (lib/player-note.ts). */
+    note?: unknown;
     overrides?: {
       maxTokens?: number;
       maxContext?: number;
       storyMemory?: number;
+      recapShare?: string;
+      memoryEvery?: number;
       temperature?: number;
       topP?: number;
       frequencyPenalty?: number;
@@ -780,7 +883,18 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
   try { inputImages = await validateChatImages(body.attachments); }
   catch (error) { return c.json({ error: error instanceof Error ? error.message : "Invalid images", code: "INVALID_IMAGES" }, 400); }
   const isContinueMode = body.continue === true;
-  const rawUserContent = typeof body.content === "string" ? body.content.trim() : "";
+  let roomTurn: ResolvedRoomTurn | null = null;
+  if (body.roomTurnId !== undefined && body.roomTurnId !== null) {
+    if (isContinueMode) return c.json({ error: "A room turn cannot continue", code: "invalid-turn" }, 400);
+    const resolvedTurn = await resolveRoomTurn(sessionId, currentUser.id, body.roomTurnId, {
+      retry: body.mixRetry === true || typeof body.retryMessageId === "string",
+    });
+    if ("error" in resolvedTurn) return c.json({ error: resolvedTurn.error, code: resolvedTurn.code }, resolvedTurn.status);
+    roomTurn = resolvedTurn;
+    roomTurnRequests.set(c.req.raw, { roomId: roomTurn.roomId, turnId: roomTurn.turnId });
+  }
+  const rawUserContent = roomTurn ? roomTurn.content : typeof body.content === "string" ? body.content.trim() : "";
+  let playerNote = normalizePlayerNote(body.note);
   if (!rawUserContent && !inputImages.length && !isContinueMode) {
     return c.json({ error: "Content is required" }, 400);
   }
@@ -793,17 +907,21 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
     }, 400);
   }
 
-  const context = await loadSessionContext(sessionId, currentUser.id, { closeWhenCreatorBlocked: true });
+  const context = await loadSessionContext(sessionId, currentUser.id, { closeWhenCreatorBlocked: true, deferDraftGate: true });
   if (!context) {
     return c.json({ error: "Session not found" }, 404);
   }
 
-  // Block message generation if world is unpublished and user is not creator
-  if (context.worldStatus === "unpublished" && context.worldCreatorId !== currentUser.id) {
+  // Block message generation if world is unpublished and user is not its creator, an editor or a tester
+  if (context.worldStatus === "unpublished" && !context.viewerCanEdit && !context.viewerIsTester) {
     return c.json(
       { error: "This world is no longer available. The creator has unpublished it." },
       403
     );
+  }
+  // A never-published card stops playing for someone no longer working on it.
+  if (context.draftGateFailed || draftAccessEnded({ status: context.worldStatus, creatorId: context.worldCreatorId }, currentUser, context.viewerCanEdit || context.viewerIsTester)) {
+    return c.json({ error: "You no longer have access to this card.", code: "WORLD_ACCESS_ENDED" }, 403);
   }
 
   // A fork goes dark once its source card was pulled after being live (see
@@ -865,8 +983,9 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
 
   const playerModel = await resolveModel(body.model);
 
-  // Protected worlds (allowCustomApi=false) must use official keys to prevent prompt leaking via BYOK
-  const isProtectedWorld = context.worldAllowCustomApi === false && context.worldCreatorId !== currentUser.id;
+  // Protected worlds (allowCustomApi=false) must use official keys to prevent prompt leaking via BYOK.
+  // Its creator and editor collaborators can read the source anyway, so they are exempt (not from a sealed card).
+  const isProtectedWorld = (context.worldSealedContent || (context.worldAllowCustomApi === false && !context.viewerCanEdit));
   // 模块总控: the active narrator station may ask for its own model.
   const { model, station: narratorStation } = await pickNarratorModel({
     worldDef,
@@ -876,7 +995,7 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
     forceOfficial: isProtectedWorld,
   });
   // After the narrator pick, so per-model-bound prompts match the model that generates.
-  const activeUserPrompts = await loadUserPrompts(currentUser.id, { modelId: model });
+  const activeUserPrompts = await loadUserPrompts(currentUser.id, { modelId: model, worldId: context.session.worldId, withholdUnrestrict: await roomWithholdsUnrestrict(sessionId) });
   const resolved = await resolveProviderForModel(currentUser.id, model, { forceOfficial: isProtectedWorld, allowRetiredForAccessCheck: true });
   if (!resolved) {
     if (isProtectedWorld) {
@@ -938,7 +1057,7 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
     model,
     clamp(body.overrides?.maxTokens ?? worldDef.settings?.maxTokens ?? 4096, 256, 32768),
     body.overrides?.reasoningEffort,
-    await resolved.provider.getContextWindow?.(),
+    await resolved.provider.getContextWindow?.(model),
   );
   const storyMemory = turnStoryMemory({
     override: body.overrides?.storyMemory,
@@ -950,7 +1069,8 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
       await refundTrialIfClaimed();
       return c.json({ error: "Your account has been temporarily suspended from AI generation. If you believe this is a mistake, please contact support.", code: "SUSPENDED" }, 403);
     }
-    if (!walletCheck!.ok && !grokTrialBypass) {
+    // An empty wallet stops paid models only: Yumina Free costs no mushies.
+    if (!walletCheck!.ok && !grokTrialBypass && !isZeroCostPlayModel(model)) {
       recordWallHit({ userId: currentUser.id, plan: userPlan, planVersion: walletCheck?.wallet.planVersion, balance: 0, model, endpoint: "send", stage: "preflight" });
       return c.json({ error: "You've used all your credits for this period. Purchase additional credits or upgrade your plan.", code: "NO_CREDITS", balance: 0 }, 402);
     }
@@ -991,7 +1111,7 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
     // latest message must be a fresh user row with identical content.
     if (body.mixRetry === true || typeof body.retryMessageId === "string") {
       const [latest] = await db
-        .select({ id: messages.id, role: messages.role, content: messages.content, createdAt: messages.createdAt })
+        .select({ id: messages.id, role: messages.role, content: messages.content, createdAt: messages.createdAt, playerNote: messages.playerNote })
         .from(messages)
         .where(eq(messages.sessionId, sessionId))
         .orderBy(desc(messages.createdAt))
@@ -1006,9 +1126,16 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
         Date.now() - latest.createdAt.getTime() < 2 * 60 * 1000)
       ) {
         userMsg = { id: latest!.id, createdAt: latest!.createdAt };
+        // A retried send keeps the note stored with the turn, unless it brings
+        // the one the player has open now (lib/player-note.ts).
+        const retried = resolveTurnNote(body.note, latest!.playerNote);
+        playerNote = retried.note;
+        if (retried.replaced) {
+          await db.update(messages).set({ playerNote }).where(eq(messages.id, latest!.id));
+        }
       }
     }
-    if (typeof body.retryMessageId === "string" && !userMsg) {
+    if ((typeof body.retryMessageId === "string" || roomTurn?.alreadySent) && !userMsg) {
       if (useProtections) await releaseConcurrency(currentUser.id);
       await refundTrialIfClaimed();
       return c.json({ error: "This turn has changed. Refresh the conversation before retrying.", code: "TURN_CHANGED" }, 409);
@@ -1022,10 +1149,19 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
             role: "user",
             content: userContent,
             ...(attachmentMeta && { attachments: attachmentMeta }),
+            ...(roomTurn && { contributions: roomTurn.contributions }),
+            ...(playerNote && { playerNote }),
           })
           .returning();
         userMsg = userMsgResult[0]!;
         insertedUserMessageId = userMsg.id;
+        // Two sends of one claimed turn: only the first keeps its row.
+        if (roomTurn && (await markRoomTurnSent(roomTurn.roomId, roomTurn.turnId, userMsg.id)) === 0) {
+          await db.delete(messages).where(and(eq(messages.id, userMsg.id), eq(messages.sessionId, sessionId)));
+          if (useProtections) await releaseConcurrency(currentUser.id);
+          await refundTrialIfClaimed();
+          return c.json({ error: "This turn was already sent", code: "turn-already-sent" }, 409);
+        }
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         if (msg.includes("violates foreign key constraint")) {
@@ -1066,6 +1202,7 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
     session: context.session,
     world: worldDef,
     suppressSummaryBlocks: Boolean(characterCreation),
+    recap: { chosenShare: body.overrides?.recapShare, storyMemory: storyMemory.tokens, memoryEvery: body.overrides?.memoryEvery },
   });
   worldDef = await resolveTurnWorldDefinition(turnMemory, context.session, worldDef);
   // No awaited compaction anywhere on this path: the post-turn background job
@@ -1079,7 +1216,9 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
   // Bounded window (newest RAW_HISTORY_MAX_ROWS) — the clamp keeps only the
   // recent tail that fits maxContext anyway; loading the full backlog froze
   // the event loop on mega sessions (2026-08-11 outage).
-  const historyRows = await loadBoundedRawHistory(sessionId, turnMemory, { activeUserMessageId: userMsg?.id });
+  // The player's regex rules marked "sent to the AI" rewrite this copy; saved messages stay as they are.
+  const historyRows = await applyPromptRegexRules(currentUser.id,
+    await loadBoundedRawHistory(sessionId, turnMemory, { activeUserMessageId: userMsg?.id }));
   const currentRunHistory = limitHistoryToCurrentRun(historyRows);
 
   // Populate macro context (lastMessage, lastUserMessage, etc.)
@@ -1153,6 +1292,8 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
   const staticFormatBlock = promptBuilder.buildStaticFormatBlock(worldDef, {
     activeGreetingId: snapshot.activeGreetingId,
     state: snapshot,
+    // the creator's own expressions for a live character beside the chat (nothing for a card without one)
+    liveFaces: await liveFacesFor(worldDef),
   });
   if (staticFormatBlock) {
     contextMessages.push({ role: "system", content: staticFormatBlock });
@@ -1263,7 +1404,13 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
   // 8. Format instructions + variable summary (only if world has variables or audio)
   const lastTurnChanges = await loadLastTurnChanges(currentRunHistory);
   const formatBlock = promptBuilder.buildFormatBlock(worldDef, snapshot, lastTurnChanges);
-  if (formatBlock) {
+  // Some model families read it only inside the player's final message (lib/state-block-placement.ts).
+  const formatBlockInPlayerTurn = formatBlock
+    ? foldStateBlockIntoPlayerTurn(model, formatBlock, historyMessages, injectedDepthMessages)
+    : null;
+  if (formatBlockInPlayerTurn) {
+    promptTracer.tail(formatBlockInPlayerTurn, "state", formatBlock!.length + STATE_BLOCK_SEPARATOR.length);
+  } else if (formatBlock) {
     contextMessages.push({ role: "system", content: formatBlock });
   }
   promptTracer.take(contextMessages, "state");
@@ -1272,6 +1419,12 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
     const sceneMessage = liveSceneMessage(liveScene);
     contextMessages.push(sceneMessage);
     promptTracer.tag(sceneMessage, "scene");
+  }
+  // 给 AI 的话: this reply only, after the scene and before post-history.
+  const noteMessage = playerNote ? playerNoteMessage(playerNote) : null;
+  if (noteMessage) {
+    contextMessages.push(noteMessage);
+    promptTracer.tag(noteMessage, "pending");
   }
   // 游戏数据: only what the answering AI is wired to read.
 
@@ -1288,7 +1441,7 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
   }
 
   // Trim only chat history (middle), preserving system prefix + post-history suffix
-  const suffixCount = postHistoryEntries.length + (formatBlock ? 1 : 0) + (liveScene ? 1 : 0) + (antiRepetitionInstruction ? 1 : 0);
+  const suffixCount = postHistoryEntries.length + (formatBlock && !formatBlockInPlayerTurn ? 1 : 0) + (liveScene ? 1 : 0) + (noteMessage ? 1 : 0) + (antiRepetitionInstruction ? 1 : 0);
   // Depth entries and pending context live INSIDE the trim window but are not
   // conversation. Story memory is a budget for what the player said and the
   // AI replied; a world that injects a lot of keyword-triggered lore must not
@@ -1300,6 +1453,8 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
       role: (ctx.role as "system" | "user") ?? "system",
       content: ctx.message,
     })),
+    // Folded into the player's message, the state block sits in the trim window too.
+    ...(formatBlockInPlayerTurn ? [{ role: "system" as const, content: formatBlock! }] : []),
   ];
   const historyWindowBudget = storyMemory.tokens + estimatePromptMessagesTokens(nonRawHistoryMessages, model);
 
@@ -1372,12 +1527,13 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
   // to ~50s) instead of killing it mid-stream. See lib/stream-registry.ts.
   // Session-keyed so POST /sessions/:sessionId/messages/stop can abort it.
   const unregisterStream = registerStream(abortController, sessionId);
-  const outputAttempt = new TurnOutputAttempt({ dispatch: turnMemory.dispatch, userId: currentUser.id, sessionId: sessionId, targetId: userMsg?.id ?? historyRows.at(-1)?.id ?? "", path: "send", world: worldDef, baseline: effectiveGameState, model, apiKeyTier: resolved.apiKeyTier, startedAt: startTime, worldVersion: context.worldVersion, pendingVersion: context.pendingVersion, signal: abortController.signal, worldId: context.session.worldId, checkPending: viewerSeesWorkingCopy(context.worldStatus, context.worldCreatorId, currentUser.id) });
+  const outputAttempt = new TurnOutputAttempt({ dispatch: turnMemory.dispatch, userId: currentUser.id, sessionId: sessionId, targetId: userMsg?.id ?? historyRows.at(-1)?.id ?? "", path: "send", world: worldDef, baseline: effectiveGameState, model, apiKeyTier: resolved.apiKeyTier, startedAt: startTime, worldVersion: context.worldVersion, pendingVersion: context.pendingVersion, signal: abortController.signal, worldId: context.session.worldId, checkPending: viewerSeesWorkingCopy(context.worldStatus, context.worldCreatorId, currentUser.id, context.viewerCanEdit) });
 
   // Signal to reverse proxies that this is a long-lived LLM stream
   c.header("X-Accel-Buffering", "no");
+  const roomTee = await openStoryRoomTee(sessionId, roomTurn?.turnId);
 
-  return streamSSE(c, async (stream) => {
+  return streamSSE(c, withStoryRoomTee(roomTee, async (stream) => {
     // A dropped SSE connection (mobile tab suspend, flaky network) does NOT
     // abort generation: the turn finishes and persists server-side, and the
     // client's connection-loss recovery poll finds it. Explicit stops go
@@ -1389,6 +1545,8 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
     // the catch block — which must stay reserved for real generation failures,
     // or the finished reply never persists. Funnel all writes through here.
     const sse = async (message: Parameters<SSEStreamingApi["writeSSE"]>[0]): Promise<void> => {
+      // Story room members follow the reply even after the host's tab drops.
+      roomTee?.forward(message);
       if (clientGone) return;
       try {
         await stream.writeSSE(message);
@@ -1413,8 +1571,17 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
     const isUnlimitedPlan = planConfig.unlimited;
     // Count prompt characters for cost estimation (actual chars, NOT estimated tokens)
     const promptChars = imagePromptChars(providerMessages);
-    const costRates = (!isUnlimitedPlan && useProtections)
+    const loadedCostRates = (!isUnlimitedPlan && useProtections)
       ? await getModelCostRates(model, estimateTokensFromChars(promptChars))
+      : null;
+    // A free model's turn costs 0, and "0 >= a 0 balance" read as out of
+    // mushies before the first token. Nothing to guard against: no rates.
+    const costRates = isZeroCostRates(loadedCostRates) ? null : loadedCostRates;
+    // What this session's last billed turn on this model really cost (cache
+    // included). Without it the estimate prices every prompt token at list and
+    // 2 chars/token, ~3x a whole real turn, and refused players with plenty left.
+    const costCalibration = costRates && !grokTrialBypass
+      ? await loadPromptCostCalibration({ userId: currentUser.id, sessionId, model, rates: costRates })
       : null;
     let streamedOutputChars = 0;
 
@@ -1440,7 +1607,7 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
       // guard already would — no new users affected, just handled cleanly.
       // (Low-balance / empty-reply investigation 2026-05-31.)
       if (costRates && !isUnlimitedPlan && useProtections && !grokTrialBypass) {
-        const promptOnlyCost = estimateCreditsFromChars(costRates, promptChars, 0);
+        const promptOnlyCost = estimateTurnCredits(costRates, promptChars, 0, costCalibration);
         if (promptOnlyCost >= creditStartBalance) {
           recordWallHit({ userId: currentUser.id, plan: userPlan, planVersion: walletCheck?.wallet.planVersion, balance: creditStartBalance, model, endpoint: "send", stage: "prompt_too_long" });
           await sse({
@@ -1462,6 +1629,8 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
         model,
         messages: providerMessages,
         maxTokens: clamp(body.overrides?.maxTokens ?? worldDef.settings?.maxTokens ?? 4096, 256, 32768),
+        // Local runtimes size their window from this instead of a fixed 32K.
+        contextBudget: maxContext,
         // The player's sampling unless the card locked its own (samplingPolicy "author").
         ...storySamplingParams(worldDef.settings, body.overrides, clamp),
         repetitionPenalty: antiRepetitionInstruction
@@ -1521,7 +1690,7 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
           // Trial turns are exempt (same as the pre-flight gate): the trial pays
           // for this turn, so a 0-mushie balance must not abort it mid-reply.
           if (costRates && !isUnlimitedPlan && !grokTrialBypass && streamedOutputChars % 500 < chunk.content.length) {
-            const estCost = estimateCreditsFromChars(costRates, promptChars, streamedOutputChars);
+            const estCost = estimateTurnCredits(costRates, promptChars, streamedOutputChars, costCalibration);
             if (estCost >= creditStartBalance) {
               // Ran dry mid-reply. End cleanly with a credits error (code
               // NO_CREDITS → "out of mushies" toast + popup) instead of the old
@@ -1847,16 +2016,22 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
             return;
           }
 
-          const repetition = antiRepetitionInstruction
-            ? detectDegenerateRepetitionForModel(
-                model,
-                cleanText,
-                currentRunHistory
-                  .filter((message) => message.role === "assistant")
-                  .slice(-3)
-                  .map((message) => message.content),
-              )
-            : null;
+          // Every model, not only the Kimi one that gets the prompt instruction:
+          // a reply stuck in a loop ("Our Our Our …") is discarded unbilled.
+          const repetition = detectDegenerateRepetitionForModel(
+            model,
+            cleanText,
+            currentRunHistory
+              .filter((message) => message.role === "assistant")
+              .slice(-3)
+              .map((message) => message.content),
+          );
+          // A long loop inside an otherwise useful reply is logged, never waived:
+          // the story already streamed to the player (repetition-detector.ts).
+          const partialLoop = repetition ? null : detectPartialTokenLoop(cleanText);
+          if (partialLoop) {
+            captureServerEvent(currentUser.id, "llm_partial_repetition", { model, endpoint: "send", occurrences: partialLoop.occurrences, chars: cleanText.length, session_id: sessionId });
+          }
           if (repetition) {
             console.warn(
               `[Messages] Rejected repetitive ${model} output (${repetition.reason}, ${repetition.occurrences}x, ${cleanText.length} chars)`,
@@ -1903,6 +2078,9 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
           // not billed (see wasFiltered below); the flag lets the client offer
           // a switch-model / unrestrict bar under it.
           const isRefusal = detectRefusal(cleanText);
+          // Stopped partway (length limit, or the provider's content filter on a
+          // reply it still sent): kept, and flagged so the player can continue it.
+          const cut = isRefusal ? undefined : replyCutOf(chunk.stopReason);
           if (isRefusal) {
             captureServerEvent(currentUser.id, "llm_refusal_detected", {
               model: actualModel, endpoint: "send", chars: cleanText.length, session_id: sessionId,
@@ -1976,6 +2154,8 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
                 sessionId,
                 role: "assistant",
                 content: cleanText,
+                // A note sent with no message has no user row to live on.
+                ...(isContinueMode && playerNote && { playerNote }),
                 stateValidation: outputAttempt.enabled ? outputAttempt.audit : null,
                 stateChanges:
                   allChanges.length > 0
@@ -2008,6 +2188,7 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
                     model: actualModel,
                     tokenCount: chunk.usage?.totalTokens,
                     ...(isRefusal && { refusal: true }),
+                    ...(cut && { cut }),
                   },
                 ] satisfies SwipeWithUsage[],
                 activeSwipeIndex: 0,
@@ -2178,10 +2359,14 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
                   // for as free. Drop it so the 0/0 rate is what applies.
                   providerCostUsd: freeRouterFallbackServed ? undefined : chunk.usage?.providerCostUsd,
                 });
-                const result = await deductCreditsUpToBalance(
-                  currentUser.id, cost, usageLogId,
-                  `${actualModel} — ${pTokens + cTokens} tokens`,
-                );
+                // A story-room round in a split room is shared by its players (lib/story-room-billing.ts).
+                const result = await chargeRoomReply({
+                  turn: roomTurn,
+                  hostUserId: currentUser.id,
+                  cost,
+                  usageLogId,
+                  description: `${actualModel} — ${pTokens + cTokens} tokens`,
+                });
                 creditsCost = result?.creditsDeducted ?? 0;
                 creditsBalance = result?.newBalance ?? 0;
               } catch (err) {
@@ -2243,7 +2428,10 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
               // the turn that used it reports back.
               injectedEntryIds: matchedEntries.map((e) => e.id),
               credits: creditsPayload(creditsCost, creditsBalance),
+              // Background AIs waiting for the player's answer before they charge.
+              ...(await consentNeededForDone(currentUser.id, [outputAttempt.consentNeeded])),
               ...(isRefusal && { refusal: true }),
+              ...(cut && { cut }),
             }),
           });
         }
@@ -2334,7 +2522,7 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
         await sse({ event: "error", data: JSON.stringify(pendingFallbackError) });
       }
     }
-  });
+  }));
   } catch (err) {
     // Only fires if pre-stream setup threw before entering streamSSE
     if (useProtections) await releaseConcurrency(currentUser.id);
@@ -2425,6 +2613,9 @@ messageRoutes.get("/messages/turn-images/settings", async (c) => {
     available,
     auto: available && prefs.auto,
     fine: available && fineAvailable(),
+    // The player's picked style; the picker shows only where there is a choice.
+    style: prefs.style,
+    styles: available ? TURN_IMAGE_STYLES.filter((s) => s === "default" || (s === "detailed" ? animaDetailedAvailable() : vividAvailable())) : ["default"],
     ...(quote ? { price: quote.listPrice, freeLeft: quote.freeLeft, unlimited: quote.unlimited } : {}),
   } });
 });
@@ -2449,6 +2640,38 @@ messageRoutes.post("/messages/:id/illustrate/cancel", async (c) => {
   return c.json({ data: { ok: status === "cancelled" || status === "failed", status, balance: quote.balance, freeLeft: quote.freeLeft, ...(current ? { content: current.content } : {}) } });
 });
 
+// POST /api/messages/:id/illustrate/select — show another of the pictures
+// drawn for this reply ({ key }: its storage key from the embed's version
+// list). Only the picture's address in the reply changes: no draw, no charge,
+// and the reply's text is untouched, so nothing downstream is invalidated
+// (the same as a picture landing). `expectedSwipeIndex` refuses the switch
+// if another variant became active meanwhile.
+messageRoutes.post("/messages/:id/illustrate/select", async (c) => {
+  const currentUser = c.get("user");
+  const body = await c.req.json<{ key?: unknown; expectedSwipeIndex?: unknown }>().catch(() => ({} as { key?: unknown; expectedSwipeIndex?: unknown }));
+  if (typeof body.key !== "string" || !/^[A-Za-z0-9_-]{1,512}$/.test(body.key)) return c.json({ error: "Invalid picture" }, 400);
+  const expectedSwipeIndex = typeof body.expectedSwipeIndex === "number" && Number.isInteger(body.expectedSwipeIndex)
+    ? body.expectedSwipeIndex : undefined;
+  const messageId = c.req.param("id");
+  const [msg] = await db.select().from(messages).where(eq(messages.id, messageId));
+  if (!msg || msg.role !== "assistant") return c.json({ error: "Message not found" }, 404);
+  const [session] = await db.select({ id: playSessions.id }).from(playSessions)
+    .where(and(eq(playSessions.id, msg.sessionId), eq(playSessions.userId, currentUser.id)));
+  if (!session) return c.json({ error: "Not authorized" }, 403);
+  const stale = () => c.json({ error: "This picture changed meanwhile.", code: "TURN_IMAGE_CHANGED" }, 409);
+  if (expectedSwipeIndex !== undefined && (msg.activeSwipeIndex ?? 0) !== expectedSwipeIndex) return stale();
+  const content = withTurnImageVersion(msg.content, body.key);
+  if (content === null) return stale();
+  if (content === msg.content) return c.json({ data: { content } });
+  // Only over the text it was computed from: a redraw or edit landing in
+  // between is not overwritten.
+  const [updated] = await db.update(messages).set(messageContentUpdate(content))
+    .where(and(messageEditWhere(messageId, expectedSwipeIndex), eq(messages.content, msg.content)))
+    .returning();
+  if (!updated) return stale();
+  return c.json({ data: { content: updated.content } });
+});
+
 // POST /api/messages/:id/illustrate — draw (or redraw) the picture for one reply.
 // The client calls it with {auto:true} right after a turn finishes (honours the
 // player's switch) and without it from the "draw this scene" button. A picture
@@ -2457,10 +2680,18 @@ messageRoutes.post("/messages/:id/illustrate/cancel", async (c) => {
 // with 403 before anything is read, charged or drawn.
 messageRoutes.post("/messages/:id/illustrate", async (c) => {
   const currentUser = c.get("user");
-  const body = await c.req.json<{ auto?: boolean; note?: string; fine?: boolean; drawId?: string }>().catch(() => ({} as { auto?: boolean; note?: string; fine?: boolean; drawId?: string }));
+  type IllustrateBody = { auto?: boolean; note?: string; fine?: boolean; drawId?: string; focus?: unknown; prompt?: unknown };
+  const body = await c.req.json<IllustrateBody>().catch(() => ({} as IllustrateBody));
   if (body.drawId !== undefined && !turnImageDrawId(body.drawId)) return c.json({ error: "Invalid draw id" }, 400);
   const drawId = body.drawId ?? crypto.randomUUID();
   const note = typeof body.note === "string" ? body.note.trim().slice(0, 200) : "";
+  // A passage the player picked out of this reply, and a picture they described themselves.
+  if ((body.focus !== undefined && typeof body.focus !== "string") || (body.prompt !== undefined && typeof body.prompt !== "string")) {
+    return c.json({ error: "Invalid picture request" }, 400);
+  }
+  const focus = typeof body.focus === "string" ? tidyPassage(body.focus) : "";
+  if (focus.length > PASSAGE_MAX) return c.json({ error: "The passage is too long", code: "TURN_IMAGE_PASSAGE_TOO_LONG" }, 400);
+  const ownPrompt = typeof body.prompt === "string" ? body.prompt.trim().slice(0, OWN_PROMPT_MAX) : "";
   if (!perTurnImagesEnabled()) return c.json({ data: { ok: false, reason: "unavailable" } });
   const prefs = await turnImagePrefs(currentUser.id);
   if (!prefs.optedIn) {
@@ -2474,6 +2705,11 @@ messageRoutes.post("/messages/:id/illustrate", async (c) => {
   const [session] = await db.select({ id: playSessions.id }).from(playSessions)
     .where(and(eq(playSessions.id, msg.sessionId), eq(playSessions.userId, currentUser.id)));
   if (!session) return c.json({ error: "Not authorized" }, 403);
+  // Only a passage of this reply's own text: anything else would be a prompt
+  // passed off as the story.
+  if (focus && !passageIn(stripTurnVideos(stripTurnImages(msg.content)), focus)) {
+    return c.json({ error: "That passage is not in this reply", code: "TURN_IMAGE_PASSAGE_NOT_FOUND" }, 400);
+  }
   // A reply that is the model refusing ("I can't continue…") has no scene: an
   // automatic draw pictured an empty room and charged for it. A player who
   // asks for this one with the button still gets it.
@@ -2507,9 +2743,15 @@ messageRoutes.post("/messages/:id/illustrate", async (c) => {
       const result = await illustrateTurn({
         signal: task.signal,
         world: ctx.worldDef, sessionId: msg.sessionId,
-        playerText: prevUser?.content ?? "", replyText, ...(note ? { note } : {}), ...(body.fine === true ? { fine: true } : {}), userId: currentUser.id, auto: false,
+        playerText: prevUser?.content ?? "", replyText, ...(note ? { note } : {}), ...(focus ? { focus } : {}), ...(ownPrompt ? { prompt: ownPrompt } : {}),
+        ...(body.fine === true ? { fine: true } : {}), userId: currentUser.id, auto: false,
+        messageId, automatic: body.auto === true,
         playerKey: await illustrationPlayerKey(currentUser.id, msg.model),
         playerPersona: buildPersonaSystemMessage(persona),
+        ...(turnImageLorasEnabled() ? {
+          loraOwners: { card: ctx.worldCreatorId, source: await loraSource(ctx.sourceWorldId, ctx.sourceWorldCreatorId, ctx.worldCreatorId) },
+          personaLora: personaLoraFor(await userPreferences(currentUser.id), persona?.id),
+        } : {}),
       });
       if (!result.ok) return c.json({ data: { ok: false, reason: result.reason } });
       // The reply may have been regenerated, edited or deleted while this drew;
@@ -2518,7 +2760,8 @@ messageRoutes.post("/messages/:id/illustrate", async (c) => {
         const [current] = await tx.select({ content: messages.content }).from(messages).where(eq(messages.id, messageId));
         // A scene-video clip landing meanwhile is not a change: the picture joins it.
         if (!current || stripTurnVideos(stripTurnImages(current.content)) !== stripTurnVideos(replyText)) return null;
-        const content = `${stripTurnImages(current.content).trimEnd()}\n\n${result.embed}`;
+        // A redraw keeps the reply's earlier pictures as versions the player can step back to.
+        const content = withDrawnTurnImage(current.content, result.embed);
         const [landed] = await tx.update(messages).set(messageContentUpdate(content))
           .where(and(eq(messages.id, messageId), eq(messages.content, current.content))).returning();
         return landed ?? null;
@@ -2534,6 +2777,104 @@ messageRoutes.post("/messages/:id/illustrate", async (c) => {
   } finally {
     await releaseConcurrency(slot);
   }
+});
+
+// ─── Pictures a card's own interface asks for (api.images.generate) ────────
+// The same drawing as a reply's picture (the card's cast and looks, the tagger,
+// the price, refunds), but for a moment the card describes: an NPC's portrait
+// for its gallery, a scene for its own panel. Answers 200 {ok:false, reason}
+// when nothing was drawn, like /illustrate.
+//
+// Never drawn without the player's yes: until the player allows this card
+// (even while pictures are free for them), the answer is {reason:"consent"} with
+// the price; the app asks in its own dialog (only after a real click in the
+// card) and calls again with confirmed:true (remember:true = this card may from
+// now on). A save's card gets CARD_IMAGE_SESSION_DAILY_CAP pictures a day.
+// The task row's message id is "card:<sessionId>"; the picture's turn_images
+// row carries the same, so card pictures are counted apart from reply pictures.
+const cardImageText = (value: unknown, max: number) => (typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, max) : "");
+
+messageRoutes.post("/card-images", async (c) => {
+  const currentUser = c.get("user");
+  const body = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
+  const sessionId = cardImageText(body.sessionId, 80);
+  const subject = cardImageText(body.subject, 60);
+  const look = cardImageText(body.look, 300);
+  const scene = cardImageText(body.scene, 600);
+  if (!sessionId || (!scene && !subject)) return c.json({ error: "Say who or what to draw (subject or scene)" }, 400);
+  if (body.drawId !== undefined && !turnImageDrawId(body.drawId)) return c.json({ error: "Invalid draw id" }, 400);
+  const drawId = (body.drawId as string | undefined) ?? crypto.randomUUID();
+  if (!perTurnImagesEnabled()) return c.json({ data: { ok: false, reason: "unavailable" } });
+  const preferences = await userPreferences(currentUser.id);
+  if (!readTurnImagePrefs(preferences).optedIn) return c.json({ data: { ok: false, reason: "off" } });
+  const ctx = await loadSessionContext(sessionId, currentUser.id);
+  if (!ctx?.worldDef) return c.json({ error: "Session not found" }, 404);
+  const worldId = ctx.session.worldId;
+  const quote = await turnImageQuote(currentUser.id);
+  const allowed = cardImagesAllowed(preferences, worldId);
+  const paidAllowed = allowed || body.confirmed === true;
+  // Free pictures too: they are the player's, shared with reply pictures, so a
+  // card never spends them unasked.
+  if (!paidAllowed) {
+    return c.json({ data: { ok: false, reason: "consent", price: quote.unlimited ? 0 : quote.listPrice, freeLeft: quote.freeLeft, balance: quote.balance } });
+  }
+  if (!allowed && body.confirmed === true && body.remember === true) await allowCardImages(currentUser.id, worldId);
+  if (await checkTurnImageRate(currentUser.id, env.PER_TURN_IMAGE_MAX_PER_MINUTE)) return c.json({ data: { ok: false, reason: "busy" } });
+  const slot = `turn-image:${currentUser.id}`;
+  if (!(await acquireConcurrency(slot, env.PER_TURN_IMAGE_MAX_ACTIVE_PER_USER, 300))) return c.json({ data: { ok: false, reason: "busy" } });
+  try {
+    if (!(await claimCardImageSessionDaily(sessionId, env.CARD_IMAGE_SESSION_DAILY_CAP))) return c.json({ data: { ok: false, reason: "limit" } });
+    if (!(await claimTurnImageDaily(env.PER_TURN_IMAGE_DAILY_CAP))) return c.json({ data: { ok: false, reason: "unavailable" } });
+    const taskKey = `card:${sessionId}`;
+    const reserved = await startTurnImageTask(drawId, currentUser.id, taskKey);
+    if (!reserved.charge) return c.json({ data: { ok: false, reason: "credits", price: reserved.price, balance: reserved.balance } });
+    const charge = reserved.charge;
+    // The price is settled under the wallet lock: a free picture spent by
+    // another draw meanwhile makes this one paid, which needs the yes too.
+    if (charge.price > 0 && !paidAllowed) {
+      await failTurnImageTask(drawId);
+      return c.json({ data: { ok: false, reason: "consent", price: charge.price, freeLeft: 0, balance: charge.balance + charge.price } });
+    }
+    const task = watchTurnImageTask(drawId);
+    try {
+      const persona = await resolvePersonaForSession(ctx.session).catch(() => null);
+      // The card's words stand in for a reply: the tagger picks who is in it and
+      // how they look from the card's cast, as for any reply.
+      const replyText = [subject ? `${subject}${look ? ` (${look})` : ""}.` : "", scene].filter(Boolean).join(" ");
+      const result = await illustrateTurn({
+        signal: task.signal, world: ctx.worldDef, sessionId,
+        playerText: "", replyText, ...(look ? { note: `${subject || "The character"} looks like this: ${look}`.slice(0, 200) } : {}),
+        userId: currentUser.id, auto: false, messageId: taskKey, automatic: false,
+        playerKey: await illustrationPlayerKey(currentUser.id, null),
+        playerPersona: buildPersonaSystemMessage(persona),
+        ...(turnImageLorasEnabled() ? {
+          loraOwners: { card: ctx.worldCreatorId, source: await loraSource(ctx.sourceWorldId, ctx.sourceWorldCreatorId, ctx.worldCreatorId) },
+          personaLora: personaLoraFor(preferences, persona?.id),
+        } : {}),
+      });
+      if (!result.ok) return c.json({ data: { ok: false, reason: result.reason } });
+      const url = /\[image:([^|\]]+)/.exec(result.embed)?.[1] ?? null;
+      const delivered = url ? await deliverTurnImageTask(drawId, async () => url) : null;
+      if (!delivered) return c.json({ data: { ok: false, reason: task.signal.reason === "cancelled" ? "cancelled" : "unavailable" } });
+      return c.json({ data: { ok: true, url: delivered, drawId, charged: charge.price, balance: charge.balance, freeLeft: charge.freeLeft } });
+    } finally {
+      task.close();
+      await failTurnImageTask(drawId).catch((error) => {
+        console.error("[CardImage] refund failed:", charge.referenceId, error instanceof Error ? error.message : error);
+      });
+    }
+  } finally {
+    await releaseConcurrency(slot);
+  }
+});
+
+messageRoutes.post("/card-images/cancel", async (c) => {
+  const currentUser = c.get("user");
+  const body = await c.req.json<{ drawId?: unknown; sessionId?: unknown }>().catch(() => ({} as { drawId?: unknown; sessionId?: unknown }));
+  if (!turnImageDrawId(body.drawId) || typeof body.sessionId !== "string") return c.json({ error: "Invalid draw id" }, 400);
+  const status = await cancelTurnImageTask(body.drawId, currentUser.id, `card:${body.sessionId}`);
+  if (status === "invalid") return c.json({ error: "Not found" }, 404);
+  return c.json({ data: { status } });
 });
 
 // DELETE /api/messages/:id
@@ -2586,10 +2927,14 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
     model?: string;
     modelFallback?: unknown;
     scene?: unknown;
+    /** 给 AI 的话 open in the composer now: replaces the turn's own (lib/player-note.ts). */
+    note?: unknown;
     overrides?: {
       maxTokens?: number;
       maxContext?: number;
       storyMemory?: number;
+      recapShare?: string;
+      memoryEvery?: number;
       temperature?: number;
       topP?: number;
       frequencyPenalty?: number;
@@ -2643,17 +2988,21 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
     }, 400);
   }
 
-  const context = await loadSessionContext(msg.sessionId, currentUser.id, { closeWhenCreatorBlocked: true });
+  const context = await loadSessionContext(msg.sessionId, currentUser.id, { closeWhenCreatorBlocked: true, deferDraftGate: true });
   if (!context) {
     return c.json({ error: "Session context not found" }, 404);
   }
 
-  // Block message generation if world is unpublished and user is not creator
-  if (context.worldStatus === "unpublished" && context.worldCreatorId !== currentUser.id) {
+  // Block message generation if world is unpublished and user is not its creator, an editor or a tester
+  if (context.worldStatus === "unpublished" && !context.viewerCanEdit && !context.viewerIsTester) {
     return c.json(
       { error: "This world is no longer available. The creator has unpublished it." },
       403
     );
+  }
+  // A never-published card stops playing for someone no longer working on it.
+  if (context.draftGateFailed || draftAccessEnded({ status: context.worldStatus, creatorId: context.worldCreatorId }, currentUser, context.viewerCanEdit || context.viewerIsTester)) {
+    return c.json({ error: "You no longer have access to this card.", code: "WORLD_ACCESS_ENDED" }, 403);
   }
 
   // A fork goes dark once its source card was pulled after being live (see
@@ -2673,13 +3022,13 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
     state: gameState,
     playerModel,
     userId: currentUser.id,
-    forceOfficial: context.worldAllowCustomApi === false && context.worldCreatorId !== currentUser.id,
+    forceOfficial: (context.worldSealedContent || (context.worldAllowCustomApi === false && !context.viewerCanEdit)),
   });
   const [activeUserPrompts] = await Promise.all([
-    loadUserPrompts(currentUser.id, { modelId: model }),
+    loadUserPrompts(currentUser.id, { modelId: model, worldId: context.session.worldId, withholdUnrestrict: await roomWithholdsUnrestrict(context.session.id) }),
   ]);
 
-  const isProtectedWorld = context.worldAllowCustomApi === false && context.worldCreatorId !== currentUser.id;
+  const isProtectedWorld = (context.worldSealedContent || (context.worldAllowCustomApi === false && !context.viewerCanEdit));
   const resolved = await resolveProviderForModel(currentUser.id, model, { forceOfficial: isProtectedWorld, allowRetiredForAccessCheck: true });
   if (!resolved) {
     if (isProtectedWorld) {
@@ -2722,7 +3071,8 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
       await refundTrialIfClaimed();
       return c.json({ error: "Your account has been temporarily suspended from AI generation. If you believe this is a mistake, please contact support.", code: "SUSPENDED" }, 403);
     }
-    if (!walletCheck!.ok && !grokTrialBypass) {
+    // An empty wallet stops paid models only: Yumina Free costs no mushies.
+    if (!walletCheck!.ok && !grokTrialBypass && !isZeroCostPlayModel(model)) {
       recordWallHit({ userId: currentUser.id, plan: userPlan, planVersion: walletCheck?.wallet.planVersion, balance: 0, model, endpoint: "regenerate", stage: "preflight" });
       return c.json({ error: "You've used all your credits for this period. Purchase additional credits or upgrade your plan.", code: "NO_CREDITS", balance: 0 }, 402);
     }
@@ -2769,15 +3119,18 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
     sessionId: msg.sessionId,
     session: context.session,
     world: worldDef,
+    // Story memory is resolved further down (it needs the clamped context);
+    // filled in there before the overflow pass reads it.
+    recap: { chosenShare: body.overrides?.recapShare, storyMemory: 0, memoryEvery: body.overrides?.memoryEvery },
   });
   worldDef = await resolveTurnWorldDefinition(regenTurnMemory, context.session, worldDef);
 
   // Get non-compacted messages up to (but not including) the one being
   // regenerated. Bounded window — `upTo` anchors it at the target message's
   // timestamp so the target is always inside the window even on mega sessions.
-  const historyRows = await loadBoundedRawHistory(msg.sessionId, regenTurnMemory, {
+  const historyRows = await applyPromptRegexRules(currentUser.id, await loadBoundedRawHistory(msg.sessionId, regenTurnMemory, {
     upTo: msg.createdAt ?? undefined,
-  });
+  }));
 
   const msgIndex = historyRows.findIndex((m) => m.id === messageId);
   // findIndex === -1 would make slice(0, -1) silently drop the tail row; with
@@ -2821,13 +3174,14 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
     model,
     regenClamp(body.overrides?.maxTokens ?? worldDef.settings?.maxTokens ?? 4096, 256, 32768),
     body.overrides?.reasoningEffort,
-    await resolved.provider.getContextWindow?.(),
+    await resolved.provider.getContextWindow?.(model),
   );
   const regenStoryMemory = turnStoryMemory({
     override: body.overrides?.storyMemory,
     maxContext: regenMaxContext,
     accountCreatedAt: currentUser?.createdAt,
   });
+  regenTurnMemory.recap = { chosenShare: body.overrides?.recapShare, storyMemory: regenStoryMemory.tokens, memoryEvery: body.overrides?.memoryEvery };
   const regenBudgetPercent = worldDef.settings?.lorebookBudgetPercent ?? 100;
   const regenBudgetCap = worldDef.settings?.lorebookBudgetCap ?? 0;
   const tokenBudget = resolveLorebookBudget({
@@ -2869,6 +3223,8 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
   const regenStaticFormatBlock = promptBuilder.buildStaticFormatBlock(worldDef, {
     activeGreetingId: snapshot.activeGreetingId,
     state: snapshot,
+    // the creator's own expressions for a live character beside the chat (nothing for a card without one)
+    liveFaces: await liveFacesFor(worldDef),
   });
   if (regenStaticFormatBlock) {
     regenContextMessages.push({ role: "system", content: regenStaticFormatBlock });
@@ -2960,7 +3316,12 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
   // they describe the turn before it — matching the reverted state.
   const regenLastTurnChanges = await loadLastTurnChanges(priorMessages);
   const regenFormatBlock = promptBuilder.buildFormatBlock(worldDef, snapshot, regenLastTurnChanges);
-  if (regenFormatBlock) {
+  const regenFormatBlockInPlayerTurn = regenFormatBlock
+    ? foldStateBlockIntoPlayerTurn(model, regenFormatBlock, regenHistoryMessages, regenInjectedDepthMessages)
+    : null;
+  if (regenFormatBlockInPlayerTurn) {
+    promptTracer.tail(regenFormatBlockInPlayerTurn, "state", regenFormatBlock!.length + STATE_BLOCK_SEPARATOR.length);
+  } else if (regenFormatBlock) {
     regenContextMessages.push({ role: "system", content: regenFormatBlock });
   }
   promptTracer.take(regenContextMessages, "state");
@@ -2969,6 +3330,24 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
     const sceneMessage = liveSceneMessage(liveScene);
     regenContextMessages.push(sceneMessage);
     promptTracer.tag(sceneMessage, "scene");
+  }
+  // 给 AI 的话 the turn was sent with: a swipe follows the same direction,
+  // unless the player has a new one open in the composer, which replaces it.
+  const regenPrecedingId = (() => {
+    const row = priorMessages[priorMessages.length - 1] as { id?: unknown; role?: string } | undefined;
+    return row?.role === "user" && typeof row.id === "string" ? row.id : null;
+  })();
+  const { note: regenNote, replaced: regenNoteReplaced } = resolveTurnNote(body.note, turnPlayerNote(msg, regenPrecedingId
+    ? (await db.select({ role: messages.role, playerNote: messages.playerNote }).from(messages)
+      .where(eq(messages.id, regenPrecedingId)).limit(1))[0]
+    : null));
+  const regenNoteRowId = regenNoteReplaced
+    ? turnNoteRowId(msg, regenPrecedingId ? { id: regenPrecedingId, role: "user" } : null)
+    : null;
+  const regenNoteMessage = regenNote ? playerNoteMessage(regenNote) : null;
+  if (regenNoteMessage) {
+    regenContextMessages.push(regenNoteMessage);
+    promptTracer.tag(regenNoteMessage, "pending");
   }
   // 游戏数据: only what the answering AI is wired to read.
 
@@ -2984,7 +3363,7 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
     regenContextMessages.push({ role: "system", content: regenAntiRepetitionInstruction });
   }
 
-  const regenSuffixCount = regenPostHistory.length + (regenFormatBlock ? 1 : 0) + (liveScene ? 1 : 0) + (regenAntiRepetitionInstruction ? 1 : 0);
+  const regenSuffixCount = regenPostHistory.length + (regenFormatBlock && !regenFormatBlockInPlayerTurn ? 1 : 0) + (liveScene ? 1 : 0) + (regenNoteMessage ? 1 : 0) + (regenAntiRepetitionInstruction ? 1 : 0);
   // Depth entries and pending context live INSIDE the trim window but are not
   // conversation. Story memory is a budget for what the player said and the
   // AI replied; a world that injects a lot of keyword-triggered lore must not
@@ -2993,6 +3372,7 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
   const regenNonRawHistoryMessages = [
     ...regenDepthEntries.map((entry) => ({ role: entry.apiRole, content: entry.content })),
     ...regenPendingContext.map((ctx) => ({ role: (ctx.role as "system" | "user") ?? "system", content: ctx.message })),
+    ...(regenFormatBlockInPlayerTurn ? [{ role: "system" as const, content: regenFormatBlock! }] : []),
   ];
   const regenHistoryWindowBudget = regenStoryMemory.tokens + estimatePromptMessagesTokens(regenNonRawHistoryMessages, model);
 
@@ -3040,7 +3420,7 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
   // to ~50s) instead of killing it mid-stream. See lib/stream-registry.ts.
   // Session-keyed so the stop endpoint can abort it.
   const unregisterStream = registerStream(abortController, msg.sessionId);
-  const outputAttempt = new TurnOutputAttempt({ dispatch: regenTurnMemory.dispatch, userId: currentUser.id, sessionId: msg.sessionId, targetId: msg.id, path: "regenerate", world: worldDef, baseline: gameState, model, apiKeyTier: resolved.apiKeyTier, startedAt: startTime, worldVersion: context.worldVersion, pendingVersion: context.pendingVersion, signal: abortController.signal, worldId: context.session.worldId, checkPending: viewerSeesWorkingCopy(context.worldStatus, context.worldCreatorId, currentUser.id) });
+  const outputAttempt = new TurnOutputAttempt({ dispatch: regenTurnMemory.dispatch, userId: currentUser.id, sessionId: msg.sessionId, targetId: msg.id, path: "regenerate", world: worldDef, baseline: gameState, model, apiKeyTier: resolved.apiKeyTier, startedAt: startTime, worldVersion: context.worldVersion, pendingVersion: context.pendingVersion, signal: abortController.signal, worldId: context.session.worldId, checkPending: viewerSeesWorkingCopy(context.worldStatus, context.worldCreatorId, currentUser.id, context.viewerCanEdit) });
 
   // Mid-stream credit tracking for regenerate (mirrors send path)
   const regenPromptChars = imagePromptChars(providerMessages);
@@ -3049,17 +3429,22 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
         ctx: { wallet: { ...walletCheck!.wallet, balance: walletCheck!.balance }, plan: userPlan, planConfig, protected: true, concurrencyHeld: true },
         model,
         promptChars: regenPromptChars,
+        // Calibrate from the session's last billed turn (a trial turn has no gate).
+        sessionId: grokTrialBypass ? undefined : msg.sessionId,
       })
     : null;
 
   c.header("X-Accel-Buffering", "no");
+  const roomTee = await openStoryRoomTee(context.session.id);
 
-  return streamSSE(c, async (stream) => {
+  return streamSSE(c, withStoryRoomTee(roomTee, async (stream) => {
     // Disconnects don't abort generation — see the send path. Explicit stops
     // arrive via the stop endpoint (USER_STOP_ABORT_REASON).
     let clientGone = false;
     stream.onAbort(() => { clientGone = true; });
     const sse = async (message: Parameters<SSEStreamingApi["writeSSE"]>[0]): Promise<void> => {
+      // Story room members follow the reply even after the host's tab drops.
+      roomTee?.forward(message);
       if (clientGone) return;
       try {
         await stream.writeSSE(message);
@@ -3111,6 +3496,7 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
         model,
         messages: providerMessages,
         maxTokens: regenClamp(body.overrides?.maxTokens ?? worldDef.settings?.maxTokens ?? 4096, 256, 32768),
+        contextBudget: regenMaxContext,
         // The player's sampling unless the card locked its own (samplingPolicy "author").
         ...storySamplingParams(worldDef.settings, body.overrides, regenClamp),
         repetitionPenalty: regenAntiRepetitionInstruction
@@ -3356,20 +3742,23 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
 
           const finalState = stateManager.getSnapshot();
 
-          const repetition = regenAntiRepetitionInstruction
-            ? detectDegenerateRepetitionForModel(
-                model,
-                cleanText,
-                [
-                  ...priorMessages
-                    .filter((message) => message.role === "assistant")
-                    .slice(-3)
-                    .map((message) => message.content),
-                  msg.content,
-                  ...((msg.swipes ?? []) as SwipeWithUsage[]).map((swipe) => swipe.content),
-                ],
-              )
-            : null;
+          // Every model (see the send path); previous replies matter only for Kimi.
+          const repetition = detectDegenerateRepetitionForModel(
+            model,
+            cleanText,
+            [
+              ...priorMessages
+                .filter((message) => message.role === "assistant")
+                .slice(-3)
+                .map((message) => message.content),
+              msg.content,
+              ...((msg.swipes ?? []) as SwipeWithUsage[]).map((swipe) => swipe.content),
+            ],
+          );
+          const partialLoop = repetition ? null : detectPartialTokenLoop(cleanText);
+          if (partialLoop) {
+            captureServerEvent(currentUser.id, "llm_partial_repetition", { model, endpoint: "regenerate", occurrences: partialLoop.occurrences, chars: cleanText.length, session_id: msg.sessionId });
+          }
           if (repetition) {
             console.warn(
               `[Messages] Rejected repetitive ${model} regeneration (${repetition.reason}, ${repetition.occurrences}x, ${cleanText.length} chars)`,
@@ -3403,6 +3792,7 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
 
           // Policy refusal: kept, not billed; flagged for the client bar.
           const isRefusal = detectRefusal(cleanText);
+          const cut = isRefusal ? undefined : replyCutOf(chunk.stopReason);
           if (isRefusal) {
             captureServerEvent(currentUser.id, "llm_refusal_detected", {
               model: actualModel, endpoint: "regenerate", chars: cleanText.length, session_id: msg.sessionId,
@@ -3426,6 +3816,7 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
             model: actualModel,
             tokenCount: chunk.usage?.totalTokens,
             ...(isRefusal && { refusal: true }),
+            ...(cut && { cut }),
           } satisfies SwipeWithUsage;
           const updatedSwipes = [...existingSwipes, newSwipe];
 
@@ -3500,8 +3891,13 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
                 model: actualModel,
                 tokenCount: chunk.usage?.totalTokens ?? null,
                 generationTimeMs,
+                ...(regenNoteRowId === messageId && { playerNote: regenNote }),
               })
               .where(eq(messages.id, messageId));
+            if (regenNoteRowId && regenNoteRowId !== messageId) {
+              await tx.update(messages).set({ playerNote: regenNote })
+                .where(and(eq(messages.id, regenNoteRowId), eq(messages.sessionId, msg.sessionId)));
+            }
 
             // Update session state
             await tx
@@ -3628,6 +4024,7 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
               modelFallback: parseModelFallbackRecord(body.modelFallback, model),
               swipeIndex: updatedSwipes.length - 1,
               totalSwipes: updatedSwipes.length,
+              ...(regenNoteRowId && { playerNote: { messageId: regenNoteRowId, note: regenNote } }),
               tokenCount: chunk.usage?.totalTokens ?? null,
               generationTimeMs,
               choices,
@@ -3637,7 +4034,10 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
               firedIds: regenSystemResult.firedIds,
               injectedEntryIds: matchedEntries.map((e) => e.id),
               credits: creditsPayload(creditsCost, creditsBalance),
+              // Background AIs waiting for the player's answer before they charge.
+              ...(await consentNeededForDone(currentUser.id, [outputAttempt.consentNeeded])),
               ...(isRefusal && { refusal: true }),
+              ...(cut && { cut }),
             }),
           });
         }
@@ -3698,7 +4098,7 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
         await sse({ event: "error", data: JSON.stringify(pendingFallbackError) });
       }
     }
-  });
+  }));
   } catch (err) {
     if (useProtections) await releaseConcurrency(currentUser.id);
     await refundTrialIfClaimed();
@@ -3719,6 +4119,8 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
       maxTokens?: number;
       maxContext?: number;
       storyMemory?: number;
+      recapShare?: string;
+      memoryEvery?: number;
       temperature?: number;
       topP?: number;
       frequencyPenalty?: number;
@@ -3731,17 +4133,21 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
     };
   };
 
-  const context = await loadSessionContext(sessionId, currentUser.id, { closeWhenCreatorBlocked: true });
+  const context = await loadSessionContext(sessionId, currentUser.id, { closeWhenCreatorBlocked: true, deferDraftGate: true });
   if (!context) {
     return c.json({ error: "Session not found" }, 404);
   }
 
-  // Block message generation if world is unpublished and user is not creator
-  if (context.worldStatus === "unpublished" && context.worldCreatorId !== currentUser.id) {
+  // Block message generation if world is unpublished and user is not its creator, an editor or a tester
+  if (context.worldStatus === "unpublished" && !context.viewerCanEdit && !context.viewerIsTester) {
     return c.json(
       { error: "This world is no longer available. The creator has unpublished it." },
       403
     );
+  }
+  // A never-published card stops playing for someone no longer working on it.
+  if (context.draftGateFailed || draftAccessEnded({ status: context.worldStatus, creatorId: context.worldCreatorId }, currentUser, context.viewerCanEdit || context.viewerIsTester)) {
+    return c.json({ error: "You no longer have access to this card.", code: "WORLD_ACCESS_ENDED" }, 403);
   }
 
   // A fork goes dark once its source card was pulled after being live (see
@@ -3765,13 +4171,13 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
     state: gameState,
     playerModel,
     userId: currentUser.id,
-    forceOfficial: context.worldAllowCustomApi === false && context.worldCreatorId !== currentUser.id,
+    forceOfficial: (context.worldSealedContent || (context.worldAllowCustomApi === false && !context.viewerCanEdit)),
   });
   const [activeUserPrompts] = await Promise.all([
-    loadUserPrompts(currentUser.id, { modelId: model }),
+    loadUserPrompts(currentUser.id, { modelId: model, worldId: context.session.worldId, withholdUnrestrict: await roomWithholdsUnrestrict(context.session.id) }),
   ]);
 
-  const isProtectedWorld = context.worldAllowCustomApi === false && context.worldCreatorId !== currentUser.id;
+  const isProtectedWorld = (context.worldSealedContent || (context.worldAllowCustomApi === false && !context.viewerCanEdit));
   const resolved = await resolveProviderForModel(currentUser.id, model, { forceOfficial: isProtectedWorld, allowRetiredForAccessCheck: true });
   if (!resolved) {
     if (isProtectedWorld) {
@@ -3818,7 +4224,7 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
     model,
     contClamp(body.overrides?.maxTokens ?? worldDef.settings?.maxTokens ?? 4096, 256, 32768),
     body.overrides?.reasoningEffort,
-    await resolved.provider.getContextWindow?.(),
+    await resolved.provider.getContextWindow?.(model),
   );
   const storyMemory = turnStoryMemory({
     override: body.overrides?.storyMemory,
@@ -3830,7 +4236,8 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
       await refundTrialIfClaimed();
       return c.json({ error: "Your account has been temporarily suspended from AI generation. If you believe this is a mistake, please contact support.", code: "SUSPENDED" }, 403);
     }
-    if (!walletCheck!.ok && !grokTrialBypass) {
+    // An empty wallet stops paid models only: Yumina Free costs no mushies.
+    if (!walletCheck!.ok && !grokTrialBypass && !isZeroCostPlayModel(model)) {
       recordWallHit({ userId: currentUser.id, plan: userPlan, planVersion: walletCheck?.wallet.planVersion, balance: 0, model, endpoint: "continue", stage: "preflight" });
       return c.json({ error: "You've used all your credits for this period. Purchase additional credits or upgrade your plan.", code: "NO_CREDITS", balance: 0 }, 402);
     }
@@ -3883,6 +4290,7 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
     sessionId,
     session: context.session,
     world: worldDef,
+    recap: { chosenShare: body.overrides?.recapShare, storyMemory: storyMemory.tokens, memoryEvery: body.overrides?.memoryEvery },
   });
   worldDef = await resolveTurnWorldDefinition(contTurnMemory, context.session, worldDef);
   // No awaited pre-history compaction here — same rationale as the send path:
@@ -3893,7 +4301,7 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
   const stateManager = new GameStateManager(worldDef, gameState);
 
   // Bounded window — same rationale as the send path (see loadBoundedRawHistory).
-  const historyRows = await loadBoundedRawHistory(sessionId, contTurnMemory);
+  const historyRows = await applyPromptRegexRules(currentUser.id, await loadBoundedRawHistory(sessionId, contTurnMemory));
   const currentRunHistory = limitHistoryToCurrentRun(historyRows);
 
   // Populate macro context
@@ -3966,6 +4374,8 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
   const contStaticFormatBlock = promptBuilder.buildStaticFormatBlock(worldDef, {
     activeGreetingId: snapshot.activeGreetingId,
     state: snapshot,
+    // the creator's own expressions for a live character beside the chat (nothing for a card without one)
+    liveFaces: await liveFacesFor(worldDef),
   });
   if (contStaticFormatBlock) {
     contextMessages.push({ role: "system", content: contStaticFormatBlock });
@@ -4049,7 +4459,14 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
   // this turn" — exactly the trace that stops the continuation re-emitting them.
   const contLastTurnChanges = await loadLastTurnChanges(currentRunHistory);
   const contFormatBlock = promptBuilder.buildFormatBlock(worldDef, snapshot, contLastTurnChanges);
-  if (contFormatBlock) {
+  // Continue normally ends on the assistant's partial reply, so this stays a
+  // system message; the fold applies only if the history ends on the player.
+  const contFormatBlockInPlayerTurn = contFormatBlock
+    ? foldStateBlockIntoPlayerTurn(model, contFormatBlock, historyMessages, contInjectedDepthMessages)
+    : null;
+  if (contFormatBlockInPlayerTurn) {
+    promptTracer.tail(contFormatBlockInPlayerTurn, "state", contFormatBlock!.length + STATE_BLOCK_SEPARATOR.length);
+  } else if (contFormatBlock) {
     contextMessages.push({ role: "system", content: contFormatBlock });
   }
   promptTracer.take(contextMessages, "state");
@@ -4072,13 +4489,16 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
     contextMessages.push({ role: "system", content: contAntiRepetitionInstruction });
   }
 
-  const contSuffixCount = contPostHistory.length + (contFormatBlock ? 1 : 0) + (liveScene ? 1 : 0) + (contAntiRepetitionInstruction ? 1 : 0);
+  const contSuffixCount = contPostHistory.length + (contFormatBlock && !contFormatBlockInPlayerTurn ? 1 : 0) + (liveScene ? 1 : 0) + (contAntiRepetitionInstruction ? 1 : 0);
   // Depth entries and pending context live INSIDE the trim window but are not
   // conversation. Story memory is a budget for what the player said and the
   // AI replied; a world that injects a lot of keyword-triggered lore must not
   // silently shrink it. Measured once and added to the allowance, so the
   // effective cap on real history stays exactly storyMemory.
-  const contNonRawHistoryMessages = depthEntries.map((entry) => ({ role: entry.apiRole, content: entry.content }));
+  const contNonRawHistoryMessages = [
+    ...depthEntries.map((entry) => ({ role: entry.apiRole, content: entry.content })),
+    ...(contFormatBlockInPlayerTurn ? [{ role: "system" as const, content: contFormatBlock! }] : []),
+  ];
   const contHistoryWindowBudget = storyMemory.tokens + estimatePromptMessagesTokens(contNonRawHistoryMessages, model);
 
   contHistoryStart = await compactTurnOverflowIfNeeded({
@@ -4119,7 +4539,7 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
   // to ~50s) instead of killing it mid-stream. See lib/stream-registry.ts.
   // Session-keyed so the stop endpoint can abort it.
   const unregisterStream = registerStream(abortController, sessionId);
-  const outputAttempt = new TurnOutputAttempt({ dispatch: contTurnMemory.dispatch, userId: currentUser.id, sessionId: sessionId, targetId: lastAssistantMsg.id, path: "continue", world: worldDef, baseline: gameState, model, apiKeyTier: resolved.apiKeyTier, startedAt: startTime, worldVersion: context.worldVersion, pendingVersion: context.pendingVersion, signal: abortController.signal, worldId: context.session.worldId, checkPending: viewerSeesWorkingCopy(context.worldStatus, context.worldCreatorId, currentUser.id) });
+  const outputAttempt = new TurnOutputAttempt({ dispatch: contTurnMemory.dispatch, userId: currentUser.id, sessionId: sessionId, targetId: lastAssistantMsg.id, path: "continue", world: worldDef, baseline: gameState, model, apiKeyTier: resolved.apiKeyTier, startedAt: startTime, worldVersion: context.worldVersion, pendingVersion: context.pendingVersion, signal: abortController.signal, worldId: context.session.worldId, checkPending: viewerSeesWorkingCopy(context.worldStatus, context.worldCreatorId, currentUser.id, context.viewerCanEdit) });
 
   // Mid-stream credit tracking for continue (mirrors send path)
   const contPromptChars = imagePromptChars(providerMessages);
@@ -4128,17 +4548,22 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
         ctx: { wallet: { ...walletCheck!.wallet, balance: walletCheck!.balance }, plan: userPlan, planConfig, protected: true, concurrencyHeld: true },
         model,
         promptChars: contPromptChars,
+        // Calibrate from the session's last billed turn (a trial turn has no gate).
+        sessionId: grokTrialBypass ? undefined : sessionId,
       })
     : null;
 
   c.header("X-Accel-Buffering", "no");
+  const roomTee = await openStoryRoomTee(context.session.id);
 
-  return streamSSE(c, async (stream) => {
+  return streamSSE(c, withStoryRoomTee(roomTee, async (stream) => {
     // Disconnects don't abort generation — see the send path. Explicit stops
     // arrive via the stop endpoint (USER_STOP_ABORT_REASON).
     let clientGone = false;
     stream.onAbort(() => { clientGone = true; });
     const sse = async (message: Parameters<SSEStreamingApi["writeSSE"]>[0]): Promise<void> => {
+      // Story room members follow the reply even after the host's tab drops.
+      roomTee?.forward(message);
       if (clientGone) return;
       try {
         await stream.writeSSE(message);
@@ -4175,6 +4600,7 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
         model,
         messages: providerMessages,
         maxTokens: contClamp(body.overrides?.maxTokens ?? worldDef.settings?.maxTokens ?? 4096, 256, 32768),
+        contextBudget: maxContext,
         // The player's sampling unless the card locked its own (samplingPolicy "author").
         ...storySamplingParams(worldDef.settings, body.overrides, contClamp),
         repetitionPenalty: contAntiRepetitionInstruction
@@ -4418,9 +4844,12 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
 
           const finalState = stateManager.getSnapshot();
 
-          const repetition = contAntiRepetitionInstruction
-            ? detectDegenerateRepetitionForModel(model, cleanContinuation, [existingContent])
-            : null;
+          // Every model (see the send path); previous replies matter only for Kimi.
+          const repetition = detectDegenerateRepetitionForModel(model, cleanContinuation, [existingContent]);
+          const partialLoop = repetition ? null : detectPartialTokenLoop(cleanContinuation);
+          if (partialLoop) {
+            captureServerEvent(currentUser.id, "llm_partial_repetition", { model, endpoint: "continue", occurrences: partialLoop.occurrences, chars: cleanContinuation.length, session_id: sessionId });
+          }
           if (repetition) {
             console.warn(
               `[Messages] Rejected repetitive ${model} continuation (${repetition.reason}, ${repetition.occurrences}x, ${cleanContinuation.length} chars)`,
@@ -4468,6 +4897,8 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
           // with a refusal stays flagged (that text is still on screen).
           const continuationRefused = detectRefusal(cleanContinuation);
           const isRefusal = continuationRefused || existingSwipes[activeSwipeIndex]?.refusal === true;
+          // The continuation's own ending decides: finished clears the mark.
+          const cut = isRefusal ? undefined : replyCutOf(chunk.stopReason);
           if (continuationRefused) {
             captureServerEvent(currentUser.id, "llm_refusal_detected", {
               model: actualModel, endpoint: "continue", chars: cleanContinuation.length, session_id: sessionId,
@@ -4492,6 +4923,7 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
                         model: actualModel ?? swipe.model,
                         modelFallback: parseModelFallbackRecord(body.modelFallback, model) ?? swipe.modelFallback,
                         ...(isRefusal && { refusal: true }),
+                        cut,
                       }
                     : swipe
                 )
@@ -4509,6 +4941,7 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
                     model: actualModel,
                     tokenCount: chunk.usage?.totalTokens,
                     ...(isRefusal && { refusal: true }),
+                    ...(cut && { cut }),
                   },
                 ];
 
@@ -4720,7 +5153,10 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
               firedIds: contSystemResult.firedIds,
               injectedEntryIds: matchedEntries.map((e) => e.id),
               credits: creditsPayload(creditsCost, creditsBalance),
+              // Background AIs waiting for the player's answer before they charge.
+              ...(await consentNeededForDone(currentUser.id, [outputAttempt.consentNeeded])),
               ...(isRefusal && { refusal: true }),
+              ...(cut && { cut }),
             }),
           });
         }
@@ -4781,7 +5217,7 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
         await sse({ event: "error", data: JSON.stringify(pendingFallbackError) });
       }
     }
-  });
+  }));
   } catch (err) {
     if (useProtections) await releaseConcurrency(currentUser.id);
     await refundTrialIfClaimed();
@@ -4999,6 +5435,8 @@ function getProvider(modelId: string): string {
     "nousresearch": "Nous Research",
     "x-ai": "xAI",
     "z-ai": "Z.ai",
+    "bytedance-seed": "ByteDance",
+    moonshotai: "Moonshot AI",
   };
   return map[prefix] ?? prefix;
 }

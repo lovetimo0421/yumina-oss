@@ -17,6 +17,7 @@ export interface WorldItem {
   landscapeCoverUrl?: string | null;
   landscapeCoverCrop?: CoverCropSettings | null;
   isPublished: boolean | null;
+  visibility?: string | null;
   status?: string | null;
   isNsfw: boolean | null;
   blurCover?: boolean | null;
@@ -67,6 +68,7 @@ export interface PendingEditSummary {
 
 interface WorldsState {
   worlds: WorldItem[];
+  linkedWorld: WorldItem | null;
   loading: boolean;
   error: string | null;
   lastFetchedAt: number | null;
@@ -106,6 +108,7 @@ export const useWorldsStore = create<WorldsState>((set, get) => {
 
   return {
     worlds: [],
+    linkedWorld: null,
     loading: false,
     error: null,
     lastFetchedAt: null,
@@ -147,14 +150,14 @@ export const useWorldsStore = create<WorldsState>((set, get) => {
             // Stay silent on 401 (guest user) — just set empty
             if (res.status !== 401) loadWorldsFailed();
             cacheKey = "";
-            set({ error: res.status === 401 ? null : "Failed to fetch worlds", worlds: [], loading: false, lastFetchedAt: null });
+            set({ error: res.status === 401 ? null : "Failed to fetch worlds", worlds: [], linkedWorld: null, loading: false, lastFetchedAt: null });
             return;
           }
-          const { data } = await res.json();
+          const { data, linkedWorld } = await res.json();
           if (requestGeneration !== generation) return;
           cacheKey = scopeKey;
           cachedRequestedId = options.worldId;
-          set({ worlds: data, loading: false, lastFetchedAt: Date.now() });
+          set({ worlds: data, linkedWorld: linkedWorld ?? null, loading: false, lastFetchedAt: Date.now() });
         } catch {
           if (requestGeneration !== generation) return;
           loadWorldsFailed();
@@ -182,7 +185,7 @@ export const useWorldsStore = create<WorldsState>((set, get) => {
           failed();
           return false;
         }
-        set((s) => ({ worlds: s.worlds.filter((w) => w.id !== id) }));
+        set((s) => ({ worlds: s.worlds.filter((w) => w.id !== id), linkedWorld: s.linkedWorld?.id === id ? null : s.linkedWorld }));
         useLibraryStore.getState().invalidate();
         return true;
       } catch {
@@ -196,7 +199,7 @@ export const useWorldsStore = create<WorldsState>((set, get) => {
       inFlight = null;
       cacheKey = "";
       cachedRequestedId = undefined;
-      set({ lastFetchedAt: null, worlds: [] });
+      set({ lastFetchedAt: null, worlds: [], linkedWorld: null });
       void get().fetchWorlds(lastOptions);
     },
 
@@ -206,7 +209,7 @@ export const useWorldsStore = create<WorldsState>((set, get) => {
       cacheKey = "";
       cachedRequestedId = undefined;
       lastOptions = {};
-      set({ worlds: [], loading: false, error: null, lastFetchedAt: null, _cachedLang: "" });
+      set({ worlds: [], linkedWorld: null, loading: false, error: null, lastFetchedAt: null, _cachedLang: "" });
     },
   };
 });

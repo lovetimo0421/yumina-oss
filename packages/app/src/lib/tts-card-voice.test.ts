@@ -33,3 +33,10 @@ test("a card that set no voices leaves the player's choice in force", () => {
 test("a voice that is not a reference id is not sent", () => {
   assert.equal(resolveCardVoice({ entries: [], settings: { narratorVoice: "bob" } }, "text"), undefined);
 });
+
+test("voices the player picked in this chat beat the card's", () => {
+  const MINE = "0123456789abcdef0123456789abcdef";
+  assert.equal(resolveCardVoice(world, "[speaker: Mika] She looked up.", { Mika: MINE }), MINE);
+  assert.equal(resolveCardVoice(world, "[speaker: Ren] He said nothing.", { narrator: MINE }), MINE);
+  assert.equal(resolveCardVoice(world, "[speaker: Mika] Hi.", { Mika: "not-a-voice" }), MIKA);
+});

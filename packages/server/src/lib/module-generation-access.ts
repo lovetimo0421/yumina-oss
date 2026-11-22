@@ -9,6 +9,8 @@ import { imagePromptChars } from "./chat-images.js";
 import type { ChatMessage } from "./llm/types.js";
 import { PLANS } from "./plan-config.js";
 import { resolveProviderForModel } from "./resolve-provider.js";
+import { estimateCallCredits, gateBackgroundCharge } from "./background-consent.js";
+import { viewerCanEditSql } from "./working-copy.js";
 
 /** All station calls carry creator-authored prompts, even when the call is
  * scheduled in the background. Resolve access from the live session/world,
@@ -23,6 +25,9 @@ export async function beginModuleGeneration(args: {
   const [access] = await db.select({
     creatorId: worlds.creatorId,
     allowCustomApi: worlds.allowCustomApi,
+    sealedContent: worlds.sealedContent,
+    // Creator or editor collaborator (can read the source anyway): same exemption.
+    viewerCanEdit: viewerCanEditSql(args.userId),
     isSuspended: user.isSuspended,
   }).from(playSessions)
     .innerJoin(worlds, eq(worlds.id, playSessions.worldId))
@@ -31,7 +36,7 @@ export async function beginModuleGeneration(args: {
     .limit(1);
   if (!access) throw new Error("SESSION_NOT_FOUND");
 
-  const forceOfficial = access.allowCustomApi === false && access.creatorId !== args.userId;
+  const forceOfficial = access.sealedContent || (access.allowCustomApi === false && access.creatorId !== args.userId && access.viewerCanEdit !== true);
   const resolved = await resolveProviderForModel(args.userId, args.model, {
     forceOfficial, allowOfficialFallback: false, allowRetiredForAccessCheck: true,
   });
@@ -53,6 +58,17 @@ export async function beginModuleGeneration(args: {
       const cost = await calculateCost(args.model, estimateTokensFromChars(imagePromptChars(prompt)), args.maxTokens);
       if (!balance.ok || cost > balance.balance) throw new Error("NO_CREDITS");
     }
+    // A card's own AI asks before it charges (background-consent.ts). It has
+    // no free stand-in: the card's author picked what it runs on. Unanswered
+    // or declined, it does not run, like an empty wallet.
+    const fitted = prompt;
+    const gate = await gateBackgroundCharge({
+      userId: args.userId,
+      feature: "cardAi",
+      model: args.model,
+      estimate: () => estimateCallCredits(args.model, estimateTokensFromChars(imagePromptChars(fitted)), args.maxTokens),
+    });
+    if (!gate.run) throw new Error("CONSENT_NEEDED");
   }
 
   const limited = await checkSideCallRateLimit(args.userId);

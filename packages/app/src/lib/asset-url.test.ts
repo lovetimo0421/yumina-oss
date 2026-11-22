@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { cardImageUrl, thumbnailImageUrl, originalImageUrl, fallbackToOriginalOnError, isAnimatedImageRef, isMotionCoverRef, coverPreviewUrl } from "./asset-url";
+import { readFileSync } from "node:fs";
+import { assetOriginalPath, resolveAssetRefs, resolveAssetUrl, cardImageUrl, thumbnailImageUrl, originalImageUrl, fallbackToOriginalOnError, isAnimatedImageRef, isMotionCoverRef, coverPreviewUrl } from "./asset-url";
 
 // Guards the CF Image Transformations contract (see cardImageUrl doc comment):
 // quality=85 (Cloudflare's default — 82 read visibly worse on DPR-1 monitors),
@@ -97,4 +98,30 @@ test("isAnimatedImageRef reads the key out of a /cdn/key/ URL", () => {
   assert.equal(isAnimatedImageRef("worlds/w1/thumbnail/abc.anim.webp"), true);
   assert.equal(isAnimatedImageRef("/cdn/2232e6b0-132b-41b8-ad1b-78c6a37f8f96"), false);
   assert.equal(isAnimatedImageRef(null), false);
+});
+
+// 2026-11-21: Cloudflare Polish handed a WebP-accepting browser a lossy WebP of
+// a card's 96px pixel-art tile once the edge had a polished copy, so sprites
+// went blurry "at random". Card code resolves its @asset: refs to the
+// no-transform original route instead.
+test("card asset refs resolve to the original-bytes route", async () => {
+  const id = "096fe451-ec7e-8391-9936-f1552e603868";
+  assert.equal(assetOriginalPath(id), `/cdn/${id}/original`);
+  assert.equal(assetOriginalPath("not-a-uuid"), "/cdn/not-a-uuid");
+  assert.match(await resolveAssetUrl(`@asset:${id}`, { original: true }), new RegExp(`/cdn/${id}/original$`));
+  assert.match(await resolveAssetUrl(`@asset:${id}`), new RegExp(`/cdn/${id}$`));
+  assert.match(
+    await resolveAssetRefs(`background:url(@asset:${id})`, { original: true }),
+    new RegExp(`url[(].*/cdn/${id}/original[)]$`),
+  );
+});
+
+test("the play sandbox and Studio hand card code the original route", () => {
+  const read = (p: string) => readFileSync(new URL(p, import.meta.url), "utf8");
+  assert.match(read("../../sandbox/sandbox-context.tsx"), /ASSET_UUID_RE\.test\(id\) \? `\/cdn\/\$\{id\}\/original`/);
+  for (const host of ["../../sandbox/component-host.tsx", "../../sandbox/hosts/html-component.tsx", "../features/studio/lib/custom-component-renderer.tsx"]) {
+    const src = read(host);
+    assert.match(src, /resolveAssetUrl\(src, \{ original: true \}\)/, host);
+    assert.doesNotMatch(src, /resolveAssetRefs\((cssText|styleAttr)\)/, host);
+  }
 });

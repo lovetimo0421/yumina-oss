@@ -34,6 +34,8 @@ export const MODEL_TRAITS: Readonly<Record<string, ModelTraits>> = {
   "bytedance-seed/seedream-5-0-flash": T(null, "photoreal"),
   "bytedance-seed/seedream-5-0-lite": T("versatile"),
   "bytedance-seed/seedream-5-0-pro": T("versatile", "detail"),
+  "bytedance-seed/seedream-5-5": T("versatile", "detail"),
+  "minimax/minimax-h3-image": T(null, "fast"),
   "google/gemini-nano-banana-2.1": T("realistic", "photoreal", "text"),
   "google/gemini-3.1-flash-image": T("realistic", "text", "fast"),
   "google/gemini-3-pro-image": T("realistic", "photoreal", "text"),
@@ -44,14 +46,13 @@ export const MODEL_TRAITS: Readonly<Record<string, ModelTraits>> = {
   "kling/kling-image-o1": T(null, "design"),
   "luma_2/uni-1": T("realistic", "design"),
   "luma_2/uni-1-max": T(null, "design", "photoreal"),
-  "ideogram/ideogram-4-5": T("realistic", "fast"),
+  "ideogram/ideogram-4-6": T("realistic", "fast"),
   "wan/wan2.5-t2i-preview": T("anime"),
   "black-forest-labs/flux.2-pro": T(null, "fast"),
   "black-forest-labs/flux.2-max": T(null),
   "black-forest-labs/flux-3-image": T("versatile"),
   "qwen/qwen-image-3": T("versatile", "text", "design"),
   "qwen/qwen-image-3-pro": T("versatile", "text"),
-  "x-ai/grok-imagine-image-quality": T(null, "fast"),
   "x-ai/grok-imagine-image-2.0": T("versatile"),
   "recraft/recraft-v4.1": T(null, "design", "fast"),
   "krea/krea-2-medium-turbo": T(null),
@@ -64,7 +65,6 @@ export const MODEL_TRAITS: Readonly<Record<string, ModelTraits>> = {
   "seedance-2.0": T("versatile", "camera"),
   "seedance-2.0-fast": T("versatile", "camera"),
   "seedance-2.0-mini": T(null),
-  "seedance-1.5-pro": T(null, "motion"),
   "seedance-1.0-pro": T("realistic"),
   "seedance-1.0-pro-fast": T("realistic"),
   "kling-3-omni": T(null, "motion"),
@@ -93,8 +93,22 @@ export const MODEL_TRAITS: Readonly<Record<string, ModelTraits>> = {
   "h3-max-turbo": T("versatile"),
   "h3": T("versatile"),
   "h3-max": T("versatile"),
+  // Its look comes from the first frame it is given; it beat every peer at speech and lip sync.
+  "gemini-omni-1.1-flash": T(null, "dialogue"),
   // runway-gen4-turbo animates the creator's picture: its look is the picture's.
 };
+
+/**
+ * 无限制: the models that draw what the partners' own filters turn down. Measured on prod, 60 days to 2026-11-17:
+ * HunyuanImage 3.5 refused 0 of 1,777 (it is also the model a refused picture is retried on) and Wan 2.2 on our own
+ * GPUs 0 of 731; every other model refused 7% to 90%. Our own image lane (画风模型: styles and LoRAs) is the same
+ * and says so on its tab. A model belongs here only while that holds.
+ */
+export const UNRESTRICTED_MODELS: ReadonlySet<string> = new Set(["tencent/hy-image-v3.5-preview", "wan-2.2"]);
+
+export function isUnrestrictedModel(id: string): boolean {
+  return UNRESTRICTED_MODELS.has(id);
+}
 
 export function getModelTraits(id: string): ModelTraits | undefined {
   return MODEL_TRAITS[id];

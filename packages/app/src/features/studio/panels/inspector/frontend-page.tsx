@@ -8,7 +8,7 @@ import {
   removeGroup, reorderElements, snapMove, snapResize, ungroupElements, unitsOf, updateElements,
   UI_CANVAS_W, UI_DESKTOP_H, UI_DESKTOP_W,
 } from "@yumina/engine";
-import type { UiDoc, UiElement, UiGuide, WorldDefinition } from "@yumina/engine";
+import type { UiDoc, UiElement, UiGuide, UiKnobGroup, WorldDefinition } from "@yumina/engine";
 import { cn } from "@/lib/utils";
 import { useEditorStore } from "@/stores/editor";
 import { feedback } from "@/lib/feedback";
@@ -29,6 +29,7 @@ import { FloatingTextBar } from "./floating-text-bar";
 import { lookChanged, paintLive } from "./live-style";
 import { coalesce } from "./style-section";
 import { InspectSidebar } from "./inspect-sidebar";
+import { BaseKnobsButton, BaseKnobsPanel, knobRegionOf } from "./base-knobs-panel";
 import { useInspector, type Rect } from "./use-inspector";
 import { isDefaultChatInterface } from "../blueprint/starter-state";
 import { chatPageDoc } from "../../lib/ui-doc-takeover";
@@ -268,6 +269,13 @@ export function FrontendPage({
     () => (selected ? nearestUiElementId(selected, previewRef.current) : null),
     [selected],
   );
+
+  // 拆积木: the knobs of the card's own (base) frontend. Its regions are not
+  // parts of the document, so a click on them opens their knobs instead of
+  // reading as a click on empty page. undefined = closed; null = every group.
+  const baseKnobGroups = uiDoc?.base?.groups ?? NO_KNOB_GROUPS;
+  const [knobRegion, setKnobRegion] = useState<string | null | undefined>(undefined);
+  useEffect(() => { if (selectedUiElementId) setKnobRegion(undefined); }, [selectedUiElementId]);
 
   // ── More than one part at a time ──────────────────────────────────────
   //
@@ -738,14 +746,6 @@ export function FrontendPage({
       if (was && lookChanged(was, el)) paintLive(node, el, canvas);
     }
   }, [uiDoc, currentPageId, canvas]);
-
-  const uiElementLabel = useCallback((el: Element): string | null => {
-    if (!uiDoc) return null;
-    const id = nearestUiElementId(el, previewRef.current);
-    if (!id) return null;
-    const found = (uiDoc.pages ?? []).flatMap((page) => page.elements).find((e) => e.id === id);
-    return found ? t(partKindKeys(unitLead(uiDoc, found).type) as never) : null;
-  }, [uiDoc, t]);
 
   // Inspecting opens the context for that selection — until the creator
   // closes it. Reopening it on every pick put it back over a page they had
@@ -1340,11 +1340,12 @@ export function FrontendPage({
               else if (panelBeforePreview.current) { panelBeforePreview.current = false; setSidebarOpen(true); }
               setEditOn(!editOn);
             }}
-            title={panelDoc ? t("studio.inspect.editModeHint") : "Ctrl+Shift+C"}
+            // The keys are read on hover here, not spelled out across the bar.
+            title={panelDoc ? `${t("studio.inspect.editModeHint")}\n${t("studio.canvasEdit.keyboardHint")}` : `Ctrl+Shift+C\n${t("studio.inspect.keyboardHint")}`}
             className={cn(
               "flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium transition-colors",
               (bareChat ? sidebarOpen : panelDoc ? editOn : picking)
-                ? "bg-primary text-primary-foreground"
+                ? "bg-accent text-foreground"
                 : "text-muted-foreground hover:bg-accent hover:text-foreground",
             )}
           >
@@ -1364,7 +1365,7 @@ export function FrontendPage({
               type="button"
               data-testid="ui-templates"
               onClick={() => { setGalleryAsTemplates(true); setGalleryOpen(true); }}
-              className="flex items-center gap-1.5 rounded-md bg-primary/15 px-2 py-1 text-[11px] font-semibold text-primary transition-colors hover:bg-primary/25"
+              className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             >
               <LayoutTemplate className="h-3.5 w-3.5" />
               {t("studio.pageTemplates.templates")}
@@ -1375,7 +1376,7 @@ export function FrontendPage({
               type="button"
               data-testid="screen-add-feature"
               onClick={() => setGalleryOpen(true)}
-              className="flex items-center gap-1.5 rounded-md bg-primary/15 px-2 py-1 text-[11px] font-semibold text-primary transition-colors hover:bg-primary/25"
+              className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             >
               <Plus className="h-3.5 w-3.5" />
               {t("studio.screenFirst.addFeature")}
@@ -1388,6 +1389,7 @@ export function FrontendPage({
               type="button"
               data-viewport={v}
               aria-pressed={viewport === v}
+              aria-label={t(`studio.inspect.${v}` as never)}
               title={t(`studio.inspect.${v}` as never)}
               onClick={() => { setViewport(v); setPlacedHint(null); }}
               className={cn(
@@ -1398,8 +1400,10 @@ export function FrontendPage({
               )}
             >
               {v === "desktop" ? <Monitor className="h-3.5 w-3.5" /> : <Smartphone className="h-3.5 w-3.5" />}
-              {/* Beside the open panel the bar has ~340px; the icons say it. */}
-              <span className={cn(immersive && sidebarOpen && "sr-only")}>{t(`studio.inspect.${v}` as never)}</span>
+              {/* Beside the open panel the bar has ~340px; the icons say it.
+                  Left out rather than visually hidden: a hidden label still
+                  painted over its neighbour on some screens. */}
+              {!(immersive && sidebarOpen) && <span>{t(`studio.inspect.${v}` as never)}</span>}
             </button>
           ))}
           <div className="mx-1 h-4 w-px bg-border/60" />
@@ -1418,11 +1422,6 @@ export function FrontendPage({
               className="rounded-md px-1.5 py-1 text-[12px] text-muted-foreground hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-30">＋</button>
           </div>
           {!immersive && <div className="flex-1" />}
-          {selected && !immersive && (
-            <span className="hidden truncate text-[10px] text-muted-foreground/40 @[1080px]:block">
-              {t(uiDoc ? "studio.canvasEdit.keyboardHint" : "studio.inspect.keyboardHint")}
-            </span>
-          )}
           <button
             type="button"
             onClick={() => choosePanel(!sidebarOpen)}
@@ -1460,7 +1459,7 @@ export function FrontendPage({
             ? "absolute left-3 top-14 z-30 max-w-[min(440px,calc(100%-24px))] rounded-xl border border-white/10 bg-[#15131d]/85 px-3 py-2 shadow-[0_10px_40px_rgba(0,0,0,0.5)] backdrop-blur-xl"
             : "border-b border-border/50 px-4 py-2",
         )}>
-          <span className="min-w-0 flex-1">{t("blueprint.writing.defaultInterface")} · {t(hasOpening ? "blueprint.writing.previewHint" : "blueprint.writing.emptyOpening")}</span>
+          <span className="min-w-0 flex-1">{t("blueprint.writing.defaultInterface")}{!hasOpening && ` · ${t("blueprint.writing.emptyOpening")}`}</span>
           <button type="button" className="shrink-0 text-foreground hover:underline" onClick={() => window.dispatchEvent(new CustomEvent("yumina:studio-stage-open-panel", { detail: { panelId: "first-message" } }))}>{t("blueprint.writing.editOpening")}</button>
         </div>}
 
@@ -1595,6 +1594,18 @@ export function FrontendPage({
                   if (uiDoc && (event.shiftKey || event.ctrlKey || event.metaKey)) {
                     const id = uiIdAt(event.clientX, event.clientY);
                     if (id && toggleInSelection(id)) return;
+                  }
+                  if (uiDoc && !picking && baseKnobGroups.length > 0 && !uiIdAt(event.clientX, event.clientY)) {
+                    // The card's own frontend under the page: its knobs.
+                    const hit = inspector.hitTest(event.clientX, event.clientY);
+                    if (hit) {
+                      select(null);
+                      setExtraIds([]);
+                      setKnobRegion(knobRegionOf(hit));
+                      setSheetUp(true);
+                      setSidebarOpen(true);
+                      return;
+                    }
                   }
                   if (uiDoc && !picking && !uiIdAt(event.clientX, event.clientY)) {
                     // Empty page: put the selection down. A click on the page
@@ -1748,10 +1759,10 @@ export function FrontendPage({
                 style={{ top: guide.horizontal.y, left: guide.horizontal.from, width: Math.max(1, guide.horizontal.to - guide.horizontal.from) }} />
             )}
             {marquee && (
-              <div className="absolute border border-primary bg-primary/10" style={marquee} />
+              <div className="absolute border border-foreground/70 bg-foreground/[0.06]" style={marquee} />
             )}
             {extraRects.map((r, i) => (
-              <div key={i} className="absolute border border-primary shadow-[0_0_0_1px_rgba(0,0,0,0.35)]" style={r} />
+              <div key={i} className="absolute border border-foreground/80 shadow-[0_0_0_1px_rgba(0,0,0,0.35)]" style={r} />
             ))}
             {selectedUiRect && uiDoc && selectedUiElementId && selectedDesignWidth > 0 && (
               <DragHandles
@@ -1826,16 +1837,12 @@ export function FrontendPage({
               />
             )}
             {(selectedUiRect ?? selectedRect) && (
+              // Just the outline: the part's kind is the panel's heading, and a
+              // tag above the box sat on whatever was above it (a meter's name).
               <div
-                className="absolute border border-primary shadow-[0_0_0_1px_rgba(0,0,0,0.35)]"
+                className="absolute border border-foreground/80 shadow-[0_0_0_1px_rgba(0,0,0,0.35)]"
                 style={selectedUiRect ?? selectedRect!}
-              >
-                {inspector.selected && (
-                  <span className="absolute -top-[18px] left-0 whitespace-nowrap rounded-sm bg-primary px-1.5 py-0.5 font-mono text-[10px] leading-none text-primary-foreground">
-                    {uiElementLabel(inspector.selected) ?? describeElement(inspector.selected).label}
-                  </span>
-                )}
-              </div>
+              />
             )}
           </div>
           </div>
@@ -1953,7 +1960,15 @@ export function FrontendPage({
           </button>
         </div>
         <div id={`${sidebarId}-body`} className={cn("min-h-0 flex-1", !immersive && !sheetOpen && "@max-[880px]:hidden")}>
-        {panelDoc ? <ElementPanel
+        {panelDoc && knobRegion !== undefined && baseKnobGroups.length > 0 ? <BaseKnobsPanel
+          groups={baseKnobGroups}
+          region={knobRegion}
+          onSetKnob={setKnob}
+          onClose={() => setKnobRegion(undefined)}
+        />
+        : panelDoc ? <div className="flex h-full min-h-0 flex-col">
+        {baseKnobGroups.length > 0 && !selectedUiElementId && <BaseKnobsButton count={baseKnobGroups.length} onOpen={() => setKnobRegion(null)} />}
+        <div className="min-h-0 flex-1"><ElementPanel
           doc={panelDoc}
           selectedElementId={selectedUiElementId}
           selectionIds={selectionIds}
@@ -1978,7 +1993,7 @@ export function FrontendPage({
           hiddenIds={hiddenIds}
           onToggleHidden={toggleHidden}
           onNewPage={() => setGalleryOpen(true)}
-        />
+        /></div></div>
         : <InspectSidebar
           selected={selected}
           chain={chain}
@@ -2000,6 +2015,8 @@ export function FrontendPage({
     </div>
   );
 }
+
+const NO_KNOB_GROUPS: UiKnobGroup[] = [];
 
 /** The shadow root the card renders into. */
 function findCardRoot(root: ParentNode): ShadowRoot | null {

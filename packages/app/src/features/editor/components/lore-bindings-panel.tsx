@@ -32,7 +32,12 @@ function createUiBoundEntry(slotId: string, position: number): WorldEntry {
   };
 }
 
-export function LoreBindingsPanel({ inline = false }: { inline?: boolean } = {}) {
+export function LoreBindingsPanel({ inline = false, onGoToCode }: {
+  inline?: boolean;
+  /** Where 「去写界面代码」 goes. The Studio's code is a page of its own, not
+   *  a tab beside this one. */
+  onGoToCode?: () => void;
+} = {}) {
   const { t } = useTranslation("editor");
   const rootComponent = useEditorStore((s) => s.worldDraft.rootComponent);
   const entries = useEditorStore((s) => s.worldDraft.entries);
@@ -123,17 +128,15 @@ export function LoreBindingsPanel({ inline = false }: { inline?: boolean } = {})
     return (
       <div className="rounded-xl border border-dashed border-border bg-muted/20 p-8 text-center">
         <Monitor className="mx-auto h-8 w-8 text-muted-foreground/40" />
-        <p className="mt-3 text-sm text-muted-foreground">{t("components.bindingsEmpty")}</p>
-        <p className="mt-2 font-mono text-xs text-muted-foreground/70">
-          {"{show && <LoreSlot id=\"secret-lore\" />}"}
-        </p>
+        <p className="mt-3 text-sm text-muted-foreground" title={'{show && <LoreSlot id="secret-lore" />}'}>{t("components.bindingsEmpty")}</p>
         <button
           type="button"
           onClick={() => {
+            if (onGoToCode) { onGoToCode(); return; }
             setActiveSection("components");
             setCustomUiTab("code");
           }}
-          className="mt-4 text-xs font-medium text-primary hover:underline"
+          className="mt-4 text-xs font-medium text-foreground hover:underline"
         >
           {t("components.bindingsGoToCode")}
         </button>
@@ -143,11 +146,6 @@ export function LoreBindingsPanel({ inline = false }: { inline?: boolean } = {})
 
   return (
     <div className={inline ? "space-y-5 pb-4" : "mx-auto max-w-3xl space-y-6 pb-8"}>
-      <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-3">
-        <p className="text-xs leading-relaxed text-muted-foreground">
-          {t("components.bindingsHint")}
-        </p>
-      </div>
 
       {slots.map((slot) => {
         const binding = bindings.find((b) => b.slotId === slot.slotId);
@@ -167,7 +165,7 @@ export function LoreBindingsPanel({ inline = false }: { inline?: boolean } = {})
             <header className="border-b border-border/70 bg-muted/30 px-4 py-3">
               {/* 前端控件 ──→ 词条 : the binding at a glance */}
               <div className="flex flex-wrap items-center gap-2">
-                <span className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/12 px-2.5 py-1 font-mono text-xs font-semibold text-emerald-600 dark:text-emerald-300">
+                <span className="inline-flex items-center gap-1.5 rounded-lg bg-white/5 px-2.5 py-1 font-mono text-xs font-semibold text-foreground" title={t("components.bindingsHint")}>
                   <Monitor className="h-3.5 w-3.5" />
                   {slot.slotId}
                 </span>
@@ -180,9 +178,8 @@ export function LoreBindingsPanel({ inline = false }: { inline?: boolean } = {})
                   ~{estimateTokens(entry?.content ?? "")} tok
                 </span>
               </div>
-              <div className="mt-1.5 text-[11px] text-muted-foreground">
-                {t("components.bindingsActivationSummary")}
-                <span className="ml-1.5 font-mono opacity-60">
+              <div className="mt-1.5 text-[11px] text-muted-foreground" title={t("components.bindingsActivationSummary")}>
+                <span className="font-mono opacity-60">
                   {slot.line > 0 ? `${slot.file}:${slot.line}` : slot.file}
                 </span>
               </div>
@@ -217,7 +214,7 @@ export function LoreBindingsPanel({ inline = false }: { inline?: boolean } = {})
                 </div>
 
                 <details className="rounded-xl border border-border/70 bg-muted/20 px-3 py-2">
-                  <summary className="cursor-pointer list-none">
+                  <summary className="cursor-pointer list-none" title={t("components.bindingsOptionalConditions")}>
                     <div className="flex items-center justify-between gap-3">
                       <div className="min-w-0">
                         <p className="text-xs font-medium text-foreground">
@@ -235,9 +232,6 @@ export function LoreBindingsPanel({ inline = false }: { inline?: boolean } = {})
                     </div>
                   </summary>
                   <div className="mt-3 border-t border-border/70 pt-3">
-                    <p className="mb-2 text-[11px] text-muted-foreground">
-                      {t("components.bindingsOptionalConditions")}
-                    </p>
                     <ConditionEditor
                       conditions={entry.conditions ?? []}
                       variables={variables}

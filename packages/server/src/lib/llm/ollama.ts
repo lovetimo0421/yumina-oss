@@ -1,6 +1,15 @@
 import type { LLMProvider, GenerateParams, StreamChunk, Model, MessageContent } from "./types.js";
-import { DEFAULT_LOCAL_CONTEXT } from "./local-bridge.js";
+import { LOCAL_MAX_OUTPUT_TOKENS, estimateLocalPromptTokens, localNumCtx } from "./local-bridge.js";
 import { localGenerationTimeoutMs, readLocalStream } from "./local-timeout.js";
+import { fetchUserEndpoint } from "../ssrf.js";
+
+/** "localhost" on the hosted server is our own machine, not the player's. Only
+ * the local edition and a developer's machine may point Ollama at loopback. */
+const LOOPBACK_REFUSED = "Ollama on localhost is only reachable from the desktop edition. Use a public address or the local model bridge.";
+
+export function loopbackOllamaAllowed(): boolean {
+  return process.env.YUMINA_EDITION === "local" || process.env.NODE_ENV !== "production";
+}
 
 const DEFAULT_OLLAMA_BASE = "http://localhost:11434";
 
@@ -85,12 +94,24 @@ function toOllamaMessage(role: string, content: MessageContent): Record<string, 
 
 export class OllamaProvider implements LLMProvider {
   private baseUrl: string;
+  private loopback = false;
+  private refused: string | null = null;
+
+  /** Loopback (local edition only) goes straight out; anything else is address-checked. */
+  private request(url: string, init?: RequestInit): Promise<Response> {
+    if (this.refused) return Promise.reject(new Error(this.refused));
+    return this.loopback ? fetch(url, init) : fetchUserEndpoint(url, init);
+  }
 
   constructor(baseUrl?: string) {
     const raw = (baseUrl || DEFAULT_OLLAMA_BASE).replace(/\/$/, "");
     // Allow localhost/127.0.0.1 (standard Ollama setup) without validation
     const isLocalhost = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(raw);
+    // Refused when a request is made, not here: saved connections are built in
+    // many places, and the refusal should read like any other unreachable server.
+    if (isLocalhost && !loopbackOllamaAllowed()) this.refused = LOOPBACK_REFUSED;
     this.baseUrl = isLocalhost ? raw : validateOllamaUrl(raw);
+    this.loopback = isLocalhost;
   }
 
   async *generateStream(params: GenerateParams): AsyncIterable<StreamChunk> {
@@ -108,7 +129,7 @@ export class OllamaProvider implements LLMProvider {
 
     let response: Response;
     try {
-      response = await fetch(`${this.baseUrl}/api/chat`, {
+      response = await this.request(`${this.baseUrl}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         signal: params.signal,
@@ -120,9 +141,14 @@ export class OllamaProvider implements LLMProvider {
             // Ollama otherwise runs at ITS default window, not the one our
             // prompt budget was computed against, and drops the overflow
             // silently off the front of the prompt — persona and lorebook
-            // first. Ask for the same number getModelContextWindow() reports
-            // for `ollama/` so the two can never disagree.
-            num_ctx: DEFAULT_LOCAL_CONTEXT,
+            // first. Ask for the window this prompt was budgeted for (see
+            // localNumCtx), capped at what getModelContextWindow() reports.
+            num_ctx: localNumCtx({
+              contextBudget: params.contextBudget,
+              promptTokens: estimateLocalPromptTokens(params.messages, params.model),
+              outputTokens: params.maxTokens ?? LOCAL_MAX_OUTPUT_TOKENS,
+              stickyKey: `ollama:${this.baseUrl}:${params.model}`,
+            }),
             num_predict: params.maxTokens,
             temperature: params.temperature,
             ...(params.topP !== undefined && { top_p: params.topP }),
@@ -215,7 +241,7 @@ export class OllamaProvider implements LLMProvider {
 
     let response: Response;
     try {
-      response = await fetch(`${this.baseUrl}/api/chat`, {
+      response = await this.request(`${this.baseUrl}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         signal: params.signal,
@@ -227,9 +253,14 @@ export class OllamaProvider implements LLMProvider {
             // Ollama otherwise runs at ITS default window, not the one our
             // prompt budget was computed against, and drops the overflow
             // silently off the front of the prompt — persona and lorebook
-            // first. Ask for the same number getModelContextWindow() reports
-            // for `ollama/` so the two can never disagree.
-            num_ctx: DEFAULT_LOCAL_CONTEXT,
+            // first. Ask for the window this prompt was budgeted for (see
+            // localNumCtx), capped at what getModelContextWindow() reports.
+            num_ctx: localNumCtx({
+              contextBudget: params.contextBudget,
+              promptTokens: estimateLocalPromptTokens(params.messages, params.model),
+              outputTokens: params.maxTokens ?? LOCAL_MAX_OUTPUT_TOKENS,
+              stickyKey: `ollama:${this.baseUrl}:${params.model}`,
+            }),
             num_predict: params.maxTokens,
             temperature: params.temperature,
             ...(params.topP !== undefined && { top_p: params.topP }),
@@ -292,7 +323,7 @@ export class OllamaProvider implements LLMProvider {
     const timeout = setTimeout(() => controller.abort(), 10_000);
     let response: Response;
     try {
-      response = await fetch(`${this.baseUrl}/api/tags`, { signal: controller.signal });
+      response = await this.request(`${this.baseUrl}/api/tags`, { signal: controller.signal });
     } catch (err) {
       throw new Error(ollamaFetchFailureMessage(this.baseUrl, err));
     } finally {
@@ -322,7 +353,7 @@ export class OllamaProvider implements LLMProvider {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10_000);
     try {
-      const response = await fetch(`${this.baseUrl}/api/tags`, { signal: controller.signal });
+      const response = await this.request(`${this.baseUrl}/api/tags`, { signal: controller.signal });
       return response.ok;
     } catch {
       return false;

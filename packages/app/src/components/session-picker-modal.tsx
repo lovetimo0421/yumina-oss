@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState, useCallback } from "react";
+import { memo, useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import {
@@ -11,6 +11,9 @@ import {
   Trash2,
   Check,
   Globe,
+  Search,
+  Star,
+  ArrowUpDown,
 } from "lucide-react";
 import { feedback } from "@/lib/feedback";
 import { formatPlaytimeShort } from "@/lib/playtime";
@@ -23,10 +26,22 @@ import {
   SESSION_MODAL_SURFACE_CLASS,
 } from "@/components/session-modal-styles";
 import { useSession } from "@/lib/auth-client";
-import { soleCurrentLanguageVariant } from "@/components/version-picker-modal";
 import { getCachedSessions, setCachedSessions } from "@/lib/session-picker-cache";
 import { WorldPersonaIconMenu } from "@/features/chat/world-persona-menu";
 import { usePersonasStore } from "@/stores/personas";
+import { requestMessageJump } from "../lib/pending-message-jump";
+import { splitHighlight } from "../../sandbox/chat/search-jump";
+import {
+  SAVE_PAGE,
+  SAVE_SEARCH_MIN,
+  SAVE_SORTS,
+  matchesSaveLocally,
+  normalizeSaveQuery,
+  orderSaves,
+  readSaveSort,
+  writeSaveSort,
+  type SaveSort,
+} from "./session-picker-list";
 
 const apiBase = import.meta.env.VITE_API_URL || "";
 
@@ -39,8 +54,57 @@ interface SessionItem {
   playtimeSeconds: number;
   messageCount: number;
   lastMessagePreview: string | null;
+  /** A line that tells an unnamed save apart (its recap, or the player's opening). */
+  subtitle?: string | null;
+  pinnedAt?: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/** One message hit, as GET /api/sessions/search and /:id/messages/search return it. */
+interface SaveHit {
+  id: string;
+  role: "user" | "assistant" | "system";
+  position: number;
+  snippet: string;
+  clippedStart: boolean;
+  clippedEnd: boolean;
+}
+
+interface SaveMatch {
+  sessionId: string;
+  hitCount: number;
+  hits: SaveHit[];
+}
+
+interface ServerSearch {
+  /** The query being (or last) asked. */
+  query: string;
+  status: "loading" | "done" | "error";
+  /** Results, and the query they answer (the previous one while loading). */
+  matches: Map<string, SaveMatch>;
+  matchesFor: string;
+}
+
+/** Hits of one save past the first few, paged from the per-save search. */
+interface MoreHits {
+  hits: SaveHit[];
+  hasMore: boolean;
+  loading: boolean;
+}
+
+const SEARCH_DEBOUNCE_MS = 300;
+const MORE_HITS_PAGE = 10;
+
+function Highlight({ text, query }: { text: string; query: string }) {
+  if (!query) return <>{text}</>;
+  return (
+    <>
+      {splitHighlight(text, query).map((part, index) => part.hit
+        ? <mark key={index} className="bg-transparent font-semibold text-primary">{part.text}</mark>
+        : <span key={index}>{part.text}</span>)}
+    </>
+  );
 }
 
 export interface SessionPickerModalProps {
@@ -83,6 +147,12 @@ function SessionPickerModalImpl({
   const refreshPendingRef = useRef(false);
   const deleteLockRef = useRef(false);
   const scopeRef = useRef(0);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const searchControllerRef = useRef<AbortController | null>(null);
+  const searchCacheRef = useRef(new Map<string, Map<string, SaveMatch>>());
+  const sortMenuRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
   const hasVariants = variants.length > 1;
 
   // The cached list is scoped to the signed-in user (see session-picker-cache):
@@ -109,6 +179,14 @@ function SessionPickerModalImpl({
   const [showVersionPicker, setShowVersionPicker] = useState(false);
   const [newSessionVersionId, setNewSessionVersionId] = useState<string>(world.id);
   const [showAllLanguages, setShowAllLanguages] = useState(false);
+  const [query, setQuery] = useState("");
+  // The search bar (with sort) opens from the header magnifier or Ctrl/Cmd+F.
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [search, setSearch] = useState<ServerSearch | null>(null);
+  const [moreHits, setMoreHits] = useState<Record<string, MoreHits>>({});
+  const [sort, setSort] = useState<SaveSort>(() => readSaveSort(userId));
+  const [sortMenuOpen, setSortMenuOpen] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(SAVE_PAGE);
   const selectionBlocked = usePersonasStore((s) => s.savingSelection || s.selectionFailed);
   const selectionFailed = usePersonasStore((s) => s.selectionFailed);
 
@@ -122,9 +200,10 @@ function SessionPickerModalImpl({
   const hasOtherLanguageVariants =
     hasVariants && variants.some((v) => !isCurrentLang(v));
   const rowLabels = variantRowLabels(variants);
+  // All languages: the reader's own first, then the translations.
   const displayedVariants =
     showAllLanguages || variantsInCurrentLanguage.length === 0
-      ? variants
+      ? [...variantsInCurrentLanguage, ...variants.filter((v) => !isCurrentLang(v))]
       : variantsInCurrentLanguage;
 
   const fetchSessions = useCallback(async (showSpinner = true) => {
@@ -180,9 +259,92 @@ function SessionPickerModalImpl({
       setSelecting(false);
       setSelectedIds(new Set());
       setConfirmBulkDelete(false);
+      setQuery("");
+      setSearchOpen(false);
+      setSearch(null);
+      setMoreHits({});
+      setSortMenuOpen(false);
+      setVisibleCount(SAVE_PAGE);
+      setSort(readSaveSort(userId));
+      searchCacheRef.current = new Map();
     }
-    return () => { fetchControllerRef.current?.abort(); scopeRef.current += 1; };
+    return () => {
+      fetchControllerRef.current?.abort();
+      searchControllerRef.current?.abort();
+      scopeRef.current += 1;
+    };
   }, [cacheKey, open, fetchSessions, userId, world.id]);
+
+  // ── Search: the list filters as the player types (name, recap line, last
+  // message); after a pause the server searches every message of these saves.
+  const normalizedQuery = normalizeSaveQuery(query);
+  const searchAvailable = sessions.length >= SAVE_SEARCH_MIN;
+  // Hiding the bar drops the search with it: no filter works out of sight.
+  const closeSearch = () => {
+    setQuery("");
+    setSearchOpen(false);
+    setSortMenuOpen(false);
+  };
+  const scopeParam = hasVariants && world.languageGroupId
+    ? `languageGroupId=${encodeURIComponent(world.languageGroupId)}`
+    : `worldId=${encodeURIComponent(world.id)}`;
+
+  const runSearch = useCallback(async (q: string) => {
+    searchControllerRef.current?.abort();
+    const controller = new AbortController();
+    searchControllerRef.current = controller;
+    setSearch((prev) => ({
+      query: q,
+      status: "loading",
+      matches: prev?.matches ?? new Map(),
+      matchesFor: prev?.matchesFor ?? "",
+    }));
+    try {
+      const res = await fetch(`${apiBase}/api/sessions/search?${scopeParam}&q=${encodeURIComponent(q)}`, {
+        credentials: "include",
+        signal: controller.signal,
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const { data } = await res.json() as { data?: SaveMatch[] };
+      if (controller.signal.aborted) return;
+      const matches = new Map((data ?? []).map((match) => [match.sessionId, match]));
+      searchCacheRef.current.set(q, matches);
+      setSearch({ query: q, status: "done", matches, matchesFor: q });
+    } catch {
+      if (controller.signal.aborted) return;
+      setSearch((prev) => prev && prev.query === q ? { ...prev, status: "error" } : prev);
+    }
+  }, [scopeParam]);
+
+  useEffect(() => {
+    if (!open) return;
+    setMoreHits({});
+    setVisibleCount(SAVE_PAGE);
+    if (!normalizedQuery) {
+      searchControllerRef.current?.abort();
+      setSearch(null);
+      return;
+    }
+    const cached = searchCacheRef.current.get(normalizedQuery);
+    if (cached) {
+      searchControllerRef.current?.abort();
+      setSearch({ query: normalizedQuery, status: "done", matches: cached, matchesFor: normalizedQuery });
+      return;
+    }
+    const timer = window.setTimeout(() => void runSearch(normalizedQuery), SEARCH_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [open, normalizedQuery, runSearch]);
+
+  useEffect(() => { setVisibleCount(SAVE_PAGE); }, [sort]);
+
+  useEffect(() => {
+    if (!sortMenuOpen) return;
+    const onPointer = (event: PointerEvent) => {
+      if (!sortMenuRef.current?.contains(event.target as Node)) setSortMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointer);
+    return () => document.removeEventListener("pointerdown", onPointer);
+  }, [sortMenuOpen]);
 
   useEffect(() => {
     if (open && !deletingSelected && deletingId === null && refreshPendingRef.current) {
@@ -194,12 +356,29 @@ function SessionPickerModalImpl({
   useEffect(() => {
     if (!open) return;
     const handler = (event: KeyboardEvent) => {
+      // Ctrl/Cmd+F searches the saves, not the page behind the dialog.
+      if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === "f" && (searchAvailable || searchOpen)) {
+        event.preventDefault();
+        if (searchInputRef.current) {
+          searchInputRef.current.focus();
+          searchInputRef.current.select();
+        } else {
+          setSearchOpen(true); // focused once it renders
+        }
+        return;
+      }
       if (event.key === "Escape") {
         if (deleteLockRef.current) return;
-        if (renamingId) {
+        if (sortMenuOpen) {
+          setSortMenuOpen(false);
+        } else if (renamingId) {
           setRenamingId(null);
         } else if (confirmBulkDelete) {
           setConfirmBulkDelete(false);
+        } else if (query) {
+          setQuery("");
+        } else if (searchOpen) {
+          setSearchOpen(false);
         } else if (selecting) {
           setSelecting(false);
           setSelectedIds(new Set());
@@ -212,21 +391,71 @@ function SessionPickerModalImpl({
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [open, onClose, renamingId, showVersionPicker, confirmBulkDelete, selecting]);
+  }, [open, onClose, renamingId, showVersionPicker, confirmBulkDelete, selecting, query, sortMenuOpen, searchOpen, searchAvailable]);
+
+  useEffect(() => {
+    if (searchOpen && !loadingSessions) searchInputRef.current?.focus();
+  }, [searchOpen, loadingSessions]);
 
   useEffect(() => {
     if (open) contentRef.current?.focus();
   }, [open]);
 
+  // "Session N" by age, whatever order the list is in.
+  const sessionOrdinalMap = useMemo(() => new Map(
+    sessions
+      .slice()
+      .sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime())
+      .map((session, index) => [session.id, index + 1])
+  ), [sessions]);
+  const displayNameOf = useCallback((session: SessionItem) =>
+    session.name?.trim() || t("header.sessionOrdinal", { n: sessionOrdinalMap.get(session.id) ?? 1 }),
+  [sessionOrdinalMap, t]);
+
+  const orderedSessions = useMemo(
+    () => orderSaves(sessions, sort, displayNameOf, i18n.language),
+    [sessions, sort, displayNameOf, i18n.language],
+  );
+  // Server results answer this exact query; while a longer query is on its
+  // way, the previous (wider) results keep the list from flickering empty.
+  const exactMatches = search && search.matchesFor === normalizedQuery ? search.matches : null;
+  const rowMatches = exactMatches
+    ?? (search && search.matchesFor && normalizedQuery.toLowerCase().includes(search.matchesFor.toLowerCase()) ? search.matches : null);
+  const searching = normalizedQuery.length > 0;
+  // No final answer for this query yet: waiting out the pause, or asking.
+  const searchPending = searching && (search?.query !== normalizedQuery || search.status === "loading");
+  const searchFailed = searching && search?.status === "error" && search.query === normalizedQuery;
+  const visibleSessions = useMemo(() => {
+    if (!searching) return orderedSessions;
+    return orderedSessions.filter((session) =>
+      rowMatches?.has(session.id) ||
+      matchesSaveLocally([displayNameOf(session), session.subtitle, session.lastMessagePreview], normalizedQuery));
+  }, [searching, orderedSessions, rowMatches, displayNameOf, normalizedQuery]);
+  const renderedSessions = visibleSessions.slice(0, visibleCount);
+
+  // Big lists render a page at a time; the next page joins near the bottom.
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel || visibleCount >= visibleSessions.length || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) setVisibleCount((count) => count + SAVE_PAGE);
+    }, { root: listRef.current, rootMargin: "400px 0px" });
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [visibleCount, visibleSessions.length]);
+
+  // With a search on, "select all" means every matching save.
+  const selectScope = searching ? visibleSessions : sessions;
   const selectedSessions = sessions.filter((session) => selectedIds.has(session.id));
-  const allSelected = sessions.length > 0 && selectedSessions.length === sessions.length;
+  const allSelected = selectScope.length > 0 && selectScope.every((session) => selectedIds.has(session.id));
+  const someSelectedInScope = selectScope.some((session) => selectedIds.has(session.id));
   const mutationBlocked = deletingSelected || deletingId !== null || !!creating;
 
   useEffect(() => {
     if (selectAllRef.current) {
-      selectAllRef.current.indeterminate = selectedSessions.length > 0 && !allSelected;
+      selectAllRef.current.indeterminate = someSelectedInScope && !allSelected;
     }
-  }, [allSelected, selectedSessions.length, open, loadingSessions, selecting]);
+  }, [allSelected, someSelectedInScope, open, loadingSessions, selecting]);
 
   const toggleSelected = (sessionId: string) => {
     if (deleteLockRef.current || mutationBlocked) return;
@@ -281,14 +510,6 @@ function SessionPickerModalImpl({
       setConfirmBulkDelete(false);
     }
   };
-
-  // All sessions shown — no filtering by variant
-  const sessionOrdinalMap = new Map(
-    sessions
-      .slice()
-      .sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime())
-      .map((session, index) => [session.id, index + 1])
-  );
 
   const startRename = (session: SessionItem) => {
     setRenamingId(session.id);
@@ -361,19 +582,81 @@ function SessionPickerModalImpl({
     }
   };
 
-  // Only one version in the reader's language (the other variants are
-  // translations they did not ask for): start it — the chooser used to
-  // expand with that single option and take a second click.
-  const onlyCurrentLanguageVersion = soleCurrentLanguageVariant(variants, i18n.language);
+  // Optimistic like rename: the star moves at once; a failure puts it back.
+  const togglePin = async (session: SessionItem) => {
+    if (mutationBlocked) return;
+    const previous = session.pinnedAt ?? null;
+    const pinned = !previous;
+    const patch = (pinnedAt: string | null) => {
+      setSessions((prev) => {
+        const next = prev.map((row) => row.id === session.id ? { ...row, pinnedAt } : row);
+        setCachedSessions(userId, cacheKey, next);
+        return next;
+      });
+    };
+    patch(pinned ? new Date().toISOString() : null);
+    try {
+      const res = await fetch(`${apiBase}/api/sessions/${session.id}/pin`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ pinned }),
+      });
+      if (!res.ok) throw new Error();
+      const { data } = await res.json() as { data?: { pinnedAt?: string | null } };
+      if (data && "pinnedAt" in data) patch(data.pinnedAt ?? null);
+    } catch {
+      patch(previous);
+      feedback.error(t(pinned ? "header.pinFailed" : "header.unpinFailed"));
+    }
+  };
+
+  // The save opens at that message: the chat loads up to it, scrolls there and
+  // marks it, as picking a hit in the in-story search does.
+  const openAtHit = (sessionId: string, hit: SaveHit) => {
+    if (deleteLockRef.current || mutationBlocked) return;
+    requestMessageJump({ sessionId, messageId: hit.id, position: hit.position, query: normalizedQuery });
+    onSelectSession(sessionId);
+  };
+
+  const loadMoreHits = async (sessionId: string, shown: SaveHit[]) => {
+    const q = normalizedQuery;
+    if (!q || moreHits[sessionId]?.loading) return;
+    setMoreHits((prev) => ({ ...prev, [sessionId]: { hits: prev[sessionId]?.hits ?? [], hasMore: true, loading: true } }));
+    const params = new URLSearchParams({ q, limit: String(MORE_HITS_PAGE) });
+    const last = shown.at(-1);
+    if (last) params.set("before", String(last.position));
+    try {
+      const res = await fetch(`${apiBase}/api/sessions/${sessionId}/messages/search?${params}`, { credentials: "include" });
+      if (!res.ok) throw new Error();
+      const json = await res.json() as { data?: SaveHit[]; meta?: { hasMore?: boolean } };
+      if (normalizeSaveQuery(searchInputRef.current?.value ?? q) !== q) return;
+      setMoreHits((prev) => {
+        const known = new Set([...shown, ...(prev[sessionId]?.hits ?? [])].map((hit) => hit.id));
+        const fresh = (json.data ?? []).filter((hit) => !known.has(hit.id));
+        return { ...prev, [sessionId]: { hits: [...(prev[sessionId]?.hits ?? []), ...fresh], hasMore: !!json.meta?.hasMore, loading: false } };
+      });
+    } catch {
+      setMoreHits((prev) => ({ ...prev, [sessionId]: { hits: prev[sessionId]?.hits ?? [], hasMore: true, loading: false } }));
+      feedback.error(t("header.searchFailed"));
+    }
+  };
+
+  const chooseSort = (next: SaveSort) => {
+    setSort(next);
+    writeSaveSort(userId, next);
+    setSortMenuOpen(false);
+  };
 
   const handleNewSessionClick = () => {
     if (deleteLockRef.current) return;
     if (usePersonasStore.getState().savingSelection || usePersonasStore.getState().selectionFailed) return;
-    if (hasVariants && onlyCurrentLanguageVersion) {
-      onCreateSession(onlyCurrentLanguageVersion.id);
-      return;
-    }
     if (hasVariants) {
+      // A card in several languages always asks which one, so the globe that reveals the other
+      // languages is always within reach: starting the reader's-language version in one click
+      // (2026-09-25) left no way to play another language but switching the whole site's
+      // language (2026-11-02, Tsuna). The list itself opens on the reader's language only; the
+      // other languages show when the globe is pressed (owner, 2026-11-05).
       setShowVersionPicker((prev) => {
         if (!prev) {
           setShowAllLanguages(false);
@@ -430,6 +713,20 @@ function SessionPickerModalImpl({
                 {t(selecting ? "header.finishSelectingSessions" : "header.selectSessions")}
               </button>
             )}
+            {(searchAvailable || searchOpen) && !loadingSessions && (
+              <button
+                type="button"
+                onClick={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
+                aria-pressed={searchOpen}
+                aria-label={t("header.searchSaves")}
+                title={t("header.searchSaves")}
+                className={`flex h-7 w-7 items-center justify-center rounded-lg transition-colors hover:bg-white/5 ${
+                  searchOpen ? "text-primary" : "text-muted-foreground/40 hover:text-muted-foreground"
+                }`}
+              >
+                <Search className="h-4 w-4" />
+              </button>
+            )}
             {/* Per-world persona pin — only rendered for users who have personas */}
             <WorldPersonaIconMenu worldId={showVersionPicker ? newSessionVersionId : world.id} disabled={mutationBlocked} />
             <button
@@ -446,20 +743,119 @@ function SessionPickerModalImpl({
 
         <div className="mx-5 h-px bg-white/[0.06]" />
 
-        <div className="flex-1 overflow-y-auto px-3 py-3">
+        {searchOpen && !loadingSessions && (
+          <div className="flex items-center gap-1.5 px-3 pt-3">
+            <div className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-lg border border-white/[0.06] bg-black/20 pl-2.5 pr-1 focus-within:border-primary/40">
+              <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground/40" aria-hidden="true" />
+              <input
+                ref={searchInputRef}
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                enterKeyHint="search"
+                maxLength={200}
+                placeholder={t("header.searchSaves")}
+                aria-label={t("header.searchSaves")}
+                className="h-full min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground/35 [&::-webkit-search-cancel-button]:hidden"
+              />
+              {searchPending && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground/40" aria-hidden="true" />}
+              <button
+                type="button"
+                onClick={() => {
+                  if (!query) { closeSearch(); return; }
+                  setQuery("");
+                  searchInputRef.current?.focus();
+                }}
+                aria-label={query ? t("header.clearSearch") : t("common:action.close")}
+                title={query ? t("header.clearSearch") : t("common:action.close")}
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/50 transition-colors hover:bg-white/[0.06] hover:text-foreground"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            <div ref={sortMenuRef} className="relative shrink-0">
+              <button
+                type="button"
+                onClick={() => setSortMenuOpen((prev) => !prev)}
+                aria-haspopup="menu"
+                aria-expanded={sortMenuOpen}
+                aria-label={t("header.sortSaves")}
+                title={t("header.sortSaves")}
+                className={`flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs transition-colors hover:bg-white/[0.05] hover:text-foreground ${
+                  sortMenuOpen ? "bg-white/[0.05] text-foreground" : "text-muted-foreground/70"
+                }`}
+              >
+                <ArrowUpDown className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">{t(`header.sort.${sort}`)}</span>
+              </button>
+              {sortMenuOpen && (
+                <div role="menu" className="absolute right-0 top-full z-20 mt-1 min-w-[10rem] rounded-xl border border-white/[0.08] bg-[#22232a] p-1 shadow-[0_12px_40px_rgba(0,0,0,0.45)]">
+                  {SAVE_SORTS.map((option) => (
+                    <button
+                      key={option}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={sort === option}
+                      onClick={() => chooseSort(option)}
+                      className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-white/[0.05] ${
+                        sort === option ? "text-foreground" : "text-muted-foreground/70"
+                      }`}
+                    >
+                      <span className="flex-1">{t(`header.sort.${option}`)}</span>
+                      {sort === option && <Check className="h-3.5 w-3.5 text-primary" />}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        <div ref={listRef} className="flex-1 overflow-y-auto px-3 py-3">
           {loadingSessions ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground/30" />
             </div>
+          ) : searching && visibleSessions.length === 0 ? (
+            <div className="flex flex-col items-center py-12 text-muted-foreground/40">
+              {searchPending ? (
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground/30" />
+              ) : searchFailed ? (
+                <button type="button" onClick={() => void runSearch(normalizedQuery)} className="text-sm text-destructive/80 hover:text-destructive">
+                  {t("header.searchFailed")}
+                </button>
+              ) : (
+                <p className="text-sm">{t("header.noMatchingSaves")}</p>
+              )}
+            </div>
           ) : sessions.length > 0 ? (
             <div className={`${SESSION_MODAL_GROUP_CLASS} space-y-1.5 p-1.5`}>
-              {sessions.map((session) => {
+              {renderedSessions.map((session) => {
                 const isRenaming = renamingId === session.id;
                 const isConfirming = confirmDeleteId === session.id;
                 const isDeleting = deletingId === session.id;
-                const displayName =
-                  session.name?.trim() || t("header.sessionOrdinal", { n: sessionOrdinalMap.get(session.id) ?? 1 });
+                const displayName = displayNameOf(session);
                 const badge = hasVariants ? versionBadgeText(session, variants) : null;
+                const unnamed = !session.name?.trim();
+                const match = searching ? exactMatches?.get(session.id) : undefined;
+                const extra = match ? moreHits[session.id] : undefined;
+                const hits = match ? [...match.hits, ...(extra?.hits ?? [])] : [];
+                const remaining = match && extra?.hasMore !== false ? Math.max(0, match.hitCount - hits.length) : 0;
+                const pinButton = (
+                  <button
+                    type="button"
+                    onClick={() => void togglePin(session)}
+                    disabled={mutationBlocked || selecting}
+                    className={`flex h-7 w-7 items-center justify-center rounded-lg transition-colors hover:bg-white/[0.06] ${
+                      session.pinnedAt ? "text-primary/80 hover:text-primary" : "text-muted-foreground/50 hover:text-foreground"
+                    }`}
+                    title={t(session.pinnedAt ? "header.unpinSession" : "header.pinSession")}
+                    aria-label={t(session.pinnedAt ? "header.unpinSession" : "header.pinSession")}
+                    aria-pressed={!!session.pinnedAt}
+                  >
+                    <Star className={`h-3 w-3 ${session.pinnedAt ? "fill-current" : ""}`} />
+                  </button>
+                );
 
                 if (isRenaming) {
                   return (
@@ -517,7 +913,7 @@ function SessionPickerModalImpl({
                         </label>
                       )}
                       <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground/90">
-                        {displayName}
+                        <Highlight text={displayName} query={normalizedQuery} />
                       </span>
                       {badge && (
                         <span className="shrink-0 rounded-md bg-white/[0.06] px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground/60">
@@ -548,8 +944,18 @@ function SessionPickerModalImpl({
                         >
                           <Trash2 className="h-3 w-3" />
                         </button>
+                        {!session.pinnedAt && pinButton}
                       </div>
+                      {/* A pinned star stays in sight, in the same last slot. */}
+                      {session.pinnedAt && (
+                        <div className="session-row-actions -ml-1.5 flex shrink-0" onClick={(event) => event.stopPropagation()}>{pinButton}</div>
+                      )}
                     </div>
+                    {unnamed && session.subtitle && (
+                      <p className="mt-0.5 truncate text-xs text-muted-foreground/55">
+                        <Highlight text={session.subtitle} query={normalizedQuery} />
+                      </p>
+                    )}
 
                     <div className="mt-1.5 flex flex-wrap items-center gap-2.5 text-[11px] text-muted-foreground/35">
                       <span className="flex items-center gap-1">
@@ -567,8 +973,52 @@ function SessionPickerModalImpl({
                     </div>
                     {session.lastMessagePreview && (
                       <p className="mt-1 truncate text-xs text-muted-foreground/25 italic">
-                        {session.lastMessagePreview}
+                        <Highlight text={session.lastMessagePreview} query={normalizedQuery} />
                       </p>
+                    )}
+
+                    {match && (
+                      <div className="mt-2 border-l border-white/[0.08] pl-2">
+                        <p className="px-1.5 text-[11px] text-primary/70">
+                          {t("header.searchHits", { count: match.hitCount })}
+                        </p>
+                        {hits.map((hit) => (
+                          <button
+                            key={hit.id}
+                            type="button"
+                            data-save-hit={hit.position}
+                            onClick={(event) => {
+                              if (selecting) return; // the row's own click selects
+                              event.stopPropagation();
+                              openAtHit(session.id, hit);
+                            }}
+                            className="flex w-full items-start gap-2 rounded-lg px-1.5 py-1 text-left transition-colors hover:bg-white/[0.04]"
+                          >
+                            <span className={`min-w-[2.5rem] shrink-0 pt-px text-[11px] tabular-nums ${hit.role === "user" ? "text-emerald-300/60" : "text-muted-foreground/50"}`}>
+                              #{hit.position}
+                            </span>
+                            <span className="line-clamp-2 min-w-0 flex-1 break-words text-xs leading-relaxed text-foreground/70">
+                              {hit.clippedStart && "…"}
+                              <Highlight text={hit.snippet} query={exactMatches ? normalizedQuery : ""} />
+                              {hit.clippedEnd && "…"}
+                            </span>
+                          </button>
+                        ))}
+                        {remaining > 0 && (
+                          <button
+                            type="button"
+                            disabled={extra?.loading}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void loadMoreHits(session.id, hits);
+                            }}
+                            className="flex items-center gap-1.5 rounded-lg px-1.5 py-1 text-[11px] text-muted-foreground/60 transition-colors hover:text-foreground disabled:opacity-60"
+                          >
+                            {extra?.loading && <Loader2 className="h-3 w-3 animate-spin" />}
+                            {t("header.searchMore", { count: remaining })}
+                          </button>
+                        )}
+                      </div>
                     )}
 
                     {isConfirming && (
@@ -601,6 +1051,7 @@ function SessionPickerModalImpl({
                   </div>
                 );
               })}
+              {renderedSessions.length < visibleSessions.length && <div ref={sentinelRef} className="h-px" aria-hidden="true" />}
             </div>
           ) : (
             <div className="flex flex-col items-center py-12 text-muted-foreground/30">
@@ -619,11 +1070,18 @@ function SessionPickerModalImpl({
                   ref={selectAllRef}
                   type="checkbox"
                   checked={allSelected}
-                  disabled={mutationBlocked || sessions.length === 0}
-                  aria-label={t("header.selectAllSessions")}
+                  disabled={mutationBlocked || selectScope.length === 0 || searchPending}
+                  aria-label={searching ? t("header.selectAllMatching", { count: selectScope.length }) : t("header.selectAllSessions")}
                   onChange={() => {
                     if (deleteLockRef.current) return;
-                    setSelectedIds(allSelected ? new Set() : new Set(sessions.map((session) => session.id)));
+                    setSelectedIds((prev) => {
+                      const next = new Set(prev);
+                      for (const session of selectScope) {
+                        if (allSelected) next.delete(session.id);
+                        else next.add(session.id);
+                      }
+                      return next;
+                    });
                     setRenamingId(null);
                     setConfirmDeleteId(null);
                     setConfirmBulkDelete(false);
@@ -631,7 +1089,9 @@ function SessionPickerModalImpl({
                   }}
                   className="h-4 w-4 accent-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
                 />
-                {t(allSelected ? "header.deselectAllSessions" : "header.selectAllSessions")}
+                {searching
+                  ? t(allSelected ? "header.deselectAllMatching" : "header.selectAllMatching", { count: selectScope.length })
+                  : t(allSelected ? "header.deselectAllSessions" : "header.selectAllSessions")}
               </label>
               {selectedSessions.length > 0 && (
                 <button
@@ -673,7 +1133,17 @@ function SessionPickerModalImpl({
                 {hasOtherLanguageVariants && (
                   <button
                     type="button"
-                    onClick={() => setShowAllLanguages((prev) => !prev)}
+                    onClick={() => {
+                      const next = !showAllLanguages;
+                      setShowAllLanguages(next);
+                      // Hiding the other languages must not leave a hidden version picked.
+                      if (!next && variantsInCurrentLanguage.length > 0
+                        && !variantsInCurrentLanguage.some((v) => v.id === newSessionVersionId)) {
+                        setNewSessionVersionId(
+                          (variantsInCurrentLanguage.find((v) => v.id === world.id) ?? variantsInCurrentLanguage[0]!).id,
+                        );
+                      }
+                    }}
                     title={t(
                       showAllLanguages
                         ? "header.showCurrentLanguage"
@@ -688,7 +1158,7 @@ function SessionPickerModalImpl({
                     className={`flex h-5 w-5 items-center justify-center rounded-md transition-colors ${
                       showAllLanguages
                         ? "bg-primary/10 text-primary"
-                        : "text-muted-foreground/40 hover:bg-white/[0.04] hover:text-muted-foreground/70"
+                        : "text-muted-foreground/70 hover:bg-white/[0.04] hover:text-foreground"
                     }`}
                   >
                     <Globe className="h-3 w-3" />

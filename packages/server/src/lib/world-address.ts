@@ -27,6 +27,20 @@ export interface AddressedWorld {
   creatorId: string;
   creatorName: string | null;
   creatorUsername: string | null;
+  /** Worlds that are the same world in another language share a group. */
+  languageGroupId?: string | null;
+  reviewCount?: number | null;
+  averageRating?: number | null;
+  downloadCount?: number | null;
+  updatedAt?: Date | null;
+}
+
+/** A sibling of a world in its language group: the same world, another language. */
+export interface WorldVariant {
+  publicId: string | null;
+  name: string;
+  language: string | null;
+  creatorUsername: string | null;
 }
 
 const WORLD_ADDRESS_COLUMNS = {
@@ -45,7 +59,35 @@ const WORLD_ADDRESS_COLUMNS = {
   creatorId: worlds.creatorId,
   creatorName: user.name,
   creatorUsername: user.username,
+  languageGroupId: worlds.languageGroupId,
+  reviewCount: worlds.reviewCount,
+  averageRating: worlds.averageRating,
+  downloadCount: worlds.downloadCount,
+  updatedAt: worlds.updatedAt,
 };
+
+/**
+ * The other public, all-ages, published languages of a world, so a page can
+ * tell search engines that /@mia/sakura-season-5c9c88e8 and its Chinese
+ * version are one world in two languages (hreflang), not two pages competing.
+ */
+export async function findLanguageSiblings(world: Pick<AddressedWorld, "id" | "languageGroupId">): Promise<WorldVariant[]> {
+  if (!world.languageGroupId) return [];
+  const rows = await readPublic()
+    .select({ publicId: worlds.publicId, name: worlds.name, language: worlds.language, creatorUsername: user.username })
+    .from(worlds)
+    .leftJoin(user, eq(worlds.creatorId, user.id))
+    .where(and(
+      eq(worlds.languageGroupId, world.languageGroupId),
+      sql`${worlds.id} <> ${world.id}`,
+      sql`(${worlds.status} = 'published' OR (${worlds.status} IS NULL AND ${worlds.isPublished} = true))`,
+      eq(worlds.visibility, "public"),
+      eq(worlds.ageRating, "all"),
+      worldAudienceCondition(worlds.creatorId),
+    ))
+    .limit(20);
+  return rows.filter((r) => r.publicId && r.language);
+}
 
 const PUBLIC_ID_RE = /^[0-9a-f]{8,32}$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -76,6 +118,12 @@ export async function findWorldById(id: string): Promise<AddressedWorld | null> 
 /** Published and public: the only worlds that get a crawlable address. */
 export function isPubliclyVisible(world: Pick<AddressedWorld, "status" | "isPublished" | "visibility">): boolean {
   return (world.status === "published" || Boolean(world.isPublished)) && world.visibility === "public";
+}
+
+/** Reviewed worlds that can be opened by an ordinary share link. Unlisted stays out of SEO. */
+export function isLinkReadable(world: Pick<AddressedWorld, "status" | "isPublished" | "visibility">): boolean {
+  return isPubliclyVisible(world)
+    || (world.visibility === "unlisted" && world.status === "published" && Boolean(world.isPublished));
 }
 
 /** The current address of a world, or null when it has no id or no creator handle yet. */

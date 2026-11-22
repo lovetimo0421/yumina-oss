@@ -1,77 +1,114 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronRight, Shuffle, Sparkles } from "lucide-react";
+import { ChevronDown, Cpu, Plug } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { ApiKeysSettings } from "@/features/settings/api-keys";
+import { ProfileAiSettings } from "@/features/account/sections/profile-ai-settings";
 import { LocalModelPanel } from "@/features/local-model/local-model-panel";
+import { guideOpenRequested } from "@/features/local-model/local-model-guide";
+import { isLikelyPhone } from "@/features/local-model/local-model-picker-view";
+import { useLocalModelStore } from "@/features/local-model/store";
 import { isLocalModelId } from "@/features/local-model/enabled-flag";
+import { useUserProfileStore } from "@/stores/user-profile";
 import { useConfigStore } from "@/stores/config";
 import { useCreditStore } from "@/edition/slots.state";
-import { useModelsStore } from "@/stores/models";
-import { PLAY_MODELS, formatModelId } from "@yumina/shared";
-import { ModelBrowser } from "@/features/chat/model-browser";
 
-/** Model picker trigger + BYOK key management (the Settings "AI config" tab). */
+/**
+ * Top of Settings → AI config: the same plan / wallet / model card as the
+ * profile's "Plan & model" page, because which AI you're on and what you have
+ * left to spend is what a newcomer opens this page for.
+ */
 export function AiProviderTab() {
-  const { t: tc } = useTranslation("chat");
-  const setConfig = useConfigStore((s) => s.setConfig);
-  const { selectedModel, mixMode, modelPool } = useConfigStore();
+  return (
+    <div className="max-w-3xl animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <ProfileAiSettings embedded />
+    </div>
+  );
+}
+
+/**
+ * Bring-your-own AI: a personal API key, or a model on this computer.
+ *
+ * Both are for players who already know what they want, so they sit at the
+ * bottom as folded rows instead of greeting a newcomer with setup forms.
+ * A row opens by itself when the player is already using it, arrived from the
+ * model picker's setup-guide button, or was sent here by settings search.
+ */
+export function OwnAiSettings() {
+  const { t } = useTranslation(["settings", "profile"]);
+  const selectedModel = useConfigStore((s) => s.selectedModel);
   const provider = useCreditStore((s) => s.provider);
-  const [modelModalOpen, setModelModalOpen] = useState(false);
-
-  const currentModel = PLAY_MODELS.find((m) => m.id === selectedModel);
-  const isMixActive = mixMode && modelPool.length >= 2;
-  const isLocal = isLocalModelId(selectedModel);
-  const providerLabel = isLocal
-    ? tc("localModel.picker.sourceLabel", { ns: "profile" })
-    : provider === "private"
-      ? tc("modelBrowser.sourcePrivate", { ns: "chat" })
-      : tc("modelBrowser.sourceOfficial", { ns: "chat" });
-
-  const subtitle = isMixActive
-    ? `${tc("modelMix.title", { ns: "chat" })} · ${modelPool.length}`
-    : `${providerLabel} · ${isLocal ? selectedModel.slice("local/".length) : currentModel?.name ?? formatModelId(selectedModel)}`;
+  const activeKeyId = useUserProfileStore((s) => s.profile?.preferences?.activeApiKeyId);
+  const localArmed = useLocalModelStore((s) => s.armed);
+  const usingLocal = isLocalModelId(selectedModel) || localArmed;
+  // A phone can't run a model itself; the picker explains playing on one
+  // that runs on the player's computer.
+  const offerLocal = usingLocal || !isLikelyPhone();
 
   return (
-    <div className="max-w-3xl animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-6">
-      {/* Model Selection — trigger opens ModelBrowser */}
-      <div className="profile-overview-glass profile-overview-glass--soft rounded-2xl overflow-hidden">
-        <button
-          type="button"
-          onClick={() => setModelModalOpen(true)}
-          className="group flex w-full items-center gap-3.5 p-5 text-left transition-colors hover:bg-white/[0.02]"
+    <div className="space-y-3">
+      <div className="px-1 text-xs font-medium text-sub/60">{t("aiConfig.ownAi")}</div>
+      <FoldedRow
+        id="settings-target-byok"
+        icon={<Plug className="h-5 w-5 text-violet-300" />}
+        tint="bg-violet-400/10 border-violet-400/20"
+        title={t("apiKeys.title", { ns: "profile" })}
+        subtitle={t("apiKeys.subtitle", { ns: "profile" })}
+        initiallyOpen={provider === "private" || !!activeKeyId}
+      >
+        <ApiKeysSettings embedded />
+      </FoldedRow>
+      {offerLocal && (
+        <FoldedRow
+          id="settings-target-local-model"
+          icon={<Cpu className="h-5 w-5 text-emerald-400" />}
+          tint="bg-emerald-500/10 border-emerald-500/20"
+          title={t("localModel.title", { ns: "profile" })}
+          subtitle={t("localModel.subtitle", { ns: "profile" })}
+          initiallyOpen={usingLocal || guideOpenRequested()}
         >
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 border border-primary/20">
-            {isMixActive
-              ? <Shuffle className="h-5 w-5 text-primary" />
-              : <Sparkles className="h-5 w-5 text-primary" />}
-          </div>
-          <div className="flex-1 min-w-0">
-            <span className="text-sm font-semibold text-main">
-              {tc("modelSelector.title", { ns: "chat" })}
-            </span>
-            <div className="text-[11px] text-sub/50">{subtitle}</div>
-          </div>
-          <ChevronRight className="h-4 w-4 text-sub/30 transition-colors group-hover:text-sub/50" />
-        </button>
-      </div>
+          <LocalModelPanel embedded />
+        </FoldedRow>
+      )}
+    </div>
+  );
+}
 
-      {/* Run on the player's own hardware — free, and the only tier that
-          costs us nothing per turn. Sits above BYOK because it needs no key. */}
-      <LocalModelPanel />
-
-      {/* API Keys (BYOK) — always visible */}
-      <ApiKeysSettings />
-
-      <ModelBrowser
-        open={modelModalOpen}
-        onClose={() => setModelModalOpen(false)}
-        selectedModel={selectedModel}
-        onSelect={(id) => {
-          setConfig("selectedModel", id);
-          useModelsStore.getState().addToRecent(id);
-          setModelModalOpen(false);
-        }}
-      />
+function FoldedRow({ id, icon, tint, title, subtitle, initiallyOpen, children }: {
+  id: string;
+  icon: ReactNode;
+  tint: string;
+  title: string;
+  subtitle: string;
+  initiallyOpen: boolean;
+  children: ReactNode;
+}) {
+  const [opened, setOpened] = useState<boolean | null>(null);
+  // Follows the "already using it" signal until the player clicks; the
+  // profile and credits load after first paint.
+  const open = opened ?? initiallyOpen;
+  return (
+    <div
+      id={id}
+      tabIndex={-1}
+      // Settings search focuses its target: arriving here means "show me".
+      onFocus={(e) => { if (e.target === e.currentTarget) setOpened(true); }}
+      className="profile-overview-glass profile-overview-glass--soft scroll-mt-4 rounded-2xl overflow-hidden outline-none"
+    >
+      <button
+        type="button"
+        onClick={() => setOpened(!open)}
+        aria-expanded={open}
+        className="group flex w-full items-center gap-3.5 p-5 text-left transition-colors hover:bg-white/[0.02]"
+      >
+        <div className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border", tint)}>{icon}</div>
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-semibold text-main">{title}</div>
+          <div className="mt-0.5 text-[11px] leading-relaxed text-sub/50">{subtitle}</div>
+        </div>
+        <ChevronDown className={cn("h-4 w-4 shrink-0 text-sub/30 transition-transform group-hover:text-sub/50", open && "rotate-180")} />
+      </button>
+      {open && <div className="px-5 pb-5">{children}</div>}
     </div>
   );
 }

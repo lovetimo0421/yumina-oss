@@ -1,3 +1,8 @@
+---
+title: "Variables"
+description: "Variables are what your story remembers. Four kinds, Behavior Rules written in plain words, Precise tracking, formulas, AI access, and values kept across playthroughs."
+---
+
 # Variables
 
 Variables are the things your story needs to remember: affection, health, coins, where you are, what's in your bag. The AI sees them every turn and changes them as the story goes.
@@ -10,7 +15,7 @@ In a variable's Behavior Rules, all you need to say in plain words is **what the
 
 ## Add a variable
 
-Click **＋ Variable** in the **Add** row at the bottom of the card (or **Add → A number that changes** in the toolbar):
+Click **＋ Variable** in the **Add** row at the bottom of the card:
 
 ![The Add row](./images/canvas/w-tray.webp)
 
@@ -73,13 +78,13 @@ Number and switch variables, and text variables with allowed values, can turn on
 
 When you turn on Precise tracking for a number, fill in **Most it can rise per turn** and **Most it can fall per turn**. Say you set both to 10: a compliment is +3, a gift is +8, snapping at her is -10, and affection never jumps around wildly. For a text variable, it only ever picks one of the options you give it.
 
-Numbers with a huge combined range (like losing 500 health in one turn) don't support Precise tracking.
+The rise and fall limits added together must stay under 255, so a number that can swing by 500 in one turn cannot use it.
 
 ## Formulas
 
 Some numbers shouldn't be up to the AI at all. They should be worked out from other numbers, like "attack = base attack × (1 + level × 0.1)".
 
-Fill in **Formula (worked out automatically)** in the variable's settings, for example `base_attack * (1 + level * 0.1)`. From then on, whenever another variable changes, it recalculates itself. The AI can see it but can't change it. You can use + - × ÷, comparisons, and `min`, `max`, `round`, `floor`, `ceil`, `abs`, `clamp` and `if`. If a variable name has a space or a hyphen in it, wrap it in `{}`, like `{max-health}`.
+Fill in **Formula (worked out automatically)** in the variable's settings, for example `base_attack * (1 + level * 0.1)`. From then on, whenever another variable changes, it recalculates itself. The AI can see it but can't change it. You can use + - × ÷, comparisons, and `min`, `max`, `round`, `floor`, `ceil`, `abs`, `clamp`, `if`, `len` and `sum`. If a variable name has a space or a hyphen in it, wrap it in `{}`, like `{max-health}`.
 
 ## Kept across playthroughs
 

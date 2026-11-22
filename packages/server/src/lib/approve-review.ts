@@ -1,3 +1,4 @@
+import { canReadFollowerWorld } from "./world-follower-access.js";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
 import {
@@ -12,10 +13,11 @@ import { notifyFollowersOfPublish } from "../routes/worlds.js";
 import { onWorldPublished } from "./achievements/engine.js";
 import { captureAutomaticVersion } from "./world-version-history.js";
 import type { ReviewContext } from './review-transaction.js';
+import { foreignGamePath } from "@yumina/shared";
 
 export interface ApproveResult {
   approved: boolean;
-  reason?: "nothing_to_approve" | "author_banned";
+  reason?: "nothing_to_approve" | "author_banned" | "game_path_not_allowed";
   groupKey: string;
   variantCount: number;
 }
@@ -28,9 +30,11 @@ interface ApproveOptions {
    * "auto"       — the (currently unused) auto-approve timer.
    * "skipReview" — the creator has the admin-granted trusted-creator flag, so
    *                their submission auto-publishes without ever queuing.
+   * "ai"         — the AI first look agreed with every setting the author
+   *                chose (lib/world-ai-review-run.ts).
    * Drives the adminActions actionType + the "auto-approved" notification flavor.
    */
-  source: "manual" | "auto" | "skipReview";
+  source: "manual" | "auto" | "skipReview" | "ai";
   /**
    * When set, approve ONLY these variant ids within the group; any other
    * pending_review siblings are left for a human. Omit = approve the whole
@@ -95,6 +99,16 @@ export async function approveGroup(
     return { approved: false, reason: "author_banned", groupKey, variantCount: variants.length };
   }
 
+  // The author can still save the card while it waits in the queue, so the
+  // check made when it was submitted says nothing about what is approved now.
+  // A card naming a game page that is not ours is never published.
+  if (variants.some((v) => foreignGamePath(v.schema))) {
+    return { approved: false, reason: "game_path_not_allowed", groupKey, variantCount: variants.length };
+  }
+  // The same check again inside the write: only rows whose game page is still
+  // the one read (and accepted) above are published.
+  const acceptedGamePaths = [...new Set(variants.map((v) => String((v.schema as { game?: { path?: unknown } } | null)?.game?.path ?? "")))];
+
   const creatorName = creatorRow?.name ?? "Someone";
   const now = new Date();
 
@@ -134,6 +148,7 @@ export async function approveGroup(
       .where(and(
         inArray(worlds.id, variantIds),
         eq(worlds.status, "pending_review"),
+        inArray(sql<string>`coalesce(${worlds.schema}->'game'->>'path', '')`, acceptedGamePaths),
       ))
       .returning();
 
@@ -183,7 +198,9 @@ export async function approveGroup(
           ? "auto_approve_world_review"
           : opts.source === "skipReview"
             ? "skip_review_auto_publish_world"
-            : "approve_world_review",
+            : opts.source === "ai"
+              ? "ai_approve_world_review"
+              : "approve_world_review",
       targetType: "world_review_group",
       targetId: groupKey,
       metadata: {
@@ -206,10 +223,11 @@ export async function approveGroup(
   const afterCommit=()=>{
   notify(creatorId, "world_review_approved", {
     groupKey,
-    primaryWorldId: variants[0]!.id,
-    worldName: variants[0]!.name,
-    thumbnailUrl: variants[0]!.thumbnailUrl,
-    variantCount: variants.length,
+    primaryWorldId: actualUpdates[0]!.id,
+    visibility: actualUpdates[0]!.visibility,
+    worldName: actualUpdates[0]!.name,
+    thumbnailUrl: actualUpdates[0]!.thumbnailUrl,
+    variantCount: actualUpdates.length,
     // Both auto-timer and skip-review publish without a human reviewer — flavor
     // the creator's notification as auto-approved in either case.
     autoApproved: opts.source !== "manual",
@@ -217,7 +235,7 @@ export async function approveGroup(
 
   // Embed only rows this transaction actually published, using RETURNING
   // content rather than the earlier moderation-queue snapshot.
-  for (const v of actualUpdates) {
+  for (const v of actualUpdates.filter(v => v.visibility !== "unlisted")) {
     embedAndStoreWorld({
       worldId: v.id,
       name: v.name,
@@ -228,19 +246,52 @@ export async function approveGroup(
     }).catch(() => {});
   }
 
-  notifyFollowersOfPublish(
+  const announced = actualUpdates.find(v => v.visibility !== "unlisted");
+  if (announced) notifyFollowersOfPublish(
     creatorId,
     creatorName,
-    variants[0]!.id,
-    variants[0]!.name,
-    variants[0]!.thumbnailUrl,
+    announced.id,
+    announced.name,
+    announced.thumbnailUrl,
   );
 
   // Achievement engine: publishedAt was stamped in the approval transaction;
   // the creator's publish achievements (初入造梦 / 多语筑梦 / 十年磨一剑).
   onWorldPublished(creatorId).catch(() => {});
+
+  // A remix of someone else's card just went live: tell that card's author,
+  // once per remix (the dedupe key holds across unpublish / republish).
+  notifyRemixSources(actualUpdates, creatorId, creatorName).catch(() => {});
   };
   if(opts.context)opts.context.afterCommit(afterCommit);else afterCommit();
 
   return { approved: true, groupKey, variantCount: variants.length };
+}
+
+async function notifyRemixSources(
+  published: Array<{ id: string; name: string; thumbnailUrl: string | null; sourceWorldId: string | null; visibility: string }>,
+  creatorId: string,
+  creatorName: string | null | undefined,
+): Promise<void> {
+  const remixes = published.filter((w) => w.sourceWorldId && w.visibility !== "unlisted");
+  if (remixes.length === 0) return;
+  const sources = await db
+    .select({ id: worlds.id, name: worlds.name, creatorId: worlds.creatorId })
+    .from(worlds)
+    .where(inArray(worlds.id, remixes.map((w) => w.sourceWorldId!)));
+  const byId = new Map(sources.map((s) => [s.id, s]));
+  for (const w of remixes) {
+    const source = byId.get(w.sourceWorldId!);
+    if (!source?.creatorId || source.creatorId === creatorId) continue;
+    if (w.visibility === "followers" && !await canReadFollowerWorld(w.id, source.creatorId)) continue;
+    await notify(source.creatorId, "world_remixed", {
+      worldId: w.id,
+      worldName: w.name,
+      thumbnailUrl: w.thumbnailUrl,
+      sourceWorldId: source.id,
+      sourceWorldName: source.name,
+      remixerUserId: creatorId,
+      remixerName: creatorName ?? null,
+    }, { actorUserId: creatorId, dedupeKey: `remix:${w.id}` }).catch(() => {});
+  }
 }

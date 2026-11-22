@@ -1,0 +1,441 @@
+/* Halloween dress-up — see components/halloween-decor.tsx. */
+
+.halloween-logo-hat {
+  position: absolute;
+  z-index: 2;
+  top: -30%;
+  left: 50%;
+  width: 78%;
+  transform: translateX(-44%) rotate(-12deg);
+  pointer-events: none;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.45));
+}
+
+.halloween-bat {
+  position: fixed;
+  z-index: 60;
+  top: 0.9rem;
+  left: -60px;
+  width: 44px;
+  pointer-events: none;
+  animation: halloween-bat-cross 7s cubic-bezier(0.45, 0.05, 0.55, 0.95) forwards;
+}
+
+.halloween-bat svg {
+  width: 100%;
+  overflow: visible;
+}
+
+.halloween-bat__wing {
+  transform-box: fill-box;
+  animation: halloween-bat-flap 0.26s ease-in-out infinite alternate;
+}
+
+.halloween-bat__wing--left { transform-origin: right center; }
+.halloween-bat__wing--right { transform-origin: left center; }
+
+@keyframes halloween-bat-flap {
+  from { transform: scaleY(1); }
+  to { transform: scaleY(0.35); }
+}
+
+@keyframes halloween-bat-cross {
+  0% { transform: translate(0, 18px); opacity: 0; }
+  8% { opacity: 1; }
+  30% { transform: translate(32vw, -4px); }
+  55% { transform: translate(58vw, 22px); }
+  80% { transform: translate(86vw, 2px); opacity: 1; }
+  100% { transform: translate(calc(100vw + 80px), -16px); opacity: 0; }
+}
+
+.halloween-empty-ghost {
+  width: 36px;
+  height: 36px;
+  animation: halloween-float 3.2s ease-in-out infinite;
+  filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.35));
+}
+
+@keyframes halloween-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .halloween-empty-ghost,
+  .halloween-bat__wing { animation: none; }
+}
+
+.halloween-spinner {
+  width: 30px;
+  height: 30px;
+  transform-origin: 50% 85%;
+  animation: halloween-rock 0.9s ease-in-out infinite alternate;
+  filter: drop-shadow(0 0 10px rgba(240, 138, 36, 0.35));
+}
+
+@keyframes halloween-rock {
+  from { transform: rotate(-14deg); }
+  to { transform: rotate(14deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .halloween-spinner { animation: none; }
+}
+
+/* The viewer's avatar in the top bar wears the logo's hat. */
+.halloween-avatar-hat {
+  position: absolute;
+  z-index: 2;
+  top: -12px;
+  left: -7px;
+  width: 24px;
+  transform: rotate(-20deg);
+  pointer-events: none;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
+}
+
+/* A pumpkin patch at the foot of the desktop sidebar. */
+.halloween-patch {
+  position: relative;
+  flex-shrink: 0;
+  width: 78px;
+  height: 52px;
+  margin-top: auto;
+}
+
+@media (max-height: 640px) {
+  .halloween-patch { display: none; }
+}
+
+.halloween-patch__vine {
+  position: absolute;
+  left: -2px;
+  bottom: 0;
+  width: 82px;
+  height: 20px;
+  pointer-events: none;
+}
+
+.halloween-patch__ghost {
+  position: absolute;
+  left: 28px;
+  bottom: 16px;
+  width: 22px;
+  height: 22px;
+  opacity: 0;
+  pointer-events: none;
+  animation: halloween-patch-peek 9s ease-in-out 3s infinite;
+}
+
+@keyframes halloween-patch-peek {
+  0%, 62%, 100% { transform: translateY(10px) rotate(0); opacity: 0; }
+  70% { transform: translateY(-12px) rotate(-8deg); opacity: 1; }
+  80% { transform: translateY(-12px) rotate(8deg); opacity: 1; }
+  88% { transform: translateY(6px) rotate(0); opacity: 0; }
+}
+
+.halloween-patch__pumpkin {
+  position: absolute;
+  bottom: 2px;
+  display: flex;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  transform-origin: 50% 100%;
+  filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.4));
+  -webkit-tap-highlight-color: transparent;
+}
+
+.halloween-patch__pumpkin:focus-visible {
+  outline: 2px solid rgba(201, 162, 94, 0.7);
+  outline-offset: 2px;
+  border-radius: 9999px;
+}
+
+.halloween-patch__pumpkin--left { left: 0; width: 26px; height: 21px; }
+.halloween-patch__pumpkin--right { right: 0; width: 28px; height: 22px; }
+.halloween-patch__pumpkin--big { left: 50%; bottom: 4px; width: 40px; height: 32px; margin-left: -20px; }
+
+.halloween-patch__pumpkin:hover { animation: halloween-jiggle 0.5s ease-in-out; }
+.halloween-patch__pumpkin--boing,
+.halloween-patch__pumpkin--boing:hover { animation: halloween-boing 0.6s cubic-bezier(0.3, 1.6, 0.5, 1); }
+
+@keyframes halloween-jiggle {
+  25% { transform: rotate(-6deg); }
+  75% { transform: rotate(6deg); }
+}
+
+@keyframes halloween-boing {
+  0% { transform: scale(1, 1); }
+  20% { transform: scale(1.25, 0.75); }
+  50% { transform: translateY(-12px) scale(0.9, 1.12); }
+  75% { transform: scale(1.08, 0.92); }
+  100% { transform: scale(1, 1); }
+}
+
+.halloween-patch__zzz {
+  position: absolute;
+  top: -6px;
+  right: 0;
+  font-size: 10px;
+  font-weight: 700;
+  font-style: italic;
+  color: rgba(245, 230, 184, 0.75);
+  pointer-events: none;
+  animation: halloween-zzz 2.8s ease-out infinite;
+}
+
+@keyframes halloween-zzz {
+  0% { transform: translate(0, 4px) scale(0.6); opacity: 0; }
+  30% { opacity: 1; }
+  100% { transform: translate(8px, -14px) scale(1.15); opacity: 0; }
+}
+
+.halloween-patch__bubble {
+  position: fixed;
+  z-index: 200;
+  max-width: 220px;
+  padding: 6px 11px;
+  border: 1px solid rgba(240, 138, 36, 0.35);
+  border-radius: 12px;
+  background: rgb(27, 20, 30);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.4);
+  color: #F5E6B8;
+  font-size: 12px;
+  line-height: 1.35;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translateY(-50%);
+  animation: halloween-bubble-in 220ms cubic-bezier(0.2, 0.9, 0.3, 1.3);
+}
+
+.halloween-patch__bubble::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: -5px;
+  width: 8px;
+  height: 8px;
+  margin-top: -4px;
+  border-left: 1px solid rgba(240, 138, 36, 0.35);
+  border-bottom: 1px solid rgba(240, 138, 36, 0.35);
+  background: rgb(27, 20, 30);
+  transform: rotate(45deg);
+}
+
+@keyframes halloween-bubble-in {
+  from { transform: translate(-6px, -50%) scale(0.9); opacity: 0; }
+  to { transform: translate(0, -50%) scale(1); opacity: 1; }
+}
+
+/* Bunting and lanterns along the top of the home banner. */
+.halloween-garland {
+  position: absolute;
+  z-index: 11;
+  inset-inline: 0;
+  top: 0;
+  height: 60px;
+  pointer-events: none;
+}
+
+.halloween-garland__string {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.halloween-garland__flag,
+.halloween-garland__charm {
+  position: absolute;
+  transform-origin: 50% 0;
+  animation: halloween-sway 3s ease-in-out infinite alternate;
+}
+
+.halloween-garland__flag {
+  width: 14px;
+  height: 18px;
+  margin-left: -7px;
+  filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.35));
+}
+
+.halloween-garland__charm {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 28px;
+  margin-left: -14px;
+}
+
+.halloween-garland__cord {
+  width: 1px;
+  height: 7px;
+  background: rgba(245, 230, 184, 0.5);
+}
+
+.halloween-garland__lantern {
+  width: 28px;
+  height: 23px;
+  animation: halloween-glow 2.4s ease-in-out infinite alternate;
+}
+
+.halloween-garland__ghost {
+  width: 24px;
+  height: 24px;
+  margin-top: -2px;
+  filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.4));
+}
+
+@keyframes halloween-sway {
+  from { transform: rotate(-5deg); }
+  to { transform: rotate(5deg); }
+}
+
+@keyframes halloween-glow {
+  from { filter: drop-shadow(0 0 5px rgba(255, 150, 50, 0.4)); }
+  to { filter: drop-shadow(0 0 11px rgba(255, 170, 70, 0.75)); }
+}
+
+.halloween-garland__spider-drop {
+  position: absolute;
+  width: 22px;
+  height: 70px;
+  margin-left: -11px;
+  overflow: hidden;
+}
+
+.halloween-garland__spider {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  animation: halloween-spider 5s ease-in-out infinite;
+}
+
+.halloween-garland__thread {
+  flex-shrink: 0;
+  width: 1px;
+  height: 60px;
+  background: rgba(245, 230, 184, 0.45);
+}
+
+.halloween-garland__spider svg {
+  flex-shrink: 0;
+  width: 20px;
+  height: 17px;
+  margin-top: -3px;
+}
+
+@keyframes halloween-spider {
+  0%, 100% { transform: translateY(-58px); }
+  45%, 60% { transform: translateY(-14px); }
+  52% { transform: translateY(-19px); }
+}
+
+/* The redesigned Discover runs its banner up under the top bar on wider
+   screens; hang the string below the bar instead of behind it. */
+@media (min-width: 768px) {
+  .discover-redesign .halloween-garland {
+    top: calc(var(--topbar-height) + 10px);
+    inset-inline: 3%;
+  }
+}
+
+.halloween-garland--phone {
+  inset-inline-start: 52%;
+}
+
+.halloween-garland--phone .halloween-garland__flag,
+.halloween-garland--phone .halloween-garland__charm {
+  scale: 0.8;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .halloween-patch__ghost,
+  .halloween-patch__zzz,
+  .halloween-garland__flag,
+  .halloween-garland__charm,
+  .halloween-garland__lantern,
+  .halloween-garland__spider { animation: none; }
+  .halloween-garland__spider { transform: translateY(-30px); }
+}
+
+/* Corner stickers on posts and cards. */
+.halloween-sticker {
+  position: absolute;
+  z-index: 2;
+  top: -7px;
+  right: 10px;
+  display: flex;
+  width: 24px;
+  height: 24px;
+  pointer-events: none;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.35));
+  transition: transform 220ms ease-out;
+}
+
+.halloween-sticker--bat { width: 30px; height: 16px; top: -4px; }
+.halloween-sticker--candy-pink,
+.halloween-sticker--candy-purple { width: 28px; height: 17px; top: -5px; }
+.halloween-sticker--candy-corn { width: 16px; height: 19px; }
+
+.group:hover .halloween-sticker { transform: translateY(-2px) scale(1.12); }
+
+.halloween-cobweb {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  right: 0;
+  width: 54px;
+  height: 54px;
+  pointer-events: none;
+}
+
+.halloween-cobweb--left { right: auto; left: 0; transform: scaleX(-1); }
+
+.halloween-sticker-web { width: 40px; height: 40px; border-top-right-radius: inherit; }
+
+/* The witch hat on a profile avatar. */
+.halloween-profile-hat {
+  position: absolute;
+  z-index: 30;
+  top: -22%;
+  left: -10%;
+  width: 70%;
+  transform: rotate(-18deg);
+  pointer-events: none;
+  filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.5));
+}
+
+/* A bat hanging upside-down from a header. */
+.halloween-hanging-bat {
+  position: absolute;
+  z-index: 2;
+  width: 26px;
+  transform-origin: 50% 0;
+  pointer-events: none;
+  animation: halloween-sway 2.6s ease-in-out infinite alternate;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .halloween-hanging-bat { animation: none; }
+}
+
+/* On the light Community cards the web is drawn in ink. */
+.halloween-cobweb--ink g,
+.community-thread-card .halloween-cobweb g { stroke: rgba(70, 55, 90, 0.3); }
+
+.halloween-sticker--inside { top: 8px; right: 8px; z-index: 5; }
+.halloween-sticker--inside.halloween-sticker-web { top: 0; right: 0; }
+
+.halloween-library-web { width: 84px; height: 84px; }
+.halloween-library-thread {
+  position: absolute;
+  top: 18px;
+  right: 46px;
+  width: 1px;
+  height: 30px;
+  background: rgba(245, 233, 210, 0.35);
+  pointer-events: none;
+}
+.halloween-library-bat { top: 44px; right: 33px; transform: rotate(180deg); transform-origin: 50% 0; animation: none; }

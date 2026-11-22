@@ -14,6 +14,9 @@ export type {
   Character,
   WorldDefinition,
   WorldSettings,
+  WorldMultiplayerSettings,
+  WorldMultiplayerRole,
+  ImageLoraBinding,
   GameState,
   AudioTrack,
   AudioEffect,
@@ -79,6 +82,7 @@ export type {
   UIPackageVariableRef,
   UIPackageWorldValidationContext,
   YuminaBundle,
+  BundleSettingField,
   // Rules 2.0
   TriggerType,
   TriggerConfig,
@@ -118,6 +122,7 @@ export {
   characterSchema,
   gameComponentSchema,
   worldSettingsSchema,
+  multiplayerSettingsSchema,
   worldDefinitionSchema,
   gameStateSchema,
   audioTrackSchema,
@@ -174,6 +179,11 @@ export {
   parseLeadingSpeakerTag,
   isPartialLeadingSpeakerTag,
   buildSpeakerFormatBlock,
+  hasLivePortrait,
+  liveCharacters,
+  stripFaceLines,
+  LIVE_FACES,
+  buildLiveFaceBlock,
 } from "./prompts/speaker-tag.js";
 export type { SpeakerTagParse } from "./prompts/speaker-tag.js";
 export type { ChatMessage, UserPrompt, PromptCostBreakdown, PromptCostBlock } from "./prompts/prompt-builder.js";
@@ -214,7 +224,9 @@ export {
   COMPOSED_MARKER,
   BUNDLE_NS_RE,
   generateComposedIndex,
+  readComposedLayout,
 } from "./bundles/composed-index.js";
+export type { ComposedLayout } from "./bundles/composed-index.js";
 export {
   APP_PACK_IDS,
   appPack,
@@ -413,7 +425,10 @@ export {
   DEFAULT_OPACITY as DEFAULT_BACKGROUND_OPACITY,
 } from "./world/background.js";
 export type { ResolvedBackground } from "./world/background.js";
-export { mergeWorldDefinition, deepEqual } from "./world/merge.js";
+export { mergeWorldDefinition, mergeWorldValue, deepEqual } from "./world/merge.js";
+export { diffWorld, applyWorldChanges, applyWorldChangesChecked, annotateChangeBase, rebaseWorld, rebaseWorldDetailed, isWorldChangeList, WORLD_ROW_COLLECTIONS, type WorldEdit, type PathStep, type MissingChange, type ChangeConflict, type CheckedChanges } from "./world/changes.js";
+export { textHunks, applyHunks, mergeText, stableHash, type TextHunk } from "./world/text-merge.js";
+export { textFieldKey, parseTextFieldKey, readTextField, writeTextField, type TextFieldRef } from "./world/text-fields.js";
 export { revertTurn } from "./world/revert-turn.js";
 export type { TurnRevertResult } from "./world/revert-turn.js";
 export type { WorldMergeResult, WorldMergeConflict } from "./world/merge.js";
@@ -489,20 +504,20 @@ export type {
 export { SystemRegistry, BUILT_IN_SYSTEMS } from "./systems/registry.js";
 
 // ── Card graph (canvas projection of the world definition) ──
-export { toGraph, applyGraphEdit, seedKeyOf, WORLD_LOGIC_KEYS } from "./graph/compiler.js";
+export { toGraph, applyGraphEdit, seedKeyOf, WORLD_LOGIC_KEYS, packMembership } from "./graph/compiler.js";
 export type { ToGraphOptions } from "./graph/compiler.js";
 export { extractVariableReadsFromFiles } from "./graph/variable-read-scan.js";
 export { uiDocVariableRefs, pageVariableRefs, pageBehaviorRefs, remapUiVariable, remapPageVariable, remapDocVariable } from "./ui-doc/variable-refs.js";
 export { contentChangedNodeIds, diffGraphs } from "./graph/graph-diff.js";
 export type { GraphDiff, GraphDiffContent } from "./graph/graph-diff.js";
 export type { VariableReadScan } from "./graph/variable-read-scan.js";
-export { extractAiCallsFromFiles } from "./graph/ai-call-scan.js";
+export { extractAiCallsFromFiles, liveVoiceCalls } from "./graph/ai-call-scan.js";
 export {
   AUTHOR_SAMPLING_LIMITS, STATION_DEFAULT_TEMPERATURE, STATION_TEMPERATURE_LIMITS, STATION_MAX_TOKENS_LIMITS,
   clampAuthorSampling, clampToRange, resolveStorySampling,
 } from "./ai/sampling-policy.js";
 export type { SamplingKey, SamplingParams } from "./ai/sampling-policy.js";
-export type { FrontendAiCall, FrontendAiCallKind } from "./graph/ai-call-scan.js";
+export type { FrontendAiCall, FrontendAiCallKind, LiveVoiceCall } from "./graph/ai-call-scan.js";
 export { frontendManifest, frontendFileFacts, interfaceSendsChat, firstMatchIn } from "./graph/frontend-manifest.js";
 export type { FrontendManifest, FrontendFileFacts, FrontendApiFamily } from "./graph/frontend-manifest.js";
 export { summarizeCustomization } from "./world/customization-summary.js";
@@ -520,6 +535,11 @@ export {
   frameIdForNode,
   entryTrigger,
   isBlockId,
+  isPackOwner,
+  PACK_OWNER_PREFIX,
+  packInstallIdOf,
+  packOf,
+  packOwnerId,
   parseRowHandle,
   portHandleId,
   rowHandleId,

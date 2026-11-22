@@ -10,6 +10,8 @@ import { OpenRouterProvider } from "./llm/openrouter.js";
 import { LocalBridgeProvider } from "./llm/local-bridge.js";
 import type { GenerateParams, StreamChunk } from "./llm/types.js";
 import { acquireConcurrency, checkSideCallRateLimit, releaseConcurrency, SIDE_CALL_MAX_CONCURRENT, SIDE_CALL_MAX_PER_MINUTE } from "../middleware/rate-limit.js";
+// These players already allowed background AIs to charge (background-consent.ts).
+const ALLOWED = { backgroundCharges: { allowAll: true } };
 
 before(async () => {
   await import(new URL("../../scripts/test-local-schema.mjs", import.meta.url).href);
@@ -27,7 +29,7 @@ afterEach(() => mock.restoreAll());
 async function fixture(options: { protected?: boolean; creator?: boolean; balance?: number; suspended?: boolean; private?: boolean; plan?: string } = {}) {
   const userId = crypto.randomUUID(), creatorId = options.creator ? userId : crypto.randomUUID();
   await db.insert(user).values([
-    { id: userId, name: "Player", email: `${userId}@test.invalid`, isSuspended: options.suspended ?? false, preferences: { preferredProvider: options.private ? "private" : "official" } },
+    { id: userId, name: "Player", email: `${userId}@test.invalid`, isSuspended: options.suspended ?? false, preferences: { preferredProvider: options.private ? "private" : "official", ...ALLOWED } },
     ...(creatorId !== userId ? [{ id: creatorId, name: "Creator", email: `${creatorId}@test.invalid` }] : []),
   ]);
   await db.insert(creditWallets).values({ userId, plan: options.plan ?? "free", balance: options.balance ?? 100, periodStart: new Date(), periodEnd: new Date(Date.now() + 30 * 86400000) });

@@ -46,6 +46,26 @@ export async function urlServedElsewhere(tx: WorldEditExecutor, url: string, ass
   return result.rows.length > 0;
 }
 
+/**
+ * A public, approved resource pack by the file's own owner still names this file.
+ * Only the owner's packs count: anyone can write another user's asset id into
+ * a pack of their own, and that must not stop the owner deleting the file or
+ * keep its bytes alive.
+ * Cards that installed the pack before its files were copied on install (and
+ * the pack's own next installs) read it straight from the author's library,
+ * so while that version is live the bytes must outlive a library delete: the
+ * row goes into retention like a versioned file, and the sweeper keeps it
+ * until no live bundle names it.
+ */
+export async function assetHeldByLiveBundle(tx: WorldEditExecutor, id: string, url: string, ownerId: string): Promise<boolean> {
+  const mentions = url
+    ? sql`(strpos(content::text, ${id}) > 0 OR strpos(content::text, ${url}) > 0)`
+    : sql`strpos(content::text, ${id}) > 0`;
+  const result = await tx.execute(sql`
+    SELECT 1 FROM bundles WHERE is_public AND review_status = 'approved' AND user_id = ${ownerId} AND ${mentions} LIMIT 1`);
+  return result.rows.length > 0;
+}
+
 /** Moves a library row into retention. Caller holds the world_versions lock. */
 export async function retainUserAsset(tx: WorldEditExecutor, assetId: string): Promise<void> {
   await tx.execute(sql`
@@ -65,7 +85,7 @@ export async function sweepRetainedUserAssets(limit = 100): Promise<{ purged: nu
   let restored = 0;
   for (const r of rows) {
     try {
-      if (await assetIsVersioned(db, r.assetId, r.url)) continue;
+      if (await assetIsVersioned(db, r.assetId, r.url) || await assetHeldByLiveBundle(db, r.assetId, r.url, r.userId)) continue;
       const inUse = (await worldsUsingAsCover(db, r.assetId, r.url)).length > 0
         || (await worldsUsingAssetContent(db, r.userId, r.assetId, r.url)).length > 0;
       if (inUse) {
@@ -85,7 +105,7 @@ export async function sweepRetainedUserAssets(limit = 100): Promise<{ purged: nu
         // Same serialization as library deletion: no checkpoint may pick the
         // file up between this check and the object delete.
         await tx.execute(sql`LOCK TABLE world_versions IN SHARE ROW EXCLUSIVE MODE`);
-        if (await assetIsVersioned(tx, r.assetId, r.url)) return false;
+        if (await assetIsVersioned(tx, r.assetId, r.url) || await assetHeldByLiveBundle(tx, r.assetId, r.url, r.userId)) return false;
         if (isS3Configured() && !(await urlServedElsewhere(tx, r.url, r.assetId))) await deleteObject(r.url);
         await tx.delete(retainedUserAssetFiles).where(eq(retainedUserAssetFiles.assetId, r.assetId));
         return true;

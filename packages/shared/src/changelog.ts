@@ -29,7 +29,7 @@ export const CHANGELOG_AREAS = [
   { slug: "discover", labels: { zh: "发现", "zh-Hant": "發現", en: "Discover", es: "Descubrir", ja: "発見" } },
   { slug: "image", labels: { zh: "生图", "zh-Hant": "生圖", en: "Image generation", es: "Generación de imágenes", ja: "画像生成" } },
   { slug: "creator", labels: { zh: "创作者", "zh-Hant": "創作者", en: "Creators", es: "Creadores", ja: "クリエイター" } },
-  { slug: "community", labels: { zh: "社区", "zh-Hant": "社羣", en: "Community", es: "Comunidad", ja: "コミュニティ" } },
+  { slug: "community", labels: { zh: "社区", "zh-Hant": "社群", en: "Community", es: "Comunidad", ja: "コミュニティ" } },
   { slug: "account", labels: { zh: "账号与付费", "zh-Hant": "帳號與付費", en: "Account & billing", es: "Cuenta y pagos", ja: "アカウントと支払い" } },
   { slug: "performance", labels: { zh: "性能与稳定性", "zh-Hant": "效能與穩定性", en: "Performance & stability", es: "Rendimiento y estabilidad", ja: "パフォーマンスと安定性" } },
   { slug: "other", labels: { zh: "其他", "zh-Hant": "其他", en: "Other", es: "Otros", ja: "その他" } },

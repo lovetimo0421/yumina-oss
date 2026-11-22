@@ -1,114 +1,24 @@
-# Publishing, Exporting & Bundles
-
-> Cover and asset rules: effective October 24, 2026 at 11:59 p.m. Pacific time. [See the notice and previous rules](/legal/community-guidelines).
-
-## The short version
-
-- **Limited:** every asset must be safe for work and non-suggestive, including during gameplay.
-- **Limitless:** public covers, galleries, and previews cannot show nudity, sexual acts, or graphic gore; intimate areas must be covered with opaque clothing.
-- **Blur is optional for viewers, not an exception to the rules.** Mark suggestive Limitless covers **Blurred** and check the fully visible image.
-- Check the [publishing checklist](/creator/publishing#content-checklist) and [full media rules](/legal/community-guidelines#publishing-media) before submitting.
-
-When your world is done, click **Not live** in the top right of the canvas and publish it.
-
-Before you do, click **Cover & blurb** on the right of the canvas and make sure **Card settings** has:
-
-- **Card title and description** — title up to 50 characters, description up to 10,000. Players decide whether to open your card from these two.
-- **Cover Image** — the first thing players see on Discover. You need a portrait **Phone · 2:3** and a landscape **Desktop · 16:9** version. Cards without a cover get sent back by review.
-
-**Not live** runs through a short checklist (a name, a cover, an opening, at least one playtest). Then click **Publish**. In the publish dialog, add **Tags** (players search and filter by them), set the **Content Mode** (Limited or Limitless), visibility, and whether others may make editable copies, confirm your rights to the content, and publish. After review, your world appears in **Discover** for others to search, browse, play, or copy and modify.
-
-Don't want to use the platform's publish system? Download your world as a JSON file and send it to friends directly. Or export just part of your world's content — like a battle system — as a Bundle to share with other creators.
-
 ---
+title: "Bundles, forking and export"
+description: "How others fork your card, how to bundle one system (variables, behaviors, interface, audio) for another card, and what the full JSON export contains."
+---
+# Bundles, forking and export
 
-## The detailed version
+Publishing itself is on [Publishing](/creator/publishing). This page is about the three ways a card leaves your account in parts or whole: others making editable copies, bundles that carry one system into another card, and the full JSON export.
 
-### Publication status
-
-The publish button in the top right shows where a world stands:
-
-| Status | Meaning | Visible to others? |
-|--------|---------|-------------------|
-| Draft (**Not live**) | Still being worked on, only you can see it | No |
-| **In review** | Submitted, waiting for review | No |
-| Published (**LIVE**) | Live, appears on the Discover page | Yes |
-| **Rejected** | Sent back by review, with the reason | No |
-| Unpublished | Was published, but you took it down | No |
-
-A draft, a rejected world and an unpublished world can all be submitted for review. While a world is in review you can't edit it; **Stop review request** takes it back to a draft. A published world can be unpublished from the publish menu.
-
-Click **Unpublish** and choose the scope before confirming:
-
-- **Current variant only** (default): take down the variant you opened.
-- **All published variants**: take down your published variants in the same language group.
-- **Choose variants**: select the exact versions to take down, including separate variants in the same language.
-
-Drafts and other variants that are not published cannot be selected. The dialog shows the selection and which variants will remain published. Only the selected versions are affected; unselected published variants stay available. If a selected variant's status has changed, refresh the list and review your selection before retrying.
-
-For each selected variant, players who've added it to their library get a notification, and players with existing sessions see it as "No longer available" and can't keep playing. When you re-publish that variant, they're notified again and access is restored.
-
-After a world is live, edits you save become **Unpublished changes**. Players keep seeing the live version until you submit the changes and they pass review. See [Publishing](/creator/publishing#updating-a-published-world).
-
-### Publish settings
-
-These are set in the **publish dialog** (from **Publish** in the publish menu), not in Card settings.
-
-**Content mode**
-
-| UI label | Meaning |
-|----------|---------|
-| **Limited** | Safe for work and non-suggestive throughout; suitable for ages 13+ |
-| **Limitless** | Permitted adult content for eligible users aged 18+; public media still follows the non-explicit cover and preview rules |
-
-If you don't pick anything, publishing defaults to **Limited**.
-
-**Visibility**
-
-```
-Public          — everyone can find and play it on Discover
-Followers Only  — only your followers can see it, good for limited testing or sharing with your circle
-```
-
-Defaults to **Public**.
-
-**Derivative Works (`allowEdit`)**
-
-Defaults to **Allow**. When allowed, others can create editable copies of your world to modify. **Not Allowed** means nobody else can.
-
-**Tags**
-
-Up to 50 tags. Very useful for search and filtering on the Discover page — the platform tracks tag usage frequency across all published worlds, and players can browse and search by tag. Auto-complete suggests popular tags as you type.
-
-**Everything else in the dialog**
-
-- **Cover Thumbnail** — **Blurred** or **Clear** in listings
-- **Target Audience** — For Everyone, For Men, For Women
-- **Custom API Keys** — whether players may play with their own API key, or only the official API
-- **Reviews** — open or closed
-- **Community Citations** — whether others can cite your work in community posts
-- **Announcement** and **Approx. Play Time** — shown on the card's page
-- **Lore Shift** — see [Publishing](/creator/publishing#lore-shift)
-
-**Cover image**
-
-Upload it in **Card settings** (**Cover & blurb** on the canvas). Used on Discover cards, search results, and in **My Library**.
-
-A cover is required for publication. Both covers must meet the [cover and asset rules](/legal/community-guidelines#publishing-media), even for a Limitless World. The **Blurred / Clear** setting controls presentation for viewers who enable blur; it does not make a prohibited cover publishable.
-
-### Forking
+## Forking
 
 When a world is published and allows derivative works, other users can make their own copy:
 
 1. A complete copy is created, owned by the forker
-2. The name is auto-incremented — if the original is "Dark Forest," your copy is "Dark Forest (1)"; fork again and it's "Dark Forest (2)"
+2. The name is auto-incremented: if the original is "Dark Forest," your copy is "Dark Forest (1)"; fork again and it's "Dark Forest (2)"
 3. The copy starts as a draft and isn't published automatically
 4. Preserves all original tags, description, cover, schema, and content
 5. Original world's `downloadCount` increases by 1
 6. The copy's `sourceWorldId` points back to the original for traceability
 7. Any referenced assets (like images) are copied over too
 
-### Bundle system
+## Bundles
 
 Say you spent two weeks building a polished combat system: variables, behaviors, interface, sound effects. A friend is building a world and needs a combat system. You don't need to give them your whole world. **Bundle** the combat-related parts and send that over.
 
@@ -130,23 +40,62 @@ Plug it into another world and it works there.
 
 **Creating a Bundle**
 
-Click **⋮ → Export Bundle** in the canvas top bar. Fill in a name, description and tags, then tick what to include under **Entries**, **Variables** and **Behaviors**. When you tick a behavior, the variables it reads or changes are marked "suggested", so you don't accidentally leave them out.
+Click **⋮ → Save as template or pack** in the canvas top bar. Fill in a name, description and tags, then tick what to include under **Entries**, **Variables** and **Behaviors**. When you tick a behavior, the variables it reads or changes are marked "suggested", so you don't accidentally leave them out.
 
-If the card has its own interface code, a **Visual layer** checkbox includes it. Audio tracks are always included.
+If the card has its own interface code, a **Visual layer** checkbox includes it. Once it's checked, **When others install it** appears below, listing which samples get swapped when someone installs the interface; see [Making an interface others can use](#shareable-interface). Audio tracks are always included.
 
 Click **Save to Library**. The bundle is saved to your bundle library (**Panels → Marketplace → My Library**).
 
-**Conflict handling on import**
+**Choices on import**
 
-When importing a Bundle into an existing world, content is **merged**, not overwritten. Specific conflict resolution:
+When you install a Bundle into an existing world, its content is **merged** in, never overwritten. Before it goes in you choose:
 
-- **Same variable ID**: skip, use existing variable
-- **Same variable name but different ID**: create new variable with a suffix (e.g. `HP (1)`)
-- **Entries**: always generate new IDs, append to existing entry list
-- **Behaviors**: same — create new IDs and append
-- **Visual layer**: its files merge into the world's interface code
+- **Parts to install**: you can leave out entries, behaviors or audio. Variables always come along, since the other parts use them.
+- **Same variable ID**: the bundle shares the variable your card already has.
+- **Same variable name, different ID**: for each one, pick **Merge into one** (the bundle uses your variable) or **Keep both** (the bundle's copy gets another name).
+- **Its interface** (when the bundle has interface code): **Keep both screens**, **Replace the current screen**, or **Leave its screen out**. Replacing keeps your own interface; remove the bundle to get it back.
 
-Variable IDs referenced in behaviors are auto-remapped to preserve relationships after import. Without that, an imported combat system's behaviors wouldn't find their "HP" variable.
+Entries and behaviors always get new IDs, and variable IDs referenced in behaviors are remapped, so relationships survive the import.
+
+<a id="interface-templates"></a>
+
+**Interface templates: use someone else's interface**
+
+The market has a category called **Interface**: complete interfaces other creators made, such as status bars, inventories, relationships and maps. You can use one as your card's interface and swap its samples for your card's own as you install it.
+
+1. On the canvas, press **Resource market** next to **Add** and filter the market by **Interface** (or press **Switch interface** on **Player interface** and then **More interfaces in the Resource market** at the bottom). Interfaces marked **Uses your characters** put your card's characters in as you install them.
+2. Open one to preview it, then press **Use on this card**.
+3. **Fit to this card** in the install dialog swaps the samples right away, with no assistant and no credits:
+   - People in the interface (the board's characters, the phone's contacts) become **This card's characters** by default. Names, bios and portraits come from your card's character entries; click a name to leave that character out. Sample messages and posts from the sample people are emptied with them.
+   - Other samples, such as the example items in a bag, can be kept (**Keep samples**) or emptied (**Empty**).
+   - A single value the interface brings (like bag capacity) can point at one of your card's variables of the same type instead of adding a new one.
+4. A full-screen interface that draws its own chat replaces your current screen by default; one that sits on top of the screen, like a status bar or a side drawer, keeps both by default, or your card would be left without a chat.
+5. To also replace other text hard-coded in the interface's code, check **Have the assistant fit it to this card**. It starts unchecked when your card has characters to match. The assistant reads your card's variables and lore and replaces hard-coded numbers, characters, places and text with yours, keeping the layout, panels and features. If the interface needs something your card doesn't have (a map needs locations), it asks whether to add it or remove that panel.
+
+The assistant's fitting uses your own assistant credits. If you don't like the result, press **Undo this turn** under the assistant's message, or remove the bundle to get your old interface back.
+
+<a id="shareable-interface"></a>
+
+**Making an interface others can use**
+
+For your interface to show someone else's characters once they install it, what it shows has to live in variables, not in the code:
+
+1. Put the people in one JSON variable whose ID says they are people, like `npcs`, `characters` or `contacts`. Make it an object keyed by person ID; each person has a `name`, and can have a `bio` and an `avatar` (an asset, a URL or one letter). Numbers like affinity or trust can go in there too.
+
+   ```json
+   {
+     "aria": { "name": "Aria", "bio": "A squire in the royal city", "avatar": "A", "affinity": 30 },
+     "ken": { "name": "Ken", "bio": "Runs the tavern", "avatar": "K", "affinity": 10 }
+   }
+   ```
+
+2. Anything that belongs to a person (messages, posts, events) stores that person's ID, like `"from": "aria"`. When someone installs the interface, these are emptied along with the sample people.
+3. Other samples, like items or places, also go in JSON variables, each item with a `name`. Whoever installs it can keep or empty them.
+4. The interface code only reads these variables to draw them.
+
+When you export the bundle with **Visual layer** checked, **When others install it** lists each list and what will happen to it: a list of people shows **Their characters**, other lists show **Kept or emptied**. If it says **No list of people**, the people are still written in the code, or their variable isn't checked. Once published to the market, an interface like this is marked **Uses your characters**.
+
+You can also tell the assistant "I'll share this interface, keep the people in a variable", and it writes it this way.
 
 **Sharing Bundles**
 
@@ -156,7 +105,7 @@ You can also click **Download JSON** on a bundle and send the file to friends fo
 
 To share a single [scenario](/creator/modules), use **Share this scenario** in its settings. It's saved to your bundles the same way.
 
-### Full world export
+## Full world export
 
 Beyond the "partial export" of Bundles, you can also export a complete world JSON: open **My Library → My Projects**, select the card, and click **Download**. The exported file contains everything in `WorldDefinition`:
 
@@ -164,69 +113,26 @@ Beyond the "partial export" of Bundles, you can also export a complete world JSO
 - All variables (`variables`)
 - Behaviors (`reactions`, and `rules` on older cards)
 - Scenarios (`worldbooks`)
-- Root Component (`rootComponent`) — the entire world UI entry, including `index.tsx` and all its sibling files
+- Root Component (`rootComponent`): the entire world UI entry, including `index.tsx` and all its sibling files
 - The player interface built in the Player interface editor (`uiDoc`)
 - Custom UI TSX components (`customUI`, older cards)
 - Audio tracks (`audioTracks`), BGM playlist (`bgmPlaylist`), conditional BGM (`conditionalBGM`)
 - Scene images (`sceneImages`) and reply processing rules (`replyRules`)
 - Spatial systems (`systems`) and scenes (`scenes`)
 - Editor mode (`editorMode: "simple" | "advanced"`)
-- World settings (`settings`) — temperature, token limits, layout mode, scan depth, etc.
+- World settings (`settings`): temperature, token limits, layout mode, scan depth, etc.
 
 Note: the sharing variant grouping key (`languageGroupId`) is stored on the world record itself (for Hub matching), not inside `WorldDefinition`, so it doesn't appear in the exported JSON.
 
 Uses for full export:
-- **Backup** — export periodically as a local copy.
-- **Version control** — commit to a git repo to track changes. Export before major revisions as a manual save point.
-- **Collaborating** — send the JSON to a collaborator and they can import it and work on their own account.
-- **Migration** — the planned offline version uses the same format.
+- **Backup.** Export periodically as a local copy.
+- **Version control.** Commit to a git repo to track changes. Export before major revisions as a manual save point.
+- **Collaborating.** Send the JSON to a collaborator and they can import it and work on their own account.
+- **Migration.** The planned offline version uses the same format.
 
 To import, use **Import File** in **Card settings** (this replaces the current card's content), or **⋮ → Import Bundle** for bundles. The importer recognizes Yumina world JSON, SillyTavern character cards (including PNG-embedded V2 cards), and Bundle JSON.
 
-### Multi-language support: variants
-
-To let players play your world in their own language, with the AI replying in that language too, make a **variant**: a full copy of the world in another language. Open **Panels → Languages & variants** (the variants also sit at the top of **Card settings**), add a language version, and translate it. A banner on the new version offers **Ask the assistant to translate into …** if you'd rather the Creation assistant did the first pass.
-
-Each variant is separate content: lore, openings, variables, behavior text and interface text all need translating. The engine recognizes variants as "different language versions of the same world." Players see the version in their own language on Discover and can switch to the others after opening the card. One version per language is marked ★ **Main**, the one people see when browsing. In the community listing the variant group counts as a single world; view stats are merged.
-
-#### Supported languages
-
-| Code | Language |
-|------|---------|
-| `en` | English |
-| `zh` | 中文 |
-| `ja` | 日本語 |
-| `ko` | 한국어 |
-| `es` | Español |
-| `fr` | Français |
-| `de` | Deutsch |
-| `pt` | Português |
-| `ru` | Русский |
-| `ar` | العربية |
-
----
-
-## Practical examples
-
-### Example 1: Pre-publish checklist
-
-Your world is done and you're ready to go live. Go through this checklist first:
-
-```
-[ ] Name — is it compelling? Can someone tell what kind of world it is at a glance?
-[ ] Description — did you write one? At least two sentences telling players what they'll experience.
-[ ] Cover image — both formats uploaded and cropped? Does it still look clear when thumbnail-sized on Discover?
-[ ] Tags — added relevant tags? Think about what players would search for.
-[ ] Content mode — pick **Limitless** for expanded content boundaries, otherwise **Limited**. Mis-labelling is a guidelines violation.
-[ ] Visibility — public if you want everyone to see it. Followers-only for limited testing first.
-[ ] Derivative works — allow if you want others to copy and modify it. Disallow to protect your original work.
-[ ] Opening — what's the first message players see? Is it set up properly?
-[ ] Self-test — did you play through it yourself from start to finish? Do variables change? Do behaviors fire?
-```
-
-Once verified, click **Save**, then **Not live** → **Publish**, and complete the publish dialog. Once it passes review, check how it looks on Discover.
-
-### Example 2: Creating a combat system Bundle to share with the community
+## Example: a combat system bundle for the community
 
 Say you built a turn-based combat system in your RPG world containing:
 
@@ -237,9 +143,9 @@ Say you built a turn-based combat system in your RPG world containing:
 
 Packaging steps:
 
-1. Click **⋮ → Export Bundle** in the canvas top bar
+1. Click **⋮ → Save as template or pack** in the canvas top bar
 2. Name it "Turn-Based Combat System v1.0," write a clear description of its usage
-3. Tick the 2 behaviors — the variables they use are marked "suggested"
+3. Tick the 2 behaviors. The variables they use are marked "suggested"
 4. Tick the 5 variables
 5. Tick **Visual layer** if you want the HP/MP bars to come along (audio tracks are always included)
 6. Add tags: `combat`, `rpg`, `turn-based`
@@ -253,4 +159,4 @@ Someone who has the Bundle opens their own card and installs it from **Panels �
 
 ## See also
 
-- [Custom UI Guide](/creator/advanced/custom-ui-deep) — building the visual experience players see when they play your world
+- [Custom UI Guide](/creator/advanced/custom-ui-deep): building the visual experience players see when they play your world

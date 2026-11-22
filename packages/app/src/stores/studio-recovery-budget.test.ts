@@ -141,3 +141,17 @@ test("the heartbeat persists the step counter, not just liveness", () => {
     "the heartbeat UPDATE must carry the live iteration alongside updatedAt",
   );
 });
+
+test("a silent agent stream is dropped only after the server would have spoken", () => {
+  // The server sends a heartbeat when nothing went out for its threshold,
+  // checked on a fixed tick, so the longest gap on a live stream is the two
+  // added. The client's silence limit must clear that with room for a slow
+  // link, or a healthy run gets cut and handed to recovery.
+  const tick = Number(/\}, ([0-9_]+)\);\s*\n\s*\/\/ Send runId to client/.exec(agentRoute)?.[1]?.replace(/_/g, ""));
+  const threshold = Number(/Date\.now\(\) - lastSendTime >= ([0-9_]+)/.exec(agentRoute)?.[1]?.replace(/_/g, ""));
+  assert.ok(tick > 0 && threshold > 0, "the server heartbeat moved");
+  const silence = readNumericConst(studioStore, "STREAM_SILENCE_MS");
+  assert.ok(silence >= (tick + threshold) * 1.5, `STREAM_SILENCE_MS (${silence}ms) must outlast the longest heartbeat gap (${tick + threshold}ms) with margin`);
+  assert.ok(silence < readNumericConst(studioStore, "STALE_MS"), "a dead stream must be noticed before recovery's own staleness check");
+  assert.match(studioStore, /lastByteAt = Date\.now\(\);/, "every chunk read must reset the silence clock");
+});

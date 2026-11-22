@@ -72,16 +72,16 @@ export function ToolMenuRow({
     <button
       type="button"
       onClick={onSelect}
-      className="flex w-full items-center gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3.5 py-3 text-left transition-colors hover:border-white/15 hover:bg-white/[0.05]"
+      className="flex w-full items-center gap-3 rounded-xl border border-play-ink/[0.06] bg-play-ink/[0.02] px-3.5 py-3 text-left transition-colors hover:border-play-ink/15 hover:bg-play-ink/[0.05]"
     >
-      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/[0.05]">
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-play-ink/[0.05]">
         {icon}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block text-sm font-medium text-white/90">{label}</span>
-        {sublabel && <span className="mt-0.5 block truncate text-[11px] text-white/40">{sublabel}</span>}
+        <span className="block text-sm font-medium text-play-ink/90">{label}</span>
+        {sublabel && <span className="mt-0.5 block truncate text-[11px] text-play-ink/40">{sublabel}</span>}
       </span>
-      <ChevronRight className="h-4 w-4 shrink-0 text-white/30" />
+      <ChevronRight className="h-4 w-4 shrink-0 text-play-ink/30" />
     </button>
   );
 }
@@ -157,7 +157,7 @@ export function ComposerToolMenu({
         {summary.isMix ? (
           <>
             <Shuffle className="h-3 w-3 shrink-0 text-primary/70" />
-            <span className="flex h-1.5 w-7 shrink-0 overflow-hidden rounded-full bg-white/[0.08]">
+            <span className="flex h-1.5 w-7 shrink-0 overflow-hidden rounded-full bg-play-ink/[0.08]">
               {summary.poolPcts.map((e, i) => (
                 <span
                   key={e.modelId}
@@ -208,7 +208,7 @@ export function ComposerToolMenu({
           />
           <div
             ref={sheetRef}
-            className="absolute inset-x-0 bottom-0 mx-auto max-w-md rounded-t-2xl border-t border-white/10 bg-[#1a1b1e]/95 shadow-2xl shadow-black/50 backdrop-blur-xl"
+            className="absolute inset-x-0 bottom-0 mx-auto max-w-md rounded-t-2xl border-t border-play-ink/10 bg-play-dialog/95 shadow-2xl shadow-black/50 backdrop-blur-xl"
             style={{
               paddingBottom: "calc(1rem + env(safe-area-inset-bottom, 0px))",
               animation: "sheetUp 0.22s cubic-bezier(0.16, 1, 0.3, 1)",
@@ -216,14 +216,14 @@ export function ComposerToolMenu({
           >
             <div className="flex items-center justify-between px-4 pt-3 pb-1">
               <div>
-                <h2 className="text-sm font-bold text-white">{t("toolsMenu")}</h2>
-                <p className="text-[11px] text-white/40">{t("toolsMenuHint")}</p>
+                <h2 className="text-sm font-bold text-play-ink">{t("toolsMenu")}</h2>
+                <p className="text-[11px] text-play-ink/40">{t("toolsMenuHint")}</p>
               </div>
               <button
                 type="button"
                 onClick={() => setSheetOpen(false)}
                 aria-label={t("cancel")}
-                className="play-action-btn flex h-7 w-7 items-center justify-center rounded-lg text-white/30 transition-colors hover:bg-white/5 hover:text-white/60 active:bg-white/5 active:text-white/60"
+                className="play-action-btn flex h-7 w-7 items-center justify-center rounded-lg text-play-ink/30 transition-colors hover:bg-play-ink/5 hover:text-play-ink/60 active:bg-play-ink/5 active:text-play-ink/60"
               >
                 <X className="h-4 w-4" />
               </button>

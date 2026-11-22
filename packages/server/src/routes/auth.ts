@@ -25,6 +25,7 @@ import {
   sendEmail,
 } from "../lib/email.js";
 import { env } from "../lib/env.js";
+import { stampClientIp } from "../lib/client-ip.js";
 
 const authRoutes = new Hono();
 
@@ -401,7 +402,7 @@ authRoutes.post("/request-password-reset", async (c) => {
     return c.json({ error: limited.error, code: limited.code }, 429);
   }
 
-  return auth.handler(c.req.raw);
+  return auth.handler(stampClientIp(c.req.raw));
 });
 
 // Better Auth handles all auth routes under /api/auth/*
@@ -409,7 +410,7 @@ authRoutes.post("/request-password-reset", async (c) => {
 // calls c.header() after await next(), because Hono's Response cloning can
 // lose Set-Cookie headers (the cookie that keeps users logged in).
 authRoutes.all("/*", (c) => {
-  return auth.handler(c.req.raw);
+  return auth.handler(stampClientIp(c.req.raw));
 });
 
 export { authRoutes };

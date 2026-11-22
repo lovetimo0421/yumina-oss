@@ -1,4 +1,7 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+
+// "Post to the gallery" from a story illustration's menu (生图广场): its dialog.
+import { StoryPublishHost } from "@/edition/slots";
 import { RealtimeVideoFloat, type RealtimeVideoOpenRequest } from "./realtime-video/realtime-video-float";
 import { getVideoController } from "./realtime-video/controller";
 import { StateGuardHost, StateGuardHostButton } from "./state-guard-host";
@@ -7,6 +10,7 @@ import { useTranslation } from "react-i18next";
 import { useRouter } from "@tanstack/react-router";
 import { ArrowLeft, ChevronDown, Maximize, Minimize } from "lucide-react";
 import { useChatStore } from "@/stores/chat";
+import { signOut } from "@/lib/auth-client";
 import { useConfigStore } from "@/stores/config";
 import { useCreditStore } from "@/edition/slots.state";
 import { useExtensionsStore } from "@/stores/extensions";
@@ -16,20 +20,27 @@ import { haltTts } from "@/lib/tts-stop-signal";
 import { cancelVoiceRecording } from "@/lib/voice-input";
 import { stripDirectivesForSandbox } from "@/lib/strip-directives";
 import { GameFrame } from "./game-frame";
+import { isFirstPartyGamePath } from "@yumina/shared";
 import { SessionHeader } from "./session-header";
 import { SceneGalleryDialog, useSceneGallery } from "./scene-gallery";
 import { type YuminaAPI } from "@/features/studio/lib/custom-component-renderer";
 import { safeParseWorldDef } from "@/lib/utils";
 import { absoluteImageUrl } from "@/lib/asset-url";
 import { expandMacros, resolveBackground } from "@yumina/engine";
+import { chatBackgroundState } from "./chat-background-state";
 import { resolveDisplayMacros } from "@/lib/resolve-display-macros";
 import { TOP_EDGE_ALWAYS_PX, TOP_EDGE_PX } from "@/lib/top-edge-gate";
 import { useUiStore } from "@/stores/ui";
 import { useUserProfileStore } from "@/stores/user-profile";
+import { checkPendingBackgroundConsent, setBackgroundConsentHeld } from "@/features/background-charges/background-consent-store";
 import { useImmersiveMode } from "@/hooks/use-fullscreen";
 import { isIOS, useTouchDevice } from "@/hooks/use-touch-device";
 import { usePlaytimeTracker } from "./use-playtime-tracker";
 import { CombatPanel } from "./combat-panel";
+import { RoomBar } from "@/features/story-room/room-bar";
+import { RoomController, useRoomAttach } from "@/features/story-room/room-controller";
+import { routeSendToRoom, useRoomStore } from "@/features/story-room/room-store";
+import { storyRoomSetting, storyRoomUI } from "@/features/story-room/room-logic";
 import { WorldRenderer } from "./world-renderer";
 import { PersonaManagerDialog } from "./persona-manager-dialog";
 import { PromptComposerDialog } from "./prompt-composer-dialog";
@@ -94,10 +105,11 @@ export function ChatView({
   const streamingContent = useChatStore(s => s.streamingContent);
   const streamingBg = useChatStore(s => s.streamingBg);
   const error = useChatStore(s => s.error);
+  const errorCode = useChatStore(s => s.errorCode);
   const clearError = useChatStore(s => s.clearError);
   const loadSession = useChatStore(s => s.loadSession);
   const router = useRouter();
-  const playZoomPercent = useUiStore((s) => s.playZoomPercent);
+  const buttonColor = useUiStore((s) => s.messageButtonColors?.[sessionId] ?? "default");
   const theaterMode = useUiStore((s) => s.theaterMode);
   const isTouch = useTouchDevice();
   const mobileAutoSystemFullscreen = useUserProfileStore(
@@ -202,6 +214,24 @@ export function ChatView({
       store.loadSession(sessionId);
     }
   }, [sessionId]);
+
+  useRoomAttach(sessionId, isActive && !embedded && !moderationGroupKey);
+  const roomSnapshot = useRoomStore((s) => (s.room?.sessionId === sessionId ? s.snapshot : null));
+  const roomRole = useRoomStore((s) => (s.room?.sessionId === sessionId ? s.role : null));
+  const roomViewerId = session?.currentUser?.id ?? null;
+  const storyRoomChannel = useMemo(
+    () => (roomSnapshot && roomRole && roomViewerId ? storyRoomUI(roomSnapshot, roomViewerId, roomRole === "host") : null),
+    [roomSnapshot, roomRole, roomViewerId],
+  );
+  // The + menu offers a room only on a card its author opened for it.
+  const storyRoomOffer = !readOnly && !embedded && !moderationGroupKey && !!storyRoomSetting(session?.world ?? null);
+
+  // A background AI that wanted to charge while no reply was there to ask
+  // (it ran after the last one) left a note in the profile: ask on entry.
+  useEffect(() => {
+    if (!isActive) return;
+    void checkPendingBackgroundConsent();
+  }, [sessionId, isActive]);
 
   // Re-fetch world schema when tab/window regains focus (e.g., user edited
   // in studio then switched back to the game tab). This ensures the game
@@ -325,6 +355,8 @@ export function ChatView({
   const streamingReasoning = useChatStore(s => s.streamingReasoning);
   const hasEarlierMessages = useChatStore(s => s.hasEarlierMessages);
   const isLoadingEarlier = useChatStore(s => s.isLoadingEarlier);
+  // The number the chat shows on messages[0]: its place in the whole session.
+  const firstMessageNumber = useChatStore(s => s.hasEarlierMessages ? s.earlierMessageCount + 1 : 1);
   const sendFailureNonce = useChatStore(s => s.sendFailureNonce);
   const selectedModel = useConfigStore(s => s.selectedModel);
   const mixMode = useConfigStore(s => s.mixMode);
@@ -415,6 +447,11 @@ export function ChatView({
     if (!takesOverScreen || !isActive || !shouldAskAutoFullscreen) return;
     setFullscreenAskOpen(true);
   }, [takesOverScreen, isActive, shouldAskAutoFullscreen]);
+  // One question at a time: the mushie-charge question waits for this one.
+  useLayoutEffect(() => {
+    setBackgroundConsentHeld(fullscreenAskOpen && isActive);
+    return () => setBackgroundConsentHeld(false);
+  }, [fullscreenAskOpen, isActive]);
 
   const setDisplayMode = useCallback((enableFullscreen: boolean) => {
     if (useUiStore.getState().theaterMode === enableFullscreen) return;
@@ -511,6 +548,9 @@ export function ChatView({
         // The auto-fullscreen ask dialog handles its own ESC (dismiss); don't
         // also navigate away underneath it.
         if (fullscreenAskOpen) return;
+        // Holding Escape to leave fullscreen repeats the key; only the first
+        // press counts, or the repeats would carry on back to the library.
+        if (event.repeat) return;
         if (useUiStore.getState().theaterMode) {
           toggleImmersive();
         } else {
@@ -521,6 +561,19 @@ export function ChatView({
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
   }, [takesOverScreen, navigateBackFromPlay, toggleImmersive, isActive, fullscreenAskOpen]);
+
+  // A card's "Back to Yumina" (api.backToYumina): what the back button does,
+  // after leaving fullscreen. The Studio playtest has nowhere to go back to.
+  useEffect(() => {
+    if (embedded || !isActive) return;
+    (window as any).__yuminaLeavePlay = () => {
+      if (useUiStore.getState().theaterMode) toggleImmersive();
+      navigateBackFromPlay();
+    };
+    return () => {
+      delete (window as any).__yuminaLeavePlay;
+    };
+  }, [embedded, isActive, toggleImmersive, navigateBackFromPlay]);
 
   // Leaving immersive mode must hand the player back some chrome. The floating
   // bar is the ONLY navigation on a play page — SessionHeader never renders for
@@ -630,13 +683,17 @@ export function ChatView({
 
   /** The picture behind the chat this turn. Recomputed when the variable that
    *  names it moves, when the opening changes, or when the cover does. */
+  const sessionState = session?.state;
   const cardBackground = useMemo(
     () => {
+      // gameState is only the variables map; the opening and the AI's pick
+      // are on the session's full state (see chatBackgroundState).
+      const state = chatBackgroundState(sessionState, gameState as Record<string, unknown> | null);
       const resolved = resolveBackground(
         { backgrounds: worldDef?.backgrounds },
-        gameState as { variables?: Record<string, unknown>; metadata?: Record<string, unknown> } | null,
+        state,
         {
-          activeGreetingId: (gameState as { activeGreetingId?: string | null } | null)?.activeGreetingId ?? null,
+          activeGreetingId: state.activeGreetingId,
           coverUrl: absoluteImageUrl(session?.world?.thumbnailUrl),
         },
       );
@@ -648,12 +705,17 @@ export function ChatView({
       const url = absoluteImageUrl(resolved.url);
       return url ? { ...resolved, url } : null;
     },
-    [worldDef?.backgrounds, gameState, session?.world?.thumbnailUrl],
+    [worldDef?.backgrounds, gameState, sessionState, session?.world?.thumbnailUrl],
   );
 
   const yuminaAPI = useMemo<YuminaAPI>(
     () => ({
-      sendMessage: (text: string, attachments?: import("@yumina/shared").ChatImageInput[]) => useChatStore.getState().sendMessage(text, undefined, attachments),
+      sendMessage: (text: string, attachments?: import("@yumina/shared").ChatImageInput[], options?: { note?: string }) => {
+        // A story room is open on this chat: the line joins the round, for the
+        // host and for members (whose chat is otherwise read-only).
+        if (routeSendToRoom(useChatStore.getState().session?.id, text)) return;
+        useChatStore.getState().sendMessage(text, undefined, attachments, undefined, undefined, options?.note);
+      },
       setVariable: (id: string, value: number | string | boolean | Record<string, unknown> | unknown[]) =>
         useChatStore.getState().setVariableDirectly(resolveVariableKey(id), value),
       executeAction: (actionId: string) =>
@@ -743,20 +805,16 @@ export function ChatView({
       preferredProvider,
       hasEarlierMessages,
       isLoadingEarlier,
+      firstMessageNumber,
+      storyRoom: storyRoomChannel,
+      storyRoomOffer,
     } as YuminaAPI),
     [
       yuminaAPI, fullScreenVariables, isStreaming, streamingContent, worldDef?.replyRules,
       pendingChoices, error, sendFailureNonce, streamingReasoning, readOnly,
       resolvedGreetingContent, selectedModel, mixMode, modelPool, userPlan, memorySummaryEnabled, installedExtensions, preferredProvider,
-      hasEarlierMessages, isLoadingEarlier,
+      hasEarlierMessages, isLoadingEarlier, firstMessageNumber, storyRoomChannel, storyRoomOffer,
     ]
-  );
-  const playZoomStyle = useMemo(
-    () =>
-      ({
-        "--play-ui-scale": `${playZoomPercent / 100}`,
-      }) as CSSProperties,
-    [playZoomPercent]
   );
   // Fetch credits/provider on mount (hosted only; a BYOK build has no wallet)
   useEffect(() => {
@@ -786,6 +844,42 @@ export function ChatView({
 
   // sharedChatExtraProps is consumed through api/user channels into v2 WorldRenderer.
   void sharedChatExtraProps;
+
+  if (error && !session && errorCode === "SESSION_NOT_FOUND") {
+    // The server answers 404 for a chat that is gone AND for one that belongs
+    // to another account (it won't say which). Players who keep two accounts
+    // on one phone land here after signing in to the wrong one; "Retry" can
+    // never succeed, so offer the two ways out instead.
+    const switchAccount = async () => {
+      clearError();
+      await signOut().catch(() => undefined);
+      void router.navigate({ to: "/login", search: { returnTo: `/app/chat/${sessionId}` } });
+    };
+    return (
+      <div className="flex h-full w-full min-w-0 flex-1 items-center justify-center px-6 text-muted-foreground">
+        <div className="flex max-w-sm flex-col items-center gap-3 text-center">
+          <p className="text-sm">{t("view.sessionNotFound")}</p>
+          <div className="flex flex-wrap justify-center gap-2">
+            <button
+              className="rounded-md bg-primary px-4 py-1.5 text-sm text-primary-foreground hover:bg-primary/90"
+              onClick={() => {
+                clearError();
+                void router.navigate({ to: "/app/library" });
+              }}
+            >
+              {t("view.backToLibrary")}
+            </button>
+            <button
+              className="rounded-md border border-border px-4 py-1.5 text-sm text-foreground hover:bg-muted"
+              onClick={() => void switchAccount()}
+            >
+              {t("view.switchAccount")}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (error && !session) {
     return (
@@ -827,7 +921,7 @@ export function ChatView({
   // frame off-platform, and the session it rides was created by the normal play flow, so history,
   // continue-playing and play counts all keep working.
   const gamePath = (session?.world?.schema as { game?: { path?: unknown } } | undefined)?.game?.path;
-  if (typeof gamePath === "string" && gamePath.startsWith("/") && !gamePath.startsWith("//")) {
+  if (typeof gamePath === "string" && isFirstPartyGamePath(gamePath)) {
     // The language belongs to the CARD, not to the reader's menu setting. A game world ships as
     // one worlds row per language sharing one game.path, so opening the Japanese card has to hand
     // the game Japanese even when the player browses Yumina in English. Sourcing this from i18n
@@ -869,8 +963,8 @@ export function ChatView({
   return (
     <div
       className="play-page-root relative flex h-full w-full min-w-0 min-h-0 flex-1 flex-col overflow-hidden"
+      data-message-button-color={buttonColor}
       data-admin-review-preview={moderationGroupKey ? "true" : undefined}
-      style={playZoomStyle}
     >
       {fullScreenMode && !theaterMode && (
         <FullscreenFloatingBar
@@ -879,7 +973,6 @@ export function ChatView({
           hideBack={embedded}
           revealNonce={barRevealNonce}
           onBack={navigateBackFromPlay}
-          memorySummaryEnabled={memorySummaryEnabled}
           onSceneVideo={embedded ? undefined : openSceneVideo}
         />
       )}
@@ -887,6 +980,7 @@ export function ChatView({
       <StateGuardHost />
       {!fullScreenMode && <StateGuardHostButton />}
       {!fullScreenMode && !theaterMode && <SessionHeader showSidebarToggle={false} onBack={navigateBackFromPlay} hideBack={embedded} />}
+      {sessionId && !embedded && !moderationGroupKey && <RoomBar sessionId={sessionId} />}
       <WorldRenderer
         entryFile={rc.entryFile}
         files={rc.files}
@@ -904,8 +998,11 @@ export function ChatView({
         worldbooks={worldDef?.worldbooks ?? []}
         replyRules={worldDef?.replyRules}
         speakerBubbles={worldDef?.settings?.speakerBubbles === true}
+        composeAssistOff={worldDef?.settings?.composeAssist === false}
       />
+      {sessionId && !embedded && <Suspense fallback={null}><StoryPublishHost /></Suspense>}
       {combatActive && session?.id && <CombatPanel sessionId={session.id} />}
+      {sessionId && !embedded && !moderationGroupKey && <RoomController sessionId={sessionId} />}
       {sessionId && !embedded && (
         <RealtimeVideoFloat
           key={sessionId}
@@ -1218,7 +1315,6 @@ function FullscreenFloatingBar({
   revealNonce = 0,
   returnTo,
   hideBack = false,
-  memorySummaryEnabled = false,
   onSceneVideo,
 }: {
   moderationGroupKey?: string;
@@ -1233,7 +1329,6 @@ function FullscreenFloatingBar({
   /** Session-memory extension installed → show the Memory entry. The bar is
    *  the guaranteed way into the panel for worlds whose custom UI never
    *  renders the composer slots (no Memory pill). */
-  memorySummaryEnabled?: boolean;
   onSceneVideo?: () => void;
 }) {
   const { t, i18n } = useTranslation("chat");
@@ -1246,6 +1341,11 @@ function FullscreenFloatingBar({
   // Scene video stays out of the menu until the player turns it on in Settings.
   const filmOffered = useUserProfileStore((s) => s.profile?.filmOffered === true && s.profile?.preferences?.experimentalFilm === true);
   const isTouch = useTouchDevice();
+  const chatReadOnly = useChatStore((s) => s.readOnly);
+  // Search reads the player's own transcript; a story-room guest reads the host's.
+  const ownsSession = useChatStore((s) => !!s.session?.userId && s.session.userId === s.session.currentUser?.id);
+  const storyRoomOffered = useChatStore((s) => !!storyRoomSetting(s.session?.world ?? null));
+  const { t: tCommon } = useTranslation("common");
   const [visible, setVisible] = useState(false);
   const [modelBrowserOpen, setModelBrowserOpen] = useState(false);
   const selectedModel = useConfigStore((s) => s.selectedModel);
@@ -1445,7 +1545,15 @@ function FullscreenFloatingBar({
                 }
               : undefined
           }
-          memoryLabel={memorySummaryEnabled ? t("view.memoryPanel") : undefined}
+          // Memory is every player's now (pinned notes, how far back the AI
+          // reads); the extension only adds the recap and auto notes to it.
+          memoryLabel={t("view.memoryPanel")}
+          searchLabel={ownsSession ? t("view.searchMessages") : undefined}
+          onSearch={() => {
+            // Handled like Memory: WorldRenderer → bridge → sandbox host mount.
+            window.dispatchEvent(new CustomEvent("yumina:request-chat-search"));
+            setVisible(false);
+          }}
           stateGuardLabel={guardInstalled ? guardLabels(i18n.language)[0] : undefined}
           onStateGuard={() => {
             window.dispatchEvent(new CustomEvent("yumina:request-state-guard"));
@@ -1456,6 +1564,12 @@ function FullscreenFloatingBar({
             onSceneVideo();
             setVisible(false);
           } : undefined}
+          storyRoomLabel={!hideBack && !reviewGroupKey && !chatReadOnly && storyRoomOffered ? tCommon("storyRoom.playWithFriends") : undefined}
+          onStoryRoom={() => {
+            const id = useChatStore.getState().session?.id;
+            if (id) void useRoomStore.getState().openForSession(id, { invite: true });
+            setVisible(false);
+          }}
           fullscreenLabel={t("view.returnToFullscreen")}
           showActions={!(isTouch && reviewGroupKey)}
           onBack={handleBack}

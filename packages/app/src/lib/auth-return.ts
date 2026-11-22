@@ -42,7 +42,14 @@ export function isGameReturnTo(value: string): boolean {
  */
 export function isCardReturnTo(value: string): boolean {
   const safe = parseSafeInternalReturnUrl(value);
-  return safe === value && /^\/app\/(preview|hub|chat)(\/[^/?#]+)?\/?([?#]|$)/.test(value);
+  if (safe !== value) return false;
+  return /^\/app\/(preview|hub|chat|room)(\/[^/?#]+)?\/?([?#]|$)/.test(value) || isJoinReturnTo(value);
+}
+
+/** A card's invite link (/app/join/<token>): a guest who opens it signs in or
+ *  signs up and comes back to the same invite. The bare path only, no query. */
+export function isJoinReturnTo(value: string): boolean {
+  return /^\/app\/join\/[A-Za-z0-9_-]{16,64}$/.test(value);
 }
 
 export function parseSafeAuthReturnTo(value: unknown): SafeAuthReturnTo | undefined {

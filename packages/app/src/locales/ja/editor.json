@@ -9,7 +9,7 @@
     "save": "保存",
     "saveTooltip": "保存 (Ctrl+S)",
     "publish": "公開",
-    "publishTooltip": "Discoverに公開",
+    "publishTooltip": "公開設定",
     "publishUpdate": "更新",
     "publishUpdateTooltip": "公開中のリスティングを更新",
     "play": "プレイ",
@@ -27,7 +27,7 @@
     "switchSimple": "シンプルモード",
     "versionHistoryMenu": "バージョン履歴",
     "untitledWorld": "無題のワールド",
-    "marketplaceTitle": "バンドル",
+    "marketplaceTitle": "リソースマーケット",
     "marketplaceSubtitle": "コミュニティを見る・使用中を管理",
     "saved": "保存しました",
     "loadWorldFailed": "この作品を読み込めませんでした",
@@ -44,7 +44,7 @@
     "studioExitHint": "Studio を閉じて完全エディタに戻る",
     "visualBeta": "Beta",
     "visualIntroTitle": "キャンバスエディター（Beta）",
-    "visualIntroBody": "左上のスイッチを入れると、カード全体がひとつのボードに広がります。オープニング、設定、数値、行動、プレイヤー画面がすべて同じ板の上に並び、その場で編集でき、アシスタントもボード上で直接作業します。いつでもオフにしてフルエディターに戻れます。",
+    "visualIntroBody": "カード全体をひとつのボードに。いつでもオフにできます。",
     "visualIntroTry": "キャンバスを試す",
     "visualIntroLater": "あとで",
     "recoverDraftMerged": "このカードはその後ほかの場所で変更されています——復元した版を残しました",
@@ -61,19 +61,17 @@
     "customUI": "カスタムUI",
     "audio": "オーディオ",
     "assets": "アセット",
-    "overview": "概要",
+    "overview": "カードの設定",
     "bundles": "バンドル",
-    "aiGeneration": "AI生成",
+    "aiGeneration": "アトリエ",
     "apps": "ストーリー内アプリ",
     "sceneImages": "シーン画像",
     "modules": "シチュエーション",
     "worldbooks": "シチュエーション",
-    "packs": "仕組みパック",
-    "backgrounds": "背景画像"
+    "backgrounds": "チャット背景"
   },
   "firstMessage": {
     "title": "最初のメッセージ",
-    "description": "プレイヤーが新しいセッションを開始したときに表示されるオープニングのメッセージです。複数のオープニングを追加して、プレイヤーがスワイプで切り替えられるようにできます。",
     "addGreeting": "オープニングを追加",
     "placeholder": "プレイヤーが最初に目にするメッセージを書いてください...",
     "macros": "マクロ:",
@@ -81,7 +79,6 @@
     "deleteGreeting": "オープニングを削除",
     "confirmDelete": "もう一度クリックして確定",
     "noFirstMessage": "最初のメッセージがありません",
-    "noFirstMessageDesc": "最初のメッセージは舞台を設定します。世界観や登場人物を紹介し、プレイヤーが反応できるきっかけを与えます。",
     "createFirstMessage": "最初のメッセージを作成",
     "learnMore": "クリエイターガイド →",
     "dragHint": "番号をドラッグして順序を変更",
@@ -91,11 +88,11 @@
     "removeInitialVar": "削除",
     "initialVarsReadonlyHint": "プレイヤーがこの開幕を選んだときに設定されます。編集は「変数 → 開幕ごとの値」から。",
     "editInVariables": "変数で編集",
-    "noInitialVars": "この開幕には設定する変数がありません。既定値を使います。",
+    "noInitialVars": "既定値を使います。",
     "true": "true",
     "false": "false",
     "greetingName": "オープニング {{n}}",
-    "macrosPlain": "{{user}} はプレイヤー、{{char}} はキャラクター。遊ぶときに名前に置き換わります。"
+    "macrosPlain": "{{user}} = プレイヤー · {{char}} = キャラクター"
   },
   "entries": {
     "unnamed": "名称未設定",
@@ -104,7 +101,6 @@
     "deleteFolder": "フォルダーを削除",
     "removeTurn": "このターンを削除",
     "title": "ロアブック",
-    "description": "プロンプトに注入されるすべてのコンテンツ — キャラクター、システム指示、シナリオ、ロア",
     "addEntry": "エントリを追加",
     "add": "追加",
     "all": "すべて",
@@ -117,7 +113,6 @@
     "delete": "削除",
     "back": "戻る",
     "noEntries": "エントリはまだありません",
-    "noEntriesDesc": "ロアブックには、AIが必要とするすべて — キャラクター説明、ワールドロア、システム指示などが含まれます。",
     "noEntriesLabel": "エントリなし",
     "learnMore": "クリエイターガイド →",
     "totalTokens": "合計: 約{{count}}トークン",
@@ -127,9 +122,9 @@
       "totalLabel": "合計",
       "greeting": "最初のメッセージ",
       "greetingHint": "セッション開始時、プレイヤーの最初のメッセージの前に一度だけ送信されます。",
-      "greetingHintMulti": "{{count}}件のオープニング — プレイヤーは1セッションにつき1つだけ目にし、すべてを見るわけではありません。この行はロアブック内のすべてのオープニングを合計しています。",
+      "greetingHintMulti": "{{count}}件のオープニング。プレイヤーが見るのは1セッションに1つで、この行はすべての合計です。",
       "alwaysSent": "常に送信",
-      "alwaysSentHint": "「常に送信」とマークされたエントリ。毎ターンプロンプトに含まれます — これがターンごとの予測可能な最低コストです。",
+      "alwaysSentHint": "「常に送信」のエントリ。毎ターン送られるので、ターンごとの固定コストになります。",
       "keywordTriggered": "キーワード起動",
       "keywordTriggeredHint": "最近のメッセージにキーワードが一致したときのみ発動し、ロアブックのトークン予算で上限が決まります。コストは0からこの数値までターン毎に変動します。",
       "dormant": "待機",
@@ -137,7 +132,7 @@
       "toggleHint": "クリックでバケットごとの内訳を展開・折りたたみ",
       "healthHealthy": "トークン数は健全です。",
       "healthCaution": "やや大きくなっています。確認してみてください: 同じ設定を複数のエントリに書いていませんか? 「Xをするな」と繰り返していませんか(かえってAIがXに固執することがあります)? エンジンが既に処理していることを書いていませんか? 一箇所を選んで削ぎ落としましょう。",
-      "healthHeavy": "書く量が少ないほど、AIはよく従ってくれます — 多すぎるとポイントを見失います。重複した設定を統合し、長い例リストを「原則1つ+単語リスト」に圧縮し、エンジンが既に強制しているルールは削除してみてください。",
+      "healthHeavy": "多すぎると AI は要点を見失います。重複を統合し、長い例リストは原則1つにまとめ、エンジンが既に守るルールは削ってください。",
       "tokUnit": "token"
     },
     "entrySettings": "エントリ設定",
@@ -241,14 +236,17 @@
     "advanced": "詳細設定",
     "advancedKeywords": "キーワード",
     "emptyTitle": "エントリがありません",
-    "emptyFolder": "空 — エントリをここにドラッグ",
-    "portraitVideo": "動く立ち絵",
+    "emptyFolder": "ここにエントリをドラッグ",
+    "portraitVideo": "動画の立ち絵",
     "portraitVideoHint": "任意。動画を置くと、チャットで静止画の代わりに使われます：普段は「待機」、このキャラが話す間は「会話」。",
     "portraitVideoRemove": "外す",
     "portraitVideoClip": {
       "idle": "待機",
       "speaking": "会話"
     },
+    "portraitLive": "動く立ち絵",
+    "portraitLiveRemove": "外す",
+    "portraitLiveMake": "作る",
     "pickToEdit": "左のエントリを選んで編集",
     "historyLimit": "AI が読む会話履歴",
     "historyLimitHint": "最新 N 件のみ。古いターンはプロンプトから外れますが記録には残ります。ロア、記憶、固定エントリは影響を受けません。",
@@ -277,7 +275,7 @@
       "combined": "組み合わせ",
       "combinedHint": "複数の条件をすべて満たす必要があります",
       "alwaysSend": "常に送る",
-      "alwaysSendHint": "毎ターン入る — キャッシュの前半が安定します",
+      "alwaysSendHint": "毎ターン入ります。キャッシュの前半が安定します",
       "keywords": "キーワード",
       "keywordsHint": "直近の会話にキーワードが出たら発動",
       "variables": "変数",
@@ -286,7 +284,7 @@
       "frontendHint": "カスタム UI のトリガー地点が置かれている間だけ有効",
       "categoryEmpty": "エントリなし",
       "combinedEmpty": "複数の条件を必要とするエントリはまだありません",
-      "frontendEmpty": "カスタム UI のコードにトリガー地点を置くと、ここにエントリが自動で作られます",
+      "frontendEmpty": "UI トリガー地点はまだありません",
       "openBindings": "ひも付けを開く →",
       "slotLabel": "スロット {{slot}}",
       "frontendChip": "UI：{{slot}}",
@@ -295,25 +293,16 @@
       "requiresAll": "すべて必要：",
       "everyTurn": "毎ターン",
       "noKeywordsYet": "キーワードがまだありません",
-      "disabled": "オフ",
-      "activationTitle": "よくある UI トリガーの書き方",
-      "activationMount": "条件付きレンダリング：{open && <LoreSlot id=\"x\" />} — 表示されていれば有効",
-      "activationClick": "ボタンで state を切り替え、それがトリガー地点の有無を決める",
-      "activationVariable": "変数の変化を useEffect で拾い、条件が合ったらトリガー地点を出す",
-      "activationTab": "タブやパネル — 表示中のビューにだけトリガー地点を置く",
-      "activationScroll": "スクロールで可視に — IntersectionObserver で検知してから置く",
-      "activationHover": "ホバーや長押しで開く領域にトリガー地点を置く"
+      "disabled": "オフ"
     },
     "examplePlainTextHint": "この例には会話行以外のテキストが含まれているため、すべての行を保つためにプレーンテキストとして編集します。",
     "addExampleMessage": "メッセージを追加"
   },
   "variables": {
     "title": "変数",
-    "description": "ゲーム状態の変数を定義し、プレイヤーのステータス、アイテム、ストーリーの進行を追跡します。",
     "addVariable": "変数を追加",
     "add": "追加",
     "noVariables": "変数はまだありません",
-    "noVariablesDesc": "AIはプレイ中に [health: -10] のようなブラケット構文で変数を読み取り、更新します。",
     "learnMore": "クリエイターガイド →",
     "editVariable": "変数を編集",
     "delete": "削除",
@@ -338,10 +327,10 @@
       "precise": "AI は読み取り専用（精密トラッキングが書き込み）"
     },
     "aiAccessHint": {
-      "write": "毎ターン AI に表示され、ディレクティブで更新できます — 好感度や感情など、AI にしか判断できない状態向け。",
-      "read": "読み取り専用の印付きで AI に表示され、AI はそれに沿って描写しますが、AI からの書き込みディレクティブは破棄されます — ビヘイビアやカスタム UI から動かしてください。",
-      "none": "AI には一切送信されません。条件・ビヘイビア・カスタム UI からは引き続き利用できます — 台帳やカウンターなどの内部状態向け。",
-      "precise": "精密トラッキングがオン：読み取り専用として AI に表示され、物語を書く AI からの書き込みディレクティブは破棄されます — 毎ターン、精密トラッキングのアシスタントが変化を決めます。ここの設定は精密トラッキングをオフにすると適用されます。"
+      "write": "毎ターン AI に表示され、ディレクティブで更新できます。好感度や感情など、AI にしか判断できない状態向け。",
+      "read": "読み取り専用として AI に表示され、AI はそれに沿って描写します。AI からの書き込みは破棄されるので、ビヘイビアやカスタム UI から動かしてください。",
+      "none": "AI には一切送信されません。条件・ビヘイビア・カスタム UI からは引き続き利用できます。台帳やカウンターなどの内部状態向け。",
+      "precise": "精密トラッキングがオン。読み取り専用として AI に表示され、毎ターン精密トラッキングのアシスタントが変化を決めます。ここの設定は精密トラッキングをオフにすると適用されます。"
     },
     "activationLabel": "有効になる条件",
     "activationModes": {
@@ -354,9 +343,8 @@
     "enabledOn": "オン",
     "enabledOff": "オフ",
     "manualHint": "ビヘイビアから {{path}}（true/false）でいつでも切り替えられます。オフの間、変数は AI プロンプトとプレイヤー UI から外れますが、値は保持されます。",
-    "conditionsHint": "条件を満たしている間のみ有効 — 無効の間も値は保持されます。",
+    "conditionsHint": "条件を満たしている間のみ有効。無効の間も値は保持されます。",
     "greetingHint": "チェックしたオープニングから開始したセッションでのみ有効。",
-    "alwaysHint": "常に有効（デフォルト）。",
     "badges": {
       "read": "読取専用",
       "none": "エンジン",
@@ -378,7 +366,7 @@
     "booleanTrue": "真",
     "booleanFalse": "偽",
     "idHintPrefix": "テンプレート内では次のように使われます:",
-    "idTaken": "このIDは別の変数で使用されています。{{id}} に変更しました",
+    "idTaken": "この ID は使用済みのため {{id}} に変更しました",
     "emptyTitle": "変数がありません",
     "types": {
       "number": "数値",
@@ -399,7 +387,7 @@
     "preciseUpOnly": "毎ターン増えるだけで、最大 +{{up}}、または変化なし",
     "preciseDownOnly": "毎ターン減るだけで、最大 −{{down}}、または変化なし",
     "preciseZero": "両方 0 なので、変化しません",
-    "preciseTooWide": "変化幅が大きすぎて精密トラッキングは使えません。2つの合計が {{max}} 以下なら使えます",
+    "preciseTooWide": "幅が大きすぎます。2つの合計を {{max}} 以下にしてください。",
     "worldbookLabel": "所属シチュエーション",
     "worldbookCore": "共通（全シチュエーション）",
     "worldbookHint": "この変数がどのシチュエーションに属するか。共通のものはすべてのシチュエーションが読み書きし、シチュエーション固有のものはそのシチュエーションが開いている間だけ AI に届き、閉じている間の AI の書き込みは捨てられます（値自体は保持）。",
@@ -408,7 +396,7 @@
     "viewOpenings": "開幕ごとの値",
     "openingValues": {
       "title": "開幕ごとの初期値",
-      "hint": "開幕ごとに変数の初期値を上書きできます。「既定」のままのマスは変数の既定値を使います。開幕ごとの値はここだけで設定します。最初のメッセージのパネルは読み取り専用で同じ内容を映します。",
+      "hint": "開幕ごとに変数の初期値を上書きできます。「既定」のままのマスは変数の既定値を使います。最初のメッセージのパネルは読み取り専用で表示します。",
       "variable": "変数",
       "default": "既定値",
       "openingShort": "開幕 ",
@@ -418,23 +406,23 @@
       "revertToDefault": "既定値に戻す",
       "unset": "（未設定）",
       "emptyTitle": "設定できるものがまだありません",
-      "emptyDesc": "開幕ごとの初期値を設定するには、変数を 1 つ以上と、開幕を 1 つ以上（最初のメッセージで）追加してください。"
+      "emptyDesc": "先に変数と開幕を追加してください。"
     },
     "editing": {
       "technicalInfo": "技術的な情報",
       "idReferences": "条件・ビヘイビア・テンプレートはこの ID を使います。参照されている ID は直接の変更から保護されます。",
-      "emptyConditions": "条件がまだありません。今は何も制限していません。下から条件を追加してください。",
-      "emptyGreetings": "開幕が選ばれていません。選ぶまでこの変数は有効になりません。",
+      "emptyConditions": "条件がないため、常に有効です。",
+      "emptyGreetings": "開幕を1つ以上選んでください。",
       "missingGreeting": "見つからない開幕：{{id}}",
       "disabledHint": "初期スイッチがオフなので、有効化の条件が合ってもこの変数は有効になりません。",
       "applyId": "適用",
       "idEmpty": "ID を入力してください。現在の ID のままにしました。",
       "idRejected": "ID を変更できませんでした。現在の ID のままです。",
-      "idInUse": "この ID は使用中です。変更する前に下の参照を解消してください。表示名は今でも編集できます。",
+      "idInUse": "この ID は使用中です。先に下の参照を解消してください。",
       "idUsages": "ID の参照",
       "codeReview": "フロントエンドのコードを確認してください",
       "codeReviewHint": "コードは書き換えません。これは確認のための手がかりで、ID 参照が確定したものではありません。動的なアクセスは完全には調べられません。フロントエンドは通常、表示名を使うので、名前を変えたら見直してください。",
-      "nameReferences": "フロントエンドがこの表示名を使っている可能性があります。名前を変えたら、対応する画面のコードを確認してください。",
+      "nameReferences": "画面のコードがこの名前を使っている可能性があります。変更後に確認してください。",
       "referenceAreas": {
         "entry": "エントリまたは開幕",
         "variable": "変数",
@@ -456,17 +444,16 @@
   },
   "components": {
     "title": "カスタムUI",
-    "description": "メッセージやアプリ全体UI用のカスタムTSXコンポーネント",
     "addComponent": "コンポーネントを追加",
     "surfaceMessage": "メッセージ",
     "surfaceApp": "アプリ",
     "compile": "コンパイル:",
     "ok": "OK",
     "addFile": "新規ファイル",
-    "addFileHint": "ファイル名 — 入力した拡張子（.tsx / .ts / .jsx / .js）はそのまま使われます。拡張子がなければ .tsx になります",
+    "addFileHint": "拡張子がなければ .tsx になります。",
     "rename": "名前を変更",
     "renameFile": "ファイル名を変更",
-    "renameFileHint": "インポートは拡張子なしでも解決されるため、拡張子だけの変更は安全です。このファイルを名前でインポートしている箇所は自動では更新されません。",
+    "renameFileHint": "このファイルを読み込む他のファイルは更新されません。",
     "fileBadExtension": "拡張子は .tsx / .ts / .jsx / .js のいずれかにしてください",
     "fileBadPath": "ファイル名は / で始められず、.. を含められません",
     "fileExists": "ファイルは既に存在します",
@@ -514,10 +501,10 @@
     "builderBanner": "スライドのようにこのカードのUIを配置",
     "builderBannerHint": "既存のフロントエンドはベースレイヤーとして保持され、いつでも元に戻せます。コード編集はこのページのままです。",
     "builderBannerCta": "ビジュアルエディタを開く",
-    "toolLoreSlot": "UI トリガー地点 — 置かれている間、ひも付けた知識が AI に渡ります。本文はプレイヤーには見えません",
+    "toolLoreSlot": "UI トリガー地点。ひも付けた知識を AI に渡し、プレイヤーには見せません",
     "tabCode": "コード",
     "tabBindings": "ひも付け",
-    "bindingsEmpty": "TSX に UI トリガー地点を置くと、トリガー地点ごとにロアエントリがここへ自動で作られます。",
+    "bindingsEmpty": "UI トリガー地点はまだありません",
     "bindingsHint": "ここにあるのは AI 向けの隠し知識で、プレイヤーに見せる文章ではありません。UI トリガー地点が置かれている間だけ、ひも付けた知識がプロンプトに入ります。",
     "bindingsGoToCode": "カスタム UI のコードを書く →",
     "bindingsActivationTitle": "この隠し知識をいつ AI に見せるか",
@@ -552,15 +539,13 @@
     "remove": "削除",
     "removeSet": "4つまとめて削除",
     "removed": "「{{name}}」を削除しました",
-    "varDeleteHint": "この変数は「{{name}}」アプリのデータです。削除するとアプリごと消え、ドックのボタンもなくなります。"
+    "varDeleteHint": "「{{name}}」アプリのデータです。削除するとアプリごと消えます。"
   },
   "audio": {
     "title": "オーディオ",
-    "description": "イベント、キーワード、変数によって発動するBGMと効果音",
     "addTrack": "トラックを追加",
     "searchPlaceholder": "オーディオを検索...",
     "noTracks": "オーディオトラックはまだありません",
-    "noTracksDesc": "ゲームイベント、キーワード、変数の変化に応じて再生されるBGMや効果音を追加しましょう。",
     "learnMore": "クリエイターガイド →",
     "noTracksMatch": "「{{query}}」に一致するトラックがありません",
     "back": "戻る",
@@ -581,9 +566,8 @@
     "fadeOut": "フェードアウト(秒)",
     "bgmConfigTitle": "BGM設定",
     "bgmConfigSubtitle": "プレイリスト + トリガールール",
-    "bgmConfigDesc": "すべてのプレイヤーセッションに適用されるワールドレベルの設定です。",
     "defaultPlaylist": "デフォルトプレイリスト",
-    "addBgmFirst": "プレイリストを作るには、まずライブラリにBGMトラックを追加してください。",
+    "addBgmFirst": "先に BGM トラックを追加してください。",
     "playMode": "再生モード",
     "autoPlay": "自動再生",
     "waitForFirstMessage": "最初のメッセージを待つ",
@@ -616,15 +600,13 @@
     "returnToDefault": "デフォルトプレイリストに戻る",
     "returnToPrevious": "前のトラックに戻る",
     "noConditionalRules": "条件付きBGMルールはありません",
-    "noConditionalRulesDesc": "ゲーム状態に応じて自動で曲を切り替えるルールを追加しましょう。",
     "gapBetweenTracks": "トラック間の間隔(秒)",
-    "defineVariablesHint": "条件を追加するには、変数セクションで変数を定義してください。",
+    "defineVariablesHint": "先に変数を追加してください。",
     "triggerAiKeywordHint": "AIの応答にこれらの単語のいずれかが含まれたときに発動",
     "triggerPlayerKeywordHint": "プレイヤーのメッセージにこれらの単語のいずれかが含まれたときに発動",
     "atTurn": "指定ターン",
     "everyNTurns": "Nターンごと",
     "turnCountHint": "少なくとも1つは設定してください。「指定ターン」は1回のみ発動、「Nターンごと」は繰り返します。",
-    "sessionStartHint": "追加の設定は不要です。",
     "unnamed": "無名",
     "emptyNoTracks": "トラックはまだありません",
     "emptySelectTrack": "編集するトラックを選択",
@@ -649,13 +631,13 @@
     "aiPickOn": "オン：物語が合ったとき AI がこの曲を流します",
     "aiPickOff": "まだオフ。一言書けばオンになります",
     "aiPickBadgeTitle": "物語が合ったとき AI が流します",
-    "musicRuleConflict": "AI が曲を変えたいのに、条件ルールが自分の曲を流しているとき",
-    "musicRuleConflictRules": "ルール優先：ルールの曲はそのまま、AI はこのターン変えない",
-    "musicRuleConflictAi": "AI 優先：AI の曲に切り替え、終わるか AI が戻すまでルールは手を出さない",
+    "musicRuleConflict": "AI と条件ルールが同時に曲を選んだとき",
+    "musicRuleConflictRules": "ルールの曲をそのまま流す",
+    "musicRuleConflictAi": "AI の曲に切り替える",
     "musicRuleAfter": "AI が選んだ曲が終わったら",
-    "musicRuleAfterLoop": "AI が変えるかプレイリストに戻すまでループ",
-    "musicRuleAfterOnce": "一度だけ流し、終わったら既定のプレイリストに戻る",
-    "musicRuleDuck": "AI が効果音を鳴らす間は BGM を下げ、終わったら戻す",
+    "musicRuleAfterLoop": "ループし続ける",
+    "musicRuleAfterOnce": "一度流してプレイリストに戻る",
+    "musicRuleDuck": "AI の効果音中は BGM を下げる",
     "atTurnPlaceholder": "例：5",
     "everyNTurnsPlaceholder": "例：10",
     "fallbackPlayTrack": "再生：{{name}}",
@@ -663,14 +645,12 @@
   },
   "overview": {
     "title": "カードの設定",
-    "description": "名前、カバー、お知らせ、カードの公開ページ",
     "importJson": "ファイルをインポート",
-    "importJsonDesc": "以前に書き出したカード（`.json`）またはキャラクターカード（`.png` / `.json`）を読み込みます。このカードの内容はすべて置き換わります。",
+    "importJsonDesc": "このカードの内容はすべて置き換わります。",
     "chooseFile": "ファイルを選択",
     "confirmReplaceWorld": "現在のワールドの内容(エントリ、変数、ルール、コンポーネントなど)をインポートされたJSONで置き換えます。ワールドID、ギャラリー、タグ、公開ステータスは保持されます。更新を反映するには後で保存してください。続行しますか?",
     "importReplacedSaveReminder": "「保存」をクリックして公開済みワールドを更新してください",
     "coverImage": "カバー画像",
-    "coverImageDesc": "縦型と横型それぞれに画像と切り抜きを設定します。顔や大切な部分がプレビューに収まることを確認してください。",
     "changeCover": "カバーを変更",
     "uploadCover": "カバーをアップロード",
     "fromAssets": "アセットから",
@@ -680,7 +660,7 @@
     "galleryImages": "ギャラリー画像",
     "galleryImagesDesc": "ワールドを紹介する画像を最大8枚まで。公開ワールドページに表示されます。",
     "upload": "アップロード",
-    "noGalleryImages": "ギャラリー画像はまだありません。画像を追加してワールドを紹介しましょう。",
+    "noGalleryImages": "ギャラリー画像はまだありません。",
     "announcement": "お知らせ",
     "announcementPlaceholder": "お知らせを書く...",
     "markdownSupported": "Markdown対応",
@@ -730,10 +710,9 @@
     "background": "背景画像",
     "backgroundDesc": "チャットの後ろに敷く一枚。文字の下には暗い層が入るので読めなくなりません。",
     "worldTitle": "カードのタイトル",
-    "portraitUse": "縦型カバー · 上記は推奨サイズです。スマートフォンのカード、ライブラリのカバー、縦型の表示枠に使用します。",
-    "landscapeUse": "横型カバー · 16:9。PCの発見カード、ライブラリで開いた詳細画面、横型の特集枠に使用します。上記は推奨サイズです。",
-    "reusePortrait": "縦型の元画像で横型の切り抜きを設定",
-    "landscapeNeeded": "横型カバーが未設定です。横長の画像を追加するか、元画像の16:9の切り抜きを確認してください。"
+    "reusePortrait": "縦型画像から切り抜く",
+    "landscapeNeeded": "横型カバーが未設定です。横長の画像を追加するか、元画像の16:9の切り抜きを確認してください。",
+    "importJsonFormats": "以前に書き出したカード（.json）またはキャラクターカード（.png / .json）。"
   },
   "variantBar": {
     "primaryBadge": "メイン",
@@ -768,8 +747,8 @@
     "skip": "スキップ",
     "notify": "プレイヤーに通知",
     "sending": "送信中...",
-    "failed": "更新メモを保存できませんでした。入力内容は残っています。もう一度お試しください。",
-    "heldDescription": "これらの変更は審査が必要です。プレイヤー向けの更新メモを書いてください —— 承認されて公開されると投稿されます。",
+    "failed": "更新メモを保存できませんでした。入力内容は残っています。",
+    "heldDescription": "更新が承認されると投稿されます。",
     "heldNotify": "メモを保存"
   },
   "versionHistory": {
@@ -786,7 +765,6 @@
     "cleanHint": "現在保存されている内容、カバー、年齢区分を記録します。",
     "savedListTitle": "名前付きバージョン（{{count}}）",
     "emptyTitle": "バージョンはまだありません",
-    "empty": "編集中は自動でバージョンが保存されます。上で名前付きバージョンを作ることもできます。",
     "safetySnapshotName": "「{{name}}」を復元する前",
     "restore": "下書きに復元",
     "delete": "削除",
@@ -815,7 +793,7 @@
     "makeLiveTitle": "公開バージョンを切り替えますか？",
     "makeLiveBody": "プレイヤーには、この過去の公開版の内容、カバー、年齢区分が適用されます。現在編集中の下書きは保持されます。タイトルやタグなどの掲載情報は変わりません。",
     "currentLive": "現在公開中",
-    "liveChanged": "公開バージョンを切り替えました。下書きは保持されています。編集内容を反映するには公開してください。",
+    "liveChanged": "公開バージョンを切り替えました。下書きは保持されています。",
     "makeLiveFailed": "切り替えに失敗しました。履歴を再読み込みしてお試しください。",
     "saveBeforeSwitchFailed": "最新の編集内容を保存してから切り替えてください。",
     "withdrawBeforeSwitch": "審査中の更新を取り下げてから切り替えてください。",
@@ -840,7 +818,10 @@
     "backupName": "復元前のバックアップ · {{date}}",
     "restoredName": "復元したバージョン · {{date}}",
     "earlierName": "以前のバージョン · {{date}}",
-    "autosaveRun": "自動保存ポイント {{count}} 件"
+    "autosaveRun": "自動保存ポイント {{count}} 件",
+    "aiChanges": "アシスタントが変えたところ",
+    "fullNotYours": "{{cap}} 件のバージョン枠がすべて埋まっています。他の人のバージョンを削除して空きを作れるのは作者だけです。",
+    "byPerson": "{{name}} が保存"
   },
   "assetPicker": {
     "title": "アセット",
@@ -851,7 +832,6 @@
     "noAssets": "アセットはまだありません。",
     "noMatching": "一致するアセットがありません。",
     "dropToUpload": "ファイルをドロップしてアップロード",
-    "dropHint": "アップロードしたアセットは自動的に選択されます。",
     "assetsTitle": "アセット",
     "noMatchingAssets": "一致するアセットがありません。",
     "wrongFileType": "この種類のファイルはここでは使えません。",
@@ -863,7 +843,7 @@
   "conditionEditor": {
     "conditions": "条件",
     "addCondition": "+ 追加",
-    "noConditions": "条件なし — ルールは常に発動",
+    "noConditions": "条件を1つ以上追加してください",
     "contains": "含む",
     "trueValue": "true",
     "falseValue": "false",
@@ -876,19 +856,18 @@
     "jumpToVariable": "この変数を見る"
   },
   "bundlesSection": {
-    "title": "バンドル",
+    "title": "リソースマーケット",
     "description": "コミュニティが公開したバンドルを探し、そのままワールドにインストール — ModをダウンロードするようにOK",
     "tabHub": "ハブ",
     "tabLibrary": "マイライブラリ",
     "importFromFile": "ファイルからインポート",
-    "exportTitle": "バンドルをエクスポート",
+    "exportTitle": "テンプレート・パックとして保存",
     "install": "インストール",
     "searchHub": "コミュニティバンドルを検索...",
     "searchLibrary": "マイバンドルを検索...",
     "noHubBundles": "ハブにまだ公開バンドルはありません",
     "noHubMatches": "検索に一致するバンドルはありません",
     "noLibraryBundles": "ライブラリは空です",
-    "noLibraryHint": "任意のワールドで「バンドルをエクスポート」を使うと、再利用可能なパーツをここに保存できます",
     "noLibraryMatches": "検索に一致するバンドルはありません",
     "installFailed": "インストールに失敗しました",
     "unrecognized": "認識できないバンドル形式",
@@ -897,7 +876,6 @@
     "manageTitle": "インストール済みバンドルの管理",
     "manageDescription": "このワールドに取り込んだバンドルです。ロアブックとカスタム UI では、それぞれ専用の色が付きます。",
     "manageEmpty": "バンドルはまだありません",
-    "manageEmptyHint": "ハブかライブラリからバンドルを入れると、ここに出ます。",
     "modifiedBadge": "編集済み",
     "removeBundle": "バンドルを削除",
     "deleteBundleTitle": "バンドルを削除しますか？",
@@ -915,15 +893,25 @@
     "summaryBehaviors": "ビヘイビア {{count}} 件",
     "summaryAudio": "オーディオ {{count}} 件",
     "summaryUI": "UI",
-    "summaryEmpty": "空"
+    "summaryEmpty": "空",
+    "kind": {
+      "all": "すべて",
+      "interface": "インターフェース",
+      "module": "モジュール",
+      "template": "テンプレート"
+    },
+    "preview": "プレビュー",
+    "replaceWholeCard": "このファイルはカード丸ごとです。入れると、開いているカードの中身がすべて置き換わります。",
+    "replaceWholeCardConfirm": "このカードを置き換える",
+    "startCard": "新規",
+    "startCardHint": "このテンプレートで新しいカードを作る",
+    "backToCanvas": "キャンバスに戻る"
   },
   "behaviors": {
     "title": "ビヘイビア",
-    "description": "何かが起きたときにゲームを自動で動かすルール（きっかけ・条件・すること）",
     "addBehavior": "ビヘイビアを追加",
     "searchPlaceholder": "ビヘイビアを検索...",
     "noBehaviors": "ビヘイビアはまだ定義されていません",
-    "noBehaviorsDesc": "ビヘイビアは「もしこうなら、こうする」の自動ルールです — HPが低くなったら通知、5ターンごとに緊張感を高める、キーワードで戦闘を発動など。",
     "learnMore": "クリエイターガイド →",
     "noBehaviorsMatch": "「{{query}}」に一致するビヘイビアがありません",
     "back": "戻る",
@@ -1086,7 +1074,7 @@
       "sentPickFromVar": "発動のたびに、この変数のリストから 1 つをランダムに選ぶ",
       "candFirst": "名前を入力して Enter",
       "sentInto": "選んだものを入れる →",
-      "intoPlaceholder": "例：今日の担当 — 入力すると新規作成",
+      "intoPlaceholder": "例：今日の担当。入力すると新規作成",
       "sentCooldownA": "直近",
       "sentCooldownB": "回に選ばれたものは、もう選ばない",
       "cooldownTitle": "連続を避ける",
@@ -1099,7 +1087,7 @@
       "weightsLabel": "重み",
       "weightsEqual": "均等",
       "weightsCustom": "指定する",
-      "weightsPlaceholder": "例：3, 1, 1 — 候補と同じ順番で",
+      "weightsPlaceholder": "例：3, 1, 1",
       "weightsHelp": "候補ごとに数字を 1 つ、カンマ区切りで、候補と同じ順番に並べます。大きいほどよく出ます（3,1,1 なら最初のものが他の各 3 倍）。割合であって、パーセントではありません。",
       "weightsMismatch": "重みの数は候補の数と同じにしてください。合わないと重みは無視され、すべて均等になります。",
       "exhaustedLabel": "候補が全部クールダウン中のとき",
@@ -1124,7 +1112,7 @@
     },
     "chance": "発生する確率（%）",
     "chanceHint": "発動する場面のうち、この割合でだけ実際に発動します。空欄 = 毎回発動。",
-    "onlyIfEmptyHint": "任意——空欄なら無条件で発動",
+    "onlyIfEmptyHint": "任意。空欄なら無条件で発動します。",
     "customEvent": "カスタム：{{event}}",
     "eventBadge": {
       "turn": "ターン",
@@ -1138,7 +1126,7 @@
     }
   },
   "bundle": {
-    "exportBundle": "バンドルをエクスポート",
+    "exportBundle": "テンプレート・パックとして保存",
     "importBundle": "バンドルをインポート",
     "import": "インポート",
     "namePlaceholder": "バンドル名...",
@@ -1175,7 +1163,12 @@
     "failedParseFile": "ファイルを解析できません。JSONを確認してください",
     "failedLoadBundleContent": "バンドルの内容を読み込めません",
     "unrecognizedBundleFormat": "認識できないバンドル形式です",
-    "failedImportBundle": "バンドルをインポートできません"
+    "failedImportBundle": "バンドルをインポートできません",
+    "autoVariables": "· 使っている変数 {{count}} 個も追加",
+    "autoVariables_other": "· 使っている変数 {{count}} 個も追加",
+    "language": "言語",
+    "languageNeutral": "言語指定なし",
+    "allLanguages": "すべての言語"
   },
   "studio": {
     "outsideAi": {
@@ -1193,98 +1186,89 @@
       "changed": "{{actor}} が変更 · {{what}}"
     },
     "connectAi": {
-      "costNote": "テストプレイと画像生成は通常どおりマッシーを消費します。AI が変更する前に自動保存され、変更履歴から戻せます。",
       "tokenExpires": "{{date}} に失効",
       "title": "AI を接続",
       "menu": "AI を接続",
       "copy": "コピー",
       "apps": {
         "claude": "Claude",
-        "chatgpt": "ChatGPT / Codex",
+        "chatgpt": "ChatGPT",
         "cursor": "Cursor",
         "claudeCode": "Claude Code",
-        "codexCli": "Codex CLI"
+        "deepseek": "DeepSeek",
+        "codex": "Codex"
       },
-      "steps": {
-        "claude": {
-          "1": "Claude の「コネクタ」（Connectors）を開きます：デスクトップ版は左側の Customize、Web 版は設定の中です。",
-          "2": "Add → Add custom connector を押し、名前を Yumina にします。",
-          "3": "このアドレスを貼って Continue、次のページはそのまま Add：",
-          "4": "Connect を押し、開いた Yumina のページで「許可する」を押します。"
-        },
-        "chatgpt": {
-          "1": "設定 → Plugins → 右上の Add → Add MCP server。",
-          "2": "名前を yumina、種類を Streamable HTTP にします。",
-          "3": "この URL を貼って Save：",
-          "4": "Yumina にログインして「許可する」を押します。"
-        },
-        "cursor": {
-          "1": "これを押すか、Cursor の設定 → MCP でこのアドレスを手動で追加します：",
-          "2": "Yumina にログインして「許可する」を押します。"
-        },
-        "claudeCode": {
-          "1": "ターミナルで実行：",
-          "2": "Claude Code を開いて /mcp と入力し、yumina → Authenticate を選んで、ブラウザで「許可する」を押します。"
-        },
-        "codexCli": {
-          "1": "ターミナルで実行し、ブラウザで「許可する」を押します："
-        }
-      },
-      "cursorButton": "Cursor に追加",
+      "deepseekMade": "作成済み · 90 日間有効",
       "connectedTitle": "接続中の AI",
-      "connectedNone": "まだありません",
       "lastUsed": "最終使用 {{when}}",
       "disconnect": "接続を解除",
-      "tokenToggle": "ログインできない場合：このカードのトークンを作る",
+      "tokenToggle": "トークンでこのカードに接続",
       "tokenAddress": "アドレス",
       "tokenHeader": "ヘッダー（表示は一度だけ）",
       "tokenMake": "トークンを作る",
       "unused": "未使用",
       "revoke": "無効にする",
-      "try": {
-        "title": "ひとこと送ってみる",
-        "where": {
-          "claude": "Claude で新しいチャットを開いて送ります：",
-          "chatgpt": "ChatGPT か Codex で新しいチャットを開いて送ります：",
-          "cursor": "Cursor で AI チャットを開いて（Ctrl+L / ⌘L）送ります：",
-          "claudeCode": "ターミナルで claude を起動して送ります：",
-          "codexCli": "ターミナルで codex を起動して送ります："
-        },
-        "allow": {
-          "claude": "確認が出たら「常に許可」（Always allow）を押します。",
-          "chatgpt": "確認が出たら「許可」（Allow）を押します。",
-          "cursor": "確認が出たら Run を押します。",
-          "claudeCode": "yumina のツールを使ってよいか聞かれたら Yes を選びます。",
-          "codexCli": "yumina のツールを使ってよいか聞かれたら許可します。"
-        },
-        "notFound": {
-          "claude": "Yumina がない場合：入力欄左下の + → コネクタで Yumina をオンにして、もう一度送ります。",
-          "chatgpt": "Yumina がない場合：手順 4 で許可したか確認し、新しいチャットでもう一度送ります。",
-          "cursor": "yumina がない場合：Cursor の設定 → MCP で緑になっているか確認し、なっていなければクリックしてログインし直します。",
-          "claudeCode": "yumina がない場合：/mcp で yumina を選んでログインし直し、もう一度送ります。",
-          "codexCli": "yumina がない場合：codex を終了して codex mcp login yumina を実行し、もう一度送ります。"
-        },
-        "messageCard": "Yumina でカード「{{card}}」を開いて、いま何が入っているか教えて。",
-        "messageList": "Yumina で私のカードを一覧にして。",
-        "waiting": "最初のメッセージを待っています…",
-        "heard": "{{name}} が接続されました。変更はエディターにリアルタイムで反映されます。"
-      },
       "switch": {
-        "toggle": "Yumina アカウントを切り替える",
         "step1": "上の「接続中の AI」で接続を解除し、ブラウザで Yumina からログアウトして、切り替え先のアカウントでログインします。",
         "apps": {
           "claude": "Claude のコネクタで Yumina → Disconnect を押し、Connect を押して「許可する」を押します。",
           "chatgpt": "設定 → Plugins で yumina を削除し、上の手順でもう一度追加します。",
           "cursor": "Cursor の設定 → MCP で yumina を削除し、上の手順でもう一度追加します。",
           "claudeCode": "/mcp で yumina → Re-authenticate（または Authenticate）を選び、ブラウザで「許可する」を押します。",
-          "codexCli": "ターミナルで実行し、ブラウザで「許可する」を押します："
+          "codex": "ターミナルで実行し、ブラウザで「許可する」を押します："
         }
-      }
+      },
+      "stage": {
+        "add": "Yumina を追加",
+        "auth": "ログインして許可",
+        "try": "話しかけてみる",
+        "token": "トークンを作成",
+        "start": "起動"
+      },
+      "addTo": "{{app}} に追加",
+      "address": "アドレス",
+      "fieldName": "名前",
+      "fieldType": "タイプ",
+      "authorized": "許可済み",
+      "heard": "{{name}} とつながりました",
+      "copied": "コピー済み",
+      "say": {
+        "thenClick": "開いたら",
+        "whenAsked": "聞かれたら",
+        "filled": "入力したら",
+        "press": "押す",
+        "inClaudeCode": "Claude Code で",
+        "addUnder": "追加先",
+        "inBrowser": "ブラウザで",
+        "saveAs": "保存名",
+        "inPage": "開いたページで"
+      },
+      "ui": {
+        "settings": "設定",
+        "allow": "許可",
+        "signIn": "Yumina にログイン",
+        "models": "モデル"
+      },
+      "switchToggle": "アカウントを切り替え",
+      "message": {
+        "make": "Yumina で雨の夜の灯台の絵を作って",
+        "card": "Yumina でカード「{{card}}」を開いて、いま何が入っているか教えて。",
+        "list": "Yumina で私のカードを一覧にして。"
+      },
+      "notFound": {
+        "claude": "Yumina がない場合：入力欄左下の + → コネクタで Yumina をオンにして、もう一度送ります。",
+        "chatgpt": "Yumina がない場合：手順 2 で許可したか確認し、新しいチャットでもう一度送ります。",
+        "cursor": "yumina がない場合：Cursor の設定 → MCP で緑になっているか確認し、なっていなければクリックしてログインし直します。",
+        "claudeCode": "yumina がない場合：/mcp で yumina を選んでログインし直し、もう一度送ります。",
+        "deepseek": "yumina がない場合：yumina.yml のあるフォルダでコマンドを実行したか確認し、起動し直します。",
+        "codex": "yumina がない場合：codex を終了して codex mcp login yumina を実行し、もう一度送ります。"
+      },
+      "working": "{{name}} が編集中"
     },
     "changeLog": {
       "close": "閉じる",
       "title": "変更履歴",
-      "empty": "ここにはアシスタントによる変更だけが記録されます。自分の編集は「バージョン履歴」にあります。",
+      "empty": "ここにはアシスタントの変更だけが残ります。",
       "restorePointCount": "復元ポイント {{count}} 件",
       "currentVersion": "現在のバージョン",
       "now": "現在",
@@ -1307,7 +1291,7 @@
       "restoreConfirmTitle": "「{{time}}」に復元",
       "consequenceIntro": "現在と比べて、カードはこう変わります：",
       "consequenceEmpty": "このバージョンは現在の内容と同じです。復元しても変化はありません。",
-      "autoBackupNote": "現在のバージョンは自動でバックアップされるので、元に戻せます。",
+      "autoBackupNote": "現在のバージョンは先にバックアップされます。",
       "unsavedWarning": "未保存の編集があります。復元前に保存されます。",
       "confirmRestore": "復元",
       "cancel": "キャンセル",
@@ -1319,7 +1303,11 @@
       "loadFailed": "変更履歴の読み込みに失敗しました",
       "noChanges": "前のバージョンとの差分はありません。",
       "backupLabel": "復元前の自動バックアップ",
-      "openVersionHistory": "バージョン履歴を開く"
+      "openVersionHistory": "バージョン履歴を開く",
+      "selectiveNote": "取り消すのはこの手順でアシスタントが行った変更だけです。誰かが手で行った編集には触れません。",
+      "selectiveKept": "そのうち {{count}} か所はその後別の人が変更しているため、その内容を残します。",
+      "rolledBackSelective": "アシスタントの変更を取り消しました。ほかの編集はそのままです",
+      "rolledBackKept": "アシスタントの変更を取り消しました。その後に変更された {{count}} か所は残しています"
     },
     "backToEditor": "エディターに戻る",
     "edit": "編集",
@@ -1329,7 +1317,7 @@
     "moreActions": "その他の操作",
     "openMarketplace": "コミュニティのバンドルを探す",
     "importBundle": "バンドルをインポート",
-    "exportBundle": "バンドルをエクスポート",
+    "exportBundle": "テンプレート・パックとして保存",
     "undo": "元に戻す (Ctrl+Z)",
     "redo": "やり直し (Ctrl+Y)",
     "versionHistory": "バージョン履歴",
@@ -1367,7 +1355,7 @@
       "sheetCollapse": "会話を閉じる",
       "sheetDoing": "アシスタントが編集中：{{what}}",
       "sheetWorking": "アシスタントが作業中…",
-      "sheetReply": "アシスタントが返信しました。上に引いて確認",
+      "sheetReply": "アシスタントが返信しました",
       "sheetHint": "上に引いて会話を表示"
     },
     "groups": {
@@ -1381,7 +1369,7 @@
       "lorebook": "ロアブック",
       "variables": "変数",
       "behaviors": "ビヘイビア",
-      "frontEndCode": "フロントエンドコード",
+      "frontEndCode": "画面のコード",
       "audio": "オーディオ",
       "assets": "アセット",
       "overview": "カードの設定",
@@ -1389,15 +1377,14 @@
       "canvas": "画面プレビュー",
       "aiAssistant": "AIアシスタント",
       "playtest": "プレイテスト",
-      "marketplace": "マーケットプレイス",
+      "marketplace": "リソースマーケット",
       "sceneImages": "シーン画像",
       "blueprint": "キャンバス",
       "modules": "シチュエーション",
-      "interfaceCode": "画面コードと連携",
-      "aiGeneration": "AI生成",
+      "interfaceCode": "画面の連携",
+      "aiGeneration": "アトリエ",
       "worldbooks": "シチュエーション",
-      "packs": "仕組みパック",
-      "backgrounds": "背景画像"
+      "backgrounds": "チャット背景"
     },
     "layouts": {
       "writing": "執筆",
@@ -1419,7 +1406,7 @@
         "confirm": "生成",
         "decline": "やめておく",
         "generating": "描いています、約30秒",
-        "generatingDetail": "{{seconds}}秒経過。画像はこのカードに紐づくアセットフォルダに保存されます。",
+        "generatingDetail": "{{seconds}}秒経過",
         "done": "生成完了（{{count}}枚）",
         "charged": "実際の課金 {{amount}} マッシー。アセットライブラリに保存しました。",
         "savedNote": "アセットライブラリに保存しました。",
@@ -1487,14 +1474,14 @@
       "startFresh": "新しく始める",
       "contextFresh": "",
       "contextComfortable": "",
-      "contextFilling": "コンテキストが埋まりつつあります。新しい会話を始めるとエージェントが鋭くなります。",
-      "contextTight": "コンテキストがほぼ満杯です。次の送信時に古いターンが要約されます — 新しく始めることを検討してください。",
-      "contextCompacting": "コンテキストが上限を超えています。古いターンが要約されています。詳細を失わないよう新しく始めましょう。",
-      "emptyDesc": "やりたいことを言えば、このカードを直接編集します。",
+      "contextFilling": "コンテキストが埋まりつつあります。",
+      "contextTight": "ほぼ満杯です。古いターンは要約されます。",
+      "contextCompacting": "上限を超えました。古いターンを要約中です。",
+      "emptyTitle": "Yumina アシスタントと、夢をかたちに",
       "thinking": "考え中…",
       "thinkingStep": "ステップ {{step}}",
       "recovering": "バックグラウンドで継続中",
-      "recoveringDetail": "接続が切れましたが、アシスタントはバックグラウンドで編集を続けています。完了すると結果がここに表示されます。",
+      "recoveringDetail": "接続が切れました。結果はここに表示されます。",
       "disconnectedTitle": "接続が切断されました",
       "disconnectedBody": "アシスタントはバックグラウンドで完了している可能性があります。やり直す前に再接続してみてください。",
       "disconnectedDeadTitle": "このタスクは完了しませんでした",
@@ -1506,7 +1493,18 @@
       "waitingApproval": "承認待ち...",
       "cancel": "キャンセル",
       "placeholderReview": "上の提案をレビューしてください...",
-      "placeholderWorking": "処理中…",
+      "placeholderWorking": "作業中…止めずにここから追加できます",
+      "plan": {
+        "progress": "計画 {{done}}/{{total}}"
+      },
+      "steer": {
+        "waiting": "次のステップで読みます",
+        "taken": "作業中のタスクに追加しました",
+        "tooLong": "作業中に追加できるのは 4000 文字までです。短くするか、作業が終わってから送ってください。",
+        "tooMany": "アシスタントはまだ前に追加したメッセージを読んでいません。次のステップが終わってから送ってください。",
+        "failed": "作業に追加できませんでした。文字は入力欄に戻してあります。もう一度お試しください。",
+        "send": "作業中のタスクに追加"
+      },
       "placeholderDefault": "どこを変えますか？",
       "loadConvFailed": "会話を読み込めませんでした",
       "attachFile": "ファイルを添付(最大5)",
@@ -1515,6 +1513,7 @@
       "undoConfirm": "元に戻すを確定",
       "undoCancel": "キャンセル",
       "createConvFailed": "会話を作成できませんでした",
+      "firstSaveFailed": "カードをまだ保存できなかったため、メッセージは送信されていません。少し待ってからもう一度お試しください。",
       "deleteConvFailed": "会話を削除できませんでした",
       "deleteConv": "会話を削除",
       "deleteConvConfirm": "削除？",
@@ -1560,22 +1559,17 @@
         },
         "pausedStorageNote": "保存容量が不足しています。素材を整理してから続行してください。",
         "pausedUnavailableNote": "画像生成を一時的に利用できません。完成した画像は保存済みです。",
-        "pausedGenericNote": "一時停止中です。完成した画像は保存済みです。しばらくしてから続行してください。"
+        "pausedGenericNote": "一時停止中です。完成した画像は保存済みです。しばらくしてから続行してください。",
+        "budgetNote": "本日の画像生成枠を使い切りました。枠が戻ると自動で再開します。"
       },
       "backgroundCompleted": "アシスタントの作業が終わりました。",
       "backgroundNeedsAction": "アシスタントが確認を待っています。",
       "backgroundInterrupted": "アシスタントが止まりました。",
       "backgroundView": "確認",
-      "otherWorldWorking": "アシスタントはまだ別のカードで作業中です。終わればここでも使えます。",
-      "otherWorldWorkingNamed": "アシスタントはまだ「{{name}}」で作業中です。終わればここでも使えます。",
+      "otherWorldWorking": "アシスタントは別のカードで作業中です。",
+      "otherWorldWorkingNamed": "アシスタントは「{{name}}」で作業中です。",
       "backToWorld": "そのカードに戻る",
       "backToWorldNamed": "「{{name}}」に戻る",
-      "suggestLore": "このカードを書いて。名前と紹介文も一緒に",
-      "suggestVariables": "好感度を追加して、プレイヤーの画面に表示して",
-      "suggestBehaviors": "オープニングをもっと情景豊かに、最後はプレイヤーが返事できる形に",
-      "suggestPolish": "脇役を二人追加して、それぞれ思惑を持たせて",
-      "suggestTranslate": "このカードを丸ごと日本語に訳して。名前と紹介文も",
-      "suggestReview": "このカードを一通り見て、一番直すべき3か所を直して",
       "sourceUploadFailed": "ファイルをカードに保存できませんでした",
       "statusUnavailable": "アシスタントが自分の状態を読み取れません。カードは無事です。",
       "saveBeforeSendFailed": "最新の変更を保存できなかったため、メッセージは送信されていません。保存するか競合を解決してから再試行してください。",
@@ -1628,7 +1622,12 @@
         "keepPlanning": "構想を続ける",
         "startBuild": "制作を始める"
       },
-      "send": "送信"
+      "send": "送信",
+      "web": {
+        "label": "ウェブ検索",
+        "hint": "アシスタントがネットで調べられます（検索1回あたり約 8 マッシー、ページ閲覧は無料）"
+      },
+      "suggestLoreFill": "このカードを丸ごと書いて（名前・紹介文・キャラクター・最初のメッセージ）。アイデアは："
     },
     "sidebar": {
       "title": "サイドバー",
@@ -1708,10 +1707,10 @@
       "desktop": "デスクトップ",
       "tablet": "タブレット",
       "mobile": "モバイル",
-      "emptyState": "オープニングエントリまたはカスタムコンポーネントを追加して、ワールドをプレビューしてください。",
+      "emptyState": "オープニングか画面を追加するとプレビューできます。",
       "aiSkipped": "プレビューでは AI をスキップします。カードは初期値で続行できます。",
       "noComponent": "フロントエンドから描画できるコンポーネントが出力されませんでした",
-      "noComponentHint": "エントリーファイルに export default が無い可能性が高いです。「フロントエンドコード」を開いて確認してください。",
+      "noComponentHint": "エントリーファイルに export default が無い可能性が高いです。「画面のコード」を開いて確認してください。",
       "noComponentFiles": "次のファイルのコンパイルに失敗しました："
     },
     "proposal": {
@@ -1849,6 +1848,9 @@
         "update_settings": "設定を変更",
         "load_skill": "ガイドを読む",
         "list_assets": "素材を見る",
+        "view_asset": "画像を見る",
+        "set_cover": "カバーに設定",
+        "list_voices": "ボイスを探す",
         "browse_assets": "素材を見る",
         "compile_tsx": "画面コードをチェック",
         "generate_image": "画像を1枚作る",
@@ -1858,7 +1860,11 @@
         "validate_ui_blueprint": "画面をチェック",
         "list_templates": "テンプレートを見る",
         "other": "その他の手順",
-        "write_note": "メモを書く"
+        "write_note": "メモを書く",
+        "web_search": "ウェブ検索",
+        "read_web_page": "ウェブページを読む",
+        "screenshot_ui": "画面を見る",
+        "list_loras": "LoRA を見る"
       },
       "field": {
         "name": "名前",
@@ -1933,8 +1939,8 @@
       "emptyHint": "上の「編集」をオンにして、カードの一部をクリックしてください。",
       "sourceTitle": "ソース位置",
       "inComponent": "コンポーネント {{name}} 内",
-      "inheritedFrom": "この要素自体にソース情報がないため、最も近い {{label}} を表示しています。",
-      "noSource": "このカードのコードが描いたものではありません（プラットフォーム部品、または実行時に挿入された HTML）。",
+      "inheritedFrom": "最も近いソース：{{label}}",
+      "noSource": "このカードのコード由来ではありません",
       "openCode": "コードへ移動",
       "sendToAgent": "AI に渡す",
       "attached": "AI に渡しました",
@@ -1942,9 +1948,12 @@
       "snippetTitle": "コード",
       "knobsBadge": "ベース画面",
       "knobsHint": "これらのつまみはカード自身の画面コードから取り出したものです。変更は即座に反映され、コード自体は変わりません。",
+      "baseKnobsTitle": "元の画面",
+      "baseKnobsClose": "ページに戻る",
+      "baseKnobsOpen": "元の画面 · {{count}} グループのつまみ",
       "breadcrumbRoot": "カード",
       "noFrontend": "このカードにはまだ画面がありません。",
-      "noFrontendHint": "右の AI に作ってもらうか、コードパネルを開いて自分で書いてください。",
+      "noFrontendHint": "アシスタントに頼むか、コードで書いてください。",
       "keyboardHint": "↑ 親　↓ 子　←→ 兄弟　Esc 取消",
       "attachedBlock": "選択中のブロック",
       "clearAttachment": "解除",
@@ -1966,7 +1975,7 @@
     "stage": {
       "tabBlueprint": "ストーリー",
       "tabFrontend": "プレイヤー画面",
-      "tabGeneration": "AI 生成",
+      "tabGeneration": "アトリエ",
       "toStage": "キャンバスワークステーション — キャンバスが全面に",
       "toClassic": "旧パネルレイアウトに切り替え",
       "collapse": "折りたたむ",
@@ -1995,7 +2004,7 @@
     "workspace": {
       "editors": "パネル",
       "variants": "言語とバリエーション",
-      "primaryMetadata": "これは副バージョンです。カバーや紹介文などの公開情報は、同じ言語の主バージョンが持っています。編集するには上で主バージョンを選んでください。",
+      "primaryMetadata": "カバーと紹介文は主バージョンで編集します。",
       "fullLists": "全ページのリスト"
     },
     "parts": {
@@ -2305,7 +2314,7 @@
           "castLabel": "登場"
         },
         "portrait-scene": {
-          "portraitEmpty": "立ち絵を置く\nここを選んで、右側で画像を選択",
+          "portraitEmpty": "立ち絵を置く",
           "meterPrimary": "好感度",
           "meterSecondary": "体力"
         },
@@ -2332,7 +2341,7 @@
           "meterSecondary": "体力"
         },
         "chapter-portrait": {
-          "portraitEmpty": "立ち絵を置く\nここを選んで、右側で画像を選択",
+          "portraitEmpty": "立ち絵を置く",
           "ribbonFormat": "✦ {phase} ✦",
           "meterPrimary": "好感度",
           "meterSecondary": "体力",
@@ -2376,7 +2385,7 @@
           "meterPrimary": "好感度"
         },
         "art-split": {
-          "portraitEmpty": "立ち絵を置く\nここを選んで、右側で画像を選択",
+          "portraitEmpty": "立ち絵を置く",
           "meterPrimary": "好感度",
           "meterSecondary": "体力"
         },
@@ -2401,7 +2410,7 @@
       "emptyHint": "カードの部品をクリックすると編集できます。下から新しい部品を足したり、ページを切り替えて編集したりもできます。",
       "newMeterName": "新しいゲージ",
       "remove": "削除",
-      "loadBearing": "会話と入力欄はカードそのものなので、消せません。",
+      "loadBearing": "会話と入力欄は消せません。",
       "label": "文字",
       "binding": "読む変数",
       "unusedKeep": "残す",
@@ -2442,7 +2451,7 @@
       },
       "onPhone": "スマホ",
       "onDesktop": "PC",
-      "hiddenHere": "この部分はPC版には出ません。スマホ版に切り替えると調整できます。",
+      "hiddenHere": "PC版にはありません。スマホ版で調整できます。",
       "duplicate": "複製",
       "onPress": "押したとき、順番に",
       "saysPlaceholder": "ボタンを押したときにプレイヤーが言うこと",
@@ -2483,7 +2492,7 @@
       "valueTrue": "はい",
       "valueFalse": "いいえ",
       "valuePlaceholder": "値",
-      "unknownVariable": "「{{name}}」はこのカードの変数ではないため、プレイ中は空になります",
+      "unknownVariable": "「{{name}}」はこのカードの変数ではありません",
       "createVariable": "作成する",
       "newNumberVariable": "＋ 数値の変数を新規作成",
       "rangeMin": "最小",
@@ -2497,7 +2506,7 @@
       "noVariables": "このカードにはまだ変数がありません。先に「変数」で作ってください。",
       "noGreetings": "このカードにはまだオープニングがありません。",
       "greetingN": "オープニング {{n}}",
-      "greetingHint": "オープニングを切り替えると、変数はそのオープニングの初期値に戻ります。変数の変更はこのステップの後に置いてください。",
+      "greetingHint": "変数が初期値に戻ります。変更はこの後に置いてください。",
       "noTracks": "このカードにはまだ音声がありません。",
       "stopAll": "すべて停止",
       "showWhen": "表示するタイミング",
@@ -2532,8 +2541,8 @@
       "pickImage": "画像か動画を選ぶ",
       "changeImage": "変更",
       "listItems": "リストの内容（1行に1つ）",
-      "placedOnPhone": "スマホ用レイアウトにも配置しました。スマホ表示で確認できます",
-      "placedOnDesktop": "PC用レイアウトにも配置しました。PC表示で確認できます",
+      "placedOnPhone": "スマホ用レイアウトにも配置しました",
+      "placedOnDesktop": "PC用レイアウトにも配置しました",
       "showPhone": "スマホを見る",
       "showDesktop": "PCを見る",
       "setEntry": "最初のページにする",
@@ -2547,7 +2556,7 @@
       "leavesToHereWhen": "このページにいる間に{{when}}と「{{name}}」に切り替わります",
       "leaveVariableMet": "「{{variable}}」が条件を満たす",
       "leaveNotStarted": "チャットがまだ始まっていない",
-      "noRoomNudge": "空きがないので下の方に置きました。好きな位置へドラッグしてください",
+      "noRoomNudge": "空きがないので下の方に置きました。",
       "randomMin": "最小",
       "randomMax": "最大",
       "randomFromPlaceholder": "一行に一つ。押すとランダムに一つ選ばれます",
@@ -2560,7 +2569,7 @@
       "videoMuted": "ミュート",
       "videoWithSound": "あり",
       "layoutShared": "スマホとPCで同じ位置",
-      "layoutOwn": "PCでは別に配置済み：片方で動かしても、もう片方は動きません",
+      "layoutOwn": "PCでは別に配置済み",
       "layoutOffDesktop": "PCでは表示しない",
       "layoutOffHere": "PCでは表示しない",
       "layoutFollowPhone": "スマホと同じに戻す",
@@ -2729,6 +2738,7 @@
       "onlyDesktop": "PCのみ",
       "popupBadge": "ポップアップ・選択中のみ表示",
       "offCanvasRule": "選択中のパーツのうち {{count}} 個はこのレイアウトにありません：整列・移動では動かず、削除・コピー・切り取りには含まれます。",
+      "offCanvas": "{{count}} 個はこのレイアウトにありません",
       "menu": {
         "cut": "切り取り",
         "copy": "コピー",
@@ -2740,7 +2750,7 @@
     },
     "noApiKey": {
       "title": "モデルのキーがまだ設定されていません",
-      "body": "アシスタントとテストプレイはあなたのモデルキーかプラットフォームのクレジットで動きます。まず設定で用意してください。",
+      "body": "設定でモデルキーかクレジットを用意してください。",
       "action": "設定へ"
     },
     "backToLibrary": "カード一覧に戻る",
@@ -2781,7 +2791,7 @@
       "gap": "メッセージの間隔",
       "rules": "特別な書き方",
       "rulesHint": "この形式で書かれた部分は別の見た目で表示されます。ルールはロア項目「Interface conventions」に自動で入り、AI が従います。",
-      "empty": "まだ特別な書き方はありません。下から追加すると、プレビューにサンプル会話で表示されます。",
+      "empty": "まだ特別な書き方はありません。",
       "add": "書き方を追加",
       "ruleName": "名前",
       "find": "見分け方",
@@ -2848,7 +2858,7 @@
       },
       "customName": "新しい書き方",
       "cardMarker": "【放送】",
-      "cardTitleDefault": "📻 放送"
+      "cardTitleDefault": "放送"
     },
     "review": {
       "showRaw": "元データを見る",
@@ -2896,7 +2906,7 @@
       "templatesTitle": "テンプレートを選ぶ",
       "newPage": "新規",
       "title": "新規 · テンプレートを選ぶ",
-      "tutorTip": "できあがったテンプレートが 18 種類あります ✧ 上は物語が始まる前の導入、下はプレイ中にメニューから開くページです。クリックするとカードに追加され、そのまま遊べます。今は選ばなくても大丈夫。右上の × で閉じて、いつでも「新規」から戻れます。",
+      "tutorTip": "クリックで追加。今は選ばずに閉じても大丈夫です。",
       "sub": "できあがったテンプレートが 30 種（画面全体 12、ページ 18）。変数・ボタン・AI への説明までつながっていて、追加すればすぐ遊べます。色・大きさ・位置はいつも通り変えられます。",
       "groupOpening": "オープニング · 物語が始まる前",
       "blank": "白紙のページ",
@@ -3454,7 +3464,7 @@
     },
     "screenFirst": {
       "editOpening": "クリックしてオープニングを編集",
-      "openingKeys": "Ctrl+Enter で保存 · Esc で取消 · 外をクリックしても保存",
+      "openingKeys": "Ctrl+Enter で保存 · Esc で取消",
       "notesTitle": "設定",
       "notesHint": "プレイヤーには見えません。AI は毎ターン読みます",
       "addNote": "設定を追加",
@@ -3625,6 +3635,10 @@
         "aiCame": "来た",
         "aiWent": "去った"
       }
+    },
+    "blanks": {
+      "left": "あと {{count}} 項目",
+      "title": "未記入：{{items}}"
     }
   },
   "quickCreate": {
@@ -3634,12 +3648,6 @@
     "changeCover": "カバーを変更",
     "simpleMode": "シンプル",
     "advancedMode": "キャンバス",
-    "modeDialogTitle": "このカードをどう作りますか？",
-    "modeDialogSubtitle": "中に入ってからでも切り替えられます。",
-    "modeSimpleTitle": "シンプル",
-    "modeSimpleDesc": "1 枚のフォームに順番に記入：キャラクターは誰か、世界はどんなか、オープニングで何を言うか。埋めたらすぐに遊べます。",
-    "modeAdvancedTitle": "キャンバス",
-    "modeAdvancedDesc": "カード全体を 1 枚のボードに：オープニング、キャラと世界、プレイヤー画面、数値まで一目で。クリックしたところをそのまま編集できます。",
     "storyColumn": "ストーリー",
     "charactersColumn": "キャラクター",
     "aiRoleLabel": "AIの役割",
@@ -3679,7 +3687,7 @@
     "charOtherPlaceholder": "話し方、能力、秘密、関係性、その他...",
     "charDescriptionLabel": "説明",
     "charDescriptionPlaceholder": "このキャラクターを説明...",
-    "nameStillDefault": "まだテンプレートの名前です——公開前に本当の名前を。",
+    "nameStillDefault": "まだテンプレートの名前です。公開前に変更してください。",
     "flavorTitle": "どこから始めますか？",
     "noScreen": "画面なし",
     "hasScreen": "画面あり"
@@ -3718,7 +3726,7 @@
     },
     "character": {
       "title": "キャラクター",
-      "hintEmpty": "AIが演じるキャラクター — 1人でも複数でも追加できます",
+      "hintEmpty": "AI が演じるキャラクター",
       "hintSingle": "AIが演じるキャラクター",
       "hintMulti": "このワールドには誰が住んでいる? AIがそれぞれを順に登場させます",
       "unnamed": "キャラクター{{n}} · 無名",
@@ -3738,24 +3746,24 @@
       "persona": "ペルソナ",
       "personaFallback": "外見: 服装は? 身長は? 特徴的なところは?\n性格: キーワード3〜5個\n背景: 出身は? 何が形作った?\n癖: 口癖? 習慣? 秘密?",
       "portraitTip": "キャラ一人で顔がはっきり見える立ち絵がいちばん合います。大きなタイトル文字入りの表紙は向きません。",
-      "portraitEmptyHint": "立ち絵を追加すると、チャットでこのキャラの発言の横に表示され、返信の挿絵もその見た目と画風で描かれます。"
+      "portraitEmptyHint": "発言の横と挿絵に使われます。"
     },
     "worldview": {
       "title": "世界観",
-      "hint": "このキャラクターが住むワールド — 時代 / 舞台 / 特殊ルール / トーン",
+      "hint": "時代、舞台、トーン、世界のルール",
       "defaultName": "世界観",
       "fallback": "[このワールドはどんな姿? AIはこれを使って物語全体を地に足のついたものにします。]\n\n[時代 / 舞台]\n[現代の都市? 中世ファンタジー? 遥か未来の宇宙?]\n\n[特殊ルール]\n[魔法、超能力、AI、政治構造... 何がこのワールドを特別にしている?]\n\n[トーン]\n[日常系のんびり? 冷たいサスペンス? 英雄的な冒険? ほろ苦い癒し?]"
     },
     "dialogueStyle": {
       "title": "対話例とスタイル",
-      "hint": "キャラクターの話し方と全体的な文体 — AIに具体的なテンプレートを",
+      "hint": "文体を説明するか、例を書いてください。",
       "defaultName": "対話例とスタイル",
       "fallback": "[話し方]\nニュートラル: [デフォルトの声 — 完全な例文]\n嬉しい: [変化]\nイライラ: [変化]\n緊張: [変化]\n癖: [そわそわする、口癖]\n\n[文体]\n視点: [一人称? 三人称限定?]\nフォーカス: [内的独白 / 情景 / アクション]\nテンポ: [速い / 遅い / 緩急]\n\n[サンプルシーン — AIに求める形にぴったり一致するチャンクを貼ってください]"
     },
     "settings": {
       "title": "設定",
-      "hintChat": "AIが知っておくべきその他の詳細 — 重要アイテム、過去のストーリー、ワールドルール。だいたい省略可",
-      "hintWorld": "このワールド / 物語の背景情報すべて — AIは全部を見ます。1つの全般的な説明でも、分割(基本設定 / 歴史 / 力のシステム ...)でもOK",
+      "hintChat": "任意。過去の出来事、重要アイテム、世界のルール。",
+      "hintWorld": "世界設定、歴史、特別なルール。1つでも複数でもOK。",
       "unnamed": "設定{{n}} · 無名",
       "emptyHint": "設定はまだありません",
       "add": "設定を追加",
@@ -3764,23 +3772,23 @@
       "entryContent": "内容",
       "entryContentFallback": "この設定の一部を詳しく説明してください。\n\n例:\n- このワールドは7つの大宗派が支配し、それぞれ独自の力体系を持つ\n- 修行は9段階: 気の収集、基礎、金丹、嬰児...\n- 凡人には修行者の法宝が見えない",
       "deleteEntry": "この設定を削除",
-      "keywordHint": "💡 このエントリはキーワード{{keywords}}が現れたときのみAIコンテキストに読み込まれます — すべての設定を一度に詰め込むのを避けます。トリガーはキャンバスで編集できます。",
+      "keywordHint": "{{keywords}} が出たときだけ読み込まれます。",
       "newName": "新しい設定"
     },
     "advancedPromo": {
       "title": "キャンバス",
-      "bulletVariables": "変数 — 好感度・恐怖・信頼などを記録し、ライブのステータスバーで表示",
-      "bulletBehaviors": "ビヘイビア — 状態に反応するルール（「好感度 > 80 → ルート解放」）",
-      "bulletLorebooks": "ロアブックとシチュエーション — キーワードで発動する知識を、まとめて特定のオープニングに紐付け可能",
-      "bulletCustomUi": "カスタムUI、オーディオ、無制限のクリエイターノートなど",
+      "bulletVariables": "変数とライブのステータスバー",
+      "bulletBehaviors": "状態に反応するビヘイビア",
+      "bulletLorebooks": "ロアブックとシチュエーション",
+      "bulletCustomUi": "カスタムUI、オーディオなど",
       "switchButton": "キャンバスに切り替え",
       "studioButton": "AIアシスタントを試す",
-      "studioHint": "AIアシスタントはカード全体を執筆・移行・仕上げできます — やりたいことを伝えれば、変数・ビヘイビア・ロアの下書きまで任せられます。",
-      "reimburseNote": "クリエイター向け：AIアシスタントの利用コストは公式アカウントに連絡すれば払い戻し可能です。"
+      "studioHint": "アシスタントがカード全体を作成・仕上げできます。",
+      "reimburseNote": "アシスタントの費用は払い戻せます。公式アカウントへご連絡ください。"
     },
     "greeting": {
       "title": "オープニング",
-      "hint": "プレイヤーが最初に見るメッセージ — 第一印象を決めます",
+      "hint": "プレイヤーが最初に見るメッセージ",
       "macroUser": "はプレイヤーの名前に置き換えられます",
       "macroChar": "はキャラクターの名前に置き換えられます",
       "lengthHint": "100〜300字推奨",
@@ -3791,25 +3799,24 @@
       "moveUp": "左へ",
       "moveDown": "右へ",
       "defaultBadge": "既定",
-      "multiHint": "プレイヤーは最初に 1 番目を見て、スワイプで他のオープニングに切り替えられます — それぞれが独立したルートです。",
-      "advancedHint": "オープニングごとに別のシチュエーションや初期変数を割り当てたいときは、キャンバスのオープニングで設定できます。",
+      "multiHint": "最初は 1 番目、スワイプで他に切り替えられます。",
       "placeholderChat": "例:\n\n朝霧はまだ晴れず、{{user}}はエルフの森のはずれで道に迷っていた。\n遠くから竪琴の音が漂ってくる。まるで別の世紀から届いたかのように。\n\n銀髪の人影が霧から現れ、緑のマントが濡れた苔をかすめる。\n彼女は三歩手前で立ち止まり、こう言う:\n\n「人間よ...ここはお前が来るべき場所ではない。」",
       "placeholderWorld": "例:\n\n警報は三時間鳴り続けている。\n\n中央管制室の照明が明滅する。\n{{user}}はバールを握りしめ、吐く息が白く細く流れる。\n通信チャンネルから三つの声が届く —\n機械的なバリトン、咳き込むエンジニア、\nそしてもう一つ、何かが一語をささやくように繰り返している。\n\n「...隔離。隔離。隔離。」"
     },
     "description": {
       "title": "概要",
-      "hint": "Discoverを見ている他の人に表示される文 — 一文か二文",
-      "markdownSupported": "✏️ Markdown対応 · {{count}}/{{max}}",
-      "placeholderChat": "例: 霧の森で謎めいたエルフの案内人ライラに出会う。警戒心が強く寡黙な彼女 — でも、あなたは森から導き出してもらえる?",
+      "hint": "Discover に表示されます。一、二文で。",
+      "markdownSupported": "Markdown対応 · {{count}}/{{max}}",
+      "placeholderChat": "例: 霧の森で謎めいたエルフの案内人ライラに出会う。警戒心が強く寡黙な彼女に、森から導き出してもらえる?",
       "placeholderWorld": "例: 2147年、廃棄された宇宙ステーション、残り酸素48時間。エンジニア、侵入してきたスカベンジャー、止まらず喋り続けるAIの間で選択する。",
       "stillTemplate": "テンプレートのまま"
     },
     "more": {
-      "summary": "その他(マーケットプレイス、ビジュアルレイヤー、BGM、ギャラリー、言語)",
+      "summary": "その他",
       "switchToAdvanced": "より細かく調整したいときは、キャンバスへ",
       "marketplace": {
-        "title": "マーケットプレイス",
-        "hint": "コミュニティ製のオープニング、設定、コンポーネント — ワンクリックでインポート"
+        "title": "リソースマーケット",
+        "hint": "コミュニティ製のオープニング、設定、コンポーネント"
       },
       "css": {
         "title": "グローバルCSS",
@@ -3833,13 +3840,13 @@
         "lines": "行",
         "chars": "文字",
         "files": "ファイル",
-        "composerNote": "自動生成(バンドルのインストール/アンインストール時に書き換えられます — 手動編集しないでください)",
+        "composerNote": "自動生成。手動で編集しないでください。",
         "composerShow": "表示",
         "composerHide": "非表示"
       },
       "bgm": {
         "title": "BGM",
-        "hint": "プレイヤーがこのワールドに入ったときにループ再生されます。主旋律のない30秒以上の環境音楽が最適です。",
+        "hint": "入室時にループ再生。30秒以上の環境音楽が最適です。",
         "upload": "BGMをアップロード",
         "preview": "プレビュー",
         "pause": "一時停止",
@@ -3847,7 +3854,7 @@
         "replace": "差し替え",
         "remove": "BGMを削除",
         "namePlaceholder": "トラック名",
-        "moreInAdvanced": "このワールドには他に{{count}}件のBGMトラックがあります — トリガーや複数トラックのプレイリストはキャンバスで管理してください。"
+        "moreInAdvanced": "他に {{count}} 件の BGM があります。キャンバスで管理できます。"
       },
       "gallery": {
         "title": "ギャラリー",
@@ -3866,7 +3873,7 @@
     "leave": "保存せずに離れる",
     "saveAndLeave": "保存して移動",
     "switchTitle": "切り替える前に保存しますか？",
-    "switchDescription": "エディターを切り替える前に、さっきの変更を保存しておきましょう。保存しないと変更は失われます。",
+    "switchDescription": "保存しないと変更は失われます。",
     "switchCancel": "キャンセル",
     "switchWithoutSaving": "保存せずに切り替える",
     "saveAndSwitch": "保存して切り替える",
@@ -3877,12 +3884,11 @@
   },
   "review": {
     "submittedTitle": "審査に申請しました",
-    "submittedBody": "通常 24 時間以内に審査します。結果は通知でお知らせします。",
+    "submittedBody": "通常 24 時間以内に審査します。",
     "submittedVariant": "{{count}} つの言語バリアントが同じ審査にあります。",
-    "editableHint": "審査中も編集と保存を続けられます。保存後に「審査内容を更新」を押すと最新版が審査対象になります。取り下げると審査キューから外れます。",
     "updateReview": "審査内容を最新版に更新",
     "newerChangesTitle": "提出済みの審査より新しい変更があります",
-    "newerChangesBody": "このカードは審査中ですが、提出後に新しい変更を保存しています。審査を最新版に更新するか、審査キューから取り下げてください。",
+    "newerChangesBody": "提出後に変更を保存しました。審査を更新するか取り下げてください。",
     "withdraw": "審査から取り下げる",
     "withdrawConfirm": "この申請を取り下げて下書きに戻しますか？編集内容は失われません。",
     "rejectedTitle": "この申請は修正が必要です",
@@ -3896,24 +3902,24 @@
     "withdrawFailed": "取り下げできませんでした",
     "pendingEdit": {
       "inReviewTitle": "更新を審査中",
-      "inReviewBody": "公開中のカードは承認済みの内容を表示し続けます。これらの変更は管理者が承認すると公開されます。いつでも編集を続けられます —— 変更を加えると自動的に下書きに戻るため、取り下げる必要はありません。",
+      "inReviewBody": "管理者が承認するまで、プレイヤーには承認済みの内容が表示されます。",
       "changedLabel": "変更点：{{list}}",
       "withdrawBtn": "審査申請を取り下げる",
-      "lockedHint": "取り下げは任意です —— 審査キューから取り出すだけで、編集には影響しません。",
       "rejectedTitle": "更新の変更が却下されました",
       "rejectedHint": "公開中のカードは変更されていません。変更を修正して再提出してください。",
       "resubmitBtn": "再提出する",
       "heldTitle": "未公開の変更",
-      "heldBody": "変更は保存されていますが、まだ提出されていません。プレイヤーには公開済みの内容が表示されます。準備ができたら審査に提出してください。",
+      "heldBody": "保存済み、未提出です。プレイヤーには公開済みの内容が表示されます。",
       "submitBtn": "審査に提出",
       "editSettingsBtn": "タグ・設定を編集",
-      "settingsHint": "「審査に提出」は上に挙がった変更だけを送ります。「タグ・設定を編集」は公開フォームを開き、そこに入っている値でタグ・プレイ時間・公開範囲を書き換えます。",
+      "settingsHint": "送られるのは上の変更だけです。「タグ・設定を編集」はタグ・プレイ時間・公開範囲を書き換えます。",
       "reasonEntries": "ロアブックエントリー",
       "reasonFrontend": "フロントエンド / カスタムUI",
       "reasonRating": "コンテンツモード",
       "reasonCover": "カバー画像",
+      "reasonIllustration": "挿絵の画風",
       "reasonSeparator": "、",
-      "autoPublishBody": "変更は保存されていますが、まだ公開されていません。更新を公開すると、管理者の審査を待たずに反映されます。",
+      "autoPublishBody": "保存済み、未公開です。公開するとプレイヤーに反映されます。",
       "publishBtn": "更新を公開"
     },
     "stateControl": {
@@ -3923,7 +3929,7 @@
       "chipHeldDraft": "未公開の変更",
       "chipNotLive": "未公開",
       "notLiveTitle": "このバージョンはまだ公開されていません",
-      "notLiveBody": "保存したのは下書きで、今はあなただけが閲覧・試遊できます。「公開する」で審査に提出すると、承認後にプレイヤーが遊べるようになります。",
+      "notLiveBody": "この下書きはあなただけが見られます。「公開する」で審査に提出します。",
       "publishBtn": "公開する"
     },
     "updateReviewFailed": "審査を更新できませんでした",
@@ -3933,7 +3939,19 @@
     "entries": "エントリー",
     "variables": "変数",
     "rules": "ルール",
-    "behaviors": "ビヘイビア"
+    "behaviors": "ビヘイビア",
+    "openings": "冒頭",
+    "lore": "設定",
+    "untitled": "無題",
+    "includes": "含めるもの",
+    "adjust": "ひとつずつ選ぶ",
+    "doneAdjusting": "閉じる",
+    "suggested": "おすすめ",
+    "interface": "画面",
+    "more": "タグと言語",
+    "nothingYet": "まだ何も選んでいません",
+    "publish": "マーケットに公開",
+    "savePublish": "保存して公開"
   },
   "bundleEditor": {
     "namePlaceholder": "バンドル名",
@@ -3961,7 +3979,21 @@
     "emptyBundle": "空のバンドル",
     "messageRendererLabel": "メッセージレンダラー",
     "customRenderer": "カスタム",
-    "contentManaged": "コンテンツはワールドエディターからのエクスポートで管理されます",
+    "madeFrom": "元のカード",
+    "aBundleFile": "パックのファイル（.json）",
+    "uploadNewVersion": "アップロード",
+    "notABundleFile": "パックのファイルではありません",
+    "updateFromCard": "更新",
+    "updateTitle": "「{{card}}」から更新",
+    "noChanges": "前の版から変更はありません",
+    "alsoInCard": "カードにある他の項目",
+    "changeAdded": "追加",
+    "changeChanged": "変更",
+    "changeRemoved": "削除",
+    "interfaceLabel": "画面",
+    "audioLabel": "オーディオ",
+    "publishVersion": "v{{version}} を公開",
+    "cardUnavailable": "このカードを開けません",
     "dangerZone": "危険ゾーン",
     "deleteBundleTitle": "このバンドルを削除",
     "cannotUndo": "この操作は取り消せません",
@@ -3993,7 +4025,7 @@
     "cropSize": "トリミングサイズ",
     "cardCover": "カードのカバー",
     "galleryPreview": "ギャラリープレビュー",
-    "detailHeroPreview": "詳細バナー · 16:5",
+    "detailHeroPreview": "詳細バナー · 21:9",
     "crop": {
       "hint": "このカバーの切り抜きを選びます。プレビューは見つけるページのカードと同じ表示です。",
       "dragHint": "枠をドラッグまたはサイズ変更",
@@ -4003,11 +4035,10 @@
       "reset": "この表示をリセット",
       "save": "トリミングを保存",
       "phone": "スマホ · 2:3",
-      "desktop": "PC · 16:9",
+      "desktop": "ギャラリー表示",
       "framing": "構図",
       "wholeImage": "画像全体",
       "fillFrame": "枠に合わせる",
-      "framingHint": "カバーは枠いっぱいに表示されます。切り抜き枠を動かして被写体を残してください。構図が合わない場合は別の画像を使用してください。",
       "previewTitle": "あなたの世界",
       "previewDescription": "ここに紹介文が表示されます",
       "previewCreator": "クリエイター",
@@ -4107,7 +4138,7 @@
       },
       "publish": {
         "title": "世界を公開しよう",
-        "body": "完成したら右上のここから公開申請。審査を通ればハブに並んで、みんなが遊べるようになるよ！"
+        "body": "プレイできる人を選び、審査に提出します。"
       },
       "save": {
         "title": "自動で保存されます",
@@ -4135,7 +4166,7 @@
       },
       "publishM": {
         "title": "世界を公開しよう",
-        "body": "完成したら上のここから公開申請。審査を通ればハブに並んで、みんなが遊べるようになるよ！"
+        "body": "プレイできる人を選び、審査に提出します。"
       },
       "menuOpen": {
         "title": "セクションメニュー",
@@ -4195,7 +4226,7 @@
       },
       "sPublish": {
         "title": "公開",
-        "body": "納得できたらここから公開申請。承認されると発見ページに載り、みんなが遊べます。"
+        "body": "プレイできる人を選び、審査に提出します。"
       },
       "sAdvanced": {
         "title": "もっと本格的に？",
@@ -4278,7 +4309,7 @@
   },
   "sceneImages": {
     "hintLabel": "解放ヒント",
-    "hintHelp": "画像がまだ出ていないとき、ギャラリーでプレイヤーに見せる一言。気を引くだけで、ネタバレはしない。",
+    "hintHelp": "解放前にギャラリーで表示されます。",
     "hintPlaceholder": "例：な、なんだニャ！？",
     "learnMore": "クリエイターガイド →",
     "uploadFiles": "パソコンからアップロード",
@@ -4286,11 +4317,9 @@
     "uploading": "アップロード中 {{done}}/{{total}}…",
     "uploadFailed": "アップロードに失敗しました：{{name}}",
     "title": "シーン画像",
-    "description": "物語の中で送られる画像です。1枚ごとに送る条件を一文で書くと、AI はそのとおりに従い、条件を満たした返信にこの画像を添えます。",
     "addImage": "画像を追加",
     "searchPlaceholder": "画像を検索...",
     "noImages": "シーン画像はまだありません",
-    "noImagesDesc": "画像をアップロードして、どの場面のものかを書いておくと、物語がそこに着いたときにAIが表示します。",
     "noImagesMatch": "「{{query}}」に一致する画像はありません",
     "back": "戻る",
     "unnamed": "無題の画像",
@@ -4312,24 +4341,24 @@
     "scopeLabel": "対象の導入",
     "scopeHelp": "特定の最初のメッセージでのみこの画像を使います。",
     "scopeAll": "すべての導入",
-    "scopeNoGreetings": "導入ごとに絞り込むには、先に最初のメッセージを追加してください。",
+    "scopeNoGreetings": "まだオープニングがありません。",
     "greetingFallback": "導入 {{index}}",
     "emptyNoImages": "まず画像を追加してください",
     "emptySelect": "編集する画像を選んでください",
     "modeTitle": "画像を出すのは誰か",
     "modeJudge": "返信のあとで選ぶ",
-    "modeJudgeHelp": "返信のたびに各画像の「表示するタイミング」の条件を確かめ、合う画像を返信の最後に置きます。どのモデルでも同じように動きます。",
+    "modeJudgeHelp": "返信ごとに条件を確認し、合う画像を最後に置きます。どのモデルでも安定。",
     "modeNarrator": "物語のAIが自分で挿す",
-    "modeNarratorHelp": "段落の間に画像を挟めますが、モデルが指示に従うかどうか次第です。ほとんど出さないモデルもあります。",
+    "modeNarratorHelp": "物語の AI が本文中に挟みます。出さないモデルも多いです。",
     "modeRecommended": "おすすめ",
-    "modeLocked": "概要でスマートトラッキングがオフなので、物語のAIが自分で画像を挿します。",
+    "modeLocked": "概要でスマートトラッキングがオフです。",
     "autoCount": "{{total}}枚中{{on}}枚が自動で表示",
-    "autoHelpJudge": "送る条件を一文で書いてください。書いたとおりに実行されます。例:「二人がカフェで向かい合って座っているとき」「毎回の返信のあと」。条件を満たした返信には、以前に出した画像でも最後に添えられます。",
-    "autoHelpNarrator": "送る条件を一文で書いてください。書いたとおりに実行されます。例:「二人がカフェで向かい合って座っているとき」「毎回の返信のあと」。条件を満たすと、物語を書く AI が本文に挿入します。",
+    "autoHelpJudge": "例:「二人がカフェで座ったとき」。合う返信の最後に毎回付きます。",
+    "autoHelpNarrator": "例:「二人がカフェで座ったとき」。物語の AI が本文に入れます。",
     "autoOn": "オン:条件を満たすと自動で送られます",
-    "autoOff": "まだオフ。一言書けばオンになります。書かなければ、コードを貼った場所にだけ出ます。",
+    "autoOff": "空欄なら AI は表示しません。",
     "autoNoPicture": "画像を入れれば自動で表示されます。",
-    "autoHeld": "自動表示がオフになっているので、この画像はコードを貼った場所にだけ出ます。",
+    "autoHeld": "自動表示はオフです。コードを貼った場所にだけ出ます。",
     "autoReenable": "オンに戻す",
     "autoBadgeTitle": "条件を満たすと自動で送られます",
     "modeJudgeShort": "返信のあとで選ぶ",
@@ -4339,12 +4368,11 @@
     "characterLabel": "声",
     "characterHint": "プレイヤーが読み上げをオンにしたとき、このキャラのセリフはこの声で読まれます。未設定なら AI がキャラに合う声を選びます。",
     "custom": "カスタム音声",
-    "customGroup": "カスタム音声",
+    "customGroup": "マイボイス",
     "useCustom": "使う",
     "customHint": "設定 › 音声で保存したカスタム音声、または fish.audio の音声IDを貼り付け。プレイヤーが読み上げをオンにすると、この声で読まれます。",
     "clear": "クリア",
     "cardTitle": "音声",
-    "cardDesc": "読み上げと音声入力の設定",
     "narratorLabel": "ナレーションの声",
     "narratorHint": "地の文はこの声で読まれます。未設定ならプレイヤー自身の声設定を使います。",
     "narrator": "ナレーション音声",
@@ -4367,7 +4395,20 @@
       "female": "女",
       "male": "男"
     },
-    "close": "閉じる"
+    "close": "閉じる",
+    "design": {
+      "open": "AIで声をデザイン",
+      "placeholder": "例：二十代の女性、低めで少しハスキー、ゆっくり話す",
+      "generate": "生成",
+      "again": "もう一度生成",
+      "candidate": "ボイス {{n}}",
+      "noCredits": "mushies が足りません",
+      "failed": "生成に失敗しました。mushies は返却されました。",
+      "saveFailed": "保存できませんでした。もう一度お試しください。",
+      "expired": "この声は期限切れです。もう一度生成してください。",
+      "unavailable": "AIボイスデザインは現在利用できません",
+      "busy": "リクエストが多すぎます。少し待ってからお試しください。"
+    }
   },
   "bundleCounts": {
     "entries_other": "エントリー {{count}}",
@@ -4428,7 +4469,7 @@
       "toNothing": "どこにも",
       "byPattern": "パターン",
       "byTag": "タグ <…>",
-      "speakerBubbles": "話者ごとに吹き出しを分ける（名前で始まる行）",
+      "speakerBubbles": "話者ごとに吹き出しを分ける",
       "title": "返答の処理",
       "opLabel": "書き方",
       "op": {
@@ -4437,7 +4478,8 @@
         "push": "リストに追加",
         "replace": "丸ごと置換（JSON）"
       },
-      "badPattern": "このパターンは空か正しくないため、何も拾いません。"
+      "badPattern": "このパターンは空か正しくないため、何も拾いません。",
+      "speakerBubblesHint": "名前で始まる行をそれぞれの吹き出しに分けます。"
     },
     "aiCustom": {
       "randomChoice": "それでも失敗したら選択肢からランダムに選ぶ",
@@ -4471,18 +4513,19 @@
       "output": "返答",
       "piecePlaceholder": "条件が成り立つ間、プロンプトに足す",
       "when": "条件",
-      "pieces": "プロンプト片（条件を満たすときだけ追加）",
+      "pieces": "プロンプト片",
       "ownThread": "自分の過去の返答を覚える",
       "history": "読む直近のメッセージ数",
       "addVariable": "＋ 変数",
       "sees": "見えるもの",
       "title": "回答形式",
-      "piecesNeedVariable": "先に変数を作ってください。断片は変数が条件を満たすときに加わります。",
+      "piecesNeedVariable": "先に変数を作成",
       "answerKind": {
         "text": "テキスト",
         "json": "JSON"
       },
-      "outputJson": "JSON オブジェクトを1つ返し（形は役目に書く）、そのままインターフェースに渡します。決まった項目にするなら + で追加。"
+      "outputJson": "JSON オブジェクトを1つ返し（形は役目に書く）、そのままインターフェースに渡します。決まった項目にするなら + で追加。",
+      "piecesHint": "各断片は条件を満たす間だけプロンプトに加わります。"
     },
     "aiType": {
       "ui": "UI 型",
@@ -4490,7 +4533,8 @@
       "custom": "カスタム",
       "event": "イベント型",
       "script": "画面のコード",
-      "game": "ゲーム内"
+      "game": "ゲーム内",
+      "platform": "プラットフォーム"
     },
     "placeAis": {
       "jobUi": "プレイヤー画面から呼ばれたとき",
@@ -4536,7 +4580,78 @@
       "jobGame": "ゲームが話させるとき",
       "memGame": "ゲームが毎回場面を伝える",
       "notCalledGame": "このカードはゲームを開くので、この AI は呼ばれません",
-      "removeAsk": "アシスタントに削除を頼む"
+      "removeAsk": "アシスタントに削除を頼む",
+      "filmDirector": "監督 AI",
+      "filmDirectorJob": "返信ごとにショットへ分け、動画モデルに渡す",
+      "filmCamera": "動画モデル",
+      "filmCameraJob": "ショットを撮る。プレイヤーが映画モードを入れたときだけ動く",
+      "tts": "音声",
+      "ttsJob": "セリフを読み上げる",
+      "voiceInput": "音声入力",
+      "voiceInputJob": "プレイヤーの声を文字にする",
+      "illustrate": "挿絵",
+      "illustrateJob": "返信に絵を付ける",
+      "input": {
+        "transcript": "会話",
+        "recent": "最近の会話",
+        "history": "会話",
+        "messages": "会話",
+        "facts": "部屋の様子",
+        "snapshotText": "部屋の様子",
+        "room": "部屋",
+        "scene": "場面",
+        "entries": "設定",
+        "world": "世界の設定",
+        "lore": "設定",
+        "persona": "人物像",
+        "manner": "口調",
+        "known": "プレイヤーが知っていること",
+        "morning": "朝の発言",
+        "events": "起きたこと",
+        "trigger": "動く理由",
+        "beat": "場面の節目",
+        "who": "話し手",
+        "ledger": "疑惑値",
+        "claims": "プレイヤーの主張",
+        "orders": "出した命令",
+        "interrogation": "尋問の進み",
+        "calm": "穏やかモード",
+        "personnel": "プレイヤーの記録",
+        "dossier": "記録",
+        "seed": "乱数の種",
+        "voiceless": "音声なしモード",
+        "fresh": "新しい開始か",
+        "jerks": "朝の体操"
+      },
+      "gets": "受け取る",
+      "readsTagged": "「{{place}}」の設定 {{count}} 件",
+      "theCard": "このカード",
+      "andMore": "ほか {{count}} 件",
+      "filmDirectorGets": "各返信、登場人物",
+      "filmDirectorGives": "ショット台本",
+      "filmCameraGets": "ショット台本、立ち絵、前のショット",
+      "filmCameraGives": "動画",
+      "ttsGets": "セリフ",
+      "ttsGives": "音声",
+      "voiceInputGets": "プレイヤーの声",
+      "voiceInputGives": "文字",
+      "illustrateGets": "返信、立ち絵",
+      "illustrateGives": "画像",
+      "getsPlayer": "今のプレイヤーの発言",
+      "getsHistory": "これまでの会話",
+      "getsRecentTalk": "直近 {{n}} 件の会話",
+      "getsLore": "設定",
+      "getsOwnLore": "このパートの設定",
+      "getsCoreLore": "常時の設定",
+      "getsState": "変数",
+      "getsWrites": "{{name}} が書いたもの",
+      "getsPast": "{{name}} の過去の展開",
+      "getsValues": "{{name}} の数値",
+      "getsTranscript": "{{name}} の直近 {{n}} 件",
+      "anyModule": "いずれかの場面",
+      "givesReply": "返答",
+      "givesNote": "メモ",
+      "givesLine": "物語の一文"
     },
     "gameData": {
       "readBy": "読んでいる AI",
@@ -4680,9 +4795,10 @@
       "members": "{{count}} 件",
       "cardFrame": "このカード",
       "membersSplit": "このシチュエーション {{own}} · 共通 {{shared}}",
-      "stripDrop": "ここに置く = 全シチュエーション共通",
+      "stripDrop": "全シチュエーション共通",
       "dropOwn": "ここに入れる · 「{{name}}」だけに",
       "dropMove": "「{{name}}」へ移す",
+      "dropAddAi": "ここに追加",
       "dropSame": "もうここにあります",
       "shelf": {
         "lore": "項目",
@@ -4707,7 +4823,7 @@
     },
     "scene": {
       "none": "専用の画面はありません",
-      "bare": "専用画面なし・標準チャット",
+      "bare": "標準チャット",
       "pick": "ファイルを選ぶ",
       "edit": "編集",
       "editHint": "このファイルを開く",
@@ -4729,7 +4845,8 @@
       "voice": "ナレーション音声",
       "upload": "アップロード",
       "generate": "生成",
-      "market": "マーケット"
+      "market": "マーケット",
+      "add": "音を追加"
     },
     "voice": {
       "narrator": "ナレーション音声",
@@ -4762,8 +4879,17 @@
       "replaceTitle": "「{{name}}」に切り替えますか？",
       "replaceBody": "「{{name}}」でインターフェース全体を置き換えます。配置したパーツやページも入れ替わり、必要な変数が追加されます。Ctrl+Z で元に戻せます。",
       "replaceConfirm": "置き換える",
+      "switch": "インターフェースを変える",
+      "current": "使用中",
+      "revert": "元に戻す",
+      "keep": "これにする",
       "title": "レイアウトとテーマ",
-      "button": "外観"
+      "button": "外観",
+      "market": "リソースマーケット",
+      "marketAll": "すべて",
+      "code": "コード",
+      "edit": "編集",
+      "editInterfaceHint": "インターフェースを編集：各パーツの色・フォント・角丸はここで変えます"
     },
     "view": {
       "lock": "画面を固定",
@@ -4825,10 +4951,10 @@
       "asLore": "記録",
       "transcriptLimit": "最大",
       "addInput": "＋ 一本つなぐ",
-      "noOtherModules": "このカードにはこのシチュエーションしかないため、つなぐ相手がまだありません。",
+      "noOtherModules": "ほかのシチュエーションはまだありません。",
       "inputsHint": "「実体験」は主人公がその場にいたこと、「記録」は調べた記録です。原文は高くつくので、できるだけ過去のランを使いましょう。",
       "inputsSummary": "カード自体 + {{count}} 件の接続",
-      "inputsNone": "カード自体のみ。まだ他のシチュエーションは接続されていません",
+      "inputsNone": "カード自体のみ",
       "inputsEdit": "編集",
       "inputsDone": "閉じる",
       "onClose": "プレイヤーが離れたとき",
@@ -4853,7 +4979,7 @@
       "taskHint": "項目はそれが誰かを決め、ここにはやることを書きます。書かなければ動きません。",
       "takeOver": "このシチュエーションが会話を担当する",
       "takeOverHint": "オンなら有効な間、自分のモデルと記憶でプレイヤーと話します。ほとんどはオフのまま、項目と変数を語り手に渡します。",
-      "makeWorker": "または、プレイヤーには話さず裏方として働かせる",
+      "makeWorker": "裏方の AI にする",
       "isWorker": "裏方のライター",
       "isWorkerHint": "プレイヤーには話しません。トリガーで一度動き、書いたものが他のシチュエーションのコンテキストになります。",
       "stopBeingWorker": "普通のシチュエーションに戻す",
@@ -4956,7 +5082,7 @@
       "deleteSceneImageConfirm": "シーン画像「{{name}}」を削除しますか？AIはこの画像を表示できなくなります。",
       "name": "名前",
       "note": "付箋",
-      "notePlaceholder": "このシチュエーションは何か——自分とAIのためのメモ…",
+      "notePlaceholder": "自分と AI へのメモ…",
       "noteHint": "作成アシスタントはここを読んでシチュエーションを理解し、更新もできます。プレイ中の AI には見えません。",
       "content": "内容",
       "openingText": "オープニング本文",
@@ -4998,10 +5124,10 @@
         "always": "最初から最後までずっと有効。",
         "conditions": "有効になるときは変数で決まります。変数をこのシチュエーションにつなぐと条件を追加でき、線をクリックで編集できます。",
         "greeting": "下のオープニングから始まったセッションでのみ有効。",
-        "manual": "自動ルールなし — 下の「有効」スイッチで決まります。",
+        "manual": "自動ルールなし。下の「有効」スイッチで決まります。",
         "keywords": "言うと開き、下の「出る言葉」を言うまで開いたまま。"
       },
-      "noOpenings": "このカードにはまだオープニングがないので、このシチュエーションを開くものがありません。",
+      "noOpenings": "このカードにはまだオープニングがありません。",
       "openingN": "オープニング {{n}}",
       "keywordPlaceholder": "開く言葉を入力して Enter",
       "leaveWordsLabel": "この言葉で出る",
@@ -5010,8 +5136,8 @@
       "shareModule": "このシチュエーションを共有",
       "sharingModule": "まとめています…",
       "sharedModule": "バンドルに保存しました",
-      "shareModuleEmpty": "まず中身を入れてください — 空のシチュエーションは渡せるものがありません。",
-      "conditionsWired": "条件が {{count}} 件つながっています。変数をこのエントリにつなぐと追加でき、線をクリックすると編集できます。",
+      "shareModuleEmpty": "先に中身を入れてください。",
+      "conditionsWired": "接続済みの条件 {{count}} 件",
       "varWhenExposed": "AI に見えるタイミング",
       "varWhenExposedHint": "値は常に存在します。ここで決まるのはプロンプトに入るかどうかです。",
       "varInternal": "エンジン専用",
@@ -5073,6 +5199,9 @@
       "historyLimitHint": "AI が毎ターン見る過去メッセージの数。「予算内すべて」は満杯のときだけ古い順に外し、「最新 N 件のみ」は安いぶん古い出来事を忘れます。",
       "contextLock": "コンテキスト予算をこのカードの設定に固定",
       "contextLockHint": "オンなら全員このカードのコンテキスト予算（約 {{tokens}} トークン）で固定。オフなら各自が決めます。プランとモデルの上限は有効です。",
+      "playerInputTitle": "プレイヤーの入力",
+      "composeAssist": "代わりに書く",
+      "composeAssistHint": "プレイヤーは次の行動を AI に書かせたり、打った一文をふくらませたりできます。プレイヤー自身の言葉が遊びそのもののカード（なぞなぞ、合言葉）ではオフに。",
       "editCanvasContent": "キャンバスで本文を編集",
       "variableName": "変数名",
       "typeHint": {
@@ -5087,7 +5216,6 @@
       "whatItIs": "これは何か",
       "range": "範囲",
       "showOnScreen": "プレイヤー画面に表示",
-      "displayOnly": "表示のみを変更します。変数のデータは保持されます。",
       "onScreen": "プレイヤー画面に表示中",
       "showOnScreenLine": "{{name}}：",
       "shownOnScreen": "「{{name}}」をプレイヤー画面のチャットページに置きました",
@@ -5119,7 +5247,10 @@
       "varFieldWriter_ai-call": "カスタム AI 呼び出し",
       "varFieldWriterAny": "未指定",
       "varFieldRemove": "このフィールドを削除",
-      "previewCode": "ほかに {{count}} 件、インターフェースのコードが自分でコンテキストを組み立てています"
+      "previewCode": "ほかに {{count}} 件、インターフェースのコードが自分でコンテキストを組み立てています",
+      "summaryCostShort": "更新 1 回あたり通常 1 マッシー未満",
+      "conditionsWiredHint": "変数をこのエントリにつなぐと追加でき、線をクリックすると編集できます。",
+      "noSeeded": "既定値"
     },
     "addModule": "シチュエーション",
     "addVariable": "変数",
@@ -5128,7 +5259,7 @@
     "autoLayout": "標準レイアウト",
     "searchPlaceholder": "ノードを検索…",
     "searchEmpty": "見つかりません",
-    "focusMode": "フォーカスモード — キャンバスを全面表示",
+    "focusMode": "フォーカスモード",
     "exitFocus": "フォーカスモードを解除",
     "logic": {
       "all": "すべて",
@@ -5164,7 +5295,7 @@
       "seedValue": "初期値",
       "apply": "適用",
       "remove": "削除",
-      "seedJsonFixed": "開幕で設定できるのは数値・テキスト・スイッチだけで、リストやオブジェクトは不可です。この線を外し、変数の初期値で設定してください。"
+      "seedJsonFixed": "リストの値は変数の既定値で設定"
     },
     "ports": {
       "write": "書込",
@@ -5222,7 +5353,8 @@
       "undo": "このターンを取り消す",
       "dismiss": "閉じる",
       "undoKeptYours": "アシスタントのターンを取り消しました。その後あなたが変えた {{count}} か所は残しています",
-      "undoAllKept": "このターンの変更はすべてあとで編集済みのため、そのまま残しています"
+      "undoAllKept": "このターンの変更はすべてあとで編集済みのため、そのまま残しています",
+      "undoOne": "これだけ元に戻す"
     },
     "links": {
       "in": "入力 {{count}} 本",
@@ -5247,10 +5379,10 @@
       "addCover": "カバーを追加",
       "identity": "カード情報",
       "seeds": "開始時に {{count}} 個の変数を設定",
-      "previewPaused": "プレビュー停止中 — 大プレビューか試遊が使用中",
+      "previewPaused": "プレビュー停止中",
       "previewZoom": "50% 以上に拡大すると動きます",
-      "blurbPlaceholder": "紹介文 — ライブラリで最初に読まれる一文",
-      "openingPlaceholder": "導入を書く — プレイヤーが最初に読む文章",
+      "blurbPlaceholder": "ひとことの紹介文",
+      "openingPlaceholder": "導入を書く",
       "firedByHint": "「{{name}}」が起点",
       "sharedRow": "共通",
       "sharedRowHint": "全シチュエーション共通です。どこかで直すと、すべてに反映されます。",
@@ -5300,7 +5432,8 @@
         "opening": "導入を追加",
         "lore": "エントリーを追加",
         "behavior": "ビヘイビアを追加",
-        "state": "変数を追加"
+        "state": "変数を追加",
+        "frontend": "ページを追加"
       },
       "sub": {
         "image": "{{count}} 枚",
@@ -5327,7 +5460,7 @@
         "imageNarrator": "{{count}}枚中{{on}}枚 · 物語のAIが挿す",
         "imageNone": "{{count}}枚 · どれも表示タイミング未設定"
       },
-      "context": "Context",
+      "context": "会話の記憶",
       "contextHint": "ここの AI が毎ターン読むもの",
       "addPack": "既製の仕組みを使う",
       "background": "チャット背景",
@@ -5393,14 +5526,14 @@
       "titleContent": "このシチュエーションが渡すもの",
       "perTurn": "~{{n}} / ターン",
       "own": "このシチュエーション",
-      "core": "共通 — カード全体で共有",
+      "core": "共通",
       "alsoOn": "「{{name}}」も常時オン",
       "lore": "常駐の項目 {{count}} 件",
       "standby": "ほかに {{count}} 件はキーワード／条件待ち",
       "vars": "変数 {{count}} 個",
       "behaviors": "ビヘイビア {{count}} 件",
       "nothing": "まだ中身がありません",
-      "gated": "ほかに {{count}} 個のシチュエーションが条件で開きます。これと同時に開くかは状態しだいです。",
+      "gated": "ほかに {{count}} 個が条件で開きます",
       "history": "履歴",
       "ownRun": "このシチュエーション自身の一区切り",
       "ownRunArchive": "閉じるときに要約ひとつへ格納",
@@ -5424,7 +5557,7 @@
       "joinsNarrator": "語り手に合流",
       "readBy": "誰が読んでいるか",
       "noReaders": "このシチュエーションを読んでいるものはまだありません。",
-      "chainTrap": "{{via}} は {{source}} を読みますが、線は一段しか運ばないのでここには届きません。必要なら {{source}} を直接つないでください。",
+      "chainTrap": "{{via}} は {{source}} を読みますが、ここには届きません。{{source}} を直接つないでください。",
       "stationNeeded": "上の「このシチュエーションが会話を担当する」をオンにすると、自分の記録を持ち、ほかに読むものを線でつなげます。",
       "row": {
         "usesCard": "カードの Context を使う",
@@ -5450,9 +5583,9 @@
         "reviewConnections": "{{count}} 本の線がここまで届きません",
         "continuityOn": "スマートトラッキング：オン",
         "continuityOff": "スマートトラッキング：オフ",
-        "codeContext": "インターフェースのコードが AI に渡す内容を用意 · {{count}} か所",
-        "scene": "画面が毎ターン AI に現場を伝える",
-        "sceneEvents": "画面が毎ターン AI に現場を伝える · AI が起こせるイベント {{count}} 個",
+        "codeContext": "インターフェースのコードが用意 · {{count}} 件",
+        "scene": "画面が現在の場面を AI に伝える",
+        "sceneEvents": "画面が現在の場面を AI に伝える · イベント {{count}} 件",
         "sceneHint": "カードの画面が、毎ターン画面で起きていることを AI に伝えます。",
         "sceneEventsList": "AI が起こせること：",
         "notCalled": "チャットなし：インターフェースが自分の AI を呼ぶ",
@@ -5460,7 +5593,7 @@
         "notCalledGame": "チャットなし：開くとゲームで、ゲームが AI を呼ぶ",
         "notCalledGameHint": "ゲームには自前の AI があり、下の AI ブロックに並んでいます。",
         "byGame": "{{name}} が何を見るかはゲームが決める",
-        "byInterface": "インターフェースのコードがここの設定を読み、自分の AI に渡す",
+        "byInterface": "インターフェースのコードが読む",
         "byInterfaceHint": "このカードのインターフェースはチャットを使わないので、チャットの AI はここを読みません。インターフェースのコードがこの設定を自分で読み、その AI に渡します。ここを書き換えると話す内容も変わります。"
       }
     },
@@ -5469,7 +5602,7 @@
       "live": "試遊中",
       "atRest": "停止中",
       "narrator": "いま「{{name}}」がプレイヤーに応答しています",
-      "noNarrator": "カード自身の AI が応答中 — 担当しているシチュエーションはありません",
+      "noNarrator": "カード自身の AI が応答中",
       "on": "オンになっているもの",
       "off": "いまオフ（{{count}}）",
       "standby": "ほかに {{count}} 件のエントリがキーワードか条件を待っています。入るかどうかは会話しだいです。",
@@ -5483,8 +5616,8 @@
       "currentEstimate": "現在の状態",
       "initialEstimate": "初期設定",
       "estimateExplanation": "設定と状態からの概算です。このターンの一致判定、会話履歴、記憶は含みません。実際に送る内容そのものではありません。",
-      "beforeOpening": " 初期設定にはまだ具体的な開幕が適用されていません。",
-      "conditionalCount": "{{count}} 件はキーワード・条件・フロントエンドで発動するため、この見積もりに含めていません。",
+      "beforeOpening": "まだ開幕を適用していません",
+      "conditionalCount": "条件付きの {{count}} 件は含めていません",
       "baselineEstimate": "常駐内容の見積もり",
       "kind": {
         "lore": "項目",
@@ -5504,7 +5637,7 @@
     },
     "crash": {
       "title": "キャンバスがこのカードを描けませんでした",
-      "body": "カードは無事で、何も失われていません。一部がこのバージョンでは読めない形式です。フルエディターで直してから戻ってください。",
+      "body": "カードは無事で、何も失われていません。一部がこのバージョンでは読めない形式です。左上の「キャンバス」スイッチを切り、フルエディターで直してから戻ってください。",
       "retry": "もう一度描く"
     },
     "writing": {
@@ -5520,7 +5653,7 @@
       "configuredDelivery": "発動条件を設定済み · 設定を見る",
       "moreSetting": "キャラクターか設定をもう一つ書く",
       "moreOpening": "開幕をもう一つ追加",
-      "sharedOnly": "まだありません。＋ で追加するか、カードからドラッグして入れてください",
+      "sharedOnly": "まだありません",
       "folderSelect": "このフォルダの {{count}} 件を選択",
       "chooseOpening": "開幕",
       "playerPreview": "プレイヤー画面",
@@ -5570,20 +5703,20 @@
       "previewNoOpening": "開幕がまだありません",
       "expandRow": "ここで編集",
       "collapseRow": "閉じる",
-      "deliveryOff": "停止中 · AI には送られない",
+      "deliveryOff": "停止中",
       "deliveryKeywords": "キーワード：{{keywords}}",
       "deliveryConditions": "変数条件 {{count}} 件を満たしたとき",
       "deliveryFrontend": "画面の要素で切り替わる",
       "deliveryAlways": "毎ターン送る",
       "deliveryUnset": "送る条件が未設定",
-      "deliveryUnplaced": "無効 · ドラッグして入れると使われます"
+      "deliveryUnplaced": "無効"
     },
     "relationships": {
       "show": "つながりを見る",
       "title": "つながり",
       "untitled": "名前のないカード",
       "missing": "参照先のオブジェクトがありません",
-      "missingObject": "このオブジェクトはもうカードにありません。パネルを閉じて別のものを選んでください。",
+      "missingObject": "このオブジェクトはもうカードにありません。",
       "editObject": "設定を見る",
       "add": "＋ 関連付け",
       "addPick": "関連付ける対象を検索…",
@@ -5686,11 +5819,11 @@
       "deliveryKeywordsConditionsAll": "キーワードが一致し、かつ {{count}} 個の変数条件をすべて満たしたときに送られます。",
       "deliveryFrontend": "送るかどうかは、つながっているフロントエンドの要素が決めます。",
       "deliveryUnconfigured": "自動で送る設定がありません。「常に送る」をオンにするか、キーワード・変数条件・フロントエンドとの接続を追加してください。",
-      "deliveryModuleScope": "所属シチュエーションが有効な間だけ送られます。",
-      "deliveryAiOnly": "これを見るのは {{name}} だけ。ほかの AI は知りません。",
-      "deliveryFrontendConditions": "つながっているフロントエンドの要素が有効で、接続側の条件も満たす必要があります。",
-      "deliveryFrontendScope": "つながっているフロントエンドの要素が有効な間だけ送られます。",
-      "deliverySecondary": "補助キーワードと一致設定にも従います。",
+      "deliveryModuleScope": "所属シチュエーションが有効な間だけ",
+      "deliveryAiOnly": "{{name}} だけが見ます",
+      "deliveryFrontendConditions": "フロントエンド要素と接続条件も必要",
+      "deliveryFrontendScope": "対応するフロントエンド要素が有効な間だけ",
+      "deliverySecondary": "補助キーワードも使用",
       "deliveryUnplaced": "外に置かれていて無効です。カードかシチュエーションにドラッグすると、ストーリー AI に送られます。"
     },
     "addSceneImage": "シーン画像",
@@ -5733,11 +5866,13 @@
       "toCore": "すべてのシチュエーション共通（カード）",
       "delete": "削除",
       "clear": "選択解除",
-      "hint": "空いている所をドラッグで囲むと複数選択、Ctrl/Shift クリックで追加"
+      "hint": "空いている所をドラッグで囲むと複数選択、Ctrl/Shift クリックで追加",
+      "makeBundle": "リソースパックにする",
+      "makeBundleHint": "選んだものを、ほかの人が入れられるリソースパックにします"
     },
     "rail": {
       "show": "アシスタント欄を開く",
-      "hide": "アシスタント欄を閉じてボードを全面に"
+      "hide": "アシスタントを隠す"
     },
     "piece": {
       "dropHere": "ここに置く"
@@ -5771,7 +5906,7 @@
       "copied": "{{count}} 件をコピーしました",
       "pasted": "{{count}} 件を貼り付けました"
     },
-    "dropOutHint": "ここに置く = いったん外す（戻すまで効かない）",
+    "dropOutHint": "いったん外す（戻すまで無効）",
     "moved": {
       "to": "{{count}} 件を「{{where}}」へ移動しました",
       "card": "カード本体",
@@ -5885,12 +6020,21 @@
       "moduleHint": "章や場面ごとのまとまり。カードの中のもう一枚のカード",
       "pages": "開始ページ、持ち物、地図…",
       "pagesHint": "出来上がったページ：名前入力、始まりの選択、ステータス、スマホのメッセージ…選ぶだけで使える",
+      "interface": "インターフェースのテンプレートを使う",
       "packs": "既製のゲームシステム",
       "market": "リソースマーケット",
       "packsHint": "すぐ使える一式のゲームシステム",
       "audio": "音楽と効果音",
       "audioHint": "BGM、場面で鳴る音",
-      "background": "チャットの背景"
+      "background": "チャットの背景",
+      "generate": "生成",
+      "gen": {
+        "sceneImage": "シーン画像",
+        "background": "チャット背景",
+        "bgm": "BGM",
+        "ambient": "環境音",
+        "sfx": "効果音"
+      }
     },
     "numberAdd": {
       "affection": "好感度",
@@ -6023,7 +6167,7 @@
         "own": "Its own {{n}} entries",
         "turnOnly": "The player's message and this reply",
         "rulesOf": "The rules of these {{n}} values",
-        "nothingWired": "Nothing connected — it can only make things up"
+        "nothingWired": "何もつながっていません"
       },
       "does": {
         "reply": "Replies to the player",
@@ -6235,9 +6379,10 @@
       "samplingHint": "「作者が設定」にすると、ストーリー AI はプレイヤーではなくこのカードの温度と Top P を使います。",
       "temperature": "温度",
       "temperatureHint": "{{min}}–{{max}}、高いほど自由",
+      "temperatureGarbleWarning": "1 を超えると、一部のモデルが崩れた文章を出すことがあります",
       "topP": "Top P",
       "topPHint": "{{min}}–{{max}}",
-      "alwaysPlayer": "モデルと返信の長さは常にプレイヤーに従い、プレイヤーが支払います。"
+      "alwaysPlayer": "モデルと返信の長さ：プレイヤーが選びます。"
     },
     "game": {
       "spiretalk": "Slay the Spire 2",
@@ -6248,7 +6393,9 @@
       "inNote": "{{game}} が毎ターン書き、AI は読むだけ。ここの値はテスト用です。ゲームは ID で探すので、ID の変更も削除もしないでください。",
       "outNote": "AI が毎ターン書き、{{game}} が確認してから反映します。ゲームは ID で探すので、ID を変えたり削除したりしないでください。",
       "idLocked": "{{game}} はこの ID で値を探すので、ID は変えられません。",
-      "unnamed": "ゲーム"
+      "unnamed": "ゲーム",
+      "inNoteShort": "{{game}} が書き込みます。ID を変えず、削除しないでください。",
+      "outNoteShort": "{{game}} が読み取ります。ID を変えず、削除しないでください。"
     },
     "gameScreen": {
       "tag": "ゲーム",
@@ -6269,14 +6416,14 @@
         "action": "報酬を出すかどうか（ゲームが許すものだけ）"
       },
       "modFoot": "報酬や約束は {{game}} 自身が確認します。左の値はテスト用の仮データで、右上の「プレイテスト」で試せます。",
-      "noneIn": "まだありません。変数の「ゲーム連携」を「ゲームから」にします。",
-      "noneOut": "まだありません。変数の「ゲーム連携」を「ゲームへ」にします。"
+      "noneIn": "変数の「ゲーム連携」を「ゲームから」に",
+      "noneOut": "変数の「ゲーム連携」を「ゲームへ」に"
     },
     "aiTypeHint": {
-      "turn": "毎ターン動きます：プレイヤーに返答するか、裏で働きます。",
-      "ui": "プレイヤー画面のボタンやコードが呼び、結果を画面に返します。",
-      "event": "カードで何かが起きたときに自分で動きます：値が条件を満たした、シナリオが終わった、沈黙が続いた。",
-      "custom": "名前・受け取るもの・返すもの・仕事をあなたが決め、作成アシスタントか外部 AI がそれに合わせてコードを書きます。"
+      "turn": "毎ターン動きます。",
+      "ui": "プレイヤー画面から呼ばれたときに動きます。",
+      "event": "カードで何かが起きたときに動きます。",
+      "custom": "役割はあなたが決め、コードはアシスタントが書きます。"
     },
     "aiContract": {
       "title": "呼び出し方",
@@ -6300,7 +6447,9 @@
       "counts": "ゲームが書き込む変数 {{inputs}} 個、読み取る変数 {{outputs}} 個。どちら側かは各変数で選びます。",
       "side": "ゲーム連携",
       "sideHint": "ゲームから：{{game}}が毎ターン書き込み、AI は読むだけ。ゲームへ：AI が書き、{{game}}がそれに従います。",
-      "sideNone": "なし"
+      "sideNone": "なし",
+      "builtinShort": "{{game}} の MOD が実行 · 入力 {{inputs}} · 出力 {{outputs}}",
+      "countsShort": "ゲームから {{inputs}} · ゲームへ {{outputs}}"
     },
     "codeAi": {
       "voiceWhat": "プレイヤーがマイクでリアルタイムに話す相手。画面のコードが動かし、自分の設定はありません。",
@@ -6326,10 +6475,79 @@
       "where": "書かれている場所",
       "gameBook": "「{{name}}」の設定 {{count}} 件",
       "gameWhatBook": "この AI はゲームが Yumina のサーバーで動かし、人物設定はカードの「{{name}}」から読みます。下はゲームとの間でやり取りされるものです。",
-      "removePrompt": "インターフェースコード {{file}} の {{line}} 行目にある AI 呼び出し「{{name}}」を削除してください：\n1. edit_custom_ui で、この呼び出しと、それだけのためにあるコード（渡しているプロンプト、返答の処理）を取り除く。\n2. 削除後もインターフェースは普通に遊べること。返答を待っていた所は、待たずに先へ進むようにする。\n3. ここだけを変更し、ほかのコードには触れない。終わったら、何を消して今どう動くかを一、二文で教えてください。"
+      "removePrompt": "インターフェースコード {{file}} の {{line}} 行目にある AI 呼び出し「{{name}}」を削除してください：\n1. edit_custom_ui で、この呼び出しと、それだけのためにあるコード（渡しているプロンプト、返答の処理）を取り除く。\n2. 削除後もインターフェースは普通に遊べること。返答を待っていた所は、待たずに先へ進むようにする。\n3. ここだけを変更し、ほかのコードには触れない。終わったら、何を消して今どう動くかを一、二文で教えてください。",
+      "kindPlatform": "プラットフォームの AI。画面のコードが動かす",
+      "instructions": "指示"
     },
     "mobile": {
       "untitled": "無題"
+    },
+    "lineup": {
+      "title": "AI 一覧",
+      "section": {
+        "answer": "プレイヤーに返答",
+        "after": "返答のすぐあと",
+        "called": "呼ばれたとき",
+        "platform": "プラットフォーム（裏側）"
+      },
+      "judge": "判定 AI",
+      "judgeJob": "毎ターン、精密追跡の数値を決め、シーン画像を選ぶ",
+      "repair": "補完 AI",
+      "repairJob": "物語 AI が変え忘れた数値を補う",
+      "memory": "記憶 AI",
+      "memoryJob": "数ターンごとに、起きたことをこのチャットの記憶に書く",
+      "summary": "要約 AI",
+      "summaryJob": "会話が長くなったら、前半をあらすじにまとめる",
+      "ran": "このターン",
+      "values_other": "数値 {{count}} 個"
+    },
+    "searchAction": {
+      "look": "画面の見た目を変える（色・フォント）",
+      "code": "画面のコードを開く",
+      "switch": "インターフェースを変える",
+      "saveTemplate": "このカードをテンプレート・パックとして保存",
+      "market": "リソースマーケットを開く"
+    },
+    "gen": {
+      "generate": "生成",
+      "refine": "加工"
+    },
+    "sealed": {
+      "entry": "原作者が非公開にした内容",
+      "folder": "原作者が非公開にしたフォルダ",
+      "remove": "この非公開項目を削除"
+    },
+    "multiplayer": {
+      "title": "マルチプレイ",
+      "mode": "遊び方",
+      "story": "みんなで物語",
+      "rules": "ルールで対戦",
+      "seats": "人数",
+      "seatsMin": "最少",
+      "seatsMax": "最大",
+      "roles": "選べる役",
+      "roleName": "役の名前",
+      "roleNote": "メモ",
+      "rolePicture": "画像",
+      "playersSee": "プレイヤーの見え方",
+      "fromEntries": "キャラクターと世界から選ぶ",
+      "moveUp": "上へ",
+      "moveDown": "下へ",
+      "add": "追加",
+      "rolesRequired": "役を必ず選ぶ",
+      "rulesFile": "ルールファイル",
+      "noRulesFile": "ルールファイルはまだありません",
+      "askAssistant": "アシスタントに書いてもらう",
+      "askRules": "このカードのマルチプレイ用ルールファイル rules.js を書いてください（ルールで対戦、{{min}}–{{max}} 人）。書けたらマルチプレイのルールファイルに設定してください。",
+      "aiSeats": "空席には AI が座る",
+      "aiName": "AI の名前",
+      "aiModelDefault": "既定のモデル",
+      "aiModelUnknown": "Yumina のモデル一覧にありません。",
+      "facts": "ホストが支払い · 招待のみ · 年齢区分はカードのまま",
+      "mark": "マルチ {{seats}} 人",
+      "markRules": "マルチ · ルール {{seats}} 人",
+      "rulesTag": "マルチのルール",
+      "seatAi": "席の AI"
     }
   },
   "modules": {
@@ -6358,7 +6576,7 @@
     "settings": "シチュエーション設定",
     "enable": "有効",
     "delete": "シチュエーションを削除",
-    "noVars": "変数がまだありません。「変数」で追加してからこのシチュエーションを変数で開けます。",
+    "noVars": "先に変数を追加してください。",
     "scope": {
       "all": "すべて",
       "core": "共通",
@@ -6401,7 +6619,7 @@
   "kb": {
     "bindingsTab": "フロントエンド連動",
     "bindingsBadge": "フロントエンド制御",
-    "bindingsPanelDesc": "フロントエンドが制御するエントリ専用のロアブックです。フロントエンドのコード（カスタム UI）に <LoreButton> / <LoreSwitch> を置くと、ここに対応するエントリが自動で作られます。プレイヤーがそのコントロールをオンにしている間だけ、エントリがプロンプトに入ります。",
+    "bindingsPanelDesc": "フロントエンドが制御するエントリ専用のロアブックです。カスタム UI に <LoreButton> / <LoreSwitch> を置くと、ここにエントリが作られます。プレイヤーがそのコントロールをオンにしている間だけプロンプトに入ります。",
     "controlCount": "コントロール {{count}} 個"
   },
   "worldbooks": {
@@ -6432,7 +6650,6 @@
   "backgrounds": {
     "title": "背景",
     "blurb": "チャットの後ろに敷く一枚の絵。文字の下には暗いレイヤーが入るので読みやすさは保たれます。",
-    "emptyHint": "すでにあるカバー画像から始められます。アップロードも生成も不要です。",
     "useCover": "カバーを使う",
     "upload": "画像を追加",
     "cover": "カバー",
@@ -6465,19 +6682,6 @@
     "after": "処理後",
     "previewSentence": "雨が街全体を低く押さえつけていた。彼女は振り返らず、傘をあなたのほうへ少しだけ傾けた。"
   },
-  "packs": {
-    "title": "仕組みパック",
-    "blurb": "そのまま動く変数・行動・項目のセットを、ワンクリックで追加します。追加されたものはカード自身の内容です——開けて、読めて、直せます。",
-    "add": "このカードに追加",
-    "addedAgain": "追加済み — もう一度追加",
-    "installed": "「{{name}}」を追加しました",
-    "countVariables": "変数 {{count}}",
-    "countBehaviors": "行動 {{count}}",
-    "countEntries": "項目 {{count}}",
-    "deterministic": "本物の変数——エンジンが処理するので、モデルを変えても壊れません。",
-    "promptOnly": "プロンプトのみ——従うかはモデル次第。正確さが要るなら変数を。",
-    "footnote": "パックは重ねられます。好感度と生存を同じカードに入れられます。不要なら資源ページから外せば、持ち込まれたものも一緒に消えます。"
-  },
   "tavernImport": {
     "personality": "性格",
     "scenario": "物語の舞台",
@@ -6492,9 +6696,529 @@
     "cardName": "インポートしたキャラクターカード"
   },
   "variantTranslate": {
-    "banner": "これは{{language}}版ですが、内容はまだ元の言語のままです。項目ごとに翻訳するか、作成アシスタントに任せましょう。",
-    "ask": "アシスタントに{{language}}へ翻訳してもらう",
+    "banner": "この{{language}}版の内容はまだ元の言語のままです。",
+    "ask": "アシスタントで翻訳",
     "dismiss": "今後表示しない",
     "prompt": "このカード全体を{{language}}に翻訳してください：タイトルと紹介文、すべての最初のメッセージ、すべての項目（キャラクター・世界観・設定）、変数の名前と説明、行動がAIに伝える文、インターフェースの文字。意味・口調・人物像はそのままに、名前は{{language}}の読者に自然な形に。波括弧のマクロと変数IDは変更しないでください。"
+  },
+  "packCanvas": {
+    "cancel": "キャンセル",
+    "close": "閉じる",
+    "done": "完了",
+    "installed": "「{{name}}」を追加しました",
+    "assetsNotCopied": "パックの一部のファイルを素材にコピーできませんでした",
+    "fileIsCard": "このファイルはパックではなく、カード丸ごとです",
+    "untitledSituation": "名前のないシチュエーション",
+    "hint": {
+      "card": "離すとこのカードに追加",
+      "screen": "離すと画面の扱いを選べます",
+      "situation": "離すと「{{name}}」に追加",
+      "template": "離すとこのテンプレートを使います",
+      "cancel": "ここで離すとキャンセル"
+    },
+    "template": {
+      "title": "「{{name}}」はテンプレートです",
+      "description": "このカードにはもう内容があります。",
+      "newCard": "これで新しいカードを作る",
+      "newCardHint": "このカードはそのまま",
+      "here": "それでもこのカードに追加",
+      "hereHint": "中身が今の内容に加わります"
+    },
+    "screen": {
+      "title": "「{{name}}」の画面をどうしますか？",
+      "replace": "今の画面と入れ替える",
+      "replaceHint": "プレイヤーにはパックの画面が表示されます。あなたの画面は残り、パックを外すと元に戻ります。",
+      "both": "両方残す",
+      "bothHint": "パックの画面があなたの画面の上に重なります",
+      "some": "一部だけ追加",
+      "someHint": "追加するものを選べます"
+    },
+    "sheet": {
+      "title": "「{{name}}」を追加",
+      "here": "このカードに追加",
+      "situation": "「{{name}}」に追加"
+    },
+    "drawer": {
+      "title": "リソースマーケット",
+      "search": "パックを検索",
+      "empty": "まだパックがありません",
+      "expand": "マーケットを全画面で開く",
+      "fold": "サイドパネルにする",
+      "foldHint": "マーケットをキャンバス横のパネルにして、そのままドラッグできるようにします",
+      "file": "パックファイル",
+      "onCard": "このカードに追加済み",
+      "rowHint": "クリックで中身を確認、キャンバスにドラッグで追加",
+      "usedIn_other": "{{count}} 枚のカードで使用中"
+    },
+    "frame": {
+      "kind": "リソースパック",
+      "isScreen": "画面として使用中",
+      "inSituation": "「{{name}}」の中",
+      "settings": "設定",
+      "viewSource": "元のパックを見る",
+      "detach": "ばらす",
+      "detachTitle": "このパックをばらしますか？",
+      "detachConfirm": "「{{name}}」が追加した内容はカードに残ります。更新は届かなくなります。",
+      "detached": "「{{name}}」はカードの一部になりました",
+      "remove": "外す",
+      "removeTitle": "このパックを外しますか？",
+      "update": "v{{version}} に更新",
+      "updateShort": "新しい版があります"
+    },
+    "settings": {
+      "title": "{{name}} の設定",
+      "stepTitle": "設定を入力",
+      "later": "あとで",
+      "none": "このパックには設定がありません。",
+      "missingVariable": "この設定の書き込み先の変数がありません",
+      "pick": "選択…",
+      "loading": "読み込み中…",
+      "playerVoice": "なし：プレイヤー自身の声",
+      "otherVoice": "別の声（{{id}}…）",
+      "noLiveCharacters": "動く立ち絵がまだありません。AI 生成ページで作れます。",
+      "otherCharacter": "別の動く立ち絵",
+      "upload": "アップロード",
+      "replaceFile": "差し替え",
+      "noFile": "まだファイルがありません"
+    },
+    "importer": {
+      "parts": "追加する内容",
+      "entries": "設定資料",
+      "behaviors": "ふるまい",
+      "audio": "オーディオ",
+      "variablesAlways": "変数 {{count}} 個は常に追加されます",
+      "intoSituation": "「{{name}}」に追加します",
+      "ui": {
+        "compose": "両方の画面を残す",
+        "composeHint": "パックの画面があなたの画面の上に重なります",
+        "replace": "今の画面と入れ替える",
+        "replaceHint": "あなたの画面は残り、パックを外すと元に戻ります",
+        "skip": "画面は入れない",
+        "skipHint": "内容だけを追加します"
+      },
+      "conflictHint": "同じ名前の変数がもうカードにあります。",
+      "merge": "ひとつにまとめる",
+      "keepBoth": "両方残す",
+      "typeDiffers": "あなたのは {{mine}}、パックのは {{theirs}} です。",
+      "newName": "パック側の名前",
+      "sameId": "すでにカードにあり共有されるもの：{{names}}"
+    },
+    "export": {
+      "otherPacksLeftOut": "ほかのパック {{count}} 個は含まれません"
+    },
+    "toolbar": {
+      "label": "リソースマーケット",
+      "hint": "リソースパック：ほかのクリエイターが作った画面や仕組み。キャンバスにドラッグするだけで使えます",
+      "updates_other": "{{count}} 個のパックに新しいバージョンがあります"
+    },
+    "peek": {
+      "by": "作者 {{name}}",
+      "usedIn_other": "公開中の {{count}} 枚のカードで使用中",
+      "private": "自分だけ",
+      "more": "もっと見る",
+      "less": "閉じる",
+      "noDescription": "説明なし",
+      "whatsNew": "v{{version}} の変更点",
+      "adds": "追加されるもの",
+      "andMore": "など",
+      "screen": "専用の画面",
+      "screenTemplate": "カード全体の画面",
+      "entries_other": "エントリー {{count}}",
+      "variables_other": "変数 {{count}}",
+      "behaviors_other": "ビヘイビア {{count}}",
+      "audio_other": "オーディオ {{count}}",
+      "settings_other": "設定 {{count}} 項目",
+      "install": "このカードに追加",
+      "applyInterface": "このカードに使う",
+      "installAgain": "もう一つ追加",
+      "useTemplate": "このテンプレートを使う",
+      "details": "詳細",
+      "dragHint": "キャンバスに直接ドラッグもできます。シチュエーションの枠に入れると、そのシチュエーションでだけ動きます。",
+      "tabScreen": "画面",
+      "tabCanvas": "キャンバス",
+      "browse": "大きく見る",
+      "browseHint": "閲覧のみ"
+    },
+    "adapt": {
+      "label": "アシスタントにこのカードへ合わせてもらう",
+      "hint": "アシスタントのクレジットを使います",
+      "prompt": "リソースパック「{{name}}」のインターフェースをこのカードに入れました。ファイルは {{folder}} にあります。このインターフェースをこのカードに合わせてください。レイアウト、パネル、機能はそのままにして、中に直接書かれた数値、キャラクター、場所、文章をこのカードの変数と設定に置き換えてください（まずカードの変数とエントリを読んでください）。インターフェースに必要なのにカードにないものは、推測せずに、変数を作るかそのパネルを外すかを先に聞いてください。{{folder}} の中のファイルだけを変更し、ほかのインターフェースファイルには触れないでください。"
+    },
+    "fit": {
+      "title": "このカードに合わせる",
+      "characters": "このカードのキャラ {{count}}",
+      "keep": "サンプルのまま",
+      "clear": "空にする",
+      "samples": "サンプル：{{names}}",
+      "follows": "一緒に空にする",
+      "newVariable": "新しく作る",
+      "noCharacters": "このカードにはまだキャラのエントリーがありません",
+      "shareTitle": "ほかの人が使うとき",
+      "shareCharacters": "相手のキャラに置き換え",
+      "shareSamples": "残すか空にする",
+      "shareNone": "人物リストなし",
+      "howTo": "やり方",
+      "takesCharacters": "自分のキャラに置き換え"
+    },
+    "market": {
+      "uses": {
+        "phone": "スマホ",
+        "relations": "関係",
+        "status": "ステータス",
+        "items": "持ち物",
+        "places": "場所",
+        "time": "時間",
+        "opening": "オープニング",
+        "writing": "文体",
+        "look": "雰囲気",
+        "mechanics": "ゲームの仕組み"
+      },
+      "sort": {
+        "popular": "人気",
+        "newest": "新着",
+        "used": "使用数順"
+      },
+      "downloads_other": "{{count}} ダウンロード",
+      "copies_other": "{{count}} 件",
+      "fromMarket": "マーケットから保存",
+      "publish": "公開",
+      "publishing": "公開中…",
+      "published": "マーケットに公開しました",
+      "queued": "審査に送りました。通過すると公開されます。",
+      "publishFailed": "公開できませんでした。もう一度お試しください。",
+      "noMatch": "まだ何もありません",
+      "tryOn": {
+        "mine": "自分のカードで",
+        "blank": "空のカード"
+      },
+      "fit": {
+        "title": "このカードとの組み合わせ",
+        "characters": "あなたのキャラが入ります：{{names}}",
+        "sameVariables": "同じ名前の変数：{{names}}",
+        "sameEntries": "同じ名前の項目：{{names}}",
+        "beside": "画面はあなたのインターフェースの横に入ります",
+        "first": "このカードの最初の画面になります",
+        "clean": "このカードとぶつかるものはありません"
+      }
+    }
+  },
+  "packUpdate": {
+    "title": "「{{name}}」を更新",
+    "versions": "入っているのは v{{from}}、マーケットは v{{to}} です。",
+    "authorNote": "作者による更新メモ",
+    "added": "追加：",
+    "changed": "変更：",
+    "removed": "削除：",
+    "noHistory": "自分の変更は新しい版で上書きされます。",
+    "yourEdits": "自分で変えたところ",
+    "removedUpstream": "新しい版では削除。あなたの分は残ります。",
+    "bothChanged": "作者もこの版で変えています。",
+    "onlyYou": "変えたのはあなただけです。",
+    "keepMine": "自分のを残す",
+    "takeAuthor": "作者のにする",
+    "interfaceEdited": "変更した画面コードは新しい版に置き換わります。",
+    "settingsKept": "設定はそのまま残ります。",
+    "later": "あとで",
+    "apply": "v{{version}} に更新",
+    "applyShort": "更新",
+    "done": "「{{name}}」を v{{version}} にしました",
+    "unavailable": "新しい版を読み込めませんでした。",
+    "badge": "v{{version}} あり"
+  },
+  "bundleVersion": {
+    "newPack": "新しいパック",
+    "updateExisting": "自分のパックの新しい版",
+    "notePlaceholder": "この版で変わったこと",
+    "hint": "入れたカードは、本人が更新を選ぶまで元の版のままで、自分で変えたところは残ります。",
+    "held": "審査に出しました。承認までは今の版のままです。",
+    "published": "v{{version}} として公開しました",
+    "saved": "保存しました。パックを公開すると新しい版になります。"
+  },
+  "soundPicker": {
+    "audioTitle": "このカードに音を追加",
+    "mine": "自分の",
+    "plaza": "広場",
+    "music": "音楽",
+    "sfx": "効果音",
+    "search": "検索",
+    "anyLang": "すべて",
+    "use": "使う",
+    "inUse": "使用中",
+    "add": "追加",
+    "added": "追加済み",
+    "current": "現在",
+    "giveBack": "プレイヤーに任せる",
+    "presets": "標準",
+    "pasteId": "ボイス ID を貼り付け",
+    "upload": "アップロード",
+    "generate": "生成",
+    "market": "マーケット",
+    "empty": "まだ何もありません。",
+    "failed": "読み込めませんでした。しばらくしてからもう一度お試しください。",
+    "addFailed": "追加できませんでした。もう一度お試しください。",
+    "storageFull": "ストレージがいっぱいです。"
+  },
+  "loraField": {
+    "cardTitle": "ストーリー挿絵",
+    "styleLabel": "画風 LoRA",
+    "label": "挿絵 LoRA",
+    "none": "使わない",
+    "unknown": "利用できません",
+    "styleTitle": "このカードの挿絵の画風",
+    "title": "「{{name}}」の挿絵 LoRA",
+    "mine": "自分の Anima LoRA",
+    "empty": "まだありません",
+    "linkPlaceholder": "Civitai のリンク",
+    "import": "取り込む",
+    "upload": ".safetensors をアップロード",
+    "weight": "強さ",
+    "trigger": "トリガー",
+    "syncing": "準備中",
+    "failed": "取り込み失敗",
+    "delete": "削除",
+    "clear": "解除",
+    "close": "閉じる",
+    "errors": {
+      "notAnima": "Anima の LoRA のみ対応しています",
+      "license": "作者が生成サービスでの利用を許可していません",
+      "signIn": "Civitai へのログインが必要なファイルです。ダウンロードしてアップロードしてください",
+      "url": "リンクが無効です",
+      "fetch": "Civitai を読み込めませんでした",
+      "notSafetensors": ".safetensors ファイルのみ取り込めます",
+      "tooLarge": "ファイルが大きすぎます",
+      "tooMany": "LoRA の上限に達しました",
+      "quota": "容量がいっぱいです",
+      "busy": "別の取り込みが進行中です。少し待ってから再試行してください",
+      "generic": "取り込みに失敗しました"
+    },
+    "uploading": "アップロード中 {{pct}}%",
+    "train": "学習する",
+    "trainFromPortrait": "立ち絵から学習する"
+  },
+  "loraWindow": {
+    "mine": "自分の",
+    "plaza": "広場",
+    "search": "検索",
+    "sort": {
+      "hot": "人気",
+      "new": "新着",
+      "used": "よく使われる"
+    },
+    "importLink": "リンクで取り込む",
+    "upload": "アップロード",
+    "current": "使用中",
+    "clear": "使わない",
+    "use": "これを使う",
+    "inUse": "使用中",
+    "add": "追加",
+    "added": "追加済み",
+    "open": "「{{name}}」を見る",
+    "emptyMine": "まだありません。広場から選ぶか、取り込んでください",
+    "emptyPlaza": "広場にはまだありません",
+    "uses": "{{count}} 回使用",
+    "favorites": "お気に入り {{count}}",
+    "published": "広場に公開中",
+    "back": "戻る",
+    "favorite": "お気に入り",
+    "favorited": "お気に入り済み",
+    "report": "通報",
+    "reported": "通報しました",
+    "works": "これで描いた作品",
+    "publish": "広場に公開",
+    "editPublish": "公開内容を編集",
+    "takenDown": "非公開にされました",
+    "samples": "サンプル",
+    "redraw": "4 枚描き直す",
+    "drawing": "描画中",
+    "replace": "自分の画像にする",
+    "cover": "カバー",
+    "titleLabel": "名前",
+    "descriptionLabel": "説明",
+    "unpublish": "公開をやめる",
+    "save": "保存",
+    "publishGo": "公開",
+    "publishedToast": "広場に公開しました",
+    "unpublishedToast": "広場から取り下げました",
+    "samplesFailed": "サンプルを描けませんでした。後でもう一度お試しください",
+    "errors": {
+      "family": "この LoRA はここのベースモデルに合いません",
+      "runsUsed": "この LoRA のサンプル回数は使い切りました。自分の画像に差し替えられます",
+      "cooldown": "描いたばかりです。数分後にもう一度どうぞ",
+      "textRefused": "名前・説明・トリガーに公開できない内容があります"
+    }
+  },
+  "translate": {
+    "menu": "AIで他の言語に翻訳",
+    "title": "AI翻訳",
+    "titleTo": "{{language}}に翻訳",
+    "price": "料金",
+    "about": "約 {{count}} マッシー",
+    "atMost": "最大 {{count}}",
+    "balance": "残高",
+    "start": "翻訳する",
+    "notEnough": "マッシーが足りません",
+    "keepsRunning": "閉じても続きます。終わったら通知します",
+    "doneDraft": "下書きを作成 · {{count}} マッシー",
+    "doneUpdate": "更新の下書きを作成 · {{count}} マッシー",
+    "updateTag": "更新",
+    "updateStart": "{{language}}版を更新",
+    "issues": "確認が必要な箇所 {{count}} 件",
+    "open": "下書きを開く",
+    "retry": "もう一度",
+    "noneLeft": "英語・中国語・スペイン語・韓国語・インドネシア語・ロシア語版はすでにあります",
+    "alreadyExists": "この言語の版はすでにあります。開く",
+    "step": {
+      "glossary": "名前と用語",
+      "text": "本文",
+      "keywords": "キーワード",
+      "interface": "画面",
+      "checks": "チェック",
+      "done": "完了"
+    },
+    "error": {
+      "network": "サーバーに接続できません。接続を確認してもう一度お試しください。",
+      "unauthorized": "ログインの有効期限が切れました。もう一度ログインしてください。",
+      "rate_limited": "操作が多すぎます。少し待ってからお試しください。",
+      "not_found": "このカードが見つかりません。削除された可能性があります。",
+      "bad_language": "AI翻訳は英語・中国語・スペイン語・韓国語・インドネシア語・ロシア語に対応しています。",
+      "no_source_language": "先にこのカードの言語を英語・中国語・スペイン語・韓国語・インドネシア語・ロシア語のどれかに設定してください。",
+      "same_language": "このカードはすでにその言語です。",
+      "exists": "この言語の版はすでにあります。",
+      "insufficient_credits": "マッシーが足りません：最大 {{need}} 必要、残高 {{balance}}。",
+      "unavailable": "翻訳サービスは現在利用できません。後でお試しください。",
+      "running": "この言語は翻訳中です。",
+      "unknown": "エラーが発生しました。後でお試しください。",
+      "too_many": "同時に翻訳できるのは2枚までです。前の翻訳が終わってからお試しください。"
+    },
+    "fail": {
+      "interrupted": "翻訳が中断されました（サーバー再起動）。",
+      "refused": "AIがこのカードの大部分の翻訳を拒否しました。再試行しても同じことが多いので、手動で翻訳できます。",
+      "model_error": "AIサービスのエラーまたはタイムアウトで、大部分が翻訳されませんでした。再試行すれば通常は直ります。",
+      "save_failed": "翻訳は終わりましたが、下書きを保存できませんでした。",
+      "not_found": "翻訳中に元のカードが削除されました。",
+      "unavailable": "翻訳サービスは現在利用できません。後でお試しください。"
+    },
+    "notCharged": "料金はかかっていません。",
+    "connectionLost": "接続が不安定です。翻訳はバックグラウンドで続いています。",
+    "changeLanguage": "カードの言語を設定",
+    "problem": {
+      "refused": "AIが翻訳を拒否したため原文のまま：",
+      "missing": "翻訳されず原文のまま：",
+      "state_value": "状態の値が変わり、画面が認識できない可能性：",
+      "interface_kept": "画面ファイルは原文のまま（コードを壊さないため）：",
+      "untranslated": "未翻訳の原文が残っている：",
+      "placeholders": "プレイヤー名などのプレースホルダーが原文と一致しない：",
+      "too_short": "原文より明らかに短く、抜けている可能性：",
+      "duplicate": "段落が重複している："
+    },
+    "field": {
+      "title": "タイトル",
+      "description": "紹介",
+      "opening": "オープニング",
+      "entry": "エントリー",
+      "variable": "変数",
+      "behavior": "ルール",
+      "interface": "画面"
+    },
+    "where": "{{field}}「{{name}}」",
+    "listSep": "、",
+    "openExisting": "開く"
+  },
+  "collab": {
+    "liveRestoredDeleted": "編集中に「{{label}}」が削除されました — あなたの変更は残してあります",
+    "liveKeptYours": "{{names}} はたった今ほかの人にも変更されました — あなたの版を残しました",
+    "liveUseTheirs": "相手の版にする",
+    "liveUpdateInReview": "作者が提出した更新は審査中です。審査が終わると変更を保存できます",
+    "title": "このカードを一緒に作る",
+    "description": "アシスタント・画像生成・テストプレイは、使った人のクレジットから引かれます。",
+    "roleLabel": "権限",
+    "invite": "招待",
+    "invited": "{{name}} を招待しました",
+    "you": "（あなた）",
+    "pending": "承認待ち",
+    "remove": "外す",
+    "leave": "共同編集から抜ける",
+    "share": "共同編集",
+    "shareTitle": "このカードを一緒に作る人を招待",
+    "viewOnly": "閲覧のみ",
+    "hereIn": "{{name}} · {{where}}を表示中",
+    "sharedWithMe": "共有されたカード",
+    "sharedBy": "{{name}} · {{role}}",
+    "inviteLine": "{{name}} が「{{world}}」に招待しました（{{role}}）",
+    "accept": "承認",
+    "decline": "辞退",
+    "inviteGone": "この招待はもう有効ではありません",
+    "alreadyOnCard": "すでにこのカードに参加しています",
+    "viewerNoAssistant": "このカードは閲覧のみです。アシスタントは編集できる人だけが使えます。",
+    "workingWith": "ほかに {{count}} 人と一緒に作っています",
+    "searchPlaceholder": "名前または @ユーザー名",
+    "friends": "フレンド",
+    "searching": "検索中…",
+    "noMatch": "該当する人が見つかりません",
+    "alsoEditing": "{{name}} も「{{label}}」を編集中です。同じ箇所は最後に保存した方が残ります",
+    "editedYourTarget": "{{name}} があなたの編集中の「{{label}}」を変更しました",
+    "someone": "誰か",
+    "editingNow": "{{name}} が「{{label}}」を編集中",
+    "role": {
+      "owner": "作者",
+      "editor": "編集可",
+      "viewer": "閲覧のみ",
+      "publisher": "編集・公開できる"
+    },
+    "errors": {
+      "userNotFound": "そのユーザー名の人が見つかりません",
+      "self": "それはあなたです（このカードの作者です）",
+      "alreadyInvited": "すでに招待済みです",
+      "tooMany": "1枚のカードの共同編集者は最大 {{max}} 人です",
+      "generic": "うまくいきませんでした。もう一度お試しください"
+    },
+    "link": {
+      "anyone": "リンクを知っている人",
+      "roleLabel": "リンクで与える権限",
+      "toggle": "招待リンク",
+      "address": "招待リンクのURL",
+      "copy": "リンクをコピー",
+      "copied": "リンクをコピーしました",
+      "reset": "リンクを再発行",
+      "resetDone": "新しいリンクを発行しました。古いリンクは使えません",
+      "failed": "うまくいきませんでした。もう一度お試しください",
+      "stillOn": "招待リンクはまだ有効です。必要なら下でリセットするかオフにしてください。"
+    },
+    "join": {
+      "line": "{{name}} さんが「{{world}}」の共同制作に招待しています",
+      "button": "参加して開く",
+      "open": "カードを開く",
+      "youAre": "すでにこのカードに参加しています · {{role}}",
+      "gone": "このリンクはもう使えません。作者に新しいリンクを頼んでください。",
+      "blocked": "このカードには参加できません。",
+      "full": "このカードの共同編集者は上限に達しています。",
+      "failed": "招待を開けませんでした。もう一度お試しください。",
+      "signIn": "ログインすると、このカードの共同編集に参加できます。",
+      "signInAction": "このカードに参加",
+      "signInButton": "ログイン",
+      "removed": "作者があなたをこのカードから外しました。もう一度招待してもらう必要があります。"
+    },
+    "following": "{{name}} をフォロー中",
+    "stopFollowing": "フォローをやめる",
+    "clickToFollow": "クリックで視点をフォロー",
+    "descriptionCollaborator": "アシスタント・画像生成・テストプレイには、あなた自身のクレジットが使われます。",
+    "leaveConfirm": "もう一度押すと抜けます",
+    "loadFailed": "参加者を読み込めませんでした。",
+    "retry": "再試行",
+    "jumpTo": "クリックで{{where}}へ移動",
+    "notOnCanvas": "{{name}} はキャンバスを開いていません",
+    "usesYourCredits": "アシスタントはあなたのクレジットを使います",
+    "onlyOwner": {
+      "newVariant": "言語版を追加できるのは作者だけです"
+    },
+    "downgraded": "{{name}} があなたを閲覧のみに変更しました",
+    "removedUnsaved": "保存していない内容が残っています。",
+    "copyUnsaved": "保存していない内容をコピー",
+    "copiedUnsaved": "コピーしました",
+    "askedBy": "{{name}} の依頼",
+    "notYourSnapshot": "削除できるのは自分の復元ポイントだけです",
+    "othersAssistantBusy": "{{name}} のアシスタントがまだこのカードを編集中です",
+    "notYourFolder": "連携を外せるのは作者かフォルダの持ち主だけです",
+    "heldForReview": "この変更は次の審査申請と一緒に反映されます"
   }
 }

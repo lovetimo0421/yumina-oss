@@ -486,7 +486,7 @@ export interface Character {
 }
 
 // Re-export bundle type
-export type { YuminaBundle } from "./bundle.js";
+export type { YuminaBundle, BundleSettingField } from "./bundle.js";
 
 // Re-export component types
 export type {
@@ -616,10 +616,19 @@ export interface WorldEntry {
    *  on screen; `speaking` plays while their line is being written, then the
    *  idle loop returns. Either may be absent. */
   portraitVideo?: { idle?: string; speaking?: string };
+  /** A live character (动态立绘) standing beside the chat: `@rig:<id>` (the
+   *  character as its creator keeps tuning it) or `@asset:<id>` (one fixed
+   *  .rig6 pack). The stock chat shows it, and the AI is asked to open each
+   *  reply with `[face: …]` so its expression follows the reply (see
+   *  prompts/speaker-tag.ts). Only meaningful on `role: "character"`. */
+  portraitLive?: string;
   /** The voice this character's lines are read in: a fish.audio reference id
    *  (32 hex). Set by the author; the player's own voice choice yields to it.
    *  Only meaningful on `role: "character"` entries. */
   voice?: string;
+  /** A character LoRA (a generation_models id, Anima family) that draws this
+   *  character in story illustrations. Only meaningful on `role: "character"`. */
+  imageLora?: ImageLoraBinding;
   /**
    * When true, this entry is active only while variable conditions match
    * (replaces manual enabled / always-send toggles in the editor).
@@ -641,6 +650,17 @@ export interface WorldEntry {
    *  this opening is chosen. Powers "scenario / route presets" — picking an
    *  opening activates the matching worldbook(s) + frontend view via these vars. */
   initialVariables?: Record<string, number | string | boolean>;
+  /** Set by the server on a copy of a card whose author kept this entry to
+   *  themselves: only `by` (a user id) is ever sent the text. Everyone else
+   *  gets the entry with its name and text blanked, and cannot edit it. */
+  sealed?: SealedMark;
+}
+
+/** Whose text this is, on a copy of someone else's card. See WorldEntry.sealed. */
+export interface SealedMark {
+  by: string;
+  /** The card it was copied from. */
+  from?: string;
 }
 
 /** Binds a Custom UI LoreSlot placeholder to a lorebook entry + optional extra conditions. */
@@ -1053,6 +1073,8 @@ export interface EntryFolder {
   collapsed?: boolean;
   /** Which knowledge base owns this folder. Undefined = the Main/Core book. */
   worldbookId?: string;
+  /** The author kept this whole folder: see WorldEntry.sealed. */
+  sealed?: SealedMark;
 }
 
 /** Record of a bundle imported into this world. Powers per-bundle color-coding
@@ -1084,10 +1106,34 @@ export interface InstalledBundle {
   folderIds: string[];
   /** IDs of worldbooks this bundle added (optional — absent on pre-worldbook records). */
   worldbookIds?: string[];
+  /** The pack's version at install time (YuminaBundle.version), so an update
+   *  check can tell a newer one apart. */
+  version?: number;
+  /** The pack's settings form, copied at install with each field's
+   *  `variableId` pointing at the variable as installed in this card. */
+  settings?: import("./bundle.js").BundleSettingField[];
+  /** `@asset:<pack id>` → `@asset:<this card's id>` rewrites applied at
+   *  install, after the pack's files were copied into the card's assets. */
+  assetMap?: Record<string, string>;
+  /** Set when the pack was installed with its interface REPLACING the card's
+   *  screen. The card's own root stays in its file, unmounted; `screen` is
+   *  the pack folder that was the screen before (absent: the author's own
+   *  `__user-root.tsx`). Uninstalling puts that one back. */
+  previousRoot?: { screen?: string };
+  /** The situation (worldbook) the pack was installed into: its entries and
+   *  behaviours that had no situation of their own belong to this one. */
+  worldbookId?: string;
+  /** Installed object id → the id it has in the pack (entries, variables,
+   *  behaviours), so an update can tell which of the card's objects stands for
+   *  which of the pack's, whatever the installer renamed or left out. */
+  sourceIds?: Record<string, string>;
 }
 
 /** Image crop used by Hub cards and gallery previews. */
 export interface CoverCropSettings {
+  /** Independent desktop banner crop. Top-level coordinates remain the 16:9 mobile/card crop.
+   *  `aspect` (width / height) is the banner shape it was framed in; absent means 16:5, the shape before 21:9. */
+  desktop?: { x: number; y: number; zoom: number; fit?: "cover" | "contain"; aspect?: number };
   x: number;
   y: number;
   zoom: number;
@@ -1224,6 +1270,14 @@ export interface WorldDefinition {
 }
 
 /** World-level settings — generation parameters are optional (global user config takes priority) */
+/** A LoRA bound to a card, a character or a persona for story illustrations.
+ *  `weight` and `trigger` fall back to the model's defaults when absent. */
+export interface ImageLoraBinding {
+  modelId: string;
+  weight?: number;
+  trigger?: string;
+}
+
 export interface WorldSettings {
   /** The default chat splits one reply into a bubble per speaker when lines
    *  open with a character's name (「沈霏：…」). Off by default. */
@@ -1248,6 +1302,11 @@ export interface WorldSettings {
    *  input): "confirm" fills the composer for review, "auto" sends it as
    *  spoken. The player can override it. Absent = "confirm". */
   voiceInputMode?: "confirm" | "auto";
+  /** 帮我写 in the player's composer (AI writes or expands the player's move).
+   *  Absent = on; false for cards where the player's own wording is the game. */
+  composeAssist?: boolean;
+  /** An art-style LoRA every story illustration of this card is drawn with. */
+  illustrationLora?: ImageLoraBinding;
   /** @deprecated Use an entry with role="system" + position="top" */
   systemPrompt?: string;
   /** @deprecated Use an entry with role="greeting" + position="greeting" */
@@ -1310,6 +1369,41 @@ export interface WorldSettings {
   uiMode?: "chat" | "per-reply" | "persistent";
   /** When true, request JSON structured output from the LLM via response_format */
   structuredOutput?: boolean;
+  /** Playing this card together (off unless the author turns it on). Read it
+   *  through `readMultiplayer` in @yumina/shared, which also understands the
+   *  older rules shape (no `enabled`, `aiModel`); a bare `{ roomId }` (the
+   *  Krew sea) is not this feature. */
+  multiplayer?: WorldMultiplayerSettings;
+}
+
+/** settings.multiplayer as the author sets it. The editors always write the
+ *  first four; they are optional here because stored cards predate them (an
+ *  older rules card has no `enabled`), which `readMultiplayer` handles. */
+export interface WorldMultiplayerSettings {
+  /** Absent or false = off (except an older `mode: "rules"` card). */
+  enabled?: boolean;
+  /** "story": friends share one session and the card's AI narrates merged
+   *  rounds. "rules": the card's rules file runs the table on game-rt. */
+  mode?: "story" | "rules";
+  /** 2..12, default 2. */
+  minSeats?: number;
+  /** 2..12, default 6, at least minSeats. */
+  maxSeats?: number;
+  /** Story mode: roles a joiner can take. `entryId` links a 角色和世界 entry. */
+  roles?: WorldMultiplayerRole[];
+  /** Story mode: a joiner must pick a free role. Only meaningful with roles. */
+  rolesRequired?: boolean;
+  /** Rules mode: a path inside rootComponent.files. */
+  rulesFile?: string;
+  /** Rules mode: names and model for the seats AI fills. */
+  ai?: { names?: string[]; model?: string };
+}
+
+export interface WorldMultiplayerRole {
+  id: string;
+  name: string;
+  entryId?: string;
+  note?: string;
 }
 
 /** A content-only override of one author-approved world entry. */

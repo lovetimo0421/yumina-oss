@@ -106,6 +106,9 @@ export interface StudioFocusRef {
   title: string;
 }
 
+/** One line of the checklist the assistant keeps while it works (update_plan). */
+export interface StudioPlanStep { step: string; status: "pending" | "in_progress" | "completed" }
+
 /** A big job the assistant proposed: its plan and the platform's estimate. */
 export interface StudioJobProposal {
   runId: string;
@@ -133,6 +136,8 @@ export interface StudioChatMessage {
   attachments?: ChatAttachment[];
   /** What the creator had pointed the assistant at when sending this. */
   focus?: StudioFocusRef[];
+  /** Sent while the assistant was working: waiting for its next step, or taken. */
+  steer?: "waiting" | "taken";
   /** A big job proposed in this reply, waiting for (or past) Start. */
   jobProposal?: StudioJobProposal;
   buildProposal?: StudioBuildProposal;

@@ -14,6 +14,7 @@ import type { WorldDefinition } from "@yumina/engine";
 import { db } from "../db/index.js";
 import { messages } from "../db/schema.js";
 import { buildTurnHistoryFilter } from "./turn-history-filter.js";
+import { formatPinnedNotesForPrompt } from "./session-memory-core.js";
 import { countPromptTokensCooperatively } from "./cooperative-tokens.js";
 import {
   collectHistoryConditions,
@@ -28,6 +29,7 @@ import {
   type HookSessionRow,
   type PromptBlock,
   type TurnHookDispatch,
+  type TurnRecapInputs,
 } from "./extension-hooks.js";
 
 /** Tokens held back from the raw-history budget so the summary block always fits. */
@@ -53,6 +55,8 @@ export interface TurnMemory {
   /** This prompt's raw history against its budget, set by the overflow pass
    *  so post-turn work can fold before the next prompt overflows. */
   rawHistory?: { budget: number; tokens: number };
+  /** The player's recap choice and the story memory it is a share of. */
+  recap?: TurnRecapInputs;
 }
 
 /** Resolve every installed session-local world overlay before lore matching. */
@@ -84,12 +88,21 @@ export async function loadTurnMemoryBlocks(args: {
   suppressSummaryBlocks?: boolean;
   /** The turn's world, for extensions that are on by default for some cards. */
   world?: WorldDefinition;
+  recap?: TurnRecapInputs;
 }): Promise<TurnMemory> {
   const freshStart = args.suppressSummaryBlocks === true;
-  const baseCtx = { ownerUserId: args.ownerUserId, sessionId: args.sessionId, session: args.session };
+  const baseCtx = { ownerUserId: args.ownerUserId, sessionId: args.sessionId, session: args.session, recap: args.recap };
   const dispatch = await resolveTurnHooks({ ...baseCtx, world: args.world });
   const blockCtx = { ...baseCtx, freshStart };
   const blocks = await collectPromptBlocks(dispatch, blockCtx);
+  // The player's pinned notes: free, written only by the player, so they go
+  // out every turn whatever the memory extension is doing. Between the story
+  // summaries (10, 20) and the auto memory (30), as they were inside it.
+  const pinned = formatPinnedNotesForPrompt(args.session.sessionMemoryPinned);
+  if (pinned) {
+    blocks.push({ id: "pinned-notes", priority: 25, content: pinned });
+    blocks.sort((a, b) => a.priority - b.priority);
+  }
   const historyConditions = collectHistoryConditions(dispatch, blockCtx);
   return {
     ownerUserId: args.ownerUserId,
@@ -98,6 +111,7 @@ export async function loadTurnMemoryBlocks(args: {
     blocks,
     historyConditions,
     freshStart,
+    recap: args.recap,
   };
 }
 
@@ -292,6 +306,7 @@ export async function compactTurnOverflowIfNeeded(args: {
     maxContext,
     finalPromptRawTokenLimit: Math.max(1, Math.min(finalRawHistoryBudget, keptRawTokens)),
     pathLabel: args.pathLabel,
+    recap: turn.recap,
     blocks: controller,
   });
   return controller.historyStart;
@@ -320,5 +335,6 @@ export function scheduleTurnMemoryUpdates(args: {
     assistantMessageId: args.assistantMessageId,
     contextTokenLimit: args.contextTokenLimit,
     rawHistory: args.turn.rawHistory,
+    recap: args.turn.recap,
   });
 }

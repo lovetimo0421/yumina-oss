@@ -48,7 +48,7 @@ export function ReplyRulesForm() {
       title={t("blueprint.replyRules.title")}
       right={<button type="button" data-reply-rule-add="" onClick={() => write([...rules, { id: `rule-${Date.now().toString(36)}`, match: { tag: "状态" }, hide: true, to: [{ kind: "fields" }] }])} className="text-muted-foreground hover:text-foreground"><Plus className="h-3.5 w-3.5" /></button>}
     >
-      <Check label={t("blueprint.replyRules.speakerBubbles")} checked={speakerBubbles} onChange={(on) => setSettings("speakerBubbles", on || undefined)} />
+      <Check label={t("blueprint.replyRules.speakerBubbles")} hint={t("blueprint.replyRules.speakerBubblesHint")} checked={speakerBubbles} onChange={(on) => setSettings("speakerBubbles", on || undefined)} />
       {rules.map((rule, i) => {
         const isTag = "tag" in rule.match;
         const route = rule.to?.[0];

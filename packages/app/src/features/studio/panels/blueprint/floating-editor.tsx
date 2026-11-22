@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
+import { STUDIO_BACK_EVENT } from "../../lib/studio-back";
 
 /** Where a floating editor stands: the row it edits, and the block that row
  *  lives in (the card stands beside the block, level with the row). */
@@ -12,26 +13,18 @@ const GAP = 12;
 const EDGE = 8;
 
 /**
- * A small object's editor, standing on the canvas beside the thing clicked.
- *
- * Everything clicked on the board opens here: a variable, a behaviour, a
- * wire's condition, and the bigger forms too — the card, a situation, an AI,
- * an object's relationships. The big ones used to take the right-hand column,
- * which is the assistant's: opening a situation put the assistant away, and
- * the eye crossed the screen from the block to the form. Here the editor
- * stands next to what was clicked, follows it while the board pans and
- * zooms, and nothing else on screen moves or closes.
- *
- * The position is written straight to the element every frame rather than
- * through React state: the anchor moves with every pan, glide and relayout,
- * and a render per frame to follow it would be the jank this is meant to
- * remove.
+ * Object forms use an unscaled dialog contained by the canvas. Relationship
+ * and wire popovers still follow their anchor without re-rendering each frame.
+ * Neither presentation takes the assistant's space or traps focus away from it.
  */
-export function FloatingEditor({ container, anchor, onClose, width = FLOATING_WIDTH, children }: {
+export function FloatingEditor({ container, anchor, onClose, width = FLOATING_WIDTH, dialog = false, label, children }: {
   container: HTMLElement | null;
   anchor: () => FloatingAnchor;
   onClose: () => void;
   width?: number;
+  /** A readable, unscaled editor bounded by the canvas, below the AI tools. */
+  dialog?: boolean;
+  label?: string;
   children: React.ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -42,7 +35,7 @@ export function FloatingEditor({ container, anchor, onClose, width = FLOATING_WI
 
   useLayoutEffect(() => {
     const el = ref.current;
-    if (!el || !container) return;
+    if (!el || !container || dialog) return;
     let raf = 0;
     let last = "";
     let lastSide: "left" | "right" | "below" | "above" = "right";
@@ -93,7 +86,33 @@ export function FloatingEditor({ container, anchor, onClose, width = FLOATING_WI
     place();
     el.dataset.ready = "";
     return () => cancelAnimationFrame(raf);
-  }, [container, width]);
+  }, [container, width, dialog]);
+
+  useLayoutEffect(() => {
+    if (!dialog) return;
+    const previous = document.activeElement;
+    const card = ref.current;
+    card?.focus({ preventScroll: true });
+    return () => {
+      // Keep focus in the assistant if the author moved there while editing.
+      if ((document.activeElement === document.body || card?.contains(document.activeElement)) && previous instanceof HTMLElement && previous.isConnected) {
+        previous.focus({ preventScroll: true });
+      }
+    };
+  }, [dialog]);
+
+  useEffect(() => {
+    const back = (event: Event) => {
+      if (event.defaultPrevented) return;
+      event.preventDefault();
+      const active = document.activeElement;
+      if (active instanceof HTMLElement && ref.current?.contains(active)) active.blur();
+      closeRef.current();
+    };
+    // Claim the entry's back step before the shell considers leaving Studio.
+    window.addEventListener(STUDIO_BACK_EVENT, back, true);
+    return () => window.removeEventListener(STUDIO_BACK_EVENT, back, true);
+  }, []);
 
   // The card stands outside the board's own wheel handling, so a pinch or
   // Ctrl + wheel over it reached the browser and zoomed the whole page. It
@@ -129,15 +148,23 @@ export function FloatingEditor({ container, anchor, onClose, width = FLOATING_WI
     return () => window.removeEventListener("keydown", onKey);
   }, [container]);
 
-  return (
+  const card = (
     <div
       ref={ref}
       data-floating-editor=""
-      className="nowheel absolute left-0 top-0 z-40 flex flex-col overflow-hidden rounded-xl border border-white/[0.09] shadow-[0_18px_50px_rgba(0,0,0,0.55)]"
-      style={{ width }}
+      role={dialog ? "dialog" : undefined}
+      aria-label={dialog ? label : undefined}
+      tabIndex={dialog ? -1 : undefined}
+      className={`nowheel flex flex-col overflow-hidden rounded-xl border border-white/[0.09] bg-[#131118] shadow-[0_18px_50px_rgba(0,0,0,0.55)] ${dialog ? "relative h-full min-h-0 w-full max-w-[840px] focus-visible:outline focus-visible:outline-1 focus-visible:outline-amber-400/50" : "absolute left-0 top-0 z-40"}`}
+      style={dialog ? undefined : { width }}
       onWheel={(event) => event.stopPropagation()}
     >
       <div className="floating-editor-enter flex min-h-0 flex-1 flex-col">{children}</div>
     </div>
   );
+  return dialog ? (
+    <div data-canvas-entry-overlay className="absolute inset-0 z-40 flex items-center justify-center overflow-hidden modal-backdrop p-3" onWheel={event => event.stopPropagation()} onMouseDown={event => { if (event.target === event.currentTarget) closeRef.current(); }}>
+      {card}
+    </div>
+  ) : card;
 }

@@ -7,7 +7,11 @@
     "results": "找到 {{count}} 項設定",
     "noResults": "找不到相關設定",
     "noResultsHint": "換個關鍵字試試，例如「語言」或「隱私」。",
-    "aiConfigDescription": "模型、服務商、API 金鑰與生成偏好。"
+    "aiConfigDescription": "模型、服務商、API 金鑰與生成偏好。",
+    "byokTitle": "私有 API 連線",
+    "byokDescription": "用你自己的 API 金鑰",
+    "localModelTitle": "用你自己的電腦跑",
+    "localModelDescription": "用這台電腦上的模型免費玩"
   },
   "nav": {
     "aiConfig": "AI 配置",
@@ -21,7 +25,8 @@
     "prompts": "提示詞"
   },
   "aiConfig": {
-    "title": "AI 配置"
+    "title": "AI 配置",
+    "ownAi": "進階：用你自己的 AI"
   },
   "account": {
     "saved": "已儲存",
@@ -61,7 +66,8 @@
       "revoked": "裝置已登出",
       "revokedOthers": "其他裝置已全部登出",
       "revokeError": "無法登出該裝置，請稍後再試。",
-      "propagationNote": "被踢下線的裝置最多需要 5 分鐘才會真正登出。修改密碼會立即登出其他所有裝置。"
+      "propagationNote": "被踢下線的裝置最多需要 5 分鐘才會真正登出。修改密碼會立即登出其他所有裝置。",
+      "showAll": "顯示全部 {{n}} 台裝置"
     },
     "deleteAccount": {
       "title": "註銷賬戶",
@@ -198,7 +204,7 @@
     },
     "sensitive": {
       "label": "無限制",
-      "description": "沒有內容限制。模型還是不肯寫的話，可以去提示詞廣場裝「解除限制」。"
+      "description": "沒有內容限制。"
     },
     "minorRestriction": "此帳號無法使用「無限制」模式。",
     "audiencePreference": {
@@ -220,6 +226,13 @@
     "blurSensitive": {
       "title": "模糊敏感封面",
       "description": "敏感封面預設以朦朧效果隱藏，點擊後僅顯示目前封面。關閉此選項可顯示所有封面，不會更改內容模式。"
+    },
+    "hiddenWorlds": {
+      "title": "已隱藏的作品",
+      "subtitle": "在探索頁點了「不感興趣」的作品",
+      "empty": "沒有隱藏的作品。",
+      "show": "重新顯示",
+      "failed": "沒能恢復，請再試一次"
     }
   },
   "privacy": {
@@ -277,7 +290,7 @@
       "saveFailed": "黑名單更新失敗",
       "hideTheirWorlds": "不看他們的世界卡",
       "hideMyWorlds": "不讓他們看我的世界卡",
-      "hideTheirActivity": "不看他們的評價和社羣發言"
+      "hideTheirActivity": "不看他們的評價和社群發言"
     }
   },
   "notifications": {
@@ -291,18 +304,30 @@
       "creatorPostsDesc": "接收你關注的創作者或庫中卡片作者的發帖通知。需同時開啟社交通知。",
       "library": "庫",
       "libraryDesc": "你收藏的世界的更新和狀態變更。",
-      "community": "社羣",
+      "community": "社群",
       "communityDesc": "你的論壇帖子的回覆、點贊和獎勵。"
     }
   },
   "display": {
+    "readingAppearance": {
+      "title": "遊玩介面外觀",
+      "description": "選擇預設遊玩介面的深色或淺色模式。設定儲存在目前的瀏覽器中。",
+      "dark": "深色",
+      "light": "淺色"
+    },
     "turnImages": {
       "title": "劇情插圖",
       "description": "回覆下方會有「畫出這一幕」按鈕。",
       "auto": "每則回覆自動畫插圖",
       "free": "還能免費畫 {{count}} 張，之後每張 {{price}} 蘑菇幣",
       "price": "每張 {{price}} 蘑菇幣",
-      "unlimited": "包含在你的方案裡"
+      "unlimited": "包含在你的方案裡",
+      "style": {
+        "default": "快速",
+        "detailed": "精繪",
+        "vivid": "亮彩"
+      },
+      "vividTag": "單人畫面"
     },
     "title": "顯示",
     "language": {
@@ -315,6 +340,7 @@
       "default": "預設",
       "large": "大",
       "xLarge": "超大",
+      "xxLarge": "最大",
       "hint": "更改會立即生效並儲存到此裝置。"
     },
     "autoFullscreenOnPlay": {
@@ -409,6 +435,10 @@
     "sceneVideo": {
       "title": "影遊（實驗性）",
       "description": "打開後，遊玩頁的選單和帶影片螢幕的卡裡會出現影遊。兩種看法：即時拍、跟著劇情走（約每分鐘 5,800 蘑菇幣）；或每則回覆拍成一部帶配音的短片，寫完幾分鐘後出片（每則約 100–1,400 蘑菇幣）。"
+    },
+    "halloween": {
+      "title": "節日裝飾",
+      "description": "萬聖節期間 Mushies 和 Logo 換上節日裝扮，偶爾飛過一隻小蝙蝠。卡片自己的畫面不受影響。"
     }
   },
   "wallpaper": {
@@ -495,7 +525,7 @@
     "versionValue": "夢塢 v1.0.0",
     "termsOfService": "服務條款",
     "privacyPolicy": "隱私政策",
-    "licenses": "GitHub OSS",
+    "licenses": "開源程式碼",
     "contactSupport": "聯絡夢塢",
     "messageOfficial": "私信 {{username}}",
     "emailSupport": "郵件支援",

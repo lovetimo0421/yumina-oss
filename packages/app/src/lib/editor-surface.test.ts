@@ -29,14 +29,14 @@ test("a creator who has never chosen lands on the canvas on a computer", () => {
   assert.equal(shouldOpenVisual(base), true);
 });
 
-test("a phone that never chose stays on the 完整 editor", () => {
-  assert.equal(shouldOpenVisual({ ...base, phone: true }), false);
-  assert.equal(shouldOpenVisual({ ...base, phone: true, last: "visual" }), true);
+test("a phone that never chose lands on the canvas too (the phone studio)", () => {
+  assert.equal(shouldOpenVisual({ ...base, phone: true }), true);
+  assert.equal(shouldOpenVisual({ ...base, phone: true, last: "classic" }), false);
 });
 
-test("the switch is where they left it", () => {
+test("on a computer the canvas is the editor, whatever was chosen before", () => {
   assert.equal(shouldOpenVisual({ ...base, last: "visual" }), true);
-  assert.equal(shouldOpenVisual({ ...base, last: "classic" }), false);
+  assert.equal(shouldOpenVisual({ ...base, last: "classic" }), true);
 });
 
 test("simple mode is its own editor and is left alone", () => {

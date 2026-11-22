@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 
-import { renderCommunityMarkdown } from "@/lib/markdown";
+import { isHtmlDescription, renderCommunityMarkdown, renderHtmlDescription } from "@/lib/markdown";
 import { cn } from "@/lib/utils";
 
 /**
@@ -31,15 +31,25 @@ interface WorldDescriptionProps {
  * the full text goes through here so Discover and Library can't drift apart
  * again — the library panels used to print the raw source.
  */
+/**
+ * A description written in HTML keeps the creator's own layout, so it is
+ * fenced in: `contain: paint` makes this box the containing block for
+ * anything positioned inside (a `position: fixed` overlay stays in the box)
+ * and clips whatever spills out of it.
+ */
+const HTML_DESCRIPTION_CONTAINMENT = { contain: "paint", position: "relative", overflowWrap: "anywhere" } as const;
+
 export function WorldDescription({ content, className }: WorldDescriptionProps) {
+  const isHtml = useMemo(() => isHtmlDescription(content), [content]);
   const html = useMemo(
-    () => renderCommunityMarkdown(content, { theme: "dark" }),
-    [content],
+    () => isHtml ? renderHtmlDescription(content, { theme: "dark" }) : renderCommunityMarkdown(content, { theme: "dark" }),
+    [content, isHtml],
   );
 
   return (
     <div
       className={cn(worldDescriptionProseClass, className)}
+      style={isHtml ? HTML_DESCRIPTION_CONTAINMENT : undefined}
       dangerouslySetInnerHTML={{ __html: html }}
     />
   );

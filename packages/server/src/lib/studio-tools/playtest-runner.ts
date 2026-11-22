@@ -1,7 +1,7 @@
 import { Hono } from "hono";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "../../db/index.js";
-import { user } from "../../db/schema.js";
+import { playSessions, user } from "../../db/schema.js";
 import type { AppEnv } from "../types.js";
 
 /**
@@ -79,6 +79,8 @@ export async function runPlaytest(opts: {
   userId: string;
   worldId: string;
   moves: string[];
+  /** Continue this earlier playtest (the creator's own ephemeral session of this card) instead of starting one. */
+  sessionId?: string;
   /** Player model, independent of the Studio assistant model. */
   model?: string;
   /** After each turn: the panel follows along. */
@@ -98,10 +100,20 @@ export async function runPlaytest(opts: {
   const who = row as unknown as AppEnv["Variables"]["user"];
   const { sessionRoutes, messageRoutes } = await loadRoutes();
 
-  const created = await call(sessionRoutes, "POST", "/", "/", who, { worldId: opts.worldId, ephemeral: true });
-  const createdBody = await created.json().catch(() => null) as { data?: { id?: string }; error?: string } | null;
-  const sessionId = createdBody?.data?.id;
-  if (!created.ok || !sessionId) throw new Error(createdBody?.error ?? `Could not start a playtest (${created.status})`);
+  let sessionId: string | undefined;
+  if (opts.sessionId) {
+    // Continue an earlier playtest: only the creator's own throwaway session of this card.
+    const [own] = await db.select({ id: playSessions.id }).from(playSessions)
+      .where(and(eq(playSessions.id, opts.sessionId), eq(playSessions.userId, opts.userId),
+        eq(playSessions.worldId, opts.worldId), eq(playSessions.ephemeral, true))).limit(1);
+    if (!own) throw new Error("That playtest is not this card's, or it has ended; start a new one (leave session_id out).");
+    sessionId = own.id;
+  } else {
+    const created = await call(sessionRoutes, "POST", "/", "/", who, { worldId: opts.worldId, ephemeral: true });
+    const createdBody = await created.json().catch(() => null) as { data?: { id?: string }; error?: string } | null;
+    sessionId = createdBody?.data?.id;
+    if (!created.ok || !sessionId) throw new Error(createdBody?.error ?? `Could not start a playtest (${created.status})`);
+  }
   await opts.onSession?.(sessionId);
 
   const turns: PlaytestTurn[] = [];

@@ -6,6 +6,7 @@ import { PLAY_MODELS } from "@yumina/shared";
 import { useEditorStore } from "@/stores/editor";
 import { modelReach } from "@/features/editor/lib/ai-call-settings";
 import { cn } from "@/lib/utils";
+import { temperatureMayGarble } from "@/lib/temperature-warning";
 import { DraftInput, Field, Group, NumberInput, Row, Segmented, inputClass, rowControl } from "./controls";
 import { requestOpenAiCalls } from "./ai-calls-table";
 
@@ -24,10 +25,8 @@ export function StoryAiSettings({ showAll = false }: { showAll?: boolean }) {
   const { t } = useTranslation("editor");
   const settings = useEditorStore((s) => s.worldDraft.settings);
   const setSettings = useEditorStore((s) => s.setSettings);
-  const listId = useId();
   const policy: Policy = settings?.samplingPolicy === "author" ? "author" : "player";
   const recommended = settings?.recommendedModel ?? "";
-  const unknown = recommended.trim() !== "" && !modelReach(recommended).known;
   const temperature = clampToRange(settings?.temperature ?? 1, AUTHOR_SAMPLING_LIMITS.temperature);
   const topP = clampToRange(settings?.topP ?? 1, AUTHOR_SAMPLING_LIMITS.topP);
   return (
@@ -67,6 +66,12 @@ export function StoryAiSettings({ showAll = false }: { showAll?: boolean }) {
               className={cn(rowControl, "text-right tabular-nums")}
             />
           </Row>
+          {temperatureMayGarble(temperature) && (
+            <p className="flex items-start gap-1 pb-1 text-[11px] leading-snug text-amber-200/90" data-temperature-garble-warn>
+              <AlertTriangle className="mt-px h-3 w-3 shrink-0" />
+              {t("blueprint.storyAi.temperatureGarbleWarning")}
+            </p>
+          )}
           <Row label={t("blueprint.storyAi.topP")} hint={t("blueprint.storyAi.topPHint", { min: AUTHOR_SAMPLING_LIMITS.topP.min, max: AUTHOR_SAMPLING_LIMITS.topP.max })}>
             <NumberInput
               aria-label={t("blueprint.storyAi.topP")}
@@ -82,26 +87,49 @@ export function StoryAiSettings({ showAll = false }: { showAll?: boolean }) {
         </>
       )}
       <Field label={t("blueprint.storyAi.recommendedModel")} hint={t("blueprint.storyAi.recommendedModelHint")}>
-        <DraftInput
-          list={listId}
+        <ModelIdInput
           value={recommended}
-          onCommit={(raw) => setSettings("recommendedModel", raw.trim() || undefined)}
+          onCommit={(id) => setSettings("recommendedModel", id)}
           placeholder={t("blueprint.storyAi.recommendedModelNone")}
-          spellCheck={false}
           data-recommended-model
-          className={inputClass}
         />
-        <datalist id={listId}>
-          {PLAY_MODELS.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-        </datalist>
-        {unknown && (
-          <p className="flex items-start gap-1 text-[11px] leading-snug text-amber-200/90">
-            <AlertTriangle className="mt-px h-3 w-3 shrink-0" />
-            {t("blueprint.storyAi.recommendedUnknown")}
-          </p>
-        )}
       </Field>
-      <p className="pt-1 text-[11px] leading-relaxed text-foreground/45">{t("blueprint.storyAi.alwaysPlayer")}</p>
     </Group>
+  );
+}
+
+/** A model id, typed or picked from Yumina's play models; one that is not on
+ *  the list says so. The card's recommended model and its AI seats. */
+export function ModelIdInput({ value, onCommit, placeholder, unknownLabel, ...rest }: {
+  value: string;
+  onCommit: (id: string | undefined) => void;
+  placeholder: string;
+  /** What an id off the list means here. */
+  unknownLabel?: string;
+} & Record<`data-${string}`, unknown>) {
+  const { t } = useTranslation("editor");
+  const listId = useId();
+  const unknown = value.trim() !== "" && !modelReach(value).known;
+  return (
+    <>
+      <DraftInput
+        {...rest}
+        list={listId}
+        value={value}
+        onCommit={(raw) => onCommit(raw.trim() || undefined)}
+        placeholder={placeholder}
+        spellCheck={false}
+        className={inputClass}
+      />
+      <datalist id={listId}>
+        {PLAY_MODELS.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+      </datalist>
+      {unknown && (
+        <p className="flex items-start gap-1 text-[11px] leading-snug text-amber-200/90">
+          <AlertTriangle className="mt-px h-3 w-3 shrink-0" />
+          {unknownLabel ?? t("blueprint.storyAi.recommendedUnknown")}
+        </p>
+      )}
+    </>
   );
 }

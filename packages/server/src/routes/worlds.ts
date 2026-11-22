@@ -1,3 +1,11 @@
+import { canReadFollowerWorld, canResolveWorldAddress, followerWorldAudienceSql } from "../lib/world-follower-access.js";
+import { nextUntitledName } from "../lib/untitled-name.js";
+import { variantLanguages } from "../lib/world-language.js";
+import { createWorldFeedbackService, feedbackWorldIds, visibleFeedbackPost } from "../lib/world-feedback.js";
+import { createWorldFeedbackRoutes } from "./world-feedback.js";
+import { cleanWorldLoraBindings, worldLoraBindings } from "../lib/per-turn-image/loras.js";
+import { snapshotForeignTriggers } from "../lib/generation/lora-square.js";
+import { listDescription } from "../lib/list-description.js";
 import { worldAudienceCondition } from "../lib/world-publication-access.js";
 import { loadColdLaneSnapshot } from "../lib/cold-lanes.js";
 import { discoverAccess } from "../lib/discover-access.js";
@@ -11,20 +19,31 @@ import { lockWorldForSave } from "../lib/world-save-transaction.js";
 import { captureAutomaticVersion, captureEditCheckpoint, capturePublishVersion, latestLiveVersionId, lockVersionDraft } from "../lib/world-version-history.js";
 import { communityMuteMiddleware } from "../middleware/community-mute.js";
 import { requireUnmuted } from "../middleware/user-mute.js";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
+import { averageWorldPlayerPlaytime } from "../lib/world-player-playtime.js";
 import { withWorldPlaytime } from "../lib/world-playtime.js";
 import { reviewPlaytimeQuery } from "../lib/review-playtime.js";
-import { eq, or, and, asc, desc, ilike, sql, inArray, notInArray, isNotNull } from "drizzle-orm";
-import { db, readDb, readOwn, readPublic, flagWrite } from "../db/index.js";
-import { canonicalWorldPath, findWorldById, isPubliclyVisible } from "../lib/world-address.js";
-import { worlds, user, assetReferences, userLibrary, worldPendingEdits, worldUpdates, follows, reviews, worldRatings, contentTranslations, worldReviewSubmissions } from "../db/schema.js";
-import { estimateTokens } from "@yumina/engine";
+import { shareArtworkWithLanguageSiblings } from "../lib/language-group-artwork.js";
+import { checkLowRating, hasPlayedWorld } from "../lib/world-rating-rules.js";
+import { getTableColumns, eq, ne, or, and, asc, desc, ilike, sql, inArray, notInArray, isNotNull } from "drizzle-orm";
+import { db, readDb, readForEdit, readOwn, readPublic, flagWrite, type DrizzleDB } from "../db/index.js";
+import { canonicalWorldPath, findWorldById } from "../lib/world-address.js";
+import { worlds, user, assetReferences, userLibrary, worldPendingEdits, worldUpdates, follows, reviews, worldRatings, contentTranslations, worldReviewSubmissions,
+  worldCollaborators,
+} from "../db/schema.js";
+import { estimateTokens, isWorldChangeList } from "@yumina/engine";
+import { applyChangeSetSave, foldSaveIntoLiveText } from "../lib/collab-save.js";
+import { MAX_EVENT_CHANGES_BYTES, WORLD_SAVED_META_KEYS, publishWorldEvent } from "../lib/world-events.js";
+import {
+  announceAccessChange, canEditWorldSql, getWorldAccess, grantWorldIds, mayWithdrawSubmission, notifySubmissionWithdrawn,
+  OWNER_ONLY_WORLD_FIELDS, updateInReviewBody,
+} from "../lib/world-collaborators.js";
 import { generateUploadUrl } from "../lib/s3.js";
 import { discardDirectImageUpload, publishStoredImage } from "../lib/image-resize.js";
 import { validateImageUploadSize } from "../lib/image-upload-policy.js";
 import { resolveImageCdn } from "../lib/cdn-url.js";
-import { MAX_REVIEW_CONTENT, clampWorldTags, OFFICIAL_WORLD_TAGS, PLAYED_TAG_FILTER_THRESHOLD, MAX_DYNAMIC_FILTER_TAGS } from "@yumina/shared";
-import { canonicalizeTag } from "@yumina/shared";
+import { clampWorldTags, OFFICIAL_WORLD_TAGS, PLAYED_TAG_FILTER_THRESHOLD, MAX_DYNAMIC_FILTER_TAGS } from "@yumina/shared";
+import { canonicalizeTag, LOW_RATING_MAX, isLowRatingReason } from "@yumina/shared";
 import { buildHubTagQuery, parseContentLevelParam } from "../lib/hub-tags.js";
 import { resolveWorldAudience, resolveWorldAudienceEdit } from "../lib/world-audience.js";
 import {
@@ -36,7 +55,7 @@ import {
   invalidateRecommendationProfile,
   invalidateRecommendationFeed,
   loadRecommendationProfile,
-  normalizeHubLanguage,
+  normalizeEditorialLanguage,
   normalizeWorldLanguage,
   resolveHubLanguageScope,
   rankRecommendedWorlds,
@@ -55,17 +74,12 @@ import { serveDiscoveryFeed, DISCOVERY_POLICY_VERSION, DiscoveryCursorError, Dis
 import { edition } from "../edition/index.js";
 import { sanitizeContent } from "../lib/sanitize.js";
 import { createWorldSchema, updateWorldSchema } from "@yumina/shared";
-import { hasPublishableCover, getDiscoverCoverArtIssues, isDefaultWorldName } from "@yumina/shared";
+import { hasPublishableCover, getDiscoverCoverArtIssues, isDefaultWorldName, foreignGamePath } from "@yumina/shared";
 import { scanWorldSchemaForInlineAssets } from "../lib/asset-validation.js";
 import {
   notify,
   notifyMany,
   notifyCoalescedByGroup,
-  notifyWorldReview,
-  recentWorldRatingNotification,
-  removeWorldReviewCommentNotification,
-  reviewNotificationExcerpt,
-  worldRatingNotificationEventId,
 } from "../lib/notify.js";
 import { onReview } from "../lib/achievements/engine.js";
 import { detectLang } from "../lib/detect-lang.js";
@@ -73,19 +87,21 @@ import { translateContent } from "../lib/translate.js";
 import { aggregatedCounters } from "../lib/world-aggregates.js";
 import { syncSearchDocNormalized } from "../lib/normalize-search.js";
 import { captureHubEvent, newFeedRequestId } from "../lib/analytics.js";
-import { feedVariantFor, loadEngagementContext, modelArmEligible, variantUsesEngagement } from "../lib/engagement.js";
+import { coldModelArm, feedVariantFor, loadEngagementContext, modelArmEligible, variantUsesEngagement } from "../lib/engagement.js";
 import { loadPublishedRankerModel } from "../lib/ranker-model.js";
 import { logFeedServe } from "../lib/feed-log.js";
 import { loadFeaturedHeroSlots } from "../lib/editorial.js";
 import { activeFeaturedSlots, readFeaturedCollection } from "../lib/featured-collection-store.js";
-import { featuredScopeSchema, getAgeFromBirthYear, normalizeProfileWorldOrder } from "@yumina/shared";
+import { featuredScopeSchema, getAgeFromBirthYear, normalizeProfileWorldOrder, normaliseMultiplayer } from "@yumina/shared";
 import { DEFAULT_EDITORIAL_CATEGORIES, resolveEditorialCollection, resolveActiveEditorialHero, editorialHeroCopy, type EditorialSlot } from "@yumina/shared";
 import { publishedEditorial, activeEditorialSlots } from "../lib/discover-editorial.js";
 import { resolveProfileContentLevel } from "../lib/profile-content-level.js";
 import { resolveHeroWorlds, type HeroSlot } from "../lib/hero-worlds.js";
 import type { AppEnv, SessionUser } from "../lib/types.js";
-import { blockedJson, getBlockStatus, listBlockedUsersForHiding } from "../lib/blocks.js";
+import { getBlockStatus, listBlockedUsersForHiding } from "../lib/blocks.js";
 import { approveGroup } from "../lib/approve-review.js";
+import { holdsSealedFrom, parseRetained, redactSchemaFor, redactWorldFor, restoreSealed, sealCopy } from "../lib/sealed-entries.js";
+import { queueWorldAiReview } from "../lib/world-ai-review-run.js";
 import {
   getPendingEdit,
   getPendingEditSummaries,
@@ -95,15 +111,21 @@ import {
   resolveWorldCopyMaterial,
   submitPendingEdit,
   withdrawPendingEdit,
+  applyWorldGallery,
   setPendingEditUpdateNote,
 } from "../lib/pending-edit.js";
 import { isStaleDraftSave, nextWorldSaveTime } from "../lib/world-save-guard.js";
 import { computeWorldContextRequirement } from "../lib/context-requirement.js";
 import { hasWorldDmShareGrant } from "../lib/dm-world-grant.js";
+import { isActiveWorldTester } from "../lib/world-testers.js";
 import { WORLD_STATUS_TAKEN_DOWN } from "../lib/fork-orphan.js";
 import { estimateWorldCopyTokens } from "../lib/world-copy-material.js";
+import { getTranslateJob, quoteTranslation, startTranslateJob, TranslateJobError } from "../lib/card-translate-job.js";
 import { parseWorldUpdateNoteBody } from "../lib/world-update-note.js";
 import { createWorldUnpublishRoutes } from "./world-unpublish.js";
+import { stampCompiledLater } from "../lib/card-code/stamp.js";
+import { CARD_CODE_HEADER, playerSchema } from "../lib/card-code/source.js";
+import { REMIX_PUBLISH_MESSAGES, remixPublishBlock } from "../lib/remix-publish.js";
 import { createWorldUpdateEditRoutes } from "./world-update-edits.js";
 import {
   canReadWorldUpdateHistory,
@@ -112,7 +134,7 @@ import {
   WORLD_UPDATE_PAGE_SIZE,
 } from "../lib/world-update-history.js";
 
-const VALID_LANGUAGE_CODES = new Set(["en", "zh", "ja", "ko", "es", "fr", "de", "pt", "ru", "ar"]);
+const VALID_LANGUAGE_CODES = new Set(["en", "zh", "ja", "ko", "id", "es", "fr", "de", "pt", "ru", "ar"]);
 
 
 /**
@@ -228,17 +250,26 @@ const forkSourceMatch = sql`
  * shape so the client can render "based on X by Y" attribution without
  * needing the source world to be in any local store.
  */
-const sourceWorldCols = {
-  sourceWorldName: sql<string | null>`(
-    SELECT sw.name FROM worlds sw WHERE ${forkSourceMatch}
-  )`.as("source_world_name"),
-  sourceCreatorId: sql<string | null>`(
-    SELECT sw.creator_id FROM worlds sw WHERE ${forkSourceMatch}
-  )`.as("source_creator_id"),
-  sourceCreatorName: sql<string | null>`(
-    SELECT u.name FROM worlds sw JOIN "user" u ON u.id = sw.creator_id WHERE ${forkSourceMatch}
-  )`.as("source_creator_name"),
-};
+function sourceWorldCols(viewerId?: string) {
+  const ownsForkOrSource = viewerId
+    ? sql`(sw.creator_id = ${viewerId} OR ${worlds.creatorId} = ${viewerId})`
+    : sql`FALSE`;
+  const visible = sql`(sw.visibility <> 'unlisted' OR ${ownsForkOrSource}) AND ${followerWorldAudienceSql(viewerId, "sw")}`;
+  return {
+    sourceWorldId: sql<string | null>`(
+      SELECT sw.id FROM worlds sw WHERE sw.id = ${worlds.sourceWorldId} AND ${visible}
+    )`.as("source_world_id"),
+    sourceWorldName: sql<string | null>`(
+      SELECT sw.name FROM worlds sw WHERE ${forkSourceMatch} AND ${visible}
+    )`.as("source_world_name"),
+    sourceCreatorId: sql<string | null>`(
+      SELECT sw.creator_id FROM worlds sw WHERE ${forkSourceMatch}
+    )`.as("source_creator_id"),
+    sourceCreatorName: sql<string | null>`(
+      SELECT u.name FROM worlds sw JOIN "user" u ON u.id = sw.creator_id WHERE ${forkSourceMatch}
+    )`.as("source_creator_name"),
+  };
+}
 
 // Trigger-maintained derived columns — never extract these from `schema`
 // (jsonb extraction detoasts the multi-MB blob per row; see db/schema.ts).
@@ -262,6 +293,8 @@ const hubWorldListSelect = {
   isNsfw: worlds.isNsfw,
   allowEdit: worlds.allowEdit,
   allowCustomApi: worlds.allowCustomApi,
+  retained: worlds.retained,
+  sealedContent: worlds.sealedContent,
   allowReviews: worlds.allowReviews,
   allowSessionSharing: worlds.allowSessionSharing,
   allowCommunityCitations: worlds.allowCommunityCitations,
@@ -288,10 +321,7 @@ const hubWorldListSelect = {
   creatorImage: user.image,
   messageCount: aggregatedCounters.messageCount,
   favoriteCount: aggregatedCounters.favoriteCount,
-  sourceWorldId: worlds.sourceWorldId,
-  sourceWorldName: sourceWorldCols.sourceWorldName,
-  sourceCreatorId: sourceWorldCols.sourceCreatorId,
-  sourceCreatorName: sourceWorldCols.sourceCreatorName,
+  ...sourceWorldCols(),
 };
 
 const hubNewestSortExpr = sql<Date>`COALESCE(${worlds.publishedAt}, ${worlds.reviewedAt}, ${worlds.createdAt})`;
@@ -304,9 +334,11 @@ function getOptionalUser(c: { get: (key: "user") => SessionUser }) {
   }
 }
 
-async function resolveHubMedia<T extends { id: string; gamePath?: string | null; thumbnailUrl: string | null; landscapeCoverUrl?: string | null; creatorImage: string | null }>(rows: T[], preview = false) {
+async function resolveHubMedia<T extends { id: string; gamePath?: string | null; description?: string | null; thumbnailUrl: string | null; landscapeCoverUrl?: string | null; creatorImage: string | null }>(rows: T[], preview = false) {
   const resolved = rows.map((row) => ({
     ...row,
+    // Every browse list (and the feed cache) passes through here.
+    ...(row.description !== undefined ? { description: listDescription(row.description) } : {}),
     thumbnailUrl: resolveImageCdn(row.thumbnailUrl),
     landscapeCoverUrl: resolveImageCdn(row.landscapeCoverUrl ?? null),
     creatorImage: resolveImageCdn(row.creatorImage),
@@ -340,8 +372,9 @@ worldRoutes.get("/", authMiddleware, async (c) => {
   // Opt-in: existing pickers keep their catalogue contract. Library only needs
   // owned/saved/favorited metadata plus a directly linked world. Auth and the
   // existing representative selection below still apply to every returned row.
+  const requestedLibraryWorld = c.req.query("scope") === "library" ? c.req.query("worldId") : undefined;
   const libraryScope = c.req.query("scope") === "library"
-    ? libraryWorldScope(currentUser.id, c.req.query("worldId"))
+    ? libraryWorldScope(currentUser.id, requestedLibraryWorld)
     : undefined;
   // "Orphaned fork" = the source card was LIVE at some point, is not live now,
   // and belongs to someone else. Reading `is_published` alone could not tell
@@ -398,11 +431,8 @@ worldRoutes.get("/", authMiddleware, async (c) => {
       approxTime: worlds.approxTime,
       language: worlds.language,
       languageGroupId: worlds.languageGroupId,
-      sourceWorldId: worlds.sourceWorldId,
+      ...sourceWorldCols(currentUser.id),
       sourceWorldTakenDown: sourceTakenDownSq,
-      sourceWorldName: sourceWorldCols.sourceWorldName,
-      sourceCreatorId: sourceWorldCols.sourceCreatorId,
-      sourceCreatorName: sourceWorldCols.sourceCreatorName,
       moderationNote: worlds.moderationNote,
       moderationAction: worlds.moderationAction,
       reviewStatus: worlds.reviewStatus,
@@ -423,17 +453,25 @@ worldRoutes.get("/", authMiddleware, async (c) => {
         or(eq(worlds.creatorId, currentUser.id), eq(worlds.isPublished, true)),
         worldAudienceCondition(worlds.creatorId),
         libraryScope,
+        c.req.query("scope") === "library" ? undefined : or(eq(worlds.creatorId, currentUser.id), ne(worlds.visibility, "unlisted")),
+        followerWorldAudienceSql(currentUser.id),
+        ...(currentUser.limitedContentOnly ? [eq(worlds.ageRating, "all"), eq(worlds.isNsfw, false)] : []),
         // Collapse each language group to ONE representative: the 主 of the
         // viewer's language (then oldest), chosen among own-or-published rows so
         // the creator's own drafts still surface. This keeps multi-language groups
         // from showing one card per language. Other variants stay reachable via
         // the variant tab bar / version picker.
         or(
+          requestedLibraryWorld ? eq(worlds.id, requestedLibraryWorld) : undefined,
           sql`${worlds.languageGroupId} IS NULL`,
           sql`${worlds.id} = (
             SELECT w2.id FROM worlds w2
             WHERE w2.language_group_id = ${worlds.languageGroupId}
               AND (w2.creator_id = ${currentUser.id} OR w2.is_published = true)
+              AND ${followerWorldAudienceSql(currentUser.id, "w2")}
+              ${libraryScope ? sql`AND w2.id IN (SELECT ${worlds.id} FROM ${worlds} WHERE ${libraryScope})` : sql``}
+              ${c.req.query("scope") === "library" ? sql`` : sql`AND (w2.creator_id = ${currentUser.id} OR w2.visibility <> 'unlisted')`}
+              ${currentUser.limitedContentOnly ? sql`AND w2.age_rating = 'all' AND w2.is_nsfw = false` : sql``}
             ORDER BY w2.is_primary_variant DESC, ${myWorldsLangPref}w2.created_at ASC, w2.id ASC
             LIMIT 1
           )`,
@@ -457,6 +495,12 @@ worldRoutes.get("/", authMiddleware, async (c) => {
     pendingEdit: w.creatorId === currentUser.id ? pendingEditMap.get(w.id) ?? null : null,
   }));
 
+  // A direct link may name a different translation than the shelf representative.
+  // Return it for the detail page without introducing a duplicate on the shelf.
+  const linked = requestedLibraryWorld && resolved.find(world => world.id === requestedLibraryWorld);
+  if (linked && linked.languageGroupId && resolved.some(world => world.id !== linked.id && world.languageGroupId === linked.languageGroupId)) {
+    return c.json({ data: resolved.filter(world => world.id !== linked.id), linkedWorld: linked });
+  }
   return c.json({ data: resolved });
 });
 
@@ -469,7 +513,15 @@ worldRoutes.get("/mine/published", authMiddleware, async (c) => {
   const rows = await rd
     .select({ id: worlds.id, name: worlds.name, thumbnailUrl: worlds.thumbnailUrl })
     .from(worlds)
-    .where(and(eq(worlds.creatorId, currentUser.id), eq(worlds.isPublished, true)))
+    .where(and(
+      eq(worlds.creatorId, currentUser.id),
+      eq(worlds.isPublished, true),
+      // ?public=1 — only cards anyone can open (the bundle 示范卡 picker; the
+      // bundle PATCH applies the same rule).
+      ...(c.req.query("public") === "1"
+        ? [eq(worlds.status, "published"), eq(worlds.visibility, "public")]
+        : []),
+    ))
     .orderBy(desc(worlds.createdAt));
   return c.json({
     data: rows.map((w) => ({ ...w, thumbnailUrl: resolveImageCdn(w.thumbnailUrl) })),
@@ -477,7 +529,7 @@ worldRoutes.get("/mine/published", authMiddleware, async (c) => {
 });
 
 // GET /api/worlds/mine/shareable — the caller's own cards that are eligible to be
-// shared into a DM: published (anyone can already see them) plus drafts (the
+// shared into a DM: published (normal audience checks still apply) plus drafts (the
 // recipient gets a preview-only read via the DM grant, see lib/dm-world-grant).
 // pending_review / rejected / unpublished are deliberately excluded — a card mid
 // review or withdrawn shouldn't travel further than its creator.
@@ -495,24 +547,6 @@ worldRoutes.get("/mine/shareable", authMiddleware, async (c) => {
   const conditions = [
     eq(worlds.creatorId, currentUser.id),
     inArray(worlds.status, ["published", "draft"]),
-    // Collapse each language group to ONE row so a zh/ja/en trio doesn't occupy
-    // three picker slots. Prefers the group's primary variant, then the oldest.
-    // The representative is picked from among SHAREABLE rows only — mirroring the
-    // creator + status filters above. Without the status match here a group whose
-    // primary variant sits in review would elect that variant, then fail the outer
-    // status filter, and the whole group would vanish from the picker even when it
-    // has a perfectly shareable published sibling.
-    or(
-      sql`${worlds.languageGroupId} IS NULL`,
-      sql`${worlds.id} = (
-        SELECT w2.id FROM worlds w2
-        WHERE w2.language_group_id = ${worlds.languageGroupId}
-          AND w2.creator_id = ${currentUser.id}
-          AND w2.status IN ('published', 'draft')
-        ORDER BY w2.is_primary_variant DESC, w2.created_at ASC, w2.id ASC
-        LIMIT 1
-      )`,
-    ),
   ];
   if (q) conditions.push(ilike(worlds.name, `%${q}%`));
 
@@ -526,6 +560,8 @@ worldRoutes.get("/mine/shareable", authMiddleware, async (c) => {
       // a meaningless center patch in the picker's small square frame.
       coverCrop: coverCropCols.coverCrop,
       status: worlds.status,
+      visibility: worlds.visibility,
+      variantLabel: worlds.variantLabel,
       isPublished: worlds.isPublished,
       allowEdit: worlds.allowEdit,
       tags: worlds.tags,
@@ -535,7 +571,7 @@ worldRoutes.get("/mine/shareable", authMiddleware, async (c) => {
     })
     .from(worlds)
     .where(and(...conditions))
-    .orderBy(desc(worlds.updatedAt))
+    .orderBy(desc(worlds.updatedAt), asc(worlds.id))
     .limit(limit + 1)
     .offset(offset);
 
@@ -649,7 +685,7 @@ worldRoutes.get("/hub/my-filter-tags", authMiddleware, async (c) => {
 worldRoutes.get("/hub/hero-worlds", optionalAuthMiddleware, async (c) => {
   const currentUser = getOptionalUser(c);
   const rd = db;
-  const preferredLang = normalizeHubLanguage(c.req.query("lang")) ?? "en";
+  const preferredLang = normalizeEditorialLanguage(c.req.query("lang")) ?? "en";
   const contentLevelParam = parseContentLevelParam(c.req.query("contentLevel"));
 
   let slots: HeroSlot[];
@@ -660,7 +696,7 @@ worldRoutes.get("/hub/hero-worlds", optionalAuthMiddleware, async (c) => {
     if (published) {
       const [profile] = currentUser ? await db.select({ preferences: user.preferences, birthYear: user.birthYear }).from(user).where(eq(user.id, currentUser.id)).limit(1) : [];
       const minor = profile?.birthYear != null && getAgeFromBirthYear(profile.birthYear) < 18;
-      const mode = minor ? "safe" : resolveProfileContentLevel(!!currentUser, contentLevelParam === "safe" ? "safe" : undefined, profile?.preferences);
+      const mode = minor || currentUser?.limitedContentOnly ? "safe" : resolveProfileContentLevel(!!currentUser, contentLevelParam === "safe" ? "safe" : undefined, profile?.preferences);
       configuredContentLevel = mode;
       configuredSlots = activeEditorialSlots(resolveActiveEditorialHero(published.config, preferredLang, mode === "safe" ? "safe" : "sensitive")?.slots ?? []);
       const pins = configuredSlots.length ? await db.select({ id: worlds.id, languageGroupId: worlds.languageGroupId }).from(worlds).where(inArray(worlds.id, configuredSlots.map(s => s.worldId))) : [];
@@ -713,11 +749,13 @@ worldRoutes.get("/hub/hero-worlds", optionalAuthMiddleware, async (c) => {
   const configuredWorlds = configuredSlots?.flatMap(slot => {
     const pinned = mediaResolved.find(w => w.id === slot.worldId);
     if (!pinned) return [];
-    const matching = pinned.languageGroupId ? mediaResolved.filter(w => w.languageGroupId === pinned.languageGroupId && normalizeWorldLanguage(w.language) === preferredLang)
-      .sort((a, b) => Number(b.isPrimaryVariant) - Number(a.isPrimaryVariant) || Number(a.language !== preferredLang) - Number(b.language !== preferredLang) || a.id.localeCompare(b.id))[0] : undefined;
+    const chain = variantLanguages(c.req.query("lang"), preferredLang);
+    const rankOf = (w: { language: string | null }) => { const i = chain.indexOf(normalizeWorldLanguage(w.language) ?? ""); return i < 0 ? chain.length : i; };
+    const matching = pinned.languageGroupId ? mediaResolved.filter(w => w.languageGroupId === pinned.languageGroupId && rankOf(w) < chain.length)
+      .sort((a, b) => rankOf(a) - rankOf(b) || Number(b.isPrimaryVariant) - Number(a.isPrimaryVariant) || Number(a.language !== preferredLang) - Number(b.language !== preferredLang) || a.id.localeCompare(b.id))[0] : undefined;
     return [{ ...(matching ?? pinned), ...editorialHeroCopy(slot, c.req.query("lang") ?? "en") }];
   });
-  const ordered = configuredWorlds ? configuredWorlds.filter((w, i, all) => all.findIndex(other => (other.languageGroupId ?? other.id) === (w.languageGroupId ?? w.id)) === i) : resolveHeroWorlds(slots, mediaResolved, preferredLang);
+  const ordered = configuredWorlds ? configuredWorlds.filter((w, i, all) => all.findIndex(other => (other.languageGroupId ?? other.id) === (w.languageGroupId ?? w.id)) === i) : resolveHeroWorlds(slots, mediaResolved, c.req.query("lang") ?? preferredLang);
 
   c.header("Cache-Control", currentUser ? "private, no-store" : "public, max-age=0, s-maxage=120, stale-while-revalidate=300");
   c.header("Vary", "Cookie");
@@ -741,11 +779,13 @@ worldRoutes.get("/batch", optionalAuthMiddleware, async (c) => {
     .leftJoin(user, eq(worlds.creatorId, user.id))
     .where(and(
       inArray(worlds.id, ids),
+      followerWorldAudienceSql(currentUser?.id),
+      ne(worlds.visibility, "unlisted"),
       worldAudienceCondition(worlds.creatorId),
       eq(worlds.isPublished, true),
       ...(hiddenCreatorIds.length > 0 ? [notInArray(worlds.creatorId, hiddenCreatorIds)] : []),
       // Guests never receive Limitless rows, even by direct ID.
-      ...(currentUser ? [] : [eq(worlds.ageRating, "all")]),
+      ...(currentUser && !currentUser.limitedContentOnly ? [] : [eq(worlds.ageRating, "all")]),
     ));
 
   const mediaResolved = await resolveHubMedia(result, c.get("discoverPreviewEnabled"));
@@ -872,6 +912,7 @@ worldRoutes.get("/hub", async (c, next) => {
   const baseFilters = await buildHubBaseFilters(currentUser ? db : rd, {
     currentUserId: currentUser?.id,
     accountPreferences,
+    limitedContentOnly: currentUser?.limitedContentOnly,
     q,
     tag,
     tagsParam,
@@ -901,6 +942,10 @@ worldRoutes.get("/hub", async (c, next) => {
       const page = await serveDiscoveryFeed(rd, {
         actor: cursorActor,
         userId: currentUser?.id, filters: baseFilters, limit, nsfwOnly, cursor: c.req.query("cursor"), starter, scrollId,
+        // The reader's 90-day history scan (453 ms a call, the primary's top disk
+        // reader) runs on the replica even when a fresh write pins rd to the primary:
+        // a click from seconds ago missing from taste signals changes nothing.
+        signalDatabase: readPublic(),
       });
       const rankingMs = performance.now() - startedAt;
       const data = await resolveHubMedia(page.data.map(stripRecommendationInternals) as any[], c.get("discoverPreviewEnabled"));
@@ -1068,6 +1113,7 @@ worldRoutes.get("/hub", async (c, next) => {
         starter,
         coldLanes: profile.tier === "cold" ? await loadColdLaneSnapshot(rd) : null,
         coldLaneLanguage: baseFilters.preferredLang ?? null,
+        coldModel: coldModelArm(currentUser?.id),
         sort,
         limit: completeCatalog ? candidates.length : limit,
         offset: completeCatalog ? 0 : offset,
@@ -1273,8 +1319,8 @@ worldRoutes.get("/featured-categories", async c => {
 // GET /api/worlds/featured — public, returns editorial featured worlds in slot order
 worldRoutes.get("/featured", optionalAuthMiddleware, async (c, next) => {
   if (c.get("discoverPreviewEnabled")) return next();
-  const preferredLang = normalizeHubLanguage(c.req.query("lang"));
-  let currentUser: { id: string } | null = null;
+  const preferredLang = normalizeEditorialLanguage(c.req.query("lang"));
+  let currentUser: SessionUser | null = null;
   try { currentUser = c.get("user"); } catch { /* anonymous */ }
   const blocks = currentUser ? await listBlockedUsersForHiding(currentUser.id) : null;
   const hiddenCreatorIds = blocks ? [...new Set([...blocks.hideWorldCreatorIds, ...blocks.hiddenByCreatorIds])] : [];
@@ -1282,7 +1328,7 @@ worldRoutes.get("/featured", optionalAuthMiddleware, async (c, next) => {
   const [profile] = currentUser ? await rd.select({ preferences: user.preferences, birthYear: user.birthYear })
     .from(user).where(eq(user.id, currentUser.id)).limit(1) : [];
   const minor = profile?.birthYear != null && getAgeFromBirthYear(profile.birthYear) < 18;
-  const effectiveMode = minor ? "safe" : resolveProfileContentLevel(!!currentUser,
+  const effectiveMode = minor || currentUser?.limitedContentOnly ? "safe" : resolveProfileContentLevel(!!currentUser,
     c.req.query("contentLevel") === "safe" ? "safe" : undefined, profile?.preferences);
   const safe = effectiveMode === "safe";
 
@@ -1313,7 +1359,7 @@ worldRoutes.get("/featured", optionalAuthMiddleware, async (c, next) => {
     .filter((groupId): groupId is string => Boolean(groupId)))];
   const preferredByGroup = new Map<string, (typeof rows)[number]>();
   if (preferredLang && groupIds.length > 0) {
-    const langPrefix = `${preferredLang}-%`;
+    const variantLangs = variantLanguages(c.req.query("lang"), preferredLang);
     const preferredRows = await rd
       .select(hubWorldListSelect)
       .from(worlds)
@@ -1328,12 +1374,10 @@ worldRoutes.get("/featured", optionalAuthMiddleware, async (c, next) => {
         // sibling a non-follower can't open.
         eq(worlds.visibility, "public"),
         ...(safe ? [eq(worlds.ageRating, "all"), eq(worlds.isNsfw, false)] : []),
-        or(
-          eq(worlds.language, preferredLang),
-          sql`${worlds.language} LIKE ${langPrefix}`,
-        ),
+        or(...variantLangs.flatMap((l) => [eq(worlds.language, l), sql`${worlds.language} LIKE ${`${l}-%`}`])),
       ))
       .orderBy(
+        sql`CASE ${sql.join(variantLangs.map((l, i) => sql`WHEN ${worlds.language} = ${l} OR ${worlds.language} LIKE ${`${l}-%`} THEN ${sql.raw(String(i))}`), sql` `)} ELSE ${sql.raw(String(variantLangs.length))} END`,
         sql`CASE WHEN ${worlds.language} = ${preferredLang} THEN 0 ELSE 1 END`,
         desc(worlds.isPrimaryVariant),
         worlds.createdAt,
@@ -1365,8 +1409,8 @@ worldRoutes.get("/featured", optionalAuthMiddleware, async (c, next) => {
 });
 
 worldRoutes.get("/featured", optionalAuthMiddleware, async (c) => {
-  const preferredLang = normalizeHubLanguage(c.req.query("lang"));
-  let currentUser: { id: string } | null = null;
+  const preferredLang = normalizeEditorialLanguage(c.req.query("lang"));
+  let currentUser: SessionUser | null = null;
   try { currentUser = c.get("user"); } catch { /* anonymous */ }
   const blocks = currentUser ? await listBlockedUsersForHiding(currentUser.id) : null;
   const hiddenCreatorIds = blocks ? [...new Set([...blocks.hideWorldCreatorIds, ...blocks.hiddenByCreatorIds])] : [];
@@ -1376,7 +1420,7 @@ worldRoutes.get("/featured", optionalAuthMiddleware, async (c) => {
   const [profile] = currentUser ? await db.select({ preferences: user.preferences, birthYear: user.birthYear })
     .from(user).where(eq(user.id, currentUser.id)).limit(1) : [];
   const minor = profile?.birthYear != null && getAgeFromBirthYear(profile.birthYear) < 18;
-  const effectiveMode = minor ? "safe" : resolveProfileContentLevel(!!currentUser,
+  const effectiveMode = minor || currentUser?.limitedContentOnly ? "safe" : resolveProfileContentLevel(!!currentUser,
     c.req.query("contentLevel") === "safe" ? "safe" : undefined, profile?.preferences);
   const safe = effectiveMode === "safe";
   const published = c.get("discoverPreviewEnabled") ? await publishedEditorial(db) : undefined;
@@ -1416,7 +1460,7 @@ worldRoutes.get("/featured", optionalAuthMiddleware, async (c) => {
     .filter((groupId): groupId is string => Boolean(groupId)))];
   const preferredByGroup = new Map<string, (typeof rows)[number]>();
   if (preferredLang && groupIds.length > 0) {
-    const langPrefix = `${preferredLang}-%`;
+    const variantLangs = variantLanguages(c.req.query("lang"), preferredLang);
     const preferredRows = await rd
       .select(hubWorldListSelect)
       .from(worlds)
@@ -1430,12 +1474,10 @@ worldRoutes.get("/featured", optionalAuthMiddleware, async (c) => {
         // sibling a non-follower can't open.
         eq(worlds.visibility, "public"),
         ...(safe ? [eq(worlds.ageRating, "all"), eq(worlds.isNsfw, false)] : []),
-        or(
-          eq(worlds.language, preferredLang),
-          sql`${worlds.language} LIKE ${langPrefix}`,
-        ),
+        or(...variantLangs.flatMap((l) => [eq(worlds.language, l), sql`${worlds.language} LIKE ${`${l}-%`}`])),
       ))
       .orderBy(
+        sql`CASE ${sql.join(variantLangs.map((l, i) => sql`WHEN ${worlds.language} = ${l} OR ${worlds.language} LIKE ${`${l}-%`} THEN ${sql.raw(String(i))}`), sql` `)} ELSE ${sql.raw(String(variantLangs.length))} END`,
         sql`CASE WHEN ${worlds.language} = ${preferredLang} THEN 0 ELSE 1 END`,
         desc(worlds.isPrimaryVariant),
         worlds.createdAt,
@@ -1465,15 +1507,35 @@ worldRoutes.get("/featured", optionalAuthMiddleware, async (c) => {
   return c.json({ data: mediaResolved, layout });
 });
 
-// GET /api/worlds/:id/activity — aggregate engagement shown in Library details.
-// Published worlds expose only anonymous totals. Draft/review/unpublished rows
-// stay creator-only, matching the detail route's content-access boundary.
+// GET /api/worlds/:id/activity — aggregate engagement shown in a card's details
+// (Library and the Discover preview). Published worlds expose only anonymous
+// totals. Draft/review/unpublished rows stay creator-only, matching the detail
+// route's content-access boundary.
 worldRoutes.get("/:id/activity", optionalAuthMiddleware, async (c) => {
   const worldId = c.req.param("id");
   const currentUser = c.get("user");
-  const rd = currentUser ? await readOwn(currentUser.id) : await readDb();
 
-  const [world] = await rd
+  // Who may see the totals is decided on the primary (one row by key): a card
+  // unpublished a moment ago must not keep answering from a lagging replica.
+  const [gate] = await db
+    .select({ creatorId: worlds.creatorId, isPublished: worlds.isPublished, status: worlds.status })
+    .from(worlds)
+    .where(eq(worlds.id, worldId))
+    .limit(1);
+  if (!gate || !await canReadFollowerWorld(worldId, currentUser?.id)) return c.json({ error: "World not found" }, 404);
+  if (currentUser && currentUser.id !== gate.creatorId && (await getBlockStatus(currentUser.id, gate.creatorId)).blocked) {
+    return c.json({ error: "World not found" }, 404);
+  }
+  const worldStatus = gate.status ?? (gate.isPublished ? "published" : "draft");
+  const isCreator = currentUser?.id === gate.creatorId;
+  if (worldStatus !== "published" && !isCreator) {
+    return c.json({ error: "World not found" }, 404);
+  }
+
+  // Every Discover preview opens this, so a published card's totals are read
+  // from the replica (public aggregates; a few seconds stale is fine). The
+  // author's unpublished card, or a row the replica lacks yet, reads primary.
+  const selectActivity = (rd: DrizzleDB) => rd
     .select({
       creatorId: worlds.creatorId,
       isPublished: worlds.isPublished,
@@ -1492,6 +1554,7 @@ worldRoutes.get("/:id/activity", optionalAuthMiddleware, async (c) => {
                )
           )
       )`,
+      avgPlaytimePerPlayerSeconds: averageWorldPlayerPlaytime(worldId),
       avgSessionSeconds: sql<number>`(
         SELECT COALESCE(round(avg(COALESCE(ps.playtime_seconds, 0))), 0)::int
         FROM play_sessions ps
@@ -1513,17 +1576,9 @@ worldRoutes.get("/:id/activity", optionalAuthMiddleware, async (c) => {
     .where(eq(worlds.id, worldId))
     .limit(1);
 
+  let [world] = worldStatus === "published" ? await selectActivity(readPublic()) : [];
+  if (!world) [world] = await selectActivity(db);
   if (!world) return c.json({ error: "World not found" }, 404);
-
-  if (currentUser && currentUser.id !== world.creatorId && (await getBlockStatus(currentUser.id, world.creatorId)).blocked) {
-    return c.json({ error: "World not found" }, 404);
-  }
-
-  const worldStatus = world.status ?? (world.isPublished ? "published" : "draft");
-  const isCreator = currentUser?.id === world.creatorId;
-  if (worldStatus !== "published" && !isCreator) {
-    return c.json({ error: "World not found" }, 404);
-  }
 
   c.header(
     "Cache-Control",
@@ -1535,6 +1590,7 @@ worldRoutes.get("/:id/activity", optionalAuthMiddleware, async (c) => {
   return c.json({
     data: {
       totalUniquePlayers: Number(world.totalUniquePlayers ?? 0),
+      avgPlaytimePerPlayerSeconds: Number(world.avgPlaytimePerPlayerSeconds ?? 0),
       avgSessionSeconds: Number(world.avgSessionSeconds ?? 0),
       averageRating: Number(world.averageRating ?? 0),
       reviewCount: Number(world.reviewCount ?? 0),
@@ -1549,7 +1605,7 @@ worldRoutes.get("/:id/activity", optionalAuthMiddleware, async (c) => {
 worldRoutes.get("/:id/address", optionalAuthMiddleware, async (c) => {
   const world = await findWorldById(c.req.param("id")).catch(() => null);
   const viewer = c.get("user");
-  if (!world || (!isPubliclyVisible(world) && viewer?.id !== world.creatorId)) return c.json({ error: "World not found" }, 404);
+  if (!world || !await canResolveWorldAddress(world.id, viewer?.id)) return c.json({ error: "World not found" }, 404);
   const path = canonicalWorldPath(world);
   if (!path) return c.json({ error: "World not found" }, 404);
   return c.json({ data: { path } });
@@ -1572,14 +1628,13 @@ worldRoutes.get("/resolve/:publicId", optionalAuthMiddleware, async (c) => {
     .where(eq(worlds.publicId, publicId))
     .limit(1);
   const viewer = c.get("user");
-  const published = Boolean(row) && (row!.status === "published" || Boolean(row!.isPublished)) && row!.visibility === "public";
-  if (!row || (!published && viewer?.id !== row.creatorId)) return c.json({ error: "World not found" }, 404);
+  if (!row || !await canResolveWorldAddress(row.id, viewer?.id)) return c.json({ error: "World not found" }, 404);
   return c.json({ data: { id: row.id } });
 });
 
 worldRoutes.get("/:id", optionalAuthMiddleware, async (c) => {
   const worldId = c.req.param("id");
-  let currentUser: { id: string } | null = null;
+  let currentUser: SessionUser | null = null;
   try { currentUser = c.get("user"); } catch { /* unauthenticated */ }
   // Editor's own view (forEdit=1) must reflect writes immediately. The Studio agent
   // writes the master over a minutes-long streaming run; the 5s read-after-write flag
@@ -1621,6 +1676,9 @@ worldRoutes.get("/:id", optionalAuthMiddleware, async (c) => {
         downloadCount: aggregatedCounters.displayDownloadCount,
         messageCount: aggregatedCounters.messageCount,
         favoriteCount: aggregatedCounters.favoriteCount,
+        // The preview header's stars, before its Reviews tab loads the full summary.
+        reviewCount: aggregatedCounters.reviewCount,
+        averageRating: aggregatedCounters.averageRating,
         tags: worlds.tags,
         galleryImages: worlds.galleryImages,
         announcement: worlds.announcement,
@@ -1630,24 +1688,32 @@ worldRoutes.get("/:id", optionalAuthMiddleware, async (c) => {
         languageGroupId: worlds.languageGroupId,
         gamePath: worlds.gamePath,
         multilanguageOverview: worlds.multilanguageOverview,
+        // The card page's "play with friends" (normalised below; null = off).
+        multiplayer: sql<unknown>`${worlds.schema}->'settings'->'multiplayer'`,
+        // Character portraits by entry id: a multiplayer role linked to a character wears theirs.
+        rolePortraits: sql<Record<string, string> | null>`(
+          SELECT jsonb_object_agg(e->>'id', e->>'portrait')
+          FROM jsonb_array_elements(CASE WHEN jsonb_typeof(${worlds.schema}->'entries') = 'array' THEN ${worlds.schema}->'entries' ELSE '[]'::jsonb END) e
+          WHERE e->>'role' = 'character' AND coalesce(e->>'portrait', '') <> '')`,
         createdAt: worlds.createdAt,
         updatedAt: worlds.updatedAt,
         creatorName: user.name,
         creatorUsername: user.username,
         publicId: worlds.publicId,
         creatorImage: user.image,
-        sourceWorldId: worlds.sourceWorldId,
-        sourceWorldName: sourceWorldCols.sourceWorldName,
-        sourceCreatorId: sourceWorldCols.sourceCreatorId,
-        sourceCreatorName: sourceWorldCols.sourceCreatorName,
+        ...sourceWorldCols(currentUser?.id),
       }).from(worlds).leftJoin(user, eq(worlds.creatorId, user.id)).where(eq(worlds.id, worldId))
-    : await rd.select().from(worlds).where(eq(worlds.id, worldId));
+    : await rd.select({ ...getTableColumns(worlds), ...sourceWorldCols(currentUser?.id) }).from(worlds).where(eq(worlds.id, worldId));
 
   if (result.length === 0) {
     return c.json({ error: "World not found" }, 404);
   }
 
   const world = result[0]!;
+  // The live row's code, before any held-edit overlay below: without a
+  // precompiled copy it is stamped in the background (lib/card-code/stamp.ts).
+  // The editor's own read stamps at save instead.
+  if (!isPreview && !forEdit && "schema" in world) stampCompiledLater(world);
 
   if (currentUser && currentUser.id !== world.creatorId && (await getBlockStatus(currentUser.id, world.creatorId)).blocked) {
     return c.json({ error: "World not found" }, 404);
@@ -1656,6 +1722,12 @@ worldRoutes.get("/:id", optionalAuthMiddleware, async (c) => {
   // Access control: status-based with library tombstone support
   const isCreator = currentUser && world.creatorId === currentUser.id;
   const worldStatus = world.status ?? (world.isPublished ? "published" : "draft");
+  // A collaborator opening the card in Studio reads what the creator reads.
+  const collaboratorAccess = forEdit && currentUser && !isCreator && !isPreview
+    ? await getWorldAccess(currentUser.id, worldId, db)
+    : null;
+  const isTeam = !!isCreator || !!collaboratorAccess;
+  if (!isTeam && !await canReadFollowerWorld(worldId, currentUser?.id)) return c.json({ error: "World not found" }, 404);
 
   // Admins can read any world regardless of status (for moderation inspect).
   // Resolved lazily so we don't pay a role lookup for the published-world hot path.
@@ -1685,23 +1757,41 @@ worldRoutes.get("/:id", optionalAuthMiddleware, async (c) => {
     hasDmGrant = await hasWorldDmShareGrant(currentUser.id, worldId, world.creatorId);
   }
 
-  if (worldStatus === "draft" && !isCreator) {
-    await ensureDmGrantFlag();
-    if (!hasDmGrant) {
-      await ensureAdminFlag();
-      if (!isAdmin) return c.json({ error: "World not found" }, 404);
+  // Testers: friends the creator lets play this world before it is published
+  // (lib/world-testers.ts). Unlike the DM grant above they get the play read,
+  // never the Studio read. Resolved lazily, off the published hot path.
+  let testerResolved = false;
+  let isTester = false;
+  async function ensureTesterFlag() {
+    if (testerResolved) return;
+    testerResolved = true;
+    isTester = await isActiveWorldTester(worldId, currentUser?.id);
+  }
+
+  if (worldStatus === "draft" && !isTeam) {
+    await ensureTesterFlag();
+    if (!isTester) {
+      await ensureDmGrantFlag();
+      if (!hasDmGrant) {
+        await ensureAdminFlag();
+        if (!isAdmin) return c.json({ error: "World not found" }, 404);
+      }
     }
   }
 
   // Pre-publish review states must not leak to non-creator non-admin users.
   // Without this guard any logged-in user with a worldId can pull the full
   // schema of an in-review or just-rejected world.
-  if ((worldStatus === "pending_review" || worldStatus === "rejected") && !isCreator) {
-    await ensureAdminFlag();
-    if (!isAdmin) return c.json({ error: "World not found" }, 404);
+  if ((worldStatus === "pending_review" || worldStatus === "rejected") && !isTeam) {
+    await ensureTesterFlag();
+    if (!isTester) {
+      await ensureAdminFlag();
+      if (!isAdmin) return c.json({ error: "World not found" }, 404);
+    }
   }
 
-  if (worldStatus === "unpublished" && !isCreator) {
+  if (worldStatus === "unpublished" && !isTeam) await ensureTesterFlag();
+  if (worldStatus === "unpublished" && !isTeam && !isTester) {
     // Check if user has this in their library
     if (currentUser) {
       const [libEntry] = await rd
@@ -1729,7 +1819,7 @@ worldRoutes.get("/:id", optionalAuthMiddleware, async (c) => {
   // tags, cover, schema. Payment-network content monitors browse logged-out,
   // so the wall is server-side; the client renders a sign-in gate off
   // `requiresAuth`. Login is the only key (client-side blur is not a wall).
-  if (!currentUser && (world.ageRating ?? "all") !== "all") {
+  if ((!currentUser || currentUser.limitedContentOnly) && (world.ageRating ?? "all") !== "all") {
     c.header("Cache-Control", "no-store");
     return c.json({
       data: {
@@ -1745,7 +1835,7 @@ worldRoutes.get("/:id", optionalAuthMiddleware, async (c) => {
   // forEdit=1 is the editor / Download JSON read. Anyone else gets it only for a
   // card whose creator allows remixing — the same rule /duplicate enforces — so
   // a no-remix card's source can't be pulled through the export path.
-  if (forEdit && !isCreator && world.allowEdit === false) {
+  if (forEdit && !isTeam && (world.allowEdit === false || isTester)) {
     await ensureAdminFlag();
     if (!isAdmin) return c.json({ error: "World not found" }, 404);
   }
@@ -1754,7 +1844,7 @@ worldRoutes.get("/:id", optionalAuthMiddleware, async (c) => {
   // state and — when the editor asks via ?forEdit=1 — overlay the pending
   // working copy so the creator edits their in-progress version. Players and
   // every other viewer always receive the live / last-approved content.
-  if (isCreator && !isPreview && worldStatus === "published") {
+  if (isTeam && !isPreview && worldStatus === "published") {
     const pend = await getPendingEdit(worldId);
     if (pend) {
       (world as any).pendingEdit = summarizePendingEdit(pend);
@@ -1818,7 +1908,57 @@ worldRoutes.get("/:id", optionalAuthMiddleware, async (c) => {
     (world as any).creatorImage = resolveImageCdn((world as any).creatorImage ?? null);
   }
 
+  // What this person may do with it in Studio.
+  if (forEdit && isTeam) {
+    (world as any).access = isCreator
+      ? { role: "owner", canPublish: true }
+      : { role: collaboratorAccess!.role, canPublish: collaboratorAccess!.canPublish };
+  }
+
+  // Entries the author kept never leave for anyone outside the card's team
+  // (lib/sealed-entries.ts).
+  if (!isPreview && "schema" in world) {
+    (world as { schema: unknown }).schema = redactSchemaFor(
+      { id: world.id, creatorId: world.creatorId, schema: world.schema, retained: (world as { retained?: unknown }).retained, team: isTeam },
+      world.schema,
+      currentUser?.id,
+      forEdit ? "edit" : "play",
+    );
+  }
+
+  // Which entries are kept is the author's own setting; nobody outside the team is told.
+  if (currentUser?.id !== world.creatorId && !isTeam && "retained" in world) {
+    (world as { retained?: unknown }).retained = null;
+  }
+
+  // A player's copy carries the interface's compiled code without its source
+  // (lib/card-code/source.ts).
+  if (!isPreview && !forEdit && "schema" in world) {
+    (world as { schema: unknown }).schema = playerSchema(world, {
+      clientFormat: c.req.header(CARD_CODE_HEADER),
+      isCreator: currentUser?.id === world.creatorId,
+    });
+  }
+
+  // Lets the client label the card and offer "Leave test".
+  if (isTester) (world as any).viewerIsTester = true;
+
   c.header("Cache-Control", "no-store, no-cache, must-revalidate");
+  if (isPreview && "multiplayer" in world) {
+    const mp = normaliseMultiplayer(world.multiplayer);
+    const holder = world as { multiplayer: unknown; rolePortraits?: Record<string, string> | null };
+    const portraits = holder.rolePortraits ?? null;
+    // The card page's 联机 tab draws each role's picture: its own, else its character's portrait.
+    if (mp) {
+      mp.roles = mp.roles.map((r) => {
+        const ref = r.image ?? (r.entryId ? portraits?.[r.entryId] : undefined);
+        const image = ref ? resolveImageCdn(ref) : null;
+        return image ? { ...r, image } : r;
+      });
+    }
+    holder.multiplayer = mp;
+    delete holder.rolePortraits;
+  }
   return c.json({ data: isPreview && c.get("discoverPreviewEnabled") ? (await withWorldPlaytime([world]))[0] : world });
 });
 
@@ -1829,7 +1969,7 @@ worldRoutes.get("/:id", optionalAuthMiddleware, async (c) => {
 // creator-only (admins fall through to no-warning rather than getting a 403).
 worldRoutes.get("/:id/context-requirement", optionalAuthMiddleware, async (c) => {
   const worldId = c.req.param("id");
-  let currentUser: { id: string } | null = null;
+  let currentUser: SessionUser | null = null;
   try { currentUser = c.get("user"); } catch { /* unauthenticated */ }
 
   const rd = await readDb(currentUser?.id);
@@ -1845,11 +1985,11 @@ worldRoutes.get("/:id/context-requirement", optionalAuthMiddleware, async (c) =>
     .where(eq(worlds.id, worldId))
     .limit(1);
 
-  if (!row) return c.json({ error: "World not found" }, 404);
+  if (!row || !await canReadFollowerWorld(worldId, currentUser?.id)) return c.json({ error: "World not found" }, 404);
 
   const worldStatus = row.status ?? (row.isPublished ? "published" : "draft");
   const isCreator = currentUser != null && row.creatorId === currentUser.id;
-  if (worldStatus !== "published" && !isCreator) {
+  if (worldStatus !== "published" && !isCreator && !await isActiveWorldTester(worldId, currentUser?.id)) {
     return c.json({ error: "World not found" }, 404);
   }
 
@@ -1886,6 +2026,9 @@ worldRoutes.post("/", authMiddleware, rateLimitMiddleware("content-creation"), a
       400
     );
   }
+  cleanWorldLoraBindings(parsed.data.schema);
+  // Someone else's LoRA keeps the trigger it has now (its author can't change this card later).
+  await snapshotForeignTriggers(worldLoraBindings(parsed.data.schema), currentUser.id);
   let totalTokens = 0;
   try {
     const entries = ((parsed.data.schema as any)?.entries as Array<{ content?: string }>) ?? [];
@@ -1914,11 +2057,23 @@ worldRoutes.post("/", authMiddleware, rateLimitMiddleware("content-creation"), a
     (parsed.data.schema as Record<string, unknown>).name = parsed.data.name;
   }
 
+  const { numberUntitled, ...data } = parsed.data;
   const result = await db.transaction(async tx => {
+    if (numberUntitled && data.name) {
+      // One at a time per creator, so two cards made at once get two numbers.
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${`world-untitled:${currentUser.id}`}, 0))`);
+      const base = data.name.trim();
+      const taken = await tx.select({ name: worlds.name }).from(worlds).where(and(
+        eq(worlds.creatorId, currentUser.id),
+        sql`(${worlds.name} = ${base} OR ${worlds.name} LIKE ${`${base.replace(/[\\%_]/g, "\\$&")} %`})`,
+      ));
+      data.name = nextUntitledName(base, taken.map((row) => row.name));
+      if (data.schema) (data.schema as Record<string, unknown>).name = data.name;
+    }
     const result = await tx
     .insert(worlds)
     .values({
-      ...parsed.data,
+      ...data,
       ...(normalizedTags ? { tags: normalizedTags } : {}),
       language,
       creatorId: currentUser.id,
@@ -1949,9 +2104,17 @@ worldRoutes.patch("/:id", authMiddleware, async (c) => {
   // Optimistic-concurrency token for the draft save-clobber guard (see below).
   // Read from the RAW body: updateWorldSchema is a non-strict z.object, so an
   // unknown `baseUpdatedAt` is stripped on parse and never reaches the row.
-  const clientBaseUpdatedAt =
+  let clientBaseUpdatedAt =
     body && typeof body === "object" && typeof (body as Record<string, unknown>).baseUpdatedAt === "string"
       ? ((body as Record<string, unknown>).baseUpdatedAt as string)
+      : null;
+  // Autosave sends what changed (`schemaChanges`) instead of the whole world;
+  // the tab's id rides along so its own echo can be told apart.
+  const rawSchemaChanges = body && typeof body === "object" ? (body as Record<string, unknown>).schemaChanges : undefined;
+  const changeSetSave = rawSchemaChanges !== undefined;
+  const saveClientId =
+    body && typeof body === "object" && typeof (body as Record<string, unknown>).clientId === "string"
+      ? ((body as Record<string, unknown>).clientId as string).slice(0, 64)
       : null;
 
   const parsed = updateWorldSchema.safeParse(body);
@@ -1967,11 +2130,62 @@ worldRoutes.patch("/:id", authMiddleware, async (c) => {
 
   // Consolidated read of the live row — drives the in-review lock, the inline-
   // asset check, and the published-world material-edit routing below.
+  // The creator, or a collaborator they made an editor.
   const [liveRow] = await db
     .select()
     .from(worlds)
-    .where(and(eq(worlds.id, worldId), eq(worlds.creatorId, currentUser.id)))
+    .where(and(eq(worlds.id, worldId), canEditWorldSql(currentUser.id)))
     .limit(1);
+  // Saves, holds and checkpoints stay in the creator's name; a collaborator
+  // is recorded as the actor where it matters.
+  const ownerId = liveRow?.creatorId ?? currentUser.id;
+  const isCollaboratorSave = !!liveRow && liveRow.creatorId !== currentUser.id;
+  if (isCollaboratorSave) {
+    for (const key of OWNER_ONLY_WORLD_FIELDS) delete (parsed.data as Record<string, unknown>)[key];
+  }
+  // What this collaborator may do with a published card's update: the creator
+  // and editors allowed to publish submit and withdraw it; other editors only
+  // add to the working copy (see the hold below).
+  const collaboratorCanPublish = isCollaboratorSave
+    ? mayWithdrawSubmission((await getWorldAccess(currentUser.id, worldId)) ?? { role: "viewer", canPublish: false })
+    : true;
+  // The card fields this save sets outside the schema, as everyone else's
+  // editor should show them (a held edit keeps them too, so they're read
+  // before the material gate below moves them there).
+  const savedMeta: Record<string, unknown> = {};
+  for (const key of WORLD_SAVED_META_KEYS) {
+    const value = (parsed.data as Record<string, unknown>)[key];
+    if (value !== undefined) savedMeta[key] = key === "tags" ? normalizeTagsForStorage(value as string[]) : value;
+  }
+
+  // ── Change-set save ──────────────────────────────────────────────────────
+  // Applied onto the CURRENT working copy (the held edit on a published card,
+  // else the live row), so another tab's or person's save in between is kept
+  // rather than reported stale: field-level last-write-wins, like Figma. The
+  // rest of this handler then runs exactly as for a whole-world save.
+  let changeSetWorking: unknown = undefined;
+  if (changeSetSave) {
+    if (!isWorldChangeList(rawSchemaChanges) || parsed.data.schema !== undefined) {
+      return c.json({ error: "Invalid schemaChanges", code: "INVALID_CHANGES" }, 400);
+    }
+    if (!liveRow) return c.json({ error: "World not found or not authorized" }, 404);
+    const working = liveRow.status === "published"
+      ? ((await getPendingEdit(worldId))?.schema ?? liveRow.schema)
+      : liveRow.schema;
+    // An edit to a row someone deleted, or to a value someone else changed
+    // since this editor read it, is refused rather than dropped or written
+    // over: the editor merges and saves again.
+    const applied = applyChangeSetSave(working, rawSchemaChanges, body);
+    if (!applied.ok) {
+      return c.json({ error: "Someone else changed this meanwhile", code: "CHANGES_CONFLICT", missing: applied.missing, conflicts: applied.conflicts,
+        currentUpdatedAt: liveRow.updatedAt?.toISOString() ?? null }, 409);
+    }
+    parsed.data.schema = applied.schema;
+    changeSetWorking = working;
+    // The changes were applied to the row as read just now; the lock below
+    // re-checks that nothing moved in between.
+    clientBaseUpdatedAt = liveRow.updatedAt?.toISOString() ?? null;
+  }
 
   // Hub Translation (multilanguage_overview) is retired — never persist it,
   // regardless of what a stale client bundle still sends in the PATCH body.
@@ -1981,6 +2195,33 @@ worldRoutes.patch("/:id", authMiddleware, async (c) => {
   // removed from updateWorldSchema; this is defense-in-depth).
   delete (parsed.data as Record<string, unknown>).status;
   delete (parsed.data as Record<string, unknown>).isPublished;
+
+  // Kept entries: a copy's owner saves the blanked entries they were sent, so
+  // put the real text back before anything below reads the schema.
+  if (liveRow && parsed.data.schema) {
+    const stored = liveRow.status === "published" ? ((await getPendingEdit(worldId))?.schema ?? liveRow.schema) : liveRow.schema;
+    parsed.data.schema = restoreSealed(stored, parsed.data.schema, currentUser.id);
+  }
+  // Story-illustration LoRA bindings: trigger words cleaned like looks before they're stored.
+  if (parsed.data.schema) {
+    cleanWorldLoraBindings(parsed.data.schema);
+    // Someone else's LoRA keeps the trigger it has now (its author can't change this card later).
+    await snapshotForeignTriggers(worldLoraBindings(parsed.data.schema), liveRow?.creatorId ?? currentUser.id);
+  }
+  // Keeping entries means others remix the card, and their own API provider
+  // would log the kept text, so both settings follow from the choice.
+  if (parsed.data.retained !== undefined) {
+    parsed.data.retained = parseRetained(parsed.data.retained);
+    if (parsed.data.retained) {
+      parsed.data.allowEdit = true;
+      parsed.data.allowCustomApi = false;
+    }
+  } else if (parseRetained(liveRow?.retained)) {
+    if (parsed.data.allowCustomApi === true) parsed.data.allowCustomApi = false;
+    // Turning remixing off drops the choice: nothing is left to keep from.
+    if (parsed.data.allowEdit === false) (parsed.data as Record<string, unknown>).retained = null;
+  }
+  if (liveRow?.sealedContent && parsed.data.allowCustomApi === true) parsed.data.allowCustomApi = false;
 
   // ── name ↔ schema.name invariant ──
   // worlds.name is the single display-name truth (hub, review queue, library,
@@ -1995,6 +2236,9 @@ worldRoutes.patch("/:id", authMiddleware, async (c) => {
   if (parsed.data.name !== undefined && parsed.data.schema) {
     (parsed.data.schema as Record<string, unknown>).name = parsed.data.name;
   }
+  // The working copy this save writes, for the live text fields (the gate
+  // below may move it into the held edit).
+  const textAfter = parsed.data.schema ?? null;
 
   // Detect a real language change on a grouped variant. The moved row is
   // demoted to 副 in the same UPDATE (avoids violating worlds_primary_variant_uniq
@@ -2054,10 +2298,21 @@ worldRoutes.patch("/:id", authMiddleware, async (c) => {
   // still-submitted hold — so this keeps "review = latest" while removing the
   // withdraw-first friction. We mark the in-flight submission withdrawn inside
   // the same transaction as the hold write below.
+  if (liveRow?.status === "pending_review" && parsed.data.visibility !== undefined && parsed.data.visibility !== liveRow.visibility) {
+    return c.json({ error: "Withdraw the submission before changing its visibility", code: "REVIEW_VISIBILITY_LOCKED" }, 409);
+  }
   const isPublishedWorld = liveRow?.status === "published";
   let existingPending = isPublishedWorld ? await getPendingEdit(worldId) : null;
   const observedPendingUpdatedAt = existingPending?.updatedAt ?? null;
-  const supersededReview = existingPending?.status === "pending";
+  const visibilityOnly = parsed.data.visibility !== undefined && Object.keys(parsed.data).every(key => key === "visibility");
+  const textBefore = changeSetWorking !== undefined ? changeSetWorking : (existingPending?.schema ?? liveRow?.schema ?? null);
+  const supersededReview = !visibilityOnly && existingPending?.status === "pending";
+  // An editor who can't publish must not pull the creator's submitted update
+  // out of review with a routine save. Refuse instead: their editor keeps the
+  // change unsaved and says why, and it saves once the review is decided or
+  // withdrawn. (Adding it to the submitted copy would put unreviewed content
+  // in front of the moderator's approval.)
+  if (supersededReview && !collaboratorCanPublish) return c.json(updateInReviewBody(), 409);
 
   // Reject saves that INTRODUCE new inline base64 data URIs. Legacy worlds with
   // existing bloat can still be edited (renaming, adding variables, etc.) — the
@@ -2108,7 +2363,7 @@ worldRoutes.patch("/:id", authMiddleware, async (c) => {
   // the SAME transaction as the live worlds UPDATE so the hold and the patch
   // commit atomically (no orphaned hold / lost draft on a mid-write failure).
   let holdPlan: ReturnType<typeof planMaterialHold> | null = null;
-  if (isPublishedWorld && liveRow) {
+  if (isPublishedWorld && liveRow && !visibilityOnly) {
     const base = existingPending ?? {
       schema: liveRow.schema,
       thumbnailUrl: liveRow.thumbnailUrl,
@@ -2122,7 +2377,7 @@ worldRoutes.patch("/:id", authMiddleware, async (c) => {
 
     holdPlan = planMaterialHold({
       worldId,
-      creatorId: currentUser.id,
+      creatorId: ownerId,
       live: {
         schema: liveRow.schema,
         thumbnailUrl: liveRow.thumbnailUrl,
@@ -2165,6 +2420,13 @@ worldRoutes.patch("/:id", authMiddleware, async (c) => {
       // No material divergence from live: any stale draft hold was just cleared.
       existingPending = null;
     }
+    // An editor without publish rights never writes the live card: whatever
+    // the hold above didn't take (e.g. the variant label, which no update
+    // carries) is dropped rather than going live unreviewed by the creator.
+    if (!collaboratorCanPublish) {
+      for (const key of Object.keys(parsed.data)) delete (parsed.data as Record<string, unknown>)[key];
+      normalizedTags = undefined;
+    }
   }
 
   let computedTokens: Record<string, number> = {};
@@ -2188,7 +2450,7 @@ worldRoutes.patch("/:id", authMiddleware, async (c) => {
     // updatedAt and the client's base token under the row lock.
     const locked = await lockWorldForSave(tx, {
       worldId,
-      creatorId: currentUser.id,
+      creatorId: ownerId,
       clientBaseUpdatedAt,
       observedStatus: liveRow?.status,
       observedUpdatedAt: liveRow?.updatedAt,
@@ -2216,14 +2478,27 @@ worldRoutes.patch("/:id", authMiddleware, async (c) => {
     // queue (back to draft) so the admin never approves a stale version and the
     // creator can keep working without an explicit withdraw.
     if (supersededReview) {
-      await tx
+      const withdrawn = await tx
         .update(worldReviewSubmissions)
         .set({ decision: "withdrawn", decidedBy: currentUser.id, decidedAt: new Date() })
         .where(and(
           eq(worldReviewSubmissions.worldId, worldId),
           eq(worldReviewSubmissions.decision, "pending"),
           eq(worldReviewSubmissions.submissionType, "edit"),
-        ));
+        ))
+        .returning();
+      // An editor allowed to publish did it: the creator hears their update left the queue.
+      if (withdrawn.length > 0 && isCollaboratorSave) notifySubmissionWithdrawn({ worldId, creatorId: ownerId, actorId: currentUser.id });
+    }
+    // Autosave replaced the Save button, so history marks the spot instead:
+    // keep the working copy this save overwrites, once per editing stretch.
+    if (liveRow && (parsed.data.schema !== undefined || holdPlan?.upsert)) {
+      const working = existingPending ?? liveRow;
+      await captureEditCheckpoint(tx, liveRow, {
+        schema: working.schema as Record<string, unknown>,
+        thumbnailUrl: working.thumbnailUrl ?? null,
+        ageRating: working.ageRating ?? "all",
+      }, new Date(), isCollaboratorSave ? currentUser.id : null);
     }
     // The card saves itself, so history marks the spot instead of a Save
     // button: keep the working copy this save overwrites, once per stretch.
@@ -2266,7 +2541,7 @@ worldRoutes.patch("/:id", authMiddleware, async (c) => {
         ...computedTokens,
         updatedAt: nextWorldSaveTime(liveRow?.updatedAt),
       })
-      .where(and(eq(worlds.id, worldId), eq(worlds.creatorId, currentUser.id)))
+      .where(and(eq(worlds.id, worldId), eq(worlds.creatorId, ownerId)))
       .returning();
 
     // Rebalance 主/副 in the SAME transaction so the demote above and the
@@ -2291,6 +2566,11 @@ worldRoutes.patch("/:id", authMiddleware, async (c) => {
   });
 
   if (!Array.isArray(result)) {
+    if (changeSetSave) {
+      // Someone saved between our read and the lock. The change set is still
+      // good — the editor just sends it again.
+      return c.json({ error: "The world changed while saving. Retry.", code: "CHANGES_RETRY", currentUpdatedAt: result.currentUpdatedAt }, 409);
+    }
     return c.json({ error: "This world changed. Reload to merge before saving.", code: "STALE_WORLD", currentUpdatedAt: result.currentUpdatedAt }, 409);
   }
   if (result.length === 0) {
@@ -2313,6 +2593,25 @@ worldRoutes.patch("/:id", authMiddleware, async (c) => {
   // (a forged PATCH could flip a whole variant group live without review).
   // Publish/unpublish transitions live solely in POST /:id/status.
   const updated = result[0]!;
+  let promotedPath: string | null = null;
+  if (liveRow?.visibility === "unlisted" && updated.visibility === "public" && updated.status === "published" && updated.isPublished) {
+    const [creator] = await db.select({ name: user.name, username: user.username }).from(user).where(eq(user.id, updated.creatorId)).limit(1);
+    notifyFollowersOfPublish(updated.creatorId, creator?.name ?? currentUser.name, updated.id, updated.name, updated.thumbnailUrl);
+    // The approved live content is becoming discoverable; held edits remain held.
+    const { embedAndStoreWorld } = await import("../lib/embeddings.js");
+    embedAndStoreWorld({ worldId: updated.id, name: updated.name, description: updated.description,
+      tags: updated.tags, announcement: updated.announcement, schema: updated.schema }).catch(() => {});
+    promotedPath = canonicalWorldPath({ ...updated, creatorUsername: creator?.username ?? null });
+  }
+
+  if (parsed.data.visibility !== undefined && liveRow?.visibility !== updated.visibility) {
+    edition.worldVisibilityChanged?.(promotedPath);
+  }
+
+  // Cover set on one translation: the others that have none take it (see lib/language-group-artwork).
+  if (updated.languageGroupId && (parsed.data.schema !== undefined || parsed.data.thumbnailUrl !== undefined)) {
+    await shareArtworkWithLanguageSiblings(worldId, currentUser.id).catch((err) => console.warn("[WORLDS] sibling cover share failed:", err));
+  }
 
   // (主/副 rebalance after a language change now runs INSIDE the transaction
   // above — see ensureGroupPrimaries(tx, ...) — so it is atomic with the demote.)
@@ -2329,7 +2628,43 @@ worldRoutes.patch("/:id", authMiddleware, async (c) => {
     (updated as any).supersededReview = supersededReview ? true : undefined;
   }
 
-  return c.json({ data: updated });
+  const previousUpdatedAt = liveRow?.updatedAt?.toISOString() ?? null;
+  // Entries someone else kept on this copy are compared (and sent back) blank,
+  // exactly as the card's team loaded them: their real text never rides the
+  // live-text relay. The caller may edit (canEditWorldSql above), so it reads
+  // as the team.
+  const teamView = (schema: unknown) => schema && typeof schema === "object"
+    ? redactSchemaFor({ id: worldId, creatorId: ownerId, schema, team: true }, schema, currentUser.id, "edit")
+    : schema;
+  foldSaveIntoLiveText(worldId, teamView(textBefore), teamView(textAfter), currentUser.id, body);
+  if (updated.updatedAt) {
+    const changesJson = changeSetSave ? JSON.stringify(rawSchemaChanges) : null;
+    publishWorldEvent(worldId, {
+      kind: "saved",
+      updatedAt: updated.updatedAt.toISOString(),
+      previousUpdatedAt,
+      clientId: saveClientId,
+      actorUserId: currentUser.id,
+      ...(changesJson && changesJson.length <= MAX_EVENT_CHANGES_BYTES ? { changes: rawSchemaChanges as unknown[] } : {}),
+      ...(Object.keys(savedMeta).length ? { meta: savedMeta } : {}),
+    });
+  }
+
+  if (changeSetSave) {
+    // The editor already has the world; send back the save token and review
+    // state, not the whole (possibly multi-MB) row.
+    const u = updated as typeof updated & { pendingEdit?: unknown; heldForReview?: unknown; supersededReview?: unknown };
+    return c.json({ data: {
+      id: updated.id,
+      updatedAt: updated.updatedAt,
+      previousUpdatedAt,
+      ...(u.pendingEdit !== undefined ? { pendingEdit: u.pendingEdit } : {}),
+      ...(u.heldForReview !== undefined ? { heldForReview: u.heldForReview } : {}),
+      ...(u.supersededReview !== undefined ? { supersededReview: u.supersededReview } : {}),
+    } });
+  }
+  // The row holds the real text of entries someone else kept on this copy.
+  return c.json({ data: { ...updated, schema: teamView(updated.schema) as typeof updated.schema, previousUpdatedAt } });
 });
 
 // DELETE /api/worlds/:id — delete world (auth required)
@@ -2351,6 +2686,26 @@ worldRoutes.delete("/:id", authMiddleware, async (c) => {
       AND s.decision = 'pending'
   `);
 
+  // A grant on this variant also covers its other languages: move it to one
+  // of them so deleting a translation doesn't end anyone's access to the rest.
+  await db.execute(sql`
+    UPDATE world_collaborators wc SET world_id = s.id
+    FROM worlds d, LATERAL (
+      SELECT v.id FROM worlds v
+      WHERE v.creator_id = d.creator_id AND v.language_group_id = d.language_group_id AND v.id <> d.id
+      ORDER BY v.id LIMIT 1) s
+    WHERE d.id = ${worldId} AND d.creator_id = ${currentUser.id} AND d.language_group_id IS NOT NULL
+      AND wc.world_id = d.id
+      AND NOT EXISTS (SELECT 1 FROM world_collaborators o WHERE o.world_id = s.id AND o.user_id = wc.user_id)`);
+
+  // The people who lose the card with it, read before the rows cascade away.
+  const team = await db.select({ userId: worldCollaborators.userId, status: worldCollaborators.status })
+    .from(worldCollaborators).innerJoin(worlds, eq(worlds.id, worldCollaborators.worldId))
+    .where(and(eq(worldCollaborators.worldId, worldId), eq(worlds.creatorId, currentUser.id),
+      sql`NOT EXISTS (SELECT 1 FROM world_collaborators o JOIN worlds v ON v.id = o.world_id
+        WHERE o.user_id = ${worldCollaborators.userId} AND v.id <> ${worldId}
+          AND v.creator_id = ${worlds.creatorId} AND v.language_group_id = ${worlds.languageGroupId})`));
+
   const result = await db
     .delete(worlds)
     .where(and(eq(worlds.id, worldId), eq(worlds.creatorId, currentUser.id)))
@@ -2358,6 +2713,13 @@ worldRoutes.delete("/:id", authMiddleware, async (c) => {
 
   if (result.length === 0) {
     return c.json({ error: "World not found or not authorized" }, 404);
+  }
+
+  // Anyone with it open is shut out now, and collaborators hear why.
+  publishWorldEvent(worldId, { kind: "access-changed", userId: "*", at: new Date().toISOString() });
+  for (const member of team) {
+    if (member.status !== "accepted") continue;
+    notify(member.userId, "world_collab_removed", { worldId, worldName: result[0]!.name, reason: "deleted", byName: currentUser.name }, { actorUserId: currentUser.id, dedupeKey: `${worldId}:${member.userId}:deleted` }).catch(() => {});
   }
 
   // Clean up variant group: if the deleted world belonged to a group,
@@ -2461,6 +2823,9 @@ worldRoutes.post("/:id/status", authMiddleware, rateLimitMiddleware("publishing"
       landscapeCoverUrl: worlds.landscapeCoverUrl,
       coverCrop: worlds.coverCrop,
       landscapeCoverCrop: worlds.landscapeCoverCrop,
+      retained: worlds.retained,
+      sealedContent: worlds.sealedContent,
+      sourceWorldId: worlds.sourceWorldId,
     })
     .from(worlds)
     .where(and(eq(worlds.id, worldId), eq(worlds.creatorId, currentUser.id)));
@@ -2484,19 +2849,16 @@ worldRoutes.post("/:id/status", authMiddleware, rateLimitMiddleware("publishing"
     return c.json({ error: `Cannot transition from '${currentStatus}' to '${newStatus}'` }, 400);
   }
 
-  // Banned users cannot submit for review. Trusted creators (admin-granted
-  // skipReview) auto-publish instead of queuing — captured here, applied after
-  // the submit transaction below. Ban is checked first and always wins.
-  let creatorSkipReview = false;
+  // Banned users cannot submit for review. There is no trusted-creator bypass
+  // any more (11/07): every submission gets the AI first look.
   if (newStatus === "pending_review") {
     const [userRow] = await db
-      .select({ isBanned: user.isBanned, skipReview: user.skipReview })
+      .select({ isBanned: user.isBanned })
       .from(user)
       .where(eq(user.id, currentUser.id));
     if (userRow?.isBanned) {
       return c.json({ error: "Your account is restricted. You cannot submit worlds for review." }, 403);
     }
-    creatorSkipReview = userRow?.skipReview ?? false;
   }
 
   // ─── Submit-for-review branch ─────────────────────────────────────
@@ -2526,29 +2888,55 @@ worldRoutes.post("/:id/status", authMiddleware, rateLimitMiddleware("publishing"
       (requestedAge !== "all" && body.isNsfw === true);
     const ageRating = isAdult ? "sensitive" : "all";
     const isNsfw = ageRating !== "all";
-    const visibility = body.visibility && ["public", "followers"].includes(body.visibility)
+    const visibility = body.visibility && ["public", "followers", "unlisted"].includes(body.visibility)
       ? body.visibility
       : "public";
     const targetAudience = body.targetAudience && ["male", "female", "all"].includes(body.targetAudience)
       ? body.targetAudience
       : (isNsfw ? "male" : "all");
     const allowEdit = body.allowEdit ?? true;
-    const allowCustomApi = body.allowCustomApi ?? true;
+    // A card with kept entries, or a copy holding someone's kept text, plays
+    // on official keys only.
+    const allowCustomApi = existing[0]!.sealedContent || parseRetained(existing[0]!.retained) ? false : (body.allowCustomApi ?? true);
     const allowReviews = body.allowReviews ?? true;
     const allowSessionSharing = body.allowSessionSharing ?? true;
     const allowCommunityCitations = body.allowCommunityCitations ?? true;
     const allowLiveCanon = body.allowLiveCanon ?? false;
     const allowLiveCanonAdditions = allowLiveCanon && (body.allowLiveCanonAdditions ?? false);
-    // Cover blur is creator-controlled and decoupled from age rating. Clients
-    // that omit it (older bundles) fall back to the legacy rating-derived
-    // default so nothing changes for them; the publish modal sends explicit
-    // true/false.
-    const blurCover = body.blurCover === undefined ? isNsfw : body.blurCover;
+    // Cover blur is the creator's choice on a Limitless card (clients that omit
+    // it get the legacy default, blurred). A Limited card never blurs: a cover
+    // that needs hiding means the card belongs in Limitless (Jason, 11/09).
+    const blurCover = isNsfw ? (body.blurCover ?? true) : false;
 
     // The creator picked one card. Language siblings may be unfinished drafts
     // or separate releases, so neither validate nor submit them implicitly.
     // Ownership and this card's transition were checked above.
     const submittable = [existing[0]!];
+
+    // A copy of someone else's card goes out as a remix, credited to the
+    // original on its page, while that original is on Discover and still lets
+    // others edit (lib/remix-publish.ts).
+    if (existing[0]!.sourceWorldId) {
+      const [source] = await db
+        .select({ creatorId: worlds.creatorId, status: worlds.status, isPublished: worlds.isPublished, allowEdit: worlds.allowEdit })
+        .from(worlds)
+        .where(eq(worlds.id, existing[0]!.sourceWorldId))
+        .limit(1);
+      const blocked = remixPublishBlock(source ?? null, currentUser.id);
+      if (blocked) return c.json({ error: REMIX_PUBLISH_MESSAGES[blocked], code: blocked }, 403);
+    }
+
+    // A card's game page opens in a first-party frame with the player's
+    // session. Review reads the story, not this field, so a card naming any
+    // page but one of ours is stopped here, before it can reach review at all.
+    const [gameRow] = await db
+      .select({ path: sql<string | null>`${worlds.schema}->'game'->>'path'` })
+      .from(worlds)
+      .where(eq(worlds.id, worldId))
+      .limit(1);
+    if (foreignGamePath({ game: { path: gameRow?.path } })) {
+      return c.json({ error: "This card's game page is not one the platform provides, so it cannot be published. Remove the game page setting, or upload the game as a web game instead.", code: "GAME_PATH_NOT_ALLOWED" }, 400);
+    }
 
     // A card must carry a real, creator-chosen name before it can go live. The
     // default placeholder ("未命名" / "Untitled", numbered or not) is rejected so
@@ -2656,34 +3044,20 @@ worldRoutes.post("/:id/status", authMiddleware, rateLimitMiddleware("publishing"
       }
     });
 
-    if (creatorSkipReview) {
-      // Trusted creator: auto-publish ONLY the variants this request just
-      // submitted (submittableIds) — never the whole group — so a sibling that
-      // was already queued BEFORE the creator was trusted is left for a human
-      // (the spec's future-only invariant). Routed through approveGroup so
-      // embed / follower-notify / sibling-sync / idempotency match a normal
-      // admin approve; it re-checks banned authors too. No admin "new review"
-      // ping (nothing to action) and no "submitted for review" creator ping
-      // (it never queued) — approveGroup sends the single "approved" notice.
-      // The re-select below then reflects `published`.
-      await approveGroup(groupKey, { reviewerId: null, source: "skipReview", onlyWorldIds: submittableIds }).catch((err) => {
-        console.error("[skipReview] gate-1 auto-publish failed:", (err as Error)?.message);
-      });
-    } else {
-      notify(currentUser.id, "world_submitted_for_review", {
-        worldId,
-        worldName: existing[0]!.name,
-        thumbnailUrl: existing[0]!.thumbnailUrl,
-        variantCount: submittable.length,
-      }).catch(() => {});
-      notifyAdminsOfNewReview(worldId, existing[0]!.name, existing[0]!.thumbnailUrl, currentUser.id, currentUser.name, groupKey).catch(() => {});
-    }
+    notify(currentUser.id, "world_submitted_for_review", {
+      worldId,
+      worldName: existing[0]!.name,
+      thumbnailUrl: existing[0]!.thumbnailUrl,
+      variantCount: submittable.length,
+    }).catch(() => {});
+    // The AI looks first; admins are pinged only if it hands the card to a person.
+    queueWorldAiReview(groupKey, () => notifyAdminsOfNewReview(worldId, existing[0]!.name, existing[0]!.thumbnailUrl, currentUser.id, currentUser.name, groupKey));
 
     const [updated] = await db
       .select()
       .from(worlds)
       .where(eq(worlds.id, worldId));
-    return c.json({ data: updated });
+    return c.json({ data: updated ? redactWorldFor(updated, currentUser.id, "edit") : updated });
   }
 
   // ─── Withdraw / unpublish / back-to-draft branches ───────────────
@@ -2737,7 +3111,7 @@ worldRoutes.post("/:id/status", authMiddleware, rateLimitMiddleware("publishing"
     }
   }
 
-  return c.json({ data: updated });
+  return c.json({ data: updated ? redactWorldFor(updated, currentUser.id, "edit") : updated });
 });
 
 // POST /api/worlds/:id/withdraw-review — author withdraws a pending submission
@@ -2840,12 +3214,26 @@ worldRoutes.post("/:id/refresh-review", authMiddleware, rateLimitMiddleware("pub
   return c.json({ data: { refreshed: true } });
 });
 
+/**
+ * Whose card a review action acts on: the caller's own, or the card of a
+ * creator who let this editor publish updates. Null when neither.
+ */
+async function reviewActorCreatorId(userId: string, worldId: string): Promise<string | null> {
+  const access = await getWorldAccess(userId, worldId);
+  if (!access) return null;
+  if (access.role === "owner") return access.creatorId;
+  return access.role === "editor" && access.canPublish ? access.creatorId : null;
+}
+
 // POST /api/worlds/:id/pending/submit — submit a held material edit (to an
 // already-published world) into the moderation queue. The live card stays up.
 worldRoutes.post("/:id/pending/submit", authMiddleware, rateLimitMiddleware("publishing"), async (c) => {
   const currentUser = c.get("user");
   const worldId = c.req.param("id");
-  const res = await submitPendingEdit({ worldId, creatorId: currentUser.id });
+  // The creator, or an editor they let publish updates (on the creator's behalf).
+  const creatorId = await reviewActorCreatorId(currentUser.id, worldId);
+  if (!creatorId) return c.json({ error: "World not found", code: "NOT_FOUND" }, 404);
+  const res = await submitPendingEdit({ worldId, creatorId, actorId: currentUser.id });
   if (!res.ok) return c.json({ error: res.error, code: res.code }, res.code === "NOT_FOUND" ? 404 : 400);
   const pend = await getPendingEdit(worldId);
   // autoApproved=true → trusted (skip-review) creator: the edit went live
@@ -2858,8 +3246,11 @@ worldRoutes.post("/:id/pending/submit", authMiddleware, rateLimitMiddleware("pub
 worldRoutes.post("/:id/pending/withdraw", authMiddleware, async (c) => {
   const currentUser = c.get("user");
   const worldId = c.req.param("id");
-  const res = await withdrawPendingEdit({ worldId, creatorId: currentUser.id });
+  const creatorId = await reviewActorCreatorId(currentUser.id, worldId);
+  if (!creatorId) return c.json({ error: "World not found", code: "NOT_FOUND" }, 404);
+  const res = await withdrawPendingEdit({ worldId, creatorId, actorId: currentUser.id });
   if (!res.ok) return c.json({ error: res.error, code: res.code }, 400);
+  notifySubmissionWithdrawn({ worldId, creatorId, actorId: currentUser.id });
   const pend = await getPendingEdit(worldId);
   return c.json({ data: { withdrawn: true, pendingEdit: pend ? summarizePendingEdit(pend) : null } });
 });
@@ -2874,9 +3265,11 @@ worldRoutes.post("/:id/pending/update-note", authMiddleware, requireUnmuted, rat
   try { body = await c.req.json(); } catch { return c.json({ error: "Invalid JSON body" }, 400); }
   const parsed = parseWorldUpdateNoteBody(body);
   if (!parsed.ok) return c.json({ error: parsed.error }, 400);
+  const creatorId = await reviewActorCreatorId(currentUser.id, worldId);
+  if (!creatorId) return c.json({ error: "No held changes to attach a note to", code: "NO_PENDING_EDIT" }, 400);
   const res = await setPendingEditUpdateNote({
     worldId,
-    creatorId: currentUser.id,
+    creatorId,
     ...parsed.data,
   });
   if (!res.ok) {
@@ -2929,6 +3322,10 @@ worldRoutes.post("/:id/duplicate", authMiddleware, async (c) => {
 
   const source = existing[0]!;
 
+  if (source.visibility === "followers" && !(await canReadFollowerWorld(worldId, currentUser.id))) {
+    return c.json({ error: "World not found" }, 404);
+  }
+
   const isOwnSource = source.creatorId === currentUser.id;
 
   // Block duplicate if creator disallowed editing (applies to both forks and project copies)
@@ -2957,6 +3354,9 @@ worldRoutes.post("/:id/duplicate", authMiddleware, async (c) => {
   // the same material this viewer is authorized to see; otherwise duplicating
   // an owner's card can resurrect an old rootComponent and hide its chat UI.
   const copyMaterial = await resolveWorldCopyMaterial(source, currentUser.id);
+  // What the author kept stays theirs on the copy (lib/sealed-entries.ts).
+  const copySchema = isOwnSource ? copyMaterial.schema : sealCopy(copyMaterial.schema, source);
+  const copySealed = holdsSealedFrom(copySchema, currentUser.id);
 
   const copyTotalTokens = estimateWorldCopyTokens(copyMaterial.schema);
 
@@ -2983,12 +3383,17 @@ worldRoutes.post("/:id/duplicate", authMiddleware, async (c) => {
         creatorId: currentUser.id,
         name: `${baseName} (${nextNum})`,
         description: source.description,
-        schema: copyMaterial.schema,
+        schema: copySchema,
         thumbnailUrl: copyMaterial.thumbnailUrl,
         tags: clampWorldTags(source.tags ?? []),
         isPublished: false,
         isNsfw: copyMaterial.isNsfw ?? false,
         allowEdit: source.allowEdit ?? true,
+        // An author copying their own card keeps their choice; anyone else's
+        // copy carries the marks instead.
+        retained: isOwnSource ? source.retained : null,
+        sealedContent: copySealed,
+        ...(copySealed ? { allowCustomApi: false } : {}),
         allowReviews: source.allowReviews ?? true,
         sourceWorldId: source.id,
         totalTokens: copyTotalTokens,
@@ -3018,11 +3423,14 @@ worldRoutes.post("/:id/duplicate", authMiddleware, async (c) => {
       );
     }
 
-    // Increment download count on source world
-    await tx
-      .update(worlds)
-      .set({ downloadCount: sql`${worlds.downloadCount} + 1` })
-      .where(eq(worlds.id, worldId));
+    // Increment download count on source world. An author copying their own
+    // card is not a download.
+    if (!isOwnSource) {
+      await tx
+        .update(worlds)
+        .set({ downloadCount: sql`${worlds.downloadCount} + 1` })
+        .where(eq(worlds.id, worldId));
+    }
 
     return newWorld!;
   });
@@ -3035,6 +3443,7 @@ worldRoutes.post("/:id/duplicate", authMiddleware, async (c) => {
   // - CDN-resolved thumbnail/gallery URLs (raw rows hold S3 keys)
   const enriched = {
     ...result,
+    schema: redactSchemaFor(result, result.schema, currentUser.id, "edit"),
     thumbnailUrl: resolveImageCdn(result.thumbnailUrl),
     galleryImages: Array.isArray(result.galleryImages)
       ? (result.galleryImages as string[]).map((img) => resolveImageCdn(img) ?? img)
@@ -3088,16 +3497,15 @@ worldRoutes.get("/:id/my-copy", authMiddleware, async (c) => {
   return c.json({ data: { exists: false } });
 });
 
-// POST /api/worlds/:id/gallery/upload-url — get presigned URL for gallery image
+// POST /api/worlds/:id/gallery/upload-url — get presigned URL for gallery image.
+// The creator or an editor collaborator (who can change the gallery in the
+// editor's save anyway).
 worldRoutes.post("/:id/gallery/upload-url", authMiddleware, async (c) => {
   const currentUser = c.get("user");
   const worldId = c.req.param("id");
 
-  const existing = await db
-    .select({ id: worlds.id })
-    .from(worlds)
-    .where(and(eq(worlds.id, worldId), eq(worlds.creatorId, currentUser.id)));
-  if (existing.length === 0) {
+  const access = await getWorldAccess(currentUser.id, worldId);
+  if (!access || access.role === "viewer") {
     return c.json({ error: "World not found or not authorized" }, 404);
   }
 
@@ -3114,7 +3522,8 @@ worldRoutes.post("/:id/gallery/upload-url", authMiddleware, async (c) => {
   return c.json({ data: { uploadUrl, key } });
 });
 
-// POST /api/worlds/:id/gallery/confirm — confirm gallery upload, append to array
+// POST /api/worlds/:id/gallery/confirm — confirm gallery upload, append to array.
+// A collaborator's addition to a published card waits in its held update.
 worldRoutes.post("/:id/gallery/confirm", authMiddleware, async (c) => {
   const currentUser = c.get("user");
   const worldId = c.req.param("id");
@@ -3124,36 +3533,26 @@ worldRoutes.post("/:id/gallery/confirm", authMiddleware, async (c) => {
     return c.json({ error: "Invalid gallery key" }, 400);
   }
 
-  const existing = await db
-    .select({ galleryImages: worlds.galleryImages })
-    .from(worlds)
-    .where(and(eq(worlds.id, worldId), eq(worlds.creatorId, currentUser.id)));
-
-  if (existing.length === 0) {
+  // Authorize before processing the upload: the creator or an editor collaborator.
+  const access = await getWorldAccess(currentUser.id, worldId);
+  if (!access || access.role === "viewer") {
     return c.json({ error: "World not found or not authorized" }, 404);
   }
 
-  const currentImages = (existing[0]!.galleryImages as string[] | null) ?? [];
-  if (currentImages.length >= 8) {
-    return c.json({ error: "Maximum 8 gallery images allowed" }, 400);
-  }
-
   const normalized = await publishStoredImage(body.key, `worlds/${worldId}/gallery/processed`);
-  const updatedImages = [...currentImages, normalized.key];
-
-  await db
-    .update(worlds)
-    .set({ galleryImages: updatedImages, updatedAt: new Date() })
-    .where(eq(worlds.id, worldId));
+  const applied = await applyWorldGallery({ worldId, actorId: currentUser.id, change: { add: normalized.key } });
+  if (!applied.ok) return c.json({ error: applied.error, ...(applied.code ? { code: applied.code } : {}) }, applied.status);
 
   // Return CDN URL for the new image
   await discardDirectImageUpload(body.key, `worlds/${worldId}/gallery/pending/`);
   const url = resolveImageCdn(normalized.key) ?? normalized.key;
 
-  return c.json({ data: { url, galleryImages: updatedImages } });
+  return c.json({ data: { url, galleryImages: applied.galleryImages, heldForReview: applied.held } });
 });
 
-// DELETE /api/worlds/:id/gallery/:index — remove a gallery image by index
+// DELETE /api/worlds/:id/gallery/:index — remove a gallery image by index.
+// Editors may too (the gallery is an ordinary field of their saves); the file
+// itself is never deleted here, so nothing of anyone's is destroyed.
 worldRoutes.delete("/:id/gallery/:index", authMiddleware, async (c) => {
   const currentUser = c.get("user");
   const worldId = c.req.param("id");
@@ -3163,28 +3562,10 @@ worldRoutes.delete("/:id/gallery/:index", authMiddleware, async (c) => {
     return c.json({ error: "Invalid index" }, 400);
   }
 
-  const existing = await db
-    .select({ galleryImages: worlds.galleryImages })
-    .from(worlds)
-    .where(and(eq(worlds.id, worldId), eq(worlds.creatorId, currentUser.id)));
+  const applied = await applyWorldGallery({ worldId, actorId: currentUser.id, change: { removeIndex: index } });
+  if (!applied.ok) return c.json({ error: applied.error, ...(applied.code ? { code: applied.code } : {}) }, applied.status);
 
-  if (existing.length === 0) {
-    return c.json({ error: "World not found or not authorized" }, 404);
-  }
-
-  const currentImages = (existing[0]!.galleryImages as string[] | null) ?? [];
-  if (index >= currentImages.length) {
-    return c.json({ error: "Index out of range" }, 400);
-  }
-
-  const updatedImages = currentImages.filter((_, i) => i !== index);
-
-  await db
-    .update(worlds)
-    .set({ galleryImages: updatedImages, updatedAt: new Date() })
-    .where(eq(worlds.id, worldId));
-
-  return c.json({ data: { galleryImages: updatedImages } });
+  return c.json({ data: { galleryImages: applied.galleryImages, heldForReview: applied.held } });
 });
 
 // GET /api/worlds/:id/friends-playing — auth required
@@ -3192,6 +3573,8 @@ worldRoutes.get("/:id/friends-playing", authMiddleware, async (c) => {
   const currentUser = c.get("user");
   const rd = await readOwn(currentUser.id);
   const worldId = c.req.param("id");
+
+  if (!await canReadFollowerWorld(worldId, currentUser.id)) return c.json({ error: "World not found" }, 404);
 
   // Find users that current user follows who have play sessions for this world
   const result = await rd.execute(
@@ -3317,11 +3700,15 @@ worldRoutes.route("/", createWorldUpdateEditRoutes(db, authMiddleware, rateLimit
 worldRoutes.get("/:id/updates", optionalAuthMiddleware, async (c) => {
   const worldId = c.req.param("id");
   const currentUser = c.get("user");
-  const rd = currentUser ? await readOwn(currentUser.id) : await readDb();
+  // The viewer's own state (follows, the author's held edits) always reads the primary.
+  const own = currentUser ? await readOwn(currentUser.id) : null;
   const rawOffset = c.req.query("offset") ?? "0";
   const offset = normalizeWorldUpdateOffset(rawOffset);
 
-  const [world] = await rd
+  // Who may read the history is decided on the primary (one row by key), so a
+  // card made private or restricted a moment ago stops answering at once. The
+  // list itself (below) reads the replica for someone else's card.
+  const [world] = await (own ?? db)
     .select({ creatorId: worlds.creatorId, status: worlds.status, visibility: worlds.visibility, ageRating: worlds.ageRating })
     .from(worlds)
     .where(eq(worlds.id, worldId))
@@ -3330,15 +3717,15 @@ worldRoutes.get("/:id/updates", optionalAuthMiddleware, async (c) => {
     return c.json({ error: "World not found" }, 404);
   }
   // Guests never read Limitless surfaces (update notes can quote card content).
-  if (!currentUser && (world.ageRating ?? "all") !== "all") {
+  if ((!currentUser || currentUser.limitedContentOnly) && (world.ageRating ?? "all") !== "all") {
     return c.json({ error: "World not found" }, 404);
   }
 
   const isOwner = currentUser?.id === world.creatorId;
   const isAdmin = currentUser?.role === "admin";
   let isFollower = false;
-  if (currentUser && !isOwner && !isAdmin) {
-    const [follow] = await rd
+  if (own && currentUser && !isOwner && !isAdmin) {
+    const [follow] = await own
       .select({ followerId: follows.followerId })
       .from(follows)
       .where(and(eq(follows.followerId, currentUser.id), eq(follows.followingId, world.creatorId)))
@@ -3357,8 +3744,8 @@ worldRoutes.get("/:id/updates", optionalAuthMiddleware, async (c) => {
   }
 
   let canCreate = false;
-  if (isOwner && ["published", "draft", "unpublished", "rejected"].includes(world.status)) {
-    const [pending] = await rd
+  if (own && isOwner && ["published", "draft", "unpublished", "rejected"].includes(world.status)) {
+    const [pending] = await own
       .select({ worldId: worldPendingEdits.worldId })
       .from(worldPendingEdits)
       .where(eq(worldPendingEdits.worldId, worldId))
@@ -3366,7 +3753,8 @@ worldRoutes.get("/:id/updates", optionalAuthMiddleware, async (c) => {
     canCreate = !pending;
   }
 
-  const rows = await rd
+  const historyDb = await readForEdit(currentUser?.id, world.creatorId);
+  const rows = await historyDb
     .select({
       id: worldUpdates.id,
       worldId: worldUpdates.worldId,
@@ -3386,6 +3774,7 @@ worldRoutes.get("/:id/updates", optionalAuthMiddleware, async (c) => {
       WHERE w.creator_id = (SELECT creator_id FROM worlds WHERE id = ${worldId})
         AND (w.id = ${worldId}
          OR (w.status = 'published'
+             AND w.visibility <> 'unlisted'
              AND (${canReadRestricted} OR w.visibility = 'public')
              AND w.language_group_id IS NOT NULL
              AND w.language_group_id = (SELECT language_group_id FROM worlds WHERE id = ${worldId})))
@@ -3518,9 +3907,9 @@ worldRoutes.get("/:id/language-variants", optionalAuthMiddleware, async (c) => {
     .from(worlds)
     .where(eq(worlds.id, worldId));
 
-  if (!world) return c.json({ data: [] });
+  if (!world || !await canResolveWorldAddress(worldId, currentUser?.id)) return c.json({ data: [] });
   // Guests never read Limitless surfaces (variant names are content too).
-  if (!currentUser && (world.ageRating ?? "all") !== "all") {
+  if ((!currentUser || currentUser.limitedContentOnly) && (world.ageRating ?? "all") !== "all") {
     return c.json({ data: [] });
   }
   if (!world.languageGroupId) {
@@ -3541,8 +3930,8 @@ worldRoutes.get("/:id/language-variants", optionalAuthMiddleware, async (c) => {
 
   // Show published siblings + the current world + any drafts owned by the current user
   const visibilityFilter = currentUser
-    ? or(eq(worlds.status, "published"), eq(worlds.id, worldId), eq(worlds.creatorId, currentUser.id))
-    : or(eq(worlds.status, "published"), eq(worlds.id, worldId));
+    ? or(and(eq(worlds.status, "published"), ne(worlds.visibility, "unlisted")), eq(worlds.id, worldId), eq(worlds.creatorId, currentUser.id))
+    : or(and(eq(worlds.status, "published"), ne(worlds.visibility, "unlisted")), eq(worlds.id, worldId));
 
   const siblings = await rd
     .select({
@@ -3561,6 +3950,7 @@ worldRoutes.get("/:id/language-variants", optionalAuthMiddleware, async (c) => {
       and(
         eq(worlds.languageGroupId, world.languageGroupId),
         visibilityFilter,
+        followerWorldAudienceSql(currentUser?.id),
       ),
     )
     // Primary (主) first, then oldest — so the editor tab bar and player version
@@ -3674,6 +4064,8 @@ worldRoutes.post("/:id/link-language", authMiddleware, async (c) => {
     // left its old language primary-less). Only promotes, never duplicates.
     await ensureGroupPrimaries(tx as unknown as typeof db, groupId);
   });
+  // Grants now cover the linked card too: open editors re-read their access.
+  announceAccessChange(worldId, "*").catch(() => {});
 
   return c.json({ data: { languageGroupId: groupId } });
 });
@@ -3694,6 +4086,8 @@ worldRoutes.post("/:id/unlink-language", authMiddleware, async (c) => {
   }
 
   const oldGroupId = world.languageGroupId;
+  // Grants stop crossing between it and its old siblings: everyone re-reads access.
+  const formerCard = await grantWorldIds(worldId);
 
   // Clear this world's group and variant label
   await db
@@ -3715,6 +4109,8 @@ worldRoutes.post("/:id/unlink-language", authMiddleware, async (c) => {
         .where(eq(worlds.id, remaining[0]!.id));
     }
   }
+  const at = new Date().toISOString();
+  for (const id of formerCard) publishWorldEvent(id, { kind: "access-changed", userId: "*", at });
 
   return c.json({ data: { success: true } });
 });
@@ -3801,7 +4197,12 @@ worldRoutes.post("/:id/add-language-variant", authMiddleware, async (c) => {
         creatorId: currentUser.id,
         name: variantName,
         description: variantDesc,
-        schema: body.schema,
+        // A copy's owner translates the blanked entries they were sent: the
+        // variant gets the kept text back, still kept.
+        schema: source.sealedContent ? restoreSealed(source.schema, body.schema, currentUser.id) : body.schema,
+        retained: source.retained,
+        sealedContent: source.sealedContent,
+        ...(source.sealedContent || source.retained ? { allowCustomApi: false } : {}),
         language: body.language,
         languageGroupId: groupId,
         // A new language variant carries caller-supplied content, so it must NOT
@@ -3825,7 +4226,7 @@ worldRoutes.post("/:id/add-language-variant", authMiddleware, async (c) => {
     return newWorld!;
   });
 
-  return c.json({ data: { world: result, languageGroupId: groupId } }, 201);
+  return c.json({ data: { world: redactWorldFor(result, currentUser.id, "edit"), languageGroupId: groupId } }, 201);
 });
 
 // POST /api/worlds/:id/create-variant — clone current world as a new variant.
@@ -3906,6 +4307,9 @@ worldRoutes.post("/:id/create-variant", authMiddleware, async (c) => {
         name: source.name,
         description: source.description,
         schema: copyMaterial.schema,
+        retained: source.retained,
+        sealedContent: source.sealedContent,
+        ...(source.sealedContent || source.retained ? { allowCustomApi: false } : {}),
         thumbnailUrl: copyMaterial.thumbnailUrl,
         tags: clampWorldTags(source.tags ?? []),
         language: body.language || source.language,
@@ -3947,140 +4351,79 @@ worldRoutes.post("/:id/create-variant", authMiddleware, async (c) => {
     return newWorld!;
   });
 
-  return c.json({ data: { world: result, languageGroupId: groupId } }, 201);
+  return c.json({ data: { world: redactWorldFor(result, currentUser.id, "edit"), languageGroupId: groupId } }, 201);
+});
+
+// ─── AI translation into another language version ────────────────────────────
+// Quote -> start (background job, see lib/card-translate-job.ts) -> poll. The
+// result is a DRAFT variant in the same language group; the creator reviews
+// and publishes it like any other version. Charged only on success.
+
+function translateJobErrorResponse(c: Context, e: unknown) {
+  if (e instanceof TranslateJobError) {
+    const status = e.code === "not_found" ? 404 : e.code === "insufficient_credits" ? 402 : e.code === "unavailable" ? 503 : e.code === "exists" || e.code === "running" ? 409 : 400;
+    return c.json({ error: e.message, code: e.code, ...(e.extra ?? {}) }, status);
+  }
+  throw e;
+}
+
+worldRoutes.get("/:id/translate/quote", authMiddleware, async (c) => {
+  try {
+    return c.json({ data: await quoteTranslation(c.get("user").id, c.req.param("id"), c.req.query("language") ?? "") });
+  } catch (e) {
+    return translateJobErrorResponse(c, e);
+  }
+});
+
+worldRoutes.post("/:id/translate", authMiddleware, rateLimitMiddleware("content-creation"), async (c) => {
+  let body: { language?: string; update?: boolean };
+  try { body = await c.req.json(); } catch { return c.json({ error: "Invalid JSON body" }, 400); }
+  try {
+    return c.json({ data: await startTranslateJob(c.get("user").id, c.req.param("id"), body.language ?? "", { update: body.update === true }) }, 202);
+  } catch (e) {
+    return translateJobErrorResponse(c, e);
+  }
+});
+
+worldRoutes.get("/:id/translate/jobs/:jobId", authMiddleware, async (c) => {
+  const job = await getTranslateJob(c.get("user").id, c.req.param("jobId"));
+  if (!job || job.sourceWorldId !== c.req.param("id")) return c.json({ error: "Job not found" }, 404);
+  return c.json({ data: job });
 });
 
 // ─── World Reviews ────────────────────────────────────────────────────────────
 // Moved here from reviewsRoutes so they share the /api/worlds mount prefix
 // and don't depend on cross-prefix routing (which caused 401s for public GET).
 
-// GET /api/worlds/:id/reviews — list reviews for a world (public, optional auth for read-after-write)
-// Aggregates across sibling language variants so the list matches the rating endpoint,
-// which sums counts across `language_group_id`. Without this, opening a variant whose
-// reviews all live on a sibling variant shows "Reviews (N)" with an empty list.
-worldRoutes.get("/:id/reviews", optionalAuthMiddleware, async (c) => {
-  const worldId = c.req.param("id");
-  const currentUser = c.get("user");
-  // An authed viewer's response includes their OWN review (read-after-write must
-  // surface their just-posted/edited review — see the private,no-store header
-  // below), so route the authed read to primary via readOwn. Anonymous browse of
-  // the public reviews list stays on the replica via readDb.
-  const rd = currentUser ? await readOwn(currentUser.id) : await readDb();
-  const hiddenActivityUserIds = currentUser
-    ? (await listBlockedUsersForHiding(currentUser.id)).hideActivityUserIds
-    : [];
-
-  const [worldRow] = await rd
-    .select({ creatorId: worlds.creatorId, ageRating: worlds.ageRating, gamePath: worlds.gamePath })
-    .from(worlds)
-    .where(eq(worlds.id, worldId))
-    .limit(1);
-  const isWorldCreator = !!currentUser && !!worldRow && worldRow.creatorId === currentUser.id;
-  // Guests never read Limitless surfaces (reviews quote card content).
-  if (!currentUser && worldRow && (worldRow.ageRating ?? "all") !== "all") {
-    return c.json({ data: [] });
-  }
-
-  const rawResult = await rd
-    .select({
-      id: reviews.id,
-      userId: reviews.userId,
-      rating: reviews.rating,
-      content: reviews.content,
-      replyCount: reviews.replyCount,
-      hiddenByCreatorAt: reviews.hiddenByCreatorAt,
-      createdAt: reviews.createdAt,
-      updatedAt: reviews.updatedAt,
-      userName: user.name,
-      userImage: user.image,
-      userUsername: user.username,
-    })
-    .from(reviews)
-    .innerJoin(user, eq(reviews.userId, user.id))
-    .where(
-      and(
-        sql`${reviews.worldId} IN (
-          SELECT w.id FROM worlds w
-          WHERE w.id = ${worldId}
-             OR (w.language_group_id IS NOT NULL
-                 AND w.language_group_id = (SELECT language_group_id FROM worlds WHERE id = ${worldId}))
-        )`,
-        hiddenActivityUserIds.length > 0
-          ? sql`${reviews.userId} NOT IN (${sql.join(hiddenActivityUserIds.map((id) => sql`${id}`), sql`, `)})`
-          : sql`TRUE`
-      )
-    )
-    .orderBy(desc(reviews.createdAt));
-
-  // Hide creator-soft-deleted reviews from everyone except the world's creator
-  // and the review's own author (so reviewer can see their review was hidden).
-  const result = rawResult.filter((r) => {
-    if (!r.hiddenByCreatorAt) return true;
-    if (isWorldCreator) return true;
-    if (currentUser && r.userId === currentUser.id) return true;
-    return false;
-  });
-
-  const authorIds = [...new Set(result.map((r) => r.userId))];
-  const playtimeRows = authorIds.length
-    ? await rd.execute(reviewPlaytimeQuery(worldId, authorIds, worldRow?.gamePath))
-    : { rows: [] };
-  const playtimeByAuthor = new Map(playtimeRows.rows.map((row) => [
-    String(row.user_id), Number(row.seconds),
-  ]));
-
-  // Enrich with translations
-  const reviewIds = result.filter((r) => r.content).map((r) => r.id);
-  const txMap = new Map<string, { zh: string | null; en: string | null; es: string | null; ja: string | null }>();
-  if (reviewIds.length > 0) {
-    const txRows = await rd
-      .select({
-        sourceId: contentTranslations.sourceId,
-        targetLang: contentTranslations.targetLang,
-        translatedContent: contentTranslations.translatedContent,
-      })
-      .from(contentTranslations)
-      .where(
-        and(
-          inArray(contentTranslations.sourceId, reviewIds),
-          eq(contentTranslations.sourceType, "review")
-        )
-      );
-    for (const tx of txRows) {
-      const existing = txMap.get(tx.sourceId) ?? { zh: null, en: null, es: null, ja: null };
-      if (tx.targetLang === "zh") existing.zh = tx.translatedContent;
-      if (tx.targetLang === "en") existing.en = tx.translatedContent;
-      if (tx.targetLang === "es") existing.es = tx.translatedContent;
-      if (tx.targetLang === "ja") existing.ja = tx.translatedContent;
-      txMap.set(tx.sourceId, existing);
-    }
-  }
-
-  const resolved = result.map((r) => {
-    const tx = txMap.get(r.id);
-    return {
-      ...r,
-      playtimeSeconds: playtimeByAuthor.get(r.userId) ?? 0,
-      hiddenByCreator: !!r.hiddenByCreatorAt,
-      lang: r.content ? detectLang(r.content) : "en",
-      userImage: resolveImageCdn(r.userImage),
-      translatedContent_zh: tx?.zh ?? null,
-      translatedContent_en: tx?.en ?? null,
-      translatedContent_es: tx?.es ?? null,
-      translatedContent_ja: tx?.ja ?? null,
-    };
-  });
-
-  // Authenticated users get fresh data (no browser/CDN cache) for read-after-write;
-  // anonymous users can use shared cache for performance.
-  if (currentUser) {
-    c.header("Cache-Control", "private, no-store");
-  } else {
-    c.header("Cache-Control", "public, max-age=0, s-maxage=60, stale-while-revalidate=300");
-  }
-  c.header("Vary", "Cookie");
-  return c.json({ data: resolved });
+const worldFeedback = createWorldFeedbackService(db, {
+  playtime: async (actorId, worldId, gamePath) => {
+    const result = await db.execute(reviewPlaytimeQuery(worldId, [actorId], gamePath));
+    return Number(result.rows[0]?.seconds ?? 0);
+  },
+  hasPlayed: (actorId, worldId, gamePath) => hasPlayedWorld(db, actorId, worldId, gamePath),
+  isBlocked: async (actorId, otherId) => (await getBlockStatus(actorId, otherId)).blocked,
 });
+worldRoutes.route("/", createWorldFeedbackRoutes(db, worldFeedback, {
+  auth: authMiddleware, optionalAuth: optionalAuthMiddleware,
+  write: [communityMuteMiddleware, rateLimitMiddleware("content-creation")],
+  hiddenUsers: async actorId => (await listBlockedUsersForHiding(actorId)).hideActivityUserIds,
+  changed: async (actor, _worldId, authorId) => {
+    await flagWrite(actor.id);
+    await Promise.allSettled([invalidateRecommendationProfile(authorId ?? actor.id), invalidateRecommendationFeed(authorId ?? actor.id)]);
+  },
+  playtimes: async (worldId, userIds) => {
+    const [world] = await db.select({ gamePath: worlds.gamePath }).from(worlds).where(eq(worlds.id, worldId));
+    const result = await db.execute(reviewPlaytimeQuery(worldId, userIds, world?.gamePath));
+    return Object.fromEntries(result.rows.map(row => [String(row.user_id), Number(row.seconds)]));
+  },
+  published: async (actorId, worldId, postId, sourceType, content, kind) => {
+    await Promise.allSettled([
+      ...(content ? [translateContent(postId, sourceType, detectLang(content), content, actorId)] : []),
+      ...(kind === "review" ? [onReview(actorId, worldId)] : []),
+    ]);
+  },
+  notify: async (userId, payload) => { await notify(userId, "world_feedback", payload); },
+}));
 
 // GET /api/worlds/:id/rating — average rating, rater count, star distribution
 // (public), plus the viewer's own rating when authenticated. Ratings live in
@@ -4089,29 +4432,17 @@ worldRoutes.get("/:id/reviews", optionalAuthMiddleware, async (c) => {
 worldRoutes.get("/:id/rating", optionalAuthMiddleware, async (c) => {
   const worldId = c.req.param("id");
   const currentUser = c.get("user");
+  if (!await canResolveWorldAddress(worldId, currentUser?.id)) return c.json({ error: "World not found" }, 404);
+  await worldFeedback.world(worldId, currentUser);
+  c.header("Cache-Control", "private, no-store");
   // Authed reads go to primary so a just-saved rating is visible immediately.
   const rd = currentUser ? await readOwn(currentUser.id) : await readDb();
 
-  const groupFilter = sql`${worldRatings.worldId} IN (
-    SELECT w.id FROM worlds w
-    WHERE w.id = ${worldId}
-       OR (w.language_group_id IS NOT NULL
-           AND w.language_group_id = (SELECT language_group_id FROM worlds WHERE id = ${worldId}))
-  )`;
+  const accessibleWorlds = feedbackWorldIds(worldId, currentUser);
+  const groupFilter = sql`${worldRatings.worldId} IN (${accessibleWorlds})`;
+  const commentGroupFilter = sql`${reviews.worldId} IN (${accessibleWorlds})`;
 
-  // Comments live in `reviews`, ratings in `world_ratings`, and the two counts
-  // are NOT the same number — a rating-only submission leaves no comment row.
-  // The Reviews tab labels a comment feed, so it needs the comment count; the
-  // star summary keeps using reviewCount ("N ratings"). Without this, a card
-  // with 3 raters and 1 comment reads "Reviews (3)" above a 1-item list.
-  const commentGroupFilter = sql`${reviews.worldId} IN (
-    SELECT w.id FROM worlds w
-    WHERE w.id = ${worldId}
-       OR (w.language_group_id IS NOT NULL
-           AND w.language_group_id = (SELECT language_group_id FROM worlds WHERE id = ${worldId}))
-  )`;
-
-  const [summary, distributionRows, myRatingRows, commentSummary] = await Promise.all([
+  const [summary, distributionRows, myRatingRows, commentSummary, canRate, lowReasonRows] = await Promise.all([
     rd
       .select({
         avg: sql<number>`COALESCE(AVG(${worldRatings.rating}), 0)::real`,
@@ -4129,33 +4460,51 @@ worldRoutes.get("/:id/rating", optionalAuthMiddleware, async (c) => {
       .groupBy(worldRatings.rating),
     currentUser
       ? rd
-          .select({ rating: worldRatings.rating })
+          .select({ rating: worldRatings.rating, lowReason: worldRatings.lowReason })
           .from(worldRatings)
           .where(and(eq(worldRatings.userId, currentUser.id), groupFilter))
           .limit(1)
-      : Promise.resolve([] as Array<{ rating: number }>),
+      : Promise.resolve([] as Array<{ rating: number; lowReason: string | null }>),
     rd
       .select({ count: sql<number>`count(*)::int` })
       .from(reviews)
       .where(
         and(
-          commentGroupFilter,
-          sql`${reviews.content} IS NOT NULL AND btrim(${reviews.content}) <> ''`,
-          sql`${reviews.hiddenByCreatorAt} IS NULL`
+          commentGroupFilter, visibleFeedbackPost,
+          sql`${reviews.kind} = 'review' AND ${reviews.deletedAt} IS NULL AND ${reviews.supersededByReviewId} IS NULL`
         )
       ),
+    // null for guests: the sign-in prompt comes first, then the play check.
+    currentUser
+      ? rd
+          .select({ gamePath: worlds.gamePath })
+          .from(worlds)
+          .where(eq(worlds.id, worldId))
+          .limit(1)
+          .then(([w]) => (w ? hasPlayedWorld(rd, currentUser.id, worldId, w.gamePath) : false))
+      : Promise.resolve(null),
+    // Why people rated 1–2★, so a low score with no comment still tells the
+    // creator (and other players) something.
+    rd
+      .select({
+        reason: sql<string>`r.reason`,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(sql`${worldRatings}, unnest(string_to_array(${worldRatings.lowReason}, ',')) AS r(reason)`)
+      .where(and(groupFilter, sql`${worldRatings.rating} <= ${LOW_RATING_MAX}`))
+      .groupBy(sql`r.reason`),
   ]);
+
+  const lowReasons: Record<string, number> = {};
+  for (const row of lowReasonRows) {
+    if (isLowRatingReason(row.reason)) lowReasons[row.reason] = row.count;
+  }
 
   const distribution: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
   for (const row of distributionRows) {
     if (row.rating >= 1 && row.rating <= 5) distribution[row.rating] = row.count;
   }
 
-  if (currentUser) {
-    c.header("Cache-Control", "private, no-store");
-  } else {
-    c.header("Cache-Control", "public, max-age=0, s-maxage=60, stale-while-revalidate=300");
-  }
   c.header("Vary", "Cookie");
   return c.json({
     data: {
@@ -4164,448 +4513,12 @@ worldRoutes.get("/:id/rating", optionalAuthMiddleware, async (c) => {
       commentCount: commentSummary[0]?.count ?? 0,
       distribution,
       myRating: myRatingRows[0]?.rating ?? null,
+      myLowReason: myRatingRows[0]?.lowReason ?? null,
+      canRate,
+      lowReasons,
     },
   });
 });
-
-// PUT /api/worlds/:id/rating — set/update the viewer's star rating (1-5).
-// One rating per user per language group: an existing row on any sibling
-// variant is updated in place, otherwise a new row lands on this variant.
-worldRoutes.put("/:id/rating", authMiddleware, rateLimitMiddleware("content-creation"), async (c) => {
-  const currentUser = c.get("user");
-  const worldId = c.req.param("id");
-  const body = await c.req.json();
-
-  const rating = body.rating;
-  if (!rating || typeof rating !== "number" || !Number.isInteger(rating) || rating < 1 || rating > 5) {
-    return c.json({ error: "Rating must be 1-5" }, 400);
-  }
-
-  const gate = await checkReviewGate(currentUser, worldId, { blockSelfRating: true });
-  if (gate) return gate.response;
-
-  const result = await upsertWorldRating(currentUser.id, worldId, rating);
-
-  flagWrite(currentUser.id);
-  invalidateRecommendationProfile(currentUser.id).catch(() => {});
-  // Rating adds the world to the exclusion set — the cached feed pages must
-  // go too, or they keep serving the now-excluded world until an unrelated
-  // event clears them (this was the residual "library world still in my
-  // feed" leak: ~14 stray emissions per 48h measured 2026-08-20).
-  invalidateRecommendationFeed(currentUser.id).catch(() => {});
-  recomputeReviewStats(result.storedWorldId);
-  void onReview(currentUser.id, worldId);
-
-  if (result.isNew) {
-    (async () => {
-      const [world] = await db
-        .select({
-          creatorId: worlds.creatorId,
-          name: worlds.name,
-          thumbnailUrl: worlds.thumbnailUrl,
-          languageGroupId: worlds.languageGroupId,
-        })
-        .from(worlds)
-        .where(eq(worlds.id, worldId));
-      if (world && world.creatorId !== currentUser.id) {
-        await notifyWorldReview(world.creatorId, {
-          worldId,
-          worldGroupId: world.languageGroupId ?? worldId,
-          worldName: world.name,
-          thumbnailUrl: world.thumbnailUrl,
-          reviewerName: currentUser.name,
-          reviewerUserId: currentUser.id,
-          ratingEventId: result.ratingEventId,
-          rating,
-        });
-      }
-    })().catch((error) => {
-      console.error("[notifications] Failed to create world rating notification:", error);
-    });
-  }
-
-  return c.json({ data: { rating, isNew: result.isNew } });
-});
-
-// POST /api/worlds/:id/reviews — post a comment on the card's comment feed.
-// Comments are append-only: users can post as many as they like. The optional
-// `rating` field upserts the user's star rating and is stored on the comment
-// row as a snapshot badge. Content may be omitted for a rating-only review.
-worldRoutes.post("/:id/reviews", authMiddleware, communityMuteMiddleware, rateLimitMiddleware("content-creation"), async (c) => {
-  const currentUser = c.get("user");
-  const worldId = c.req.param("id");
-  const body = await c.req.json();
-
-  const rating = typeof body.rating === "number" && Number.isInteger(body.rating) && body.rating >= 1 && body.rating <= 5
-    ? body.rating
-    : null;
-
-  const rawContent = typeof body.content === "string" ? body.content.trim() : null;
-  const content = rawContent ? sanitizeContent(rawContent) || null : null;
-  if (content && content.length > MAX_REVIEW_CONTENT) {
-    return c.json({ error: "Comment too long" }, 400);
-  }
-  if (!content && !rating) {
-    return c.json({ error: "Comment cannot be empty" }, 400);
-  }
-
-  // Block a self-RATING even on the combined comment+rating endpoint, but
-  // still allow the creator to post a plain comment on their own world.
-  const gate = await checkReviewGate(currentUser, worldId, { blockSelfRating: rating !== null });
-  if (gate) return gate.response;
-
-  // A rating submitted with the optional comment updates the user's
-  // one-per-card star rating exactly like PUT /:id/rating would.
-  let ratingResult: Awaited<ReturnType<typeof upsertWorldRating>> | null = null;
-  if (rating) {
-    ratingResult = await upsertWorldRating(currentUser.id, worldId, rating);
-    recomputeReviewStats(ratingResult.storedWorldId);
-    void onReview(currentUser.id, worldId);
-  }
-
-  let review = null;
-  if (content) {
-    const inserted = await db
-      .insert(reviews)
-      .values({ userId: currentUser.id, worldId, rating, content })
-      .returning();
-    review = inserted[0];
-  }
-
-  flagWrite(currentUser.id);
-
-  // Invalidate cached recommendation profile so the next hub load
-  // reflects the new comment/rating in scoring weights and exclusion sets.
-  invalidateRecommendationProfile(currentUser.id).catch(() => {});
-  invalidateRecommendationFeed(currentUser.id).catch(() => {});
-
-  // Translate comment content (fire-and-forget). No up-front delete: an edited
-  // comment's cached rows stay readable until a fresh translation succeeds,
-  // since translateOne detects the stale hash and overwrites on success.
-  if (review && content) {
-    const lang = detectLang(content);
-    translateContent(review.id, "review", lang, content, currentUser.id).catch(() => {});
-  }
-
-  // The rating and optional comment for one evaluation share one notification.
-  // notifyWorldReview also merges separate rating/comment requests from older
-  // clients into that same notification.
-  await (async () => {
-    const [world] = await db
-      .select({
-        creatorId: worlds.creatorId,
-        name: worlds.name,
-        thumbnailUrl: worlds.thumbnailUrl,
-        languageGroupId: worlds.languageGroupId,
-      })
-      .from(worlds)
-      .where(eq(worlds.id, worldId));
-    if (!world || world.creatorId === currentUser.id) return;
-    const worldGroupId = world.languageGroupId ?? worldId;
-    if (review) {
-      const [savedRating] = ratingResult
-        ? []
-        : await db
-            .select({
-              id: worldRatings.id,
-              rating: worldRatings.rating,
-              updatedAt: worldRatings.updatedAt,
-            })
-            .from(worldRatings)
-            .where(and(
-              eq(worldRatings.userId, currentUser.id),
-              sql`${worldRatings.worldId} IN (
-                SELECT w.id FROM worlds w
-                WHERE w.id = ${worldId}
-                   OR (w.language_group_id IS NOT NULL
-                       AND w.language_group_id = (SELECT language_group_id FROM worlds WHERE id = ${worldId}))
-              )`,
-            ))
-            .limit(1);
-      const recentSavedRating = savedRating
-        ? recentWorldRatingNotification(savedRating)
-        : null;
-      const ratingForNotification = ratingResult
-        ? { rating: rating!, ratingEventId: ratingResult.ratingEventId }
-        : recentSavedRating;
-
-      if (ratingForNotification) {
-        const result = await notifyWorldReview(world.creatorId, {
-          worldId,
-          worldGroupId,
-          worldName: world.name,
-          thumbnailUrl: world.thumbnailUrl,
-          reviewerName: currentUser.name,
-          reviewerUserId: currentUser.id,
-          rating: ratingForNotification.rating,
-          ratingEventId: ratingForNotification.ratingEventId,
-          commentContent: reviewNotificationExcerpt(content!),
-          reviewId: review.id,
-        });
-        if (result !== "already_complete") return;
-      }
-
-      // A standalone feed comment is not a star-rating event. Keep the
-      // established event contract for older clients while exposing the
-      // content to current clients.
-      await notify(world.creatorId, "new_comment", {
-        worldId,
-        worldName: world.name,
-        thumbnailUrl: world.thumbnailUrl,
-        commenterName: currentUser.name,
-        commenterUserId: currentUser.id,
-        commentContent: reviewNotificationExcerpt(content!),
-        reviewId: review.id,
-      }, { actorUserId: currentUser.id, dedupeKey: review.id });
-    } else if (ratingResult?.isNew) {
-      await notifyWorldReview(world.creatorId, {
-        worldId,
-        worldGroupId,
-        worldName: world.name,
-        thumbnailUrl: world.thumbnailUrl,
-        reviewerName: currentUser.name,
-        reviewerUserId: currentUser.id,
-        ratingEventId: ratingResult.ratingEventId,
-        rating,
-      });
-    }
-  })().catch((error) => {
-    console.error("[notifications] Failed to create world review notification:", error);
-  });
-
-  return c.json({ data: review ?? { rating } }, 201);
-});
-
-// DELETE /api/worlds/:id/reviews — remove the current user's star rating for
-// this card (searches sibling variants; ratings are one-per-language-group).
-// Comments are removed individually via DELETE /:id/reviews/:reviewId.
-worldRoutes.delete("/:id/reviews", authMiddleware, async (c) => {
-  const currentUser = c.get("user");
-  const worldId = c.req.param("id");
-
-  const removed = await db
-    .delete(worldRatings)
-    .where(
-      and(
-        eq(worldRatings.userId, currentUser.id),
-        sql`${worldRatings.worldId} IN (
-          SELECT w.id FROM worlds w
-          WHERE w.id = ${worldId}
-             OR (w.language_group_id IS NOT NULL
-                 AND w.language_group_id = (SELECT language_group_id FROM worlds WHERE id = ${worldId}))
-        )`
-      )
-    )
-    .returning();
-
-  flagWrite(currentUser.id);
-
-  for (const r of removed) {
-    recomputeReviewStats(r.worldId);
-  }
-
-  return c.json({ data: { deleted: true } });
-});
-
-// DELETE /api/worlds/:id/reviews/:reviewId — delete the current user's own
-// comment. Replies cascade via FK; cached translations are cleaned up here.
-worldRoutes.delete("/:id/reviews/:reviewId", authMiddleware, async (c) => {
-  const currentUser = c.get("user");
-  const worldId = c.req.param("id");
-  const reviewId = c.req.param("reviewId");
-
-  const removed = await db
-    .delete(reviews)
-    .where(
-      and(
-        eq(reviews.id, reviewId),
-        eq(reviews.userId, currentUser.id),
-        sql`${reviews.worldId} IN (
-          SELECT w.id FROM worlds w
-          WHERE w.id = ${worldId}
-             OR (w.language_group_id IS NOT NULL
-                 AND w.language_group_id = (SELECT language_group_id FROM worlds WHERE id = ${worldId}))
-        )`
-      )
-    )
-    .returning();
-
-  if (removed.length === 0) {
-    return c.json({ error: "Comment not found" }, 404);
-  }
-
-  flagWrite(currentUser.id);
-
-  await db
-    .delete(contentTranslations)
-    .where(
-      and(
-        inArray(contentTranslations.sourceId, removed.map((r) => r.id)),
-        eq(contentTranslations.sourceType, "review"),
-      ),
-    );
-
-  await removeWorldReviewCommentNotification(reviewId);
-
-  return c.json({ data: { deleted: true } });
-});
-
-// DELETE /api/worlds/:id/reviews/:reviewId/by-creator
-// The world's creator soft-hides a review on their world. Reviewer still sees
-// the review (marked as hidden) and can dispute; stats exclude hidden rows.
-worldRoutes.delete("/:id/reviews/:reviewId/by-creator", authMiddleware, async (c) => {
-  const currentUser = c.get("user");
-  const worldId = c.req.param("id");
-  const reviewId = c.req.param("reviewId");
-
-  const [worldRow] = await db
-    .select({ creatorId: worlds.creatorId, languageGroupId: worlds.languageGroupId })
-    .from(worlds)
-    .where(eq(worlds.id, worldId))
-    .limit(1);
-
-  if (!worldRow) {
-    return c.json({ error: "World not found" }, 404);
-  }
-  if (worldRow.creatorId !== currentUser.id) {
-    return c.json({ error: "Only the world's creator can hide reviews" }, 403);
-  }
-
-  // The review row may live on this world OR a sibling language variant
-  const [review] = await db
-    .select({ id: reviews.id, worldId: reviews.worldId })
-    .from(reviews)
-    .where(
-      and(
-        eq(reviews.id, reviewId),
-        sql`${reviews.worldId} IN (
-          SELECT w.id FROM worlds w
-          WHERE w.id = ${worldId}
-             OR (w.language_group_id IS NOT NULL
-                 AND w.language_group_id = (SELECT language_group_id FROM worlds WHERE id = ${worldId}))
-        )`,
-      )
-    )
-    .limit(1);
-
-  if (!review) {
-    return c.json({ error: "Review not found on this world" }, 404);
-  }
-
-  await db
-    .update(reviews)
-    .set({ hiddenByCreatorAt: new Date(), updatedAt: new Date() })
-    .where(eq(reviews.id, reviewId));
-
-  flagWrite(currentUser.id);
-  // No stats recompute: hiding a comment affects feed visibility only —
-  // star ratings live in world_ratings and are untouched by creator hides.
-
-  return c.json({ data: { hidden: true } });
-});
-
-/**
- * Shared write-gate for rating/comment endpoints: world exists, reviews are
- * open, and neither side has blocked the other. Returns null when allowed.
- */
-async function checkReviewGate(
-  currentUser: { id: string },
-  worldId: string,
-  // Ratings feed the PUBLIC averageRating and the discovery quality term, so
-  // a creator must not rate their own world (self-5★ gaming). Comments are
-  // NOT blocked for the creator — replying to your own world's feed is
-  // legitimate — so this flag is set only on the rating paths.
-  opts?: { blockSelfRating?: boolean },
-): Promise<{ response: Response } | null> {
-  const [targetWorld] = await db
-    .select({ creatorId: worlds.creatorId, allowReviews: worlds.allowReviews })
-    .from(worlds)
-    .where(eq(worlds.id, worldId))
-    .limit(1);
-
-  if (!targetWorld) {
-    return { response: Response.json({ error: "World not found" }, { status: 404 }) };
-  }
-  if (targetWorld.allowReviews === false) {
-    return { response: Response.json({ error: "Reviews are closed for this world" }, { status: 403 }) };
-  }
-  if (opts?.blockSelfRating && targetWorld.creatorId === currentUser.id) {
-    return { response: Response.json({ error: "You can't rate your own world" }, { status: 403 }) };
-  }
-  if (targetWorld.creatorId !== currentUser.id) {
-    const blockStatus = await getBlockStatus(currentUser.id, targetWorld.creatorId);
-    if (blockStatus.blocked) {
-      if (blockStatus.direction === "blocked") {
-        return { response: Response.json(blockedJson(), { status: 403 }) };
-      }
-      return { response: Response.json({ code: "you_blocked_target", error: "You have blocked this user" }, { status: 403 }) };
-    }
-  }
-  return null;
-}
-
-/**
- * Upsert the user's one-per-language-group star rating. An existing row on
- * any sibling variant is updated in place (keeps its worldId); otherwise a
- * new row lands on the variant being viewed.
- */
-async function upsertWorldRating(
-  userId: string,
-  worldId: string,
-  rating: number,
-): Promise<{ isNew: boolean; storedWorldId: string; ratingEventId: string }> {
-  const existing = await db
-    .select({ id: worldRatings.id, worldId: worldRatings.worldId })
-    .from(worldRatings)
-    .where(
-      and(
-        eq(worldRatings.userId, userId),
-        sql`${worldRatings.worldId} IN (
-          SELECT w.id FROM worlds w
-          WHERE w.id = ${worldId}
-             OR (w.language_group_id IS NOT NULL
-                 AND w.language_group_id = (SELECT language_group_id FROM worlds WHERE id = ${worldId}))
-        )`
-      )
-    )
-    .limit(1);
-
-  if (existing[0]) {
-    const updatedAt = new Date();
-    await db
-      .update(worldRatings)
-      .set({ rating, updatedAt })
-      .where(eq(worldRatings.id, existing[0].id));
-    return {
-      isNew: false,
-      storedWorldId: existing[0].worldId,
-      ratingEventId: worldRatingNotificationEventId(existing[0].id, updatedAt),
-    };
-  }
-
-  const id = crypto.randomUUID();
-  const updatedAt = new Date();
-  await db.insert(worldRatings).values({ id, userId, worldId, rating, createdAt: updatedAt, updatedAt });
-  return {
-    isNew: true,
-    storedWorldId: worldId,
-    ratingEventId: worldRatingNotificationEventId(id, updatedAt),
-  };
-}
-
-/**
- * Recompute denormalized reviewCount + averageRating on the worlds table from
- * world_ratings (rater semantics: one user = one count, so comment volume
- * can't inflate a card's traction or 金牌工匠 progress).
- */
-function recomputeReviewStats(worldId: string): void {
-  db.execute(sql`
-    UPDATE worlds SET
-      review_count = (SELECT count(*)::int FROM world_ratings WHERE world_ratings.world_id = ${worldId}),
-      average_rating = (SELECT COALESCE(AVG(world_ratings.rating), 0)::float FROM world_ratings WHERE world_ratings.world_id = ${worldId})
-    WHERE id = ${worldId}
-  `).catch(() => {});
-}
 
 /** Notify all followers of a creator that they published a new world (fire-and-forget). */
 /**
@@ -4622,7 +4535,10 @@ export function notifyFollowersOfPublish(
   worldName: string,
   thumbnailUrl: string | null,
 ) {
-  (async () => {
+  return (async () => {
+    const [live] = await db.select({ status: worlds.status, isPublished: worlds.isPublished, visibility: worlds.visibility })
+      .from(worlds).where(eq(worlds.id, worldId)).limit(1);
+    if (!live || live.status !== "published" || !live.isPublished || live.visibility === "unlisted") return;
     const followerRows = await db
       .select({ followerId: follows.followerId })
       .from(follows)
@@ -4632,6 +4548,7 @@ export function notifyFollowersOfPublish(
         followerRows.map((f) => f.followerId),
         "followed_user_published",
         { creatorUserId: creatorId, creatorName, worldId, worldName, thumbnailUrl },
+        { actorUserId: creatorId, dedupeKey: `world-published:${worldId}` },
       );
     }
   })().catch(() => {});

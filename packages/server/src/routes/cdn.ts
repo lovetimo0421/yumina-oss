@@ -8,6 +8,7 @@ import { publicAssetCacheControl } from "../lib/public-asset-cache.js";
 import { isPublicCdnKey, resolvePublicCdnKey } from "../lib/cdn-key-policy.js";
 import { createCoverPreviewService } from "../lib/cover-preview.js";
 import { readObjectBodyLimited } from "../lib/read-object-limited.js";
+import { publicRigCharacter } from "../lib/rig/characters.js";
 
 // In-memory LRU cache: assetId → s3Key
 // Assets are immutable, so the mapping never changes.
@@ -63,6 +64,15 @@ function decodedPublicKey(value: string): string | null {
   const key = Buffer.from(value, "base64url").toString("utf-8");
   return value.length <= 4096 && isPublicCdnKey(key) ? key : null;
 }
+
+// A live character as cards name it (@rig:<id>): the pack it shows now and the creator's settings. Small and public
+// like the packs; never cached for long, since the creator changes either from the generation page.
+cdnRoutes.get("/rig/:id", async (c) => {
+  const found = await publicRigCharacter(c.req.param("id"));
+  c.header("Cache-Control", "public, max-age=15");
+  if (!found) return c.json({ error: "Not found" }, 404);
+  return c.json(found);
+});
 
 cdnRoutes.get("/key/:encodedKey/cover-preview", c => coverPreview(c, decodedPublicKey(c.req.param("encodedKey")), false));
 cdnRoutes.get("/key/:encodedKey/cover-preview.mp4", c => coverPreview(c, decodedPublicKey(c.req.param("encodedKey")), true));

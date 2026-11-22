@@ -1,4 +1,13 @@
 {
+  "cardImages": {
+    "ask": {
+      "title": "Let this story draw pictures?",
+      "body": "This story wants to draw a picture for you. Each picture costs {{price}} mushies.",
+      "free": "You have {{count}} free pictures left.",
+      "confirm": "Draw",
+      "remember": "Don't ask again for this story"
+    }
+  },
   "nativeVoice": {
     "title": "Enable live voice",
     "description": "Speak naturally and interrupt replies. Your camera stays off.",
@@ -50,11 +59,14 @@
   },
   "view": {
     "retry": "Retry",
+    "sessionNotFound": "This chat can't be opened. It may belong to your other account, or it was deleted.",
+    "switchAccount": "Switch account",
     "loadingSession": "Loading session...",
     "exitFullscreen": "Exit fullscreen (F11)",
     "returnToFullscreen": "Return to fullscreen",
     "switchModel": "Model",
     "memoryPanel": "Memory",
+    "searchMessages": "Search chat history",
     "enterSystemFullscreen": "Enter system fullscreen",
     "exitImmersive": "Exit immersive mode",
     "showPlayControls": "Show play controls",
@@ -77,6 +89,8 @@
     "displayModeKeep": "Keep settings",
     "sandboxBootFailed": "Couldn't load this world's interface. Check your connection and try again.",
     "sandboxBootSlow": "Still loading — your connection looks slow.",
+    "floatingHere": "It's in its own window now.",
+    "floatingDock": "Bring it back",
     "sceneVideo": "Scene video",
     "backToEditor": "Back to editor"
   },
@@ -132,6 +146,29 @@
     "sceneGalleryLocked": "Not shown yet",
     "sceneGalleryEmpty": "This world has no scene images.",
     "sessionOrdinal": "Session {{n}}",
+    "searchSaves": "Search sessions",
+    "clearSearch": "Clear search",
+    "sortSaves": "Sort",
+    "sort": {
+      "recent": "Recently played",
+      "oldest": "Oldest first",
+      "messages": "Most messages",
+      "name": "Name"
+    },
+    "searchHits_one": "{{count}} match",
+    "searchHits_other": "{{count}} matches",
+    "searchMore_one": "{{count}} more",
+    "searchMore_other": "{{count}} more",
+    "searchFailed": "Search failed. Try again.",
+    "noMatchingSaves": "No matching sessions",
+    "pinSession": "Pin to top",
+    "unpinSession": "Unpin",
+    "pinFailed": "Couldn't pin the session",
+    "unpinFailed": "Couldn't unpin the session",
+    "selectAllMatching_one": "Select the {{count}} match",
+    "selectAllMatching_other": "Select all {{count}} matches",
+    "deselectAllMatching_one": "Deselect the {{count}} match",
+    "deselectAllMatching_other": "Deselect all {{count}} matches",
     "playedFor": "{{time}} played",
     "chooseVersion": "Choose which version to start",
     "startThisVersion": "Start this version"
@@ -239,6 +276,7 @@
   },
   "modelBrowser": {
     "privateSetupTitle": "Set up private models",
+    "docsLink": "Which models can I use?",
     "privateSetupDescription": "Choose Private API Key in AI Configuration and set up your provider key to use these models.",
     "title": "Browse Models",
     "searchPlaceholder": "Search models...",
@@ -358,14 +396,11 @@
     "signInToSend": "Sign in to send messages",
     "openPreview": "Preview"
   },
-  "zoom": {
-    "adjustZoom": "Adjust play zoom",
-    "zoomLabel": "Play zoom percentage"
-  },
   "stateGuard": {
     "unverified": "State check unavailable. Stats updated from the reply as written"
   },
   "errors": {
+    "WORLD_ACCESS_ENDED": "You no longer have access to this card — its creator removed you from it.",
     "PROTECTED_WORLD": "This world's creator has protected it from prompt scraping. Only official Yumina API models are available — private API keys cannot be used.",
     "NO_CREDITS": "You've run out of mushies! Finish daily quests for free mushies, or upgrade your plan.",
     "PRIVATE_API_BALANCE": "Your private API has insufficient balance. Check your provider account.",
@@ -477,7 +512,12 @@
     "noKey": "Voice readout needs an API key. Add one in Settings.",
     "voiceUnavailable": "This voice is no longer available. Pick another one.",
     "needsKeyOrCredits": "Voice readout needs an OpenRouter key or mushies.",
-    "byokNoBalance": "Your API key has insufficient balance."
+    "byokNoBalance": "Your API key has insufficient balance.",
+    "cardAsks": {
+      "title": "Turn on voice readout?",
+      "body": "This story wants to talk to you out loud. Voice readout reads lines with AI voices and costs mushies per character. You can switch it off any time in Settings › Display / Language.",
+      "confirm": "Turn on"
+    }
   },
   "worldDisplayUnavailable": "This world's interface couldn't load. Please contact support.",
   "film": {
@@ -509,7 +549,9 @@
     "scenesEmpty": "Scenes appear once filming starts.",
     "current": "current",
     "cutBack": "↩ Back to {{scene}}",
-    "changesNextTime": "Changes apply the next time you roll camera.",
+    "changesNextTime": "The look changes from the next reply; other changes apply the next time you roll camera.",
+    "lookNext": "Next reply films in this look.",
+    "advanced": "Advanced",
     "engine": "Engine",
     "engineComfy": "Comfy H3 · ~130 mushies/min",
     "engineFal": "fal · fastest, steadiest · ~5,800 mushies/min",
@@ -531,24 +573,25 @@
     "limitSeconds": "Longest film (seconds)",
     "reset": "Reset",
     "consentTitle": "Scene video is experimental",
-    "consentBody": "Costs mushies: fal streams live at ~5,800 a minute; short films cost ~100–1,400 per reply, charged when each film is made.",
+    "consentBody": "Costs mushies: fal streams live at ~5,800 a minute; short films cost ~800–2,000 per reply, charged when each film is made.",
     "consentAccept": "Turn on and roll",
     "consentDecline": "Not now",
     "noCredits": "Out of mushies, so filming stopped.",
     "notEnabled": "Turn on scene video in Settings first.",
     "unavailable": "Scene video isn't available right now.",
-    "engineShorts": "Short films · a film per reply, a few minutes after it · ~100–1,400 mushies per reply",
-    "shortsHint": "Each reply becomes a 5–60 s film with voices, as long as the moment needs. It's ready a few minutes after the reply is written and plays here; between films the last frame stays on screen.",
+    "engineShorts": "Short films · a film per reply, starting about half a minute after it · ~800–2,000 mushies per reply",
+    "shortsHint": "Each reply becomes a 5–60 s film with voices, as long as the moment needs. It starts playing here about half a minute after the reply is written; between films the last frame stays on screen.",
     "shortWriting": "Next film: the director is writing the shots…",
     "shortShooting": "Next film: {{done}} of {{shots}} shots done",
-    "shortFailed": "This reply wasn't filmed: {{reason}}",
+    "shortFailed": "This reply wasn't filmed: {{reason}}. No mushies were taken.",
+    "shortRefused": "the director wouldn't film this scene",
     "shortBusy": "two films are already being made",
     "shortTimeout": "it took too long and was stopped",
     "shortRetry": "Film again",
     "shortRetake": "Film the latest reply again",
     "shortBack": "Back a film",
     "shortForward": "Next film",
-    "shortNone": "The first film is on its way. It's ready a few minutes after the reply.",
+    "shortNone": "The first film is on its way. It starts about half a minute after the reply.",
     "shortOpening": "Opening",
     "shortReply": "Reply {{n}}",
     "shortShot": "shot {{n}}/{{total}}",
@@ -644,5 +687,13 @@
       "shortRewind": "Player rewound: playing a film from its start"
     }
   },
-  "memoryModelNeedsPlan": "{{model}} needs the {{plan}} plan. Pick another model for memory, or upgrade."
+  "memoryModelNeedsPlan": "{{model}} needs the {{plan}} plan. Pick another model for memory, or upgrade.",
+  "cardImages": {
+    "ask": {
+      "title": "Let this story draw pictures?",
+      "body": "This story wants to draw a picture for you. Each picture costs {{price}} mushies. If you agree, this story can draw pictures for you from now on without asking again.",
+      "free": "You have {{count}} free pictures left.",
+      "confirm": "Draw"
+    }
+  }
 }

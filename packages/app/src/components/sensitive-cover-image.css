@@ -68,3 +68,37 @@
 }
 
 .sensitive-cover[data-presentation="hero"]::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(90deg, #0a0b0e9c, transparent 70%), linear-gradient(0deg, #08090c66, transparent 65%); }
+
+/* With a mouse the hidden cover is just a blur: the way to show it appears when the pointer (or keyboard focus)
+   reaches the card. */
+@media (hover: hover) and (pointer: fine) {
+  .sensitive-cover-prompt > * { opacity: 0; transform: translateY(4px); transition: opacity .18s ease, transform .18s ease; }
+  .sensitive-cover-prompt:hover > *, .sensitive-cover-prompt:focus-within > *,
+  :is(.hub-card, .featured-art, .discover-featured-world):hover .sensitive-cover-prompt > * { opacity: 1; transform: none; }
+}
+/* On a touch screen nothing hovers. A card keeps just the blur and a small eye in its top-left corner: tapping
+   the eye shows the cover, tapping anywhere else opens the card. Where there is room (a card's own page) the
+   button keeps its words. */
+@media (hover: none), (pointer: coarse) {
+  .sensitive-cover-prompt { pointer-events: none; }
+  .sensitive-cover-prompt > :not(.sensitive-cover-show, .sensitive-cover-settings) { display: none; }
+  .sensitive-cover .sensitive-cover-show { pointer-events: auto; position: absolute; left: 10px; top: 10px; width: 30px; height: 30px; min-height: 30px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: #0d0e1373; color: #f4efe5e6; box-shadow: none; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+  .sensitive-cover .sensitive-cover-show::before { content: ""; position: absolute; inset: -8px; }
+  .sensitive-cover .sensitive-cover-show svg { display: block; width: 15px; height: 15px; }
+  .sensitive-cover .sensitive-cover-show span, .sensitive-cover .sensitive-cover-settings { display: none; }
+  .sensitive-cover .sensitive-cover-hide { width: 30px; height: 30px; min-height: 30px; padding: 0; border: 0; border-radius: 50%; background: #0d0e1373; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+  .sensitive-cover .sensitive-cover-hide::before { content: ""; position: absolute; inset: -8px; }
+  .sensitive-cover .sensitive-cover-hide svg { width: 15px; height: 15px; }
+  .sensitive-cover .sensitive-cover-hide span { display: none; }
+  @container (min-width: 340px) and (min-height: 180px) {
+    .sensitive-cover .sensitive-cover-show { position: static; width: auto; height: auto; min-height: 42px; padding: 10px 18px; border: 1px solid #ffffff33; border-radius: 999px; background: #15161c8c; }
+    .sensitive-cover .sensitive-cover-show span { display: inline; }
+    .sensitive-cover .sensitive-cover-settings { display: inline-flex; pointer-events: auto; }
+    .sensitive-cover .sensitive-cover-hide { width: auto; height: auto; min-height: 36px; padding: 7px 10px; border: 1px solid #ffffff33; border-radius: 999px; background: #15161ce6; }
+    .sensitive-cover .sensitive-cover-hide span { display: inline; }
+  }
+}
+@media (prefers-reduced-motion: reduce) { .sensitive-cover-prompt > * { transition: none; transform: none; } }
+/* The older card lays its summary and tags over the cover on hover: over a hidden cover that would sit on top of
+   the way to show it. */
+.hub-card:has(.hub-card__body) .sensitive-cover[data-cover-hidden="true"] ~ div { display: none; }

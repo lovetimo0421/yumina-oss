@@ -1,0 +1,52 @@
+import assert from 'node:assert/strict';
+import test, { before } from 'node:test';
+import { Hono } from 'hono';
+import { migrateWorldDefinition, type WorldDefinition } from '@yumina/engine';
+import { db } from '../db/index.js';
+import { apiKeys, playSessions, user, worlds } from '../db/schema.js';
+import { encryptApiKey } from '../lib/crypto.js';
+import { OpenRouterProvider } from '../lib/llm/openrouter.js';
+import type { GenerateParams, StreamChunk } from '../lib/llm/types.js';
+import type { AppEnv } from '../lib/types.js';
+import { completionRoutes } from './completions.js';
+
+before(async () => { await import(new URL('../../scripts/test-local-schema.mjs', import.meta.url).href); });
+
+test('a side call that names a reasoning level gets it, and its reasoning streams back; other calls stay as they were', async t => {
+  const userId = crypto.randomUUID();
+  await db.insert(user).values({ id:userId, name:'Reasoning test', email:`${userId}@test.local`, preferences:{preferredProvider:'private'} });
+  const key = encryptApiKey('synthetic-reasoning-test-key');
+  await db.insert(apiKeys).values({userId,provider:'openrouter',encryptedKey:key.encrypted,keyIv:key.iv,keyTag:key.tag});
+  const worldId = crypto.randomUUID();
+  const schema = migrateWorldDefinition({id:worldId,version:'1.0.0',name:'Reasoning test',description:'',author:'test',entries:[],variables:[],rules:[],reactions:[],components:[],audioTracks:[],customUI:[],settings:{maxTokens:2000,temperature:1}} as unknown as WorldDefinition);
+  await db.insert(worlds).values({id:worldId,creatorId:userId,name:schema.name,status:'draft',schema:schema as unknown as Record<string,unknown>});
+  const [session] = await db.insert(playSessions).values({userId,worldId}).returning();
+  const observed:GenerateParams[]=[];
+  t.mock.method(OpenRouterProvider.prototype,'generateStream',async function* (params:GenerateParams):AsyncGenerator<StreamChunk> {
+    observed.push(params);
+    yield {type:'reasoning',content:'2 and 4 voted together.'};
+    yield {type:'text',content:'I reject.'};
+    yield {type:'done',content:'',usage:{promptTokens:20,completionTokens:10,totalTokens:30}};
+  });
+  const app=new Hono<AppEnv>();
+  app.use('*',async(c,next)=>{c.set('user',{id:userId} as AppEnv['Variables']['user']);await next();});
+  const route='/sessions/:sessionId/completions';
+  for(const {handler} of completionRoutes.routes.filter(item=>item.method==='POST'&&item.path===route)) app.post(route,handler);
+  const request=(extra:Record<string,unknown>)=>app.request(`/sessions/${session!.id}/completions`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:'Vote.'}],model:'deepseek/deepseek-v4-pro',...extra})});
+  const asked=await request({reasoningEffort:'high'});
+  assert.equal(asked.status,200);
+  const askedText=await asked.text();
+  assert.match(askedText,/event: reasoning\ndata: \{"content":"2 and 4 voted together\."\}/);
+  assert.ok(askedText.indexOf('event: reasoning')<askedText.indexOf('event: done'));
+  assert.match(askedText,/"content":"I reject\."/);
+  assert.equal(observed[0]?.reasoningEffort,'high');
+  const plain=await request({});assert.equal(plain.status,200);
+  assert.doesNotMatch(await plain.text(),/event: reasoning/);
+  assert.equal(observed[1]?.reasoningEffort,undefined);
+  const off=await request({reasoningEffort:'none'});
+  assert.doesNotMatch(await off.text(),/event: reasoning/);
+  assert.equal(observed[2]?.reasoningEffort,'none');
+  const invalid=await request({reasoningEffort:'max'});
+  assert.equal(invalid.status,400);await invalid.text();
+  assert.equal(observed.length,3,'An unknown level must never reach inference');
+});

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { RECAP_SHARES } from './recap.js';
 
 export const aiGenerationConfigSchema = z.object({
   maxTokens: z.number().int().min(256).max(32768).optional(),
@@ -10,6 +11,13 @@ export const aiGenerationConfigSchema = z.object({
    * WORLD we carry (memoryCap), which is charged separately.
    */
   storyMemory: z.number().int().min(2048).max(200_000).optional(),
+  /**
+   * How large the recap of older scenes may grow, as a share of story memory
+   * (shared/src/recap.ts). Absent = never chosen; resolveRecapShare decides.
+   */
+  recapShare: z.enum(RECAP_SHARES).optional(),
+  /** How many turns session memory waits before it updates (MEMORY_EVERY_CHOICES). Absent = 3, as before. */
+  memoryEvery: z.number().int().min(1).max(50).optional(),
   temperature: z.number().min(0).max(2).optional(),
   topP: z.number().min(0).max(1).optional(),
   frequencyPenalty: z.number().min(-2).max(2).optional(),
@@ -17,7 +25,9 @@ export const aiGenerationConfigSchema = z.object({
   repetitionPenalty: z.number().min(0).max(2).optional(),
   topK: z.number().int().min(0).max(500).optional(),
   minP: z.number().min(0).max(1).optional(),
-  reasoningEffort: z.enum(['minimal', 'low', 'medium', 'high']).optional(),
+  /** 'none' switches thinking off on a model that can (see MODEL_THINKING);
+   *  a model that must think keeps its own default. */
+  reasoningEffort: z.enum(['none', 'minimal', 'low', 'medium', 'high']).optional(),
   streaming: z.boolean().optional(),
 });
 
@@ -31,9 +41,22 @@ export type AiGenerationConfig = z.infer<typeof aiGenerationConfigSchema>;
  * prompts the moment this deploys. resolveStoryMemory decides what an absent
  * value means, using the account's age (packages/shared/src/story-memory.ts).
  */
-export type AiGenerationDefaults = Readonly<Required<Omit<AiGenerationConfig, "storyMemory">>> & {
+export type AiGenerationDefaults = Readonly<Required<Omit<AiGenerationConfig, "storyMemory" | "recapShare" | "memoryEvery">>> & {
   storyMemory?: number;
+  recapShare?: AiGenerationConfig["recapShare"];
+  memoryEvery?: number;
 };
+
+/** The quick choices offered for how often session memory updates, in turns; any 1 to 50 can be typed. */
+export const MEMORY_EVERY_CHOICES = [3, 5, 10, 20] as const;
+export const DEFAULT_MEMORY_EVERY = 3;
+export const MEMORY_EVERY_MIN = 1;
+export const MEMORY_EVERY_MAX = 50;
+/** A turn count the server can trust: a whole number from 1 to 50, else the default. */
+export function resolveMemoryEvery(value: unknown): number {
+  return typeof value === "number" && Number.isInteger(value) && value >= MEMORY_EVERY_MIN && value <= MEMORY_EVERY_MAX
+    ? value : DEFAULT_MEMORY_EVERY;
+}
 export const AI_GENERATION_DEFAULTS: AiGenerationDefaults = {
   maxTokens: 12000, maxContext: 200000, temperature: 1.0, topP: 1.0,
   frequencyPenalty: 0, presencePenalty: 0, repetitionPenalty: 1.08,

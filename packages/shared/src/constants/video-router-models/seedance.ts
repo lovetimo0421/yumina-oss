@@ -16,6 +16,17 @@ export const SEEDANCE_VIDEO_MODELS: readonly VideoModelSpec[] = [
     // tokens = $0.594, measured 2026-10-09) and 21:9, the widest tier (+4.5%
     // pixels at 480p). A 4 s 480p clip with sound took 155 s end to end.
     etaSeconds: 150, perSecond: { "480p": 156, "720p": 336, "1080p": 825 },
+    // Following a video is billed as video-to-video: 1.931 credits per 1K
+    // tokens, but the reference's own tokens count as well. We crop it to the
+    // clip's shape at 24 fps and about its size (Seedance wants 409,600 to
+    // 927,408 pixels a frame: a 480p reference grows to the floor, never past
+    // the widest 480p clip; a wide 720p one shrinks to the ceiling), so the
+    // bill is at most twice the widest clip's tokens at 1.931:
+    // 156 × 1.931 / 3.229 × 2 = 187 a second at 480p, 402 at 720p.
+    // Measured 2026-10-16 (12 s and 8 s at 480p following a 12 s and an 8 s
+    // blockout): 446 and 298 credits, 2,114 and 1,412 mushies, under 2,244 and
+    // 1,496. The 1080p video-to-video rate is not on the card, so no 1080p.
+    referenceVideo: { resolutions: ["480p", "720p"], perSecond: { "480p": 187, "720p": 402 } },
   },
   {
     id: "seedance-2.0", name: "Seedance 2.0", provider: "comfy-router", family: "seedance", routerModel: "byteplus/dreamina-seedance-2-0-260128",
@@ -47,21 +58,10 @@ export const SEEDANCE_VIDEO_MODELS: readonly VideoModelSpec[] = [
     etaSeconds: 110, perSecond: { "480p": 51, "720p": 110 },
   },
   {
-    id: "seedance-1.5-pro", name: "Seedance 1.5 Pro", provider: "comfy-router", family: "seedance", routerModel: "byteplus/seedance-1-5-pro-251215",
-    resolutions: ["480p", "720p", "1080p"], defaultResolution: "720p",
-    durations: { min: 4, max: 12 }, defaultDuration: 5,
-    frames: { first: true, last: true, both: true }, maxReferences: 0, aspectFromFrame: true,
-    sound: true, watermark: true, textToVideo: true, tuning: false, loras: false, styles: false, selfHosted: false,
-    // 253.2 credits per 1M tokens silent, 506.4 with sound (2026-10-09); Comfy's
-    // per-10 s table, top of each aspect range, +5%: 480p 25.32 / 50.64,
-    // 720p 54.86 / 109.72, 1080p 124.49 / 249.0 credits.
-    etaSeconds: 60, perSecond: { "480p": 13, "720p": 28, "1080p": 62 }, perSecondSound: { "480p": 26, "720p": 55, "1080p": 124 },
-  },
-  {
     id: "seedance-1.0-pro", name: "Seedance 1.0 Pro", provider: "comfy-router", family: "seedance", routerModel: "byteplus/seedance-1-0-pro-250528",
     resolutions: ["480p", "720p", "1080p"], defaultResolution: "1080p",
     durations: { min: 2, max: 12 }, defaultDuration: 5,
-    frames: { first: true, last: true, both: true }, maxReferences: 0, aspectFromFrame: true,
+    frames: { first: true, last: true, both: true }, maxReferences: 0, aspectFromFrame: true, cameraFixed: true,
     sound: false, watermark: true, textToVideo: true, tuning: false, loras: false, styles: false, selfHosted: false,
     // 527.5 credits per 1M tokens (2026-10-09); per 10 s, top of range, +6%
     // (480p 2 s with first+last frame measured exactly 50 mushies at 25/s):
@@ -72,7 +72,7 @@ export const SEEDANCE_VIDEO_MODELS: readonly VideoModelSpec[] = [
     id: "seedance-1.0-pro-fast", name: "Seedance 1.0 Pro Fast", provider: "comfy-router", family: "seedance", routerModel: "byteplus/seedance-1-0-pro-fast-251015",
     resolutions: ["480p", "720p", "1080p"], defaultResolution: "1080p",
     durations: { min: 2, max: 12 }, defaultDuration: 5,
-    frames: { first: true, last: false, both: false }, maxReferences: 0, aspectFromFrame: true,
+    frames: { first: true, last: false, both: false }, maxReferences: 0, aspectFromFrame: true, cameraFixed: true,
     sound: false, watermark: true, textToVideo: true, tuning: false, loras: false, styles: false, selfHosted: false,
     // 211 credits per 1M tokens (2026-10-09); per 10 s, top of range, +3%:
     // 480p 21.1, 720p 48.53, 1080p 103.39 credits.

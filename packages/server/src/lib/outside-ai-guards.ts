@@ -21,22 +21,29 @@ const SNAPSHOT_WINDOW_MS = 15 * 60_000;
  */
 export async function snapshotBeforeOutsideWrite(args: {
   worldId: string;
+  /** Whose AI is writing (the creator or an editor collaborator): rolling
+   *  back undoes one person's steps, never a collaborator's. */
   userId: string;
   actor: string;
   schema: Record<string, unknown>;
-}): Promise<void> {
+}): Promise<string | null> {
   const label = `Before: ${args.actor}`.slice(0, 200);
   const since = new Date(Date.now() - SNAPSHOT_WINDOW_MS);
   const [recent] = await db.select({ id: worldSnapshots.id }).from(worldSnapshots)
-    .where(and(eq(worldSnapshots.worldId, args.worldId), like(worldSnapshots.label, `${label}%`), gte(worldSnapshots.createdAt, since)))
+    .where(and(eq(worldSnapshots.worldId, args.worldId), eq(worldSnapshots.userId, args.userId),
+      like(worldSnapshots.label, `${label}%`), gte(worldSnapshots.createdAt, since)))
     .limit(1);
-  if (recent) return;
-  await db.insert(worldSnapshots).values({ worldId: args.worldId, userId: args.userId, schemaData: args.schema, label });
+  // Within the window one restore point gathers the whole task's edits.
+  if (recent) return recent.id;
+  const [inserted] = await db.insert(worldSnapshots)
+    .values({ worldId: args.worldId, userId: args.userId, schemaData: args.schema, label, edits: [] })
+    .returning();
   const extra = await db.select({ id: worldSnapshots.id }).from(worldSnapshots)
     .where(eq(worldSnapshots.worldId, args.worldId))
     .orderBy(desc(worldSnapshots.createdAt))
     .offset(SNAPSHOTS_KEPT);
   for (const row of extra) await db.delete(worldSnapshots).where(eq(worldSnapshots.id, row.id));
+  return inserted?.id ?? null;
 }
 
 /** Cards an outside AI may start for one creator per day. */
@@ -56,6 +63,12 @@ export async function canCreateCard(userId: string): Promise<boolean> {
  */
 export const PLAYTEST_TURNS_PER_HOUR = 30;
 const playtestTurns = new Map<string, number[]>();
+
+/** Turns this creator has left this hour, without taking any. */
+export function playtestTurnsLeft(userId: string): number {
+  const now = Date.now();
+  return Math.max(0, PLAYTEST_TURNS_PER_HOUR - (playtestTurns.get(userId) ?? []).filter((t) => now - t < 3600_000).length);
+}
 
 /** How many of `wanted` turns this creator may still play this hour. */
 export function takePlaytestTurns(userId: string, wanted: number): number {

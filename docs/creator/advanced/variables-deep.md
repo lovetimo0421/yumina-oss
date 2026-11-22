@@ -1,3 +1,8 @@
+---
+title: "Designing game state"
+description: "Which values deserve a variable, which type to pick, how to write behavior rules the AI follows, and patterns from published worlds."
+---
+
 <div v-pre>
 
 # Designing Game State
@@ -12,9 +17,9 @@ For the basics of variable types, Behavior Rules and Precise tracking, see [Vari
 
 Before you add anything, ask yourself: **what does a player need to feel is real?**
 
-In a survival game, the answer is resources — health, hunger, ammunition. The player needs to feel scarcity. In a romance, it's relationship depth — the player needs to feel that their choices are building toward something. In a mystery, it's knowledge flags — the player needs to feel the investigation narrowing.
+In a survival game, the answer is resources: health, hunger, ammunition. The player needs to feel scarcity. In a romance, it's relationship depth. The player needs to feel that their choices are building toward something. In a mystery, it's knowledge flags. The player needs to feel the investigation narrowing.
 
-You don't need a variable for everything. The AI handles narrative details perfectly well on its own — you don't need a `current_weather` variable unless weather mechanically matters. Track the things that **drive decisions and consequences**.
+You don't need a variable for everything. The AI handles narrative details perfectly well on its own. You don't need a `current_weather` variable unless weather mechanically matters. Track the things that **drive decisions and consequences**.
 
 A good rule of thumb: if the value should affect what the AI writes next, make it a variable. If it's just flavor, let the AI improvise.
 
@@ -34,11 +39,11 @@ The four variable types are covered in [Variables](/creator/variables). On the c
 
 **Number** when the value changes gradually, you need thresholds for events, or the magnitude of change matters. Numbers get min/max bounds enforced by the engine, so you don't need to waste prompt space telling the AI "don't let health go below zero."
 
-**Text** when the value is a label, not a quantity — locations, moods, story phases. Give it **Allowed values** when there's a fixed set (phases, moods): Precise tracking then picks only from that list. Don't use Text for two-state values (locked/unlocked); use a Switch instead.
+**Text** when the value is a label, not a quantity: locations, moods, story phases. Give it **Allowed values** when there's a fixed set (phases, moods): Precise tracking then picks only from that list. Don't use Text for two-state values (locked/unlocked); use a Switch instead.
 
 **Switch** when something has either happened or hasn't. The simplest type, the easiest for the AI to manage, and the ideal gate for conditional lore and behaviors.
 
-**List / table** when a single variable needs structured data: inventories with item properties, faction maps with multiple relationships, quest logs with nested progress. Don't use it for simple values — `[health: -10]` is more reliable than `[stats.health: -10]`. Precise tracking doesn't work on this type, so the AI changes it with directives.
+**List / table** when a single variable needs structured data: inventories with item properties, faction maps with multiple relationships, quest logs with nested progress. Don't use it for simple values: `[health: -10]` is more reliable than `[stats.health: -10]`. Precise tracking doesn't work on this type, so the AI changes it with directives.
 
 ---
 
@@ -66,7 +71,7 @@ Two to four sentences is usually enough. If your behavior rules are longer than 
 
 ## A few things worth knowing
 
-**The `delete` operation** removes a key from a JSON object or an element from a JSON array. It works through normal bracket syntax — `[npcs: delete "aria"]` (quoted string for an object key) or `[inventory: delete 0]` (number for an array index). The one trap: `delete` needs a JSON-shaped value after it; the bare form `[var: delete]` falls through to an implicit-set and writes the literal string `"delete"` into the variable, which is almost never what you want. For batch removals or array-by-id deletes, a `<UpdateVariable>` JSON Patch block (see [AI Directives & Macros](/creator/advanced/directives-macros)) also works.
+**The `delete` operation** removes a key from a JSON object or an element from a JSON array. It works through normal bracket syntax: `[npcs: delete "aria"]` (quoted string for an object key) or `[inventory: delete 0]` (number for an array index). The one trap: `delete` needs a JSON-shaped value after it; the bare form `[var: delete]` falls through to an implicit-set and writes the literal string `"delete"` into the variable, which is almost never what you want. For batch removals or array-by-id deletes, a `<UpdateVariable>` JSON Patch block (see [AI Directives & Macros](/creator/advanced/directives-macros)) also works.
 
 ---
 
@@ -91,7 +96,7 @@ This is cleaner when you have many characters, because the AI can update any cha
 
 ### Inventory systems
 
-The simplest inventory is a Text variable the AI adds to with `append` — Battle Royale keeps its death roster this way. For a proper inventory with item properties, use a JSON array:
+The simplest inventory is a Text variable the AI adds to with `append`. Battle Royale keeps its death roster this way. For a proper inventory with item properties, use a JSON array:
 
 ```json
 [
@@ -133,21 +138,21 @@ For the complete directive syntax including all 9 operations, the shorthand trap
 
 **Vague behavior rules.** "Track health" tells the AI nothing. "Decrease 5-15 on minor hits, 15-25 on major hits, 0 = death scene" tells the AI everything it needs. Behavior rules are the difference between a variable that works and one that gets ignored.
 
-**Using JSON when a simple type would do.** If you just need a number, use a number. `[health: -10]` is simpler and more reliable than `[stats.health: -10]`. Save JSON for genuinely structured data.
+**Using JSON when a simple type would do.** If you just need a number, use a number. `[health: -10]` is simpler and more reliable than `[stats.health: -10]`. Save JSON for structured data.
 
 **Forgetting min/max on numbers.** Without bounds, the AI might push health to -47 or gold to 999,999. Set a **Range** on every number variable. The engine clamps automatically.
 
 **Not testing magnitude.** Play your world for 10 turns and check if the numbers feel right. If affinity jumps from 15 to 80 in three interactions, your magnitude ranges are too generous. If it barely moves after 20 turns, they're too tight. **This turn → Each value** in a [playtest](/creator/playtest) shows why each value moved or didn't.
 
-**Making IDs hard for the AI.** Use simple, readable IDs like `health`, `player-gold`, `aria-trust` (a variable's **ID** is under **Advanced** in its settings). Avoid spaces, special characters, or names that could collide with built-in macros (`user`, `char`, `time`, `date`). If you want to write the value into lore as a `{{macro}}`, use underscores instead of hyphens (`player_gold`): hyphenated IDs, including the random ones new variables get, don't work as macros.
+**Making IDs hard for the AI.** Use simple, readable IDs like `health`, `player-gold`, `aria-trust` (a variable's **ID** is under **Advanced** in its settings). Avoid spaces, special characters, or names that could collide with built-in macros (`user`, `char`, `time`, `date`). If you want to write the value into lore as a `{{macro}}`, use `_` instead of hyphens (`player_gold`): hyphenated IDs, including the random ones new variables get, don't work as macros.
 
 ---
 
 ## See also
 
-- [AI Directives & Macros](/creator/advanced/directives-macros) — directive syntax, all 9 operations, dot-paths, and the shorthand trap
-- [Writing Great Entries](/creator/advanced/entries-deep) — conditional lore that reacts to your variables
-- [Behaviors & Automation](/creator/advanced/rules-deep) — behaviors that fire when variables cross thresholds
+- [AI Directives & Macros](/creator/advanced/directives-macros): directive syntax, all 9 operations, dot-paths, and the shorthand trap
+- [Writing Great Entries](/creator/advanced/entries-deep): conditional lore that reacts to your variables
+- [Behaviors & Automation](/creator/advanced/rules-deep): behaviors that fire when variables cross thresholds
 
 Complete variable schema → [World Spec: Variables](/world-spec/variables)
 

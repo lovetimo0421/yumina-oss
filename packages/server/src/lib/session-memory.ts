@@ -10,6 +10,8 @@ import { latestValidMemoryVersion, saveMemoryVersion } from "./session-memory-ve
 import { recordUsageLog } from "./usage-log.js";
 import { backgroundBillingApplies, billBackgroundUsage, hasBackgroundRunBudget, notEnoughMushiesMessage, prepareBackgroundUsageBill } from "./background-billing.js";
 import { calculateCost } from "./credit-service.js";
+import { estimateCallCredits, gateBackgroundCharge } from "./background-consent.js";
+import { isZeroCostPlayModel } from "./llm/fallback-models.js";
 import { estimateTokensFromMetrics } from "@yumina/engine";
 import { resolveProviderForModel, type ResolvedProvider } from "./resolve-provider.js";
 import { planAllowedModel } from "./plan-model-gate.js";
@@ -22,6 +24,7 @@ import { canRunMemoryQa, createMemoryQaProvider, type MemoryQaScenario } from ".
 import type { GenerateParams } from "./llm/types.js";
 import { isExtensionInstalled } from "./extensions.js";
 import { SESSION_MEMORY_EXTENSION_KEY } from "@yumina/shared";
+import { chatModelPick, chatRunModel } from "./role-model.js";
 import type { ChatMessage } from "./llm/types.js";
 import { enqueueKeyedJob } from "./job-chain.js";
 import { memoryClaimGuard, memoryLagGuard, memorySourceGuard, pendingMemoryRange, memoryReplyFilter, memoryRepairFilter, memorySourceCountGuard, type MemoryJobSnapshot } from "./session-memory-guards.js";
@@ -58,6 +61,7 @@ import {
   selectPendingMemoryBatch,
   shouldUpdateSessionMemory,
 } from "./session-memory-core.js";
+import { DEFAULT_SESSION_MEMORY_MODEL } from "./background-model-defaults.js";
 
 /**
  * The output cap the updater ran with for months. Some user-selected memory
@@ -72,9 +76,7 @@ function isOutputCapRejection(err: unknown): boolean {
   return /max_tokens|max_completion_tokens|maximum (?:number of )?(?:output|completion) tokens|output token limit/i.test(message);
 }
 
-// See DEFAULT_STORY_SUMMARY_MODEL: cheap, CJK-aware, and not the deprecated
-// x-ai/grok-4.1-fast (which redirects to the ~20x-pricier x-ai/grok-4.20).
-export const DEFAULT_SESSION_MEMORY_MODEL = "google/gemini-3.1-flash-lite";
+export { DEFAULT_SESSION_MEMORY_MODEL };
 const DEGENERATE_SESSION_MEMORY_FALLBACK_MODEL = "deepseek/deepseek-v4-flash";
 
 const MAX_STATE_CHARS = 8_000;
@@ -91,6 +93,8 @@ type IncrementalUpdateArgs = {
   fallbackModel: string;
   assistantMessageId?: string | null;
   force?: boolean;
+  /** The player's choice: update once this many turns are waiting (default 3). */
+  memoryEvery?: number;
 };
 
 type PreparedMemoryJob = {
@@ -382,6 +386,8 @@ async function generateHealthyMemoryText(args: {
 
   const canRetryWithFallback = async (retryModel: string) => {
     if (args.qaProvider) return false;
+    // A free memory run is never retried on a priced model behind the player's back.
+    if (isZeroCostPlayModel(args.model) && !isZeroCostPlayModel(retryModel)) return false;
     if (budget.remaining <= 0) return false;
     fallbackProvider = await resolveProviderForModel(args.userId, retryModel, {
       allowOfficialFallback: false,
@@ -759,6 +765,32 @@ async function canAffordMemoryRebuild(args: { userId: string; sessionId: string;
  *  this the rebuild waits for the player to start it from the memory panel. */
 const AUTO_MEMORY_REBUILD_MAX_CREDITS = 30;
 
+/** One memory update, for the price the consent dialog quotes: a batch of
+ *  turns and the memory so far in, a rewritten memory out. */
+const MEMORY_CALL_PROMPT_TOKENS = 8_000;
+const MEMORY_CALL_COMPLETION_TOKENS = 2_000;
+
+/**
+ * An automatic memory run asks before it charges (background-consent.ts).
+ * Returns the model to run on (Yumina Free when the player chose it), or
+ * null when it must not run. The memory works from a saved cursor, so a run
+ * that does not happen is caught up by the next one.
+ */
+async function gateAutomaticMemory(userId: string, model: string): Promise<string | null> {
+  const allowed = await planAllowedModel(userId, model, DEFAULT_SESSION_MEMORY_MODEL);
+  const resolved = await resolveProviderForModel(userId, allowed, { allowOfficialFallback: false }).catch(() => null);
+  if (!resolved) return model;
+  const gate = await gateBackgroundCharge({
+    userId,
+    feature: "memory",
+    model: allowed,
+    isByok: resolved.isByok,
+    estimate: () => estimateCallCredits(allowed, MEMORY_CALL_PROMPT_TOKENS, MEMORY_CALL_COMPLETION_TOKENS),
+  });
+  if (!gate.run) return null;
+  return gate.viaFree ? gate.model : model;
+}
+
 /** Where a rebuild starts and the memory it starts from. `revised` folds the
  *  turns from an edit onward over the memory written before the edit, told
  *  that they supersede it. */
@@ -828,8 +860,11 @@ async function regenerateSessionMemoryForSessionNow(args: {
 
   if (!row) throw new Error("Session not found");
 
-  const sessionModel = applyModelRedirect((args.model || row.session.sessionMemoryModel || DEFAULT_SESSION_MEMORY_MODEL).trim());
-  let model = sessionModel;
+  // The column keeps the chat's own pick; the run may follow the player's
+  // memory default instead (job.sessionModel below). See role-model.ts.
+  const pick = await chatModelPick(args.userId, "memory", args.model, row.session.sessionMemoryModel);
+  const sessionModel = applyModelRedirect((pick || row.session.sessionMemoryModel || DEFAULT_SESSION_MEMORY_MODEL).trim());
+  let model = pick ?? await chatRunModel(args.userId, "memory", row.session.sessionMemoryModel);
 
   let job: PreparedMemoryJob | null = null;
   try {
@@ -874,14 +909,19 @@ async function regenerateSessionMemoryForSessionNow(args: {
       const current = normalizeSessionMemory(row.session.sessionMemory);
       const beforeChange = current.text ? await turnBeforeChange(args.sessionId, row.session) : null;
       if (beforeChange) plans.push({ from: beforeChange, seed: current, revised: true });
-      ({ model, plan } = await planAutomaticRebuild({ userId: args.userId, sessionId: args.sessionId, model: sessionModel, safeTip, plans }));
+      ({ model, plan } = await planAutomaticRebuild({ userId: args.userId, sessionId: args.sessionId, model, safeTip, plans }));
+      const gated = await gateAutomaticMemory(args.userId, model);
+      // Not answered or declined: the memory stays as it is (and stays marked
+      // stale), and the next turn tries again.
+      if (!gated) return normalizeSessionMemory(row.session.sessionMemory);
+      model = gated;
     }
     const from = plan.from;
     // A rebuild is one call per ~60k characters it folds (180+ on the longest
     // sessions from the start). Without this gate a short wallet ran every
     // batch, then the debit failed and nothing was saved or charged (655 such
     // calls the week of 2026-10-12).
-    if (!args.qaProvider && !await canAffordMemoryRebuild({ userId: args.userId, sessionId: args.sessionId, model, safeTip, from })) {
+    if (!args.qaProvider && !isZeroCostPlayModel(model) && !await canAffordMemoryRebuild({ userId: args.userId, sessionId: args.sessionId, model, safeTip, from })) {
       throw new Error(notEnoughMushiesMessage("session-memory"));
     }
     const boundaryState = await loadHistoricalState(args.sessionId, safeTip);
@@ -1053,12 +1093,12 @@ async function updateSessionMemoryIncrementally(args: IncrementalUpdateArgs): Pr
     }).from(messages).where(boundary.where)
       .orderBy(asc(messages.createdAt), asc(messages.id)).limit(MAX_INCREMENTAL_TRANSCRIPT_ROWS);
     const batch = selectPendingMemoryBatch(transcriptRows, undefined,
-      memoryBatchTurnLimit(row.session.sessionMemoryRetryCount ?? 0, row.session.sessionMemoryError));
+      memoryBatchTurnLimit(row.session.sessionMemoryRetryCount ?? 0, row.session.sessionMemoryError, args.memoryEvery));
     const previousMemory = normalizeSessionMemory(row.session.sessionMemory);
     if (!shouldUpdateSessionMemory({
       pendingTurns: batch.turns, pendingChars: batch.chars,
       hasMemory: !!previousMemory.text, failed: row.session.sessionMemoryStatus === "failed",
-      force: args.force,
+      force: args.force, every: args.memoryEvery,
     })) return;
     // State snapshots can be much larger than the text. Read only the state
     // at this batch's endpoint, not up to 200 historical copies of it.
@@ -1070,6 +1110,19 @@ async function updateSessionMemoryIncrementally(args: IncrementalUpdateArgs): Pr
       state: batchState?.stateSnapshot ?? {},
       assistantMessageId: batch.processedMessageId,
     }, row);
+    const runModel = await chatRunModel(args.userId, "memory", job.model);
+    if (runModel !== job.model) {
+      job.sessionModel = job.model;
+      job.model = runModel;
+    }
+    if (!args.force) {
+      const gated = await gateAutomaticMemory(args.userId, job.model);
+      if (!gated) return;
+      if (gated !== job.model) {
+        job.sessionModel ??= job.model;
+        job.model = gated;
+      }
+    }
     job.states = [{ id: batch.processedMessageId!, snapshot: batchState?.stateSnapshot ?? null }];
     job.sourceRows = batch.rows;
     job.excludedReplyId = boundary.latestReplyId;

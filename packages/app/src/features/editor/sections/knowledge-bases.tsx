@@ -93,7 +93,7 @@ export function KnowledgeBasesSection(_props: { compact?: boolean } = {}) {
               onClick={() => focusObject("module", scopedModule)}
               className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             >
-              <Boxes className="h-3 w-3 text-amber-300" />
+              <Boxes className="h-3 w-3 text-muted-foreground" />
               {t("modules.settings")}
             </button>
           )}
@@ -104,11 +104,10 @@ export function KnowledgeBasesSection(_props: { compact?: boolean } = {}) {
         <>
           <div className="shrink-0 border-b border-border bg-card px-5 py-3">
             <div className="flex items-center gap-2">
-              <Monitor className="h-5 w-5 text-emerald-400" />
-              <h2 className="text-base font-extrabold text-foreground">{t("kb.bindingsTab")}</h2>
-              <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-semibold text-emerald-400">{t("kb.controlCount", { count: slotCount })}</span>
+              <Monitor className="h-5 w-5 text-muted-foreground" />
+              <h2 className="text-base font-extrabold text-foreground" title={t("kb.bindingsPanelDesc")}>{t("kb.bindingsTab")}</h2>
+              <span className="rounded-full bg-white/5 px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">{t("kb.controlCount", { count: slotCount })}</span>
             </div>
-            <p className="mt-1 text-xs text-muted-foreground">{t("kb.bindingsPanelDesc")}</p>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
             <LoreBindingsPanel inline />

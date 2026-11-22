@@ -1,3 +1,8 @@
+---
+title: "Macros"
+description: "Every macro a world file can use in entry text, from user and char to random picks, dice rolls, time and variable values."
+---
+
 <div v-pre>
 
 # Macros

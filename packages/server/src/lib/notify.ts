@@ -28,6 +28,13 @@ export type NotificationType =
   | "new_follower"
   | "new_friend"
   | "friend_invite"
+  | "world_test_invite"
+  | "world_feedback"
+  | "world_collab_invite"
+  | "world_collab_joined"
+  | "world_collab_left"
+  | "world_collab_removed"
+  | "world_collab_review_withdrawn"
   | "new_review"
   | "new_comment"
   | "new_review_reply"
@@ -42,6 +49,8 @@ export type NotificationType =
   | "thread_like"
   | "post_like"
   | "bundle_like"
+  | "bundle_installed"
+  | "world_remixed"
   | "thread_deleted_by_admin"
   | "thread_deleted_by_cited_owner"
   | "post_deleted_by_mod"
@@ -61,25 +70,37 @@ export type NotificationType =
   | "world_review_approved"
   | "world_review_rejected"
   | "prompt_pack_reviewed"
+  | "bundle_reviewed"
+  | "image_post_reviewed"
+  | "workbench_skill_reviewed"
+  | "workbench_element_reviewed"
   | "new_review_pending"
+  | "new_bundle_review_pending"
   | "achievement_earned"
   | "referral_milestone"
   | "creator_community_post"
   | "generation_completed"
   | "generation_failed"
+  | "card_translation_completed"
+  | "card_translation_failed"
   | "platform_announcement";
 
 const TYPE_TO_GROUP: Partial<Record<NotificationType, string>> = {
   new_favorite: "engagement",
   new_review: "engagement",
+  world_feedback: "engagement",
   new_review_reply: "engagement",
   bundle_like: "engagement",
+  bundle_installed: "engagement",
+  world_remixed: "engagement",
   tip_received: "engagement",
   mushie_gift_received: "engagement",
   referral_milestone: "engagement",
   new_follower: "social",
   new_friend: "social",
   friend_invite: "social",
+  world_test_invite: "social",
+  room_invite: "social",
   followed_user_published: "social",
   creator_community_post: "social",
   world_update: "library",
@@ -93,7 +114,9 @@ const TYPE_TO_GROUP: Partial<Record<NotificationType, string>> = {
   thread_like: "community",
   post_like: "community",
   thread_rewarded: "community",
-  room_invite: "community",
+  // Invites to work on someone's card: someone who keeps getting them can
+  // turn them off with the other social notices.
+  world_collab_invite: "social",
 };
 
 /**
@@ -192,6 +215,8 @@ export interface WorldReviewNotificationPayload extends Record<string, unknown> 
   reviewerUserId: string;
   ratingEventId: string;
   rating: number;
+  /** Why a 1–2★ rating was low (LOW_RATING_REASONS). */
+  lowReasons?: string[];
   commentContent?: string;
   reviewId?: string;
 }

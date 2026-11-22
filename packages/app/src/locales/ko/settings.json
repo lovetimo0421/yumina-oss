@@ -1,0 +1,535 @@
+{
+  "pageTitle": "설정",
+  "search": {
+    "label": "설정 검색",
+    "placeholder": "설정 검색",
+    "clear": "설정 검색어 지우기",
+    "results": "찾은 설정: {{count}}개",
+    "noResults": "검색된 설정이 없어요",
+    "noResultsHint": "언어나 개인정보처럼 다른 키워드로 검색해 보세요.",
+    "aiConfigDescription": "모델, 제공자, API 키, 생성 환경설정이에요.",
+    "byokTitle": "개인 API 연결",
+    "byokDescription": "내 API 키 사용하기",
+    "localModelTitle": "내 컴퓨터에서 직접 실행하기",
+    "localModelDescription": "이 기기의 모델로 무료로 플레이하기"
+  },
+  "nav": {
+    "account": "계정",
+    "aiConfig": "AI 설정",
+    "contentSafety": "콘텐츠 및 안전",
+    "privacy": "개인정보",
+    "notifications": "알림",
+    "display": "화면 / 언어",
+    "wallpaper": "배경화면",
+    "about": "정보",
+    "prompts": "프롬프트"
+  },
+  "aiConfig": {
+    "title": "AI 설정",
+    "ownAi": "고급: 내 AI 사용하기"
+  },
+  "account": {
+    "saved": "저장됨",
+    "title": "계정",
+    "emailLabel": "이메일",
+    "emailCannotChange": "이메일은 변경할 수 없어요",
+    "usernameLabel": "사용자 이름",
+    "usernameHint": "3~30자, 영문, 숫자, 밑줄(_)만 사용할 수 있어요",
+    "save": "저장",
+    "saving": "저장 중...",
+    "changePassword": {
+      "changed": "변경됨",
+      "title": "비밀번호 변경",
+      "description": "비밀번호를 변경해요. 다른 모든 세션은 로그아웃돼요.",
+      "currentPassword": "현재 비밀번호",
+      "newPassword": "새 비밀번호",
+      "confirmNewPassword": "새 비밀번호 확인",
+      "submit": "비밀번호 변경",
+      "changing": "변경 중..."
+    },
+    "signOut": {
+      "title": "로그아웃",
+      "description": "이 기기에서 계정을 로그아웃해요.",
+      "button": "로그아웃"
+    },
+    "loginDevices": {
+      "title": "로그인된 기기",
+      "description": "낯선 기기나 더 이상 사용하지 않는 기기는 로그아웃하세요.",
+      "loading": "기기를 불러오는 중...",
+      "loadError": "기기 목록을 불러오지 못했어요. 잠시 후 다시 시도해 주세요.",
+      "unknownDevice": "알 수 없는 기기",
+      "thisDevice": "이 기기",
+      "lastActive": "마지막 활동 {{time}}",
+      "signOutDevice": "로그아웃",
+      "signingOut": "로그아웃 중...",
+      "signOutOthers": "다른 모든 기기 로그아웃 ({{n}})",
+      "revoked": "기기를 로그아웃했어요",
+      "revokedOthers": "다른 모든 기기를 로그아웃했어요",
+      "revokeError": "해당 기기를 로그아웃하지 못했어요. 잠시 후 다시 시도해 주세요.",
+      "propagationNote": "로그아웃한 기기는 완전히 로그아웃되기까지 최대 5분이 걸릴 수 있어요. 비밀번호를 변경하면 다른 모든 기기가 즉시 로그아웃돼요.",
+      "showAll": "기기 {{n}}대 모두 보기"
+    },
+    "deleteAccount": {
+      "title": "계정 삭제",
+      "description": "계정과 관련 데이터를 영구적으로 삭제해요.",
+      "button": "계정 삭제",
+      "dialogTitle": "계정을 영구적으로 삭제할까요?",
+      "dialogDescription": "확인 링크를 이메일로 보내드려요. 확인하기 전까지 계정은 유지돼요.",
+      "warningTitle": "이 작업은 되돌릴 수 없어요",
+      "summaryWarnings": {
+        "data": "계정, 콘텐츠, 채팅, 업로드한 파일이 영구적으로 삭제돼요.",
+        "billing": "구독은 즉시 종료되며, 남은 기간과 버섯코인은 환불되지 않아요.",
+        "deletionCooldown": "언제든 다시 가입할 수 있어요. 다시 삭제하려면 이번 삭제로부터 3일이 지나야 해요."
+      },
+      "warnings": {
+        "identity": "프로필과 연결된 모든 로그인 방식이 삭제돼요.",
+        "deletionCooldown": "같은 이메일로 Google이나 Discord를 통해서도 바로 다시 가입할 수 있지만, 다시 만든 계정은 이번 삭제로부터 3일 동안 삭제할 수 없어요.",
+        "content": "내가 만든 월드, 리소스 팩, 게시한 콘텐츠, 플레이, 메시지, 페르소나, 업로드한 파일이 삭제돼요.",
+        "community": "내가 만든 콘텐츠에 연결된 다른 플레이어의 플레이, 리뷰, 답글이 사라질 수 있어요.",
+        "billing": "진행 중인 구독은 즉시 종료돼요. 남은 이용 기간과 버섯코인은 환불되지 않아요.",
+        "records": "결제 대행사는 회계 또는 부정 이용 방지를 위해 법에서 요구하는 결제 및 신원 기록을 보관할 수 있어요. 이 기록은 더 이상 활성 Yumina 계정과 연결되지 않아요.",
+        "antiAbuse": "악용 방지와 서비스 운영을 위해 가명 처리된 보안 로그와 제한적인 분석 데이터가 필요한 기간 동안 보관될 수 있어요.",
+        "cache": "저장된 업로드 파일은 삭제되지만, 브라우저나 콘텐츠 전송 네트워크의 기존 캐시는 유효 기간이 끝날 때까지 계속 보일 수 있어요."
+      },
+      "pendingEarnings": "정산되지 않은 크리에이터 수익이 있으면 삭제할 수 없어요. 고객지원에 문의해 주세요.",
+      "confirmLabel": "확인하려면 {{target}}을(를) 입력하세요",
+      "confirmPlaceholder": "{{target}} 입력",
+      "acknowledge": "계정과 데이터가 영구적으로 삭제된다는 점을 이해했어요.",
+      "sendEmail": "확인 이메일 보내기",
+      "sending": "보내는 중...",
+      "cancel": "계정 유지하기",
+      "canceling": "요청을 취소하는 중...",
+      "emailSentTitle": "이메일을 확인해 주세요",
+      "emailSentDescription": "{{email}}(으)로 탈퇴 링크를 보냈어요. 마지막 확인 페이지를 완료하기 전까지 계정은 계속 유지돼요. 탈퇴 후 바로 다시 가입할 수 있지만, 다시 만든 계정은 3일 동안 탈퇴할 수 없어요. 링크는 1시간 후에 만료돼요.",
+      "close": "닫기",
+      "finalConfirmationDescription": "마지막 단계예요. 아래 버튼을 누르면 바로 삭제가 시작되며 되돌릴 수 없어요. 바로 다시 가입할 수 있지만, 다시 만든 계정은 3일 동안 탈퇴할 수 없어요.",
+      "deleting": "삭제하는 중...",
+      "invalidLinkTitle": "유효하지 않거나 만료된 링크예요",
+      "signInRequiredTitle": "로그인이 필요해요",
+      "signInRequiredDescription": "보안을 위해 같은 브라우저에서 이 계정에 로그인한 뒤, 이메일의 탈퇴 링크를 다시 열어 주세요.",
+      "signIn": "로그인",
+      "errors": {
+        "confirmationMismatch": "확인 문구가 계정과 일치하지 않아요.",
+        "pendingEarnings": "크리에이터 수익이 아직 정산 대기 중이에요. 계정을 삭제하기 전에 고객지원에 문의해 주세요.",
+        "billing": "결제 서비스에서 구독을 취소하지 못해 삭제가 중단되었어요. 나중에 다시 시도해 주세요. 계속 문제가 생기면 고객지원에 문의해 구독을 확인해 주세요.",
+        "creatorAccount": "크리에이터 정산 계좌를 해지하지 못했어요. 계정을 삭제하기 전에 고객지원에 문의해 주세요.",
+        "notReady": "계정 삭제를 준비하고 있어요. 몇 분 후에 다시 시도해 주세요.",
+        "cooldown": "이 이메일은 3일이 지나지 않은 때에 삭제된 계정에서 사용되었어요. 이 계정은 계속 사용할 수 있지만, 아직 삭제할 수는 없어요.",
+        "cooldownUntil": "이 이메일은 3일이 지나지 않은 때에 삭제된 계정에서 사용되었기 때문에, 이 계정은 {{time}}까지 삭제할 수 없어요. 계정이 잠긴 것은 아니며 평소처럼 계속 사용할 수 있어요.",
+        "lastAdmin": "마지막 관리자 계정은 삭제할 수 없어요. 먼저 신뢰할 수 있는 다른 관리자를 지정해 주세요.",
+        "referral": "추천 내역이 있는 계정은 보상이 중복으로 지급되지 않도록 고객지원을 통해 삭제해야 해요.",
+        "protectedHistory": "이 계정에는 적용 중인 안전 제한이 있어요. 고객지원에 문의해 삭제를 요청해 주세요.",
+        "email": "확인 이메일을 보내지 못했어요. 나중에 다시 시도해 주세요.",
+        "invalidLink": "이 삭제 링크는 유효하지 않거나 만료되었어요. 계정 설정에서 새로 요청해 주세요.",
+        "generic": "계정 삭제를 시작하지 못했어요. 나중에 다시 시도해 주세요.",
+        "privileged": "관리 권한이 있는 계정은 삭제하기 전에 관리 업무를 이전해야 해요. 고객지원에 문의해 주세요.",
+        "billingUnavailable": "계정에 연결된 결제 기록이 있지만, 이 서비스에는 결제 정리 기능이 설정되어 있지 않아요. 삭제를 완료하기 전에 고객지원에 문의해 복구해 주세요. 유료 구독이 활성 상태이거나 정산 설정이 완료되었다는 뜻은 아니에요.",
+        "subscriptionLookup": "결제 서비스에서 구독 상태를 확인하지 못했어요. 삭제가 중단되었으니 나중에 다시 시도하거나 고객지원에 문의해 주세요.",
+        "paymentPending": "정산 대기 중인 결제가 있어요. 결제가 완료되거나 실패한 후에 다시 시도해 주세요. 계속 대기 상태라면 고객지원에 문의해 주세요.",
+        "signIn": "세션이 만료되었어요. 다시 로그인한 후 시도해 주세요.",
+        "origin": "이 페이지가 보안 출처 검사를 통과하지 못했어요. 이 사이트의 설정에서 계정 삭제를 다시 열어 주세요.",
+        "request": "확인 요청이 올바르지 않아요. 페이지를 새로고침한 후 다시 시도해 주세요."
+      },
+      "preflight": {
+        "title": "계정을 삭제하기 전에 해결해야 할 문제",
+        "loading": "삭제 요건을 확인하는 중…",
+        "failed": "삭제 요건을 확인하지 못했어요. 계속하기 전에 다시 시도해 주세요.",
+        "retry": "다시 확인",
+        "emailAllowed": "이 문제들은 최종 삭제를 막지만, 확인 이메일은 받을 수 있어요. 이메일을 보내도 계정이 삭제되거나 구독이 취소되지는 않아요.",
+        "emailBlocked": "확인 이메일을 요청하기 전에 위의 문제를 해결해 주세요. 계정은 계속 사용할 수 있어요.",
+        "scope": "지금까지 확인된 문제예요. 최종 확인 시 결제 서비스의 구독과 결제 내역을 포함해 다시 확인해요.",
+        "records": "연결된 기록이 있어요: {{records}}. 기록만으로는 구독이 활성 상태이거나 정산 설정이 완료되었다는 뜻이 아니에요.",
+        "recordKinds": {
+          "customer": "결제 고객 정보",
+          "subscription": "구독",
+          "connect": "크리에이터 정산",
+          "payment": "결제",
+          "checkout": "결제 내역"
+        }
+      }
+    },
+    "connectedAccounts": {
+      "title": "로그인 방법",
+      "description": "연결된 모든 방법은 같은 계정으로 로그인돼요.",
+      "emailPassword": "이메일 및 비밀번호",
+      "connected": "연결됨",
+      "notConnected": "연결 안 됨",
+      "connect": "연결",
+      "disconnect": "연결 해제",
+      "connecting": "연결 중...",
+      "disconnecting": "연결 해제 중...",
+      "loading": "불러오는 중...",
+      "disconnected": "연결이 해제되었어요",
+      "connectError": "연결하지 못했어요",
+      "disconnectError": "연결을 해제하지 못했어요"
+    },
+    "connectedApps": {
+      "title": "연결된 앱",
+      "description": "Yumina 계정으로 로그인한 게임 모드, 앱, AI예요. 연결을 해제하면 바로 접근 권한이 사라져요.",
+      "loading": "불러오는 중…",
+      "loadError": "불러오지 못했어요. 새로고침 후 다시 시도해 주세요.",
+      "empty": "아직 연결된 앱이 없어요.",
+      "verified": "공식",
+      "connectedOn": "{{date}}에 연결됨",
+      "disconnect": "연결 해제",
+      "disconnecting": "연결 해제 중…",
+      "disconnectError": "연결을 해제하지 못했어요. 다시 시도해 주세요.",
+      "scope": {
+        "aiChat": "내 버섯코인으로 채팅하기",
+        "walletRead": "잔액",
+        "quests": "퀘스트",
+        "cards": "내 카드",
+        "profile": "이름"
+      }
+    },
+    "validation": {
+      "usernameMinLength": "사용자 이름은 3자 이상이어야 해요",
+      "usernameTaken": "이미 사용 중인 사용자 이름이에요",
+      "usernameUpdateFailed": "사용자 이름을 변경하지 못했어요",
+      "usernameUpdated": "사용자 이름이 변경되었어요",
+      "passwordMinLength": "새 비밀번호는 8자 이상이어야 해요",
+      "passwordsMismatch": "비밀번호가 일치하지 않아요",
+      "passwordChanged": "비밀번호가 변경되었어요",
+      "passwordChangeFailed": "비밀번호를 변경하지 못했어요",
+      "saveFailed": "설정을 저장하지 못했어요"
+    }
+  },
+  "contentSafety": {
+    "title": "콘텐츠 및 안전",
+    "description": "플랫폼에서 볼 콘텐츠 유형을 설정해요.",
+    "contentLevel": "콘텐츠 모드",
+    "safe": {
+      "label": "Limited",
+      "description": "Limited 콘텐츠만 표시"
+    },
+    "sensitive": {
+      "label": "Limitless",
+      "description": "Limitless 콘텐츠를 포함해요."
+    },
+    "minorRestriction": "이 계정에서는 Limitless 모드를 사용할 수 없어요.",
+    "audiencePreference": {
+      "title": "선호 대상",
+      "description": "추천 피드에서 볼 대상층을 선택하세요. 검색, 태그, 크리에이터 페이지에는 영향을 주지 않아요.",
+      "all": {
+        "label": "모두",
+        "description": "남성향과 여성향을 포함한 모든 이야기를 봐요."
+      },
+      "male": {
+        "label": "남성향",
+        "description": "남성향과 일반 이야기를 보고, 여성향은 숨겨요."
+      },
+      "female": {
+        "label": "여성향",
+        "description": "여성향과 일반 이야기를 보고, 남성향은 숨겨요."
+      }
+    },
+    "blurSensitive": {
+      "title": "민감한 커버 흐리게 표시",
+      "description": "민감한 커버를 안개처럼 흐리게 가리고, 직접 선택해야 볼 수 있어요. 끄면 모든 커버가 그대로 표시돼요. 콘텐츠 모드는 바뀌지 않아요."
+    },
+    "hiddenWorlds": {
+      "title": "숨긴 월드",
+      "subtitle": "탐색에서 \"관심 없음\"으로 표시한 월드",
+      "empty": "숨긴 월드가 없어요.",
+      "show": "다시 표시",
+      "failed": "복원하지 못했어요. 다시 시도해 주세요"
+    }
+  },
+  "privacy": {
+    "title": "개인정보 보호",
+    "description": "내 활동을 볼 수 있는 사람과 나에게 연락할 수 있는 사람을 설정해요.",
+    "privateAccount": {
+      "title": "비공개 계정",
+      "description": "내가 팔로우하는 사람만 내가 게시한 월드, 통계, 활동을 볼 수 있어요."
+    },
+    "allowDMs": {
+      "title": "개인 메시지 허용",
+      "description": "다른 사용자가 나에게 개인 메시지를 보낼 수 있어요."
+    },
+    "showRecentPlay": {
+      "title": "최근 플레이 표시",
+      "description": "최근에 플레이한 월드를 공개 프로필에 표시해요."
+    },
+    "profileVisibility": {
+      "title": "프로필 공개 범위",
+      "description": "프로필의 비공개 영역을 볼 수 있는 사람을 선택하세요. 프로필을 제한하면 다른 사람은 내 프로필에서 게시한 월드, 최근 플레이, 팔로워/팔로잉 목록, 즐겨찾기를 볼 수 없어요.",
+      "public": {
+        "title": "전체 공개",
+        "description": "누구나 내 프로필 정보와 프로필 섹션을 볼 수 있어요."
+      },
+      "followers": {
+        "title": "내가 팔로우하는 사람",
+        "description": "내가 팔로우하는 사람만 내가 게시한 월드와 비공개 프로필 정보를 볼 수 있어요."
+      },
+      "private": {
+        "title": "비공개",
+        "description": "나만 내가 게시한 월드와 비공개 프로필 정보를 볼 수 있어요."
+      }
+    },
+    "showPlayHistory": {
+      "title": "플레이 기록 공개",
+      "description": "최근 플레이한 월드를 공개 프로필에 표시해요."
+    },
+    "showStats": {
+      "title": "내 데이터 공개",
+      "description": "플레이 시간과 크리에이터 통계를 공개 프로필에 표시해요."
+    },
+    "showFollowLists": {
+      "title": "팔로워 / 팔로잉 목록 공개",
+      "description": "다른 사람이 내 팔로워와 팔로잉 목록을 볼 수 있게 해요. 숫자는 설정과 관계없이 표시돼요."
+    },
+    "showFavorites": {
+      "title": "내 즐겨찾기 공개",
+      "description": "즐겨찾기와 라이브러리 미리보기를 공개 프로필에 표시해요."
+    },
+    "blacklist": {
+      "title": "차단 목록",
+      "subtitle": "차단한 사용자 관리",
+      "empty": "차단한 사용자가 없어요.",
+      "unblock": "차단 해제",
+      "saveFailed": "차단 목록을 업데이트하지 못했어요",
+      "hideTheirWorlds": "상대의 월드 카드 숨기기",
+      "hideMyWorlds": "내 월드 카드를 상대에게 숨기기",
+      "hideTheirActivity": "상대의 리뷰와 커뮤니티 게시글 숨기기"
+    }
+  },
+  "notifications": {
+    "title": "알림",
+    "groups": {
+      "engagement": "반응",
+      "engagementDesc": "내 월드와 리소스 팩에 달린 즐겨찾기, 리뷰, 좋아요, 후원이에요.",
+      "social": "소셜",
+      "socialDesc": "새 팔로워와 팔로우한 크리에이터의 새 월드예요.",
+      "creatorPosts": "크리에이터 게시글 알림",
+      "creatorPostsDesc": "팔로우한 크리에이터나 라이브러리에 있는 카드 제작자의 게시글이에요. 소셜 알림이 켜져 있어야 해요.",
+      "library": "라이브러리",
+      "libraryDesc": "라이브러리에 있는 월드의 업데이트와 상태 변경이에요.",
+      "community": "커뮤니티",
+      "communityDesc": "내 포럼 게시글에 달린 답글, 좋아요, 보상이에요."
+    }
+  },
+  "display": {
+    "readingAppearance": {
+      "title": "플레이 화면 테마",
+      "description": "기본 플레이 화면을 다크 또는 라이트로 선택해요. 이 브라우저에 저장돼요.",
+      "dark": "다크",
+      "light": "라이트"
+    },
+    "turnImages": {
+      "title": "스토리 일러스트",
+      "description": "답글에 \"이 장면 그리기\" 버튼을 추가해요.",
+      "auto": "모든 답글에 일러스트 생성",
+      "free": "무료 {{count}}장 남음, 이후 장당 {{price}} 버섯코인",
+      "price": "장당 {{price}} 버섯코인",
+      "unlimited": "현재 플랜에 포함",
+      "style": {
+        "default": "빠름",
+        "detailed": "정밀",
+        "vivid": "선명"
+      },
+      "vividTag": "1인"
+    },
+    "title": "화면",
+    "language": {
+      "title": "언어",
+      "current": "현재"
+    },
+    "fontSize": {
+      "title": "글자 크기",
+      "small": "작게",
+      "default": "기본",
+      "large": "크게",
+      "xLarge": "매우 크게",
+      "xxLarge": "가장 크게",
+      "hint": "변경 사항은 즉시 적용되고 이 기기에 저장돼요."
+    },
+    "autoFullscreenOnPlay": {
+      "title": "플레이 시 자동 전체 화면",
+      "description": "커스텀 인터페이스가 있는 월드를 전체 화면으로 열어요. 플레이 중에도 전체 화면을 켜고 끌 수 있어요."
+    },
+    "worldAudio": {
+      "title": "월드 음악 및 효과음",
+      "description": "월드에서 배경 음악과 효과음을 재생해요."
+    },
+    "tts": {
+      "title": "음성 읽기",
+      "description": "답글의 스피커를 누르면 들을 수 있어요. 아래에서 자동 읽기를 켤 수도 있어요.",
+      "offDescription": "기본적으로 꺼져 있어요. 켜면 답글을 소리 내어 읽어 주며, 음성 읽기에는 버섯코인이 들어요.",
+      "autoPlay": {
+        "title": "자동 읽기",
+        "description": "새 답글이 오면 바로 읽어 줘요. 새로 읽을 때마다 버섯코인이 들어요."
+      },
+      "mode": {
+        "full": "모두 읽기",
+        "fullHint": "나레이션과 대사",
+        "dialogue": "대사만",
+        "dialogueHint": "따옴표 안의 대사만"
+      },
+      "voice": {
+        "title": "음성",
+        "poolTitle": "내 음성 풀",
+        "poolHint": "마음에 드는 음성을 선택하면 AI가 그중에서 캐릭터별로 골라요. 아무것도 선택하지 않으면 전체에서 골라요.",
+        "poolAll": "모든 음성",
+        "poolCount": "{{count}}개 선택됨",
+        "poolClear": "지우기",
+        "customGroup": "커스텀",
+        "rename": "이름 변경",
+        "remove": "제거",
+        "namePlaceholder": "이 음성의 이름 지정",
+        "auto": "자동 (내 언어에 맞춤)",
+        "preview": "음성 미리듣기",
+        "customPlaceholder": "커스텀 음성 ID (fish.audio의 32자)",
+        "customHint": "fish.audio 음성 라이브러리에 있는 음성의 ID를 붙여넣어 내 풀에 추가하세요.",
+        "invalidId": "음성 ID가 올바르지 않아요. 영문과 숫자 32자여야 해요."
+      },
+      "volume": "음성 볼륨",
+      "previewFailed": "미리듣기를 재생하지 못했어요. 다시 시도해 주세요.",
+      "costHint": "음성 합성은 글자 수에 따라 버섯코인이 차감돼요. 이미 생성된 대사를 다시 재생하는 건 항상 무료예요.",
+      "voices": {
+        "zhGentleFemale": "부드러운 여성",
+        "zhMatureFemale": "성숙한 여성",
+        "zhSweetGirl": "달콤한 소녀",
+        "zhYoungMale": "젊은 남성",
+        "zhNarratorMale": "나레이터",
+        "enFemale": "따뜻한 여성",
+        "enYouthfulMale": "활기찬 남성",
+        "jaCalmFemale": "차분한 여성",
+        "jaEnergeticFemale": "활기찬 소녀",
+        "jaCalmMale": "차분한 남성",
+        "zhLivelyFemale": "발랄한 여성",
+        "zhLightMatureFemale": "부드러운 성숙한 여성",
+        "zhBrightFemale": "경쾌한 여성",
+        "zhBroadcastMale": "방송 톤 남성",
+        "zhDeepMale": "깊고 울리는 남성",
+        "zhSteadyMale": "안정적인 남성",
+        "enNarratorFemale": "이야기꾼 여성",
+        "enSoftFemale": "부드러운 이걸 소녀",
+        "enDeepMale": "낮고 느린 남성",
+        "enCalmMale": "침착한 남성",
+        "jaBrightGirl": "밝은 소녀",
+        "jaDeepMale": "부드러운 내레이터",
+        "esFemale": "선율 같은 여성",
+        "esGirl": "활기찬 소녀",
+        "esNarratorMale": "내레이터 남성"
+      }
+    },
+    "voiceInput": {
+      "title": "음성 입력",
+      "description": "타이핑 대신 마이크를 누른 채 말해 보세요. 메시지 입력창이 비어 있으면 전송 버튼이 마이크로 바뀌어요.",
+      "release": "손을 뗐을 때",
+      "followCard": "카드 기본값",
+      "confirm": "먼저 확인",
+      "auto": "바로 전송",
+      "followCardHint": "카드 기본값: 카드마다 다르게 정해져요 (대부분 먼저 확인해요).",
+      "key": "누르고 말하기 키",
+      "keySpace": "Space",
+      "keySpaceHint": "입력창에 입력 중이 아닐 때 작동해요",
+      "keyAnyHint": "입력 중에도 어디서든 작동해요",
+      "keyPress": "키를 누르세요…",
+      "free": "음성 입력은 무료예요."
+    },
+    "sendKey": {
+      "title": "Enter로 전송",
+      "description": "켜면 Enter로 메시지를 전송하고 Shift+Enter로 줄을 바꿔요. 끄면 Ctrl/⌘+Enter로 전송하고 Enter로 줄을 바꿔요."
+    },
+    "sceneVideo": {
+      "title": "장면 영상 (실험 기능)",
+      "description": "플레이 메뉴와 필름 스테이지가 있는 카드에 장면 영상을 표시해요. 보는 방법은 두 가지예요. 이야기를 따라가는 실시간 스트리밍(분당 약 5,800 버섯코인), 또는 모든 답변에 목소리가 입혀진 짧은 영상(답변 후 몇 분 뒤 완성, 답변당 약 100~1,400 버섯코인)이에요."
+    },
+    "halloween": {
+      "title": "시즌 장식",
+      "description": "할로윈 기간에는 버섯과 로고가 분장을 하고, 가끔 작은 박쥐가 날아다녀요. 월드 자체 화면은 바뀌지 않아요."
+    }
+  },
+  "wallpaper": {
+    "title": "배경화면",
+    "description": "페이지마다 배경화면을 선택하세요.",
+    "visualControls": {
+      "title": "시각 설정"
+    },
+    "opacity": {
+      "title": "배경화면 투명도",
+      "description": "배경화면을 더 흐리게 또는 더 선명하게 조절해요.",
+      "minLabel": "은은하게",
+      "maxLabel": "선명하게",
+      "ariaLabel": "배경화면 투명도",
+      "hint": "허브, 프로필, 설정, 라이브러리 배경"
+    },
+    "gradient": {
+      "title": "하단 그라데이션 강도",
+      "description": "페이지 하단의 어두운 그라데이션을 조절해요.",
+      "minLabel": "밝게",
+      "maxLabel": "어둡게",
+      "ariaLabel": "하단 그라데이션 강도"
+    },
+    "cloudyGlass": {
+      "title": "흐린 유리 강도",
+      "description": "유리 패널의 흐림과 불투명도를 조절해요.",
+      "minLabel": "더 선명하게",
+      "maxLabel": "더 흐리게",
+      "ariaLabel": "흐린 유리 강도"
+    },
+    "autoSaves": "변경 사항은 자동으로 저장돼요",
+    "library": {
+      "title": "배경화면 라이브러리",
+      "description": "배경화면을 클릭해 사용할 페이지를 선택하세요."
+    },
+    "upload": {
+      "title": "사용자 배경화면 업로드",
+      "description": "이 갤러리에는 \"{{folderName}}\" 폴더의 이미지가 표시돼요. 업로드한 파일도 그곳에 저장돼요.",
+      "loading": "배경화면 불러오는 중...",
+      "assetCount_one": "업로드한 이미지 에셋 {{count}}개",
+      "assetCount": "업로드한 이미지 에셋 {{count}}개",
+      "button": "업로드"
+    },
+    "assignments": {
+      "discover": {
+        "label": "탐색",
+        "description": "허브 및 탐색 페이지"
+      },
+      "profile": {
+        "label": "프로필",
+        "description": "프로필 및 공개 프로필 페이지"
+      },
+      "settings": {
+        "label": "설정",
+        "description": "설정 페이지"
+      },
+      "library": {
+        "label": "라이브러리",
+        "description": "라이브러리 및 만들기 선택 페이지"
+      }
+    },
+    "unused": "사용 안 함",
+    "setFor": "\"{{name}}\" 적용할 페이지",
+    "current": "현재",
+    "set": "적용",
+    "unknown": "알 수 없음",
+    "presets": {
+      "starryNight": {
+        "label": "별이 빛나는 밤",
+        "description": "푸른빛과 금빛의 밤하늘"
+      },
+      "libraryCanvas": {
+        "label": "라이브러리 캔버스",
+        "description": "더 따뜻한 회화풍 장면"
+      },
+      "uploaded": {
+        "description": "업로드한 배경화면"
+      }
+    },
+    "folderError": "배경화면 폴더를 준비하지 못했어요"
+  },
+  "about": {
+    "title": "정보",
+    "version": "버전",
+    "versionValue": "Yumina v1.0.0",
+    "termsOfService": "서비스 이용약관",
+    "privacyPolicy": "개인정보 처리방침",
+    "licenses": "오픈 소스 코드",
+    "contactSupport": "Yumina 문의하기",
+    "messageOfficial": "{{username}}님에게 메시지",
+    "emailSupport": "이메일 문의",
+    "emailCopied": "이메일을 복사했어요: {{email}}"
+  }
+}

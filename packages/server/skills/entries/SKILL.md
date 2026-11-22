@@ -50,6 +50,10 @@ Always set `section` when creating entries. The engine auto-derives `alwaysSend`
 - **alwaysSend** — auto-derived from section. Never set.
 - **role** — auto-derived from tags. Only set for "example" (special parsing) and "greeting" (first message).
 
+## Illustration LoRA (character entries)
+
+A character can carry `imageLora: { modelId, weight?, trigger? }`: story illustrations draw that character with the LoRA (an Anima LoRA the creator imported). Get ids from `list_loras`; only `ready` ones take effect. The card's art style is `update_settings.illustrationLora` (same shape). Defaults: weight 0.9 for a character, 0.8 for a style; trigger = the LoRA's first trained word. `modelId: ""` removes it. Bind only when the creator asks; a LoRA also pulls in its own outfit, so lower the weight (0.6–0.8) when the card's clothes matter.
+
 ## Tags
 
 Tags are organizational labels for the editor UI. They do NOT affect prompt behavior.

@@ -29,7 +29,7 @@
     },
     "all": {
       "title": "That's all of them",
-      "body": "Forgot something? Press Guide at the top."
+      "body": "Forgot something? Open ⋮ at the top right and press Guide."
     }
   },
   "parts": {
@@ -123,7 +123,7 @@
           "after": {
             "added": {
               "title": "It's added",
-              "body": "The new variable is on the canvas, and its settings are open on the right. Rename it at the top, like affection, money or stamina, then set where it starts and its range. To let the player see it, click \"Show on the player screen\". Click it again to remove the display; the variable and its data are kept."
+              "body": "The new variable is on the canvas, with its settings below its name. Rename it in the row header, then set where it starts and its range. To let the player see it, click \"Show on the player screen\". Click it again to remove the display; the variable and its data are kept."
             }
           }
         },
@@ -153,7 +153,7 @@
           "after": {
             "added": {
               "title": "A behavior in one sentence",
-              "body": "The new behavior is on the canvas. On the right, fill in the sentence: when it checks, which number reaches what, and what happens: tell the AI something, change a number, or pop up a note for the player. Once it's filled in, it just works."
+              "body": "The new behavior is on the canvas. Rename it in the row header, then fill in the settings below: when it checks, which number reaches what, and what happens. It can tell the AI something, change a number, or show the player a note."
             }
           }
         }
@@ -162,7 +162,7 @@
     "atmosphere": {
       "title": "Music and scene images",
       "goal": "Sound and pictures for the story.",
-      "body": "These two add sound and pictures to your story. Neither is required — add them when you want. In Audio, upload a song and write one line on when it plays, like \"when a fight starts\", and the story switches to it there.",
+      "body": "These two add sound and pictures to your story. Neither is required — add them when you want. In Audio, upload a song and write one line on when it plays, like \"when a fight starts\", and the story switches to it there. On the canvas, expand a track with its arrow to rename it and edit its settings in place.",
       "bodyMobile": "In Audio, upload a song and write one line on when it plays. In Scene images, upload a picture and write one line on when it shows. Neither is required.",
       "beats": {
         "image": {
@@ -181,19 +181,15 @@
       "title": "Cover, description and variants",
       "goal": "What players see on Discover, and other versions of your card.",
       "body": "This block is what players see first on Discover: cover, name and description. You can edit the name and description right on the block. The Background block beside it sits behind the chat; it can simply use the cover.",
-      "bodyMobile": "Cover, name and description are in Card settings; the chat background is in Background. The cover needs a 2:3 portrait and a 16:9 landscape — check the title and buttons don't cover a face.",
+      "bodyMobile": "Upload portrait artwork for 2:3 cards and landscape artwork for gallery views, or reuse the portrait. In Gallery display, adjust Desktop banner (21:9) and Mobile and gallery cards (16:9) separately. Save crop keeps both selections.",
       "beats": {
         "cover": {
           "title": "Click the cover",
           "body": "Click the cover and everything about your card opens on the right.",
           "after": {
-            "variants": {
-              "title": "Variants on top",
-              "body": "The same card can have several versions, like Chinese and English. Switch between them here, or make a new language version."
-            },
             "cover": {
               "title": "Cover",
-              "body": "A card has two covers: 2:3 portrait for phones, 16:9 landscape for desktop. Upload each, or crop the landscape from the portrait. Keep faces clear of the title and buttons."
+              "body": "Upload portrait artwork for 2:3 cards and landscape artwork for gallery views, or reuse the portrait. In Gallery display, adjust Desktop banner (21:9) and Mobile and gallery cards (16:9) separately. Save crop keeps both selections."
             },
             "gallery": {
               "title": "Gallery",
@@ -262,8 +258,8 @@
     "ais": {
       "title": "AIs",
       "goal": "Every AI is one more call to the model, living on the card or in a scenario.",
-      "body": "The card and every scenario end on an 「AI」 block: one row per AI, its name and its type. A card starts with one, called AI, turn-based: it answers every time the player speaks. Each AI you add is one more call to the model. Turn-based ones run on the player's turn; UI-based ones wait for a button in the Player interface to call them; code-based ones run on their own when a value meets a condition or a scenario ends. What an AI knows is where it lives: on the card it uses the card's settings, in a scenario that scenario's. Beside it, 「Context」 is the conversation kept there, and which AIs read it.",
-      "bodyMobile": "AIs are added and edited on the canvas on a computer. On a phone, skip ahead.",
+      "body": "The card and every scenario end on an 「AI」 block: one row per AI, its name and its type. A card starts with one, called AI, turn-based: it answers every time the player speaks. Each AI you add is one more call to the model. Turn-based ones run on the player's turn; UI-based ones wait for a button in the Player interface to call them; code-based ones run on their own when a value meets a condition or a scenario ends. What an AI knows is where it lives: on the card it uses the card's settings, in a scenario that scenario's. Beside it, 「Context」 is the conversation kept there, and which AIs read it. A situation's title also names who speaks there; click those names to see every AI the card runs, the platform's background ones included.",
+      "bodyMobile": "On a phone, Studio opens on the canvas. Tap the AI block to add or edit an AI; Back returns to the board.",
       "beats": {
         "add": {
           "title": "Add",
@@ -280,8 +276,8 @@
     "canvas": {
       "title": "Moving around the canvas",
       "goal": "Pan, zoom, find things.",
-      "body": "The canvas is your whole card; each block holds one kind of content. Click to select and just type to edit; double-click for its full editor; hold Ctrl and click or drag a box to pick several. Here are the tools for finding things, one at a time ↓",
-      "bodyMobile": "On a phone the editor is a set of pages; switch with the tabs at the top. The full canvas needs a computer, so skip ahead.",
+      "body": "The canvas is your whole card; each block holds one kind of content. Click a row to select it, then click again or use its arrow to expand settings below it. Rename it in the header. Audio and Context expand here too. Double-click a content row for its full editor; hold Ctrl and click or drag a box to pick several.",
+      "bodyMobile": "On a phone it's the same board: drag with one finger, pinch to zoom. Tap any block to open its page; back brings you to the same spot. The top-left corner adds things and finds your scenarios.",
       "beats": {
         "fit": {
           "title": "See everything",
@@ -299,7 +295,7 @@
     },
     "ship": {
       "title": "Save, test, publish",
-      "goal": "Save keeps versions; publish makes it public.",
+      "goal": "Save keeps versions; publishing requires review.",
       "body": "Last: saving, playtesting and publishing.",
       "bodyMobile": "Save keeps a version; Test starts a real round and uses credits. To publish, the cover needs a 2:3 portrait and a 16:9 landscape.",
       "beats": {
@@ -313,7 +309,7 @@
         },
         "publish": {
           "title": "Publish",
-          "body": "Nobody can see your card until you publish. The cover needs a 2:3 portrait and a 16:9 landscape. You can keep editing after publishing and submit updates."
+          "body": "Choose who can play after review: everyone, anyone with the link, or your followers. Share a link-only card from the approval notification."
         }
       }
     }

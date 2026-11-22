@@ -14,8 +14,10 @@ import {
   type CoverCropSettings,
 } from "@/lib/cover-crop";
 import { DISCOVER_COVER_ASPECTS } from "@/lib/world-cover-crop";
+import { GALLERY_ASPECTS, editableGalleryCrop, updateGalleryCrop, type GalleryDevice } from "@/lib/gallery-crop";
 import { resolveImageUrl, isMotionCoverRef } from "@/lib/asset-url";
 import { CoverCropMedia } from "./cover-crop-media";
+import { useCropViewport } from "./use-crop-viewport";
 import { WorldCoverPreviews, type CoverPreviewDetails, type CoverPlacementPreview } from "@/components/world-cover-previews";
 
 interface CoverCropDialogProps {
@@ -28,6 +30,7 @@ interface CoverCropDialogProps {
   error?: string;
   initialCoverCrop?: CoverCropSettings | null;
   initialLandscapeCrop?: CoverCropSettings | null;
+  fallbackLandscapeCrop?: CoverCropSettings | null;
   onCancel: () => void;
   onSave: (value: {
     activeMode: CropMode;
@@ -38,8 +41,8 @@ interface CoverCropDialogProps {
 
 type CropMode = "cover" | "gallery";
 
-function getTargetAspect(mode: CropMode) {
-  return DISCOVER_COVER_ASPECTS[mode];
+function getTargetAspect(mode: CropMode, device: GalleryDevice) {
+  return mode === "gallery" ? GALLERY_ASPECTS[device] : DISCOVER_COVER_ASPECTS.cover;
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -95,23 +98,30 @@ export function CoverCropDialog({
   error,
   initialCoverCrop,
   initialLandscapeCrop,
+  fallbackLandscapeCrop,
   onCancel,
   onSave,
 }: CoverCropDialogProps) {
   const { t } = useTranslation(["editor", "coverEditor"]);
   const previousFocus = useRef(document.activeElement as HTMLElement | null);
   const [mode, setMode] = useState<CropMode>(initialMode);
+  const [galleryDevice, setGalleryDevice] = useState<GalleryDevice>("desktop");
   // Keep absent and explicit crops distinct, and never clamp an untouched view.
   const [coverCrop, setCoverCrop] = useState<CoverCropSettings | undefined>(initialCoverCrop ?? undefined);
   const [landscapeCoverCrop, setLandscapeCoverCrop] = useState<CoverCropSettings | undefined>(initialLandscapeCrop ?? undefined);
   const [imageFailed, setImageFailed] = useState(false);
   const [sourceAspect, setSourceAspect] = useState<number | null>(null);
-  const activeTargetAspect = getTargetAspect(mode);
+  const { viewportRef, mediaWidth } = useCropViewport(sourceAspect);
+  const activeTargetAspect = getTargetAspect(mode, galleryDevice);
   const activeSrc = mode === "gallery" ? landscapeSrc : src;
   const [motionPlaying, setMotionPlaying] = useState(false);
   const hasMotion = isMotionCoverRef(activeSrc);
   useEffect(() => setMotionPlaying(false), [activeSrc]);
-  const activeCrop = { ...clampCoverCrop((mode === "cover" ? coverCrop : landscapeCoverCrop) ?? DEFAULT_COVER_CROP), fit: "cover" as const };
+  const galleryCrop = landscapeCoverCrop ?? fallbackLandscapeCrop ?? undefined;
+  const activeCrop = mode === "cover"
+    ? { ...clampCoverCrop(coverCrop ?? DEFAULT_COVER_CROP), fit: "cover" as const }
+    : editableGalleryCrop(galleryCrop, galleryDevice, sourceAspect);
+  const previewGalleryCrop = mode === "gallery" ? updateGalleryCrop(galleryCrop, galleryDevice, activeCrop) : galleryCrop;
   const wholeImage = false;
   const safeSourceAspect = sourceAspect ?? activeTargetAspect;
   const activePercentCrop = useMemo(
@@ -146,15 +156,15 @@ export function CoverCropDialog({
   const setActiveCrop = useCallback(
     (next: CoverCropSettings | ((current: CoverCropSettings) => CoverCropSettings)) => {
       const apply = (current: CoverCropSettings | undefined) => {
-        const resolved = { ...clampCoverCrop(current ?? DEFAULT_COVER_CROP), fit: "cover" as const };
-        const value = typeof next === "function" ? next(resolved) : next;
-        return value.fit === "contain" ? clampCoverCrop(value)
-          : clampCoverCropForAspect(value, sourceAspect ?? getTargetAspect(mode), getTargetAspect(mode));
+        const previous = mode === "gallery" ? editableGalleryCrop(current ?? fallbackLandscapeCrop, galleryDevice, sourceAspect) : clampCoverCrop(current ?? DEFAULT_COVER_CROP);
+        const value = typeof next === "function" ? next(previous) : next;
+        const frame = clampCoverCropForAspect(value, sourceAspect ?? activeTargetAspect, activeTargetAspect);
+        return mode === "gallery" ? updateGalleryCrop(current ?? fallbackLandscapeCrop, galleryDevice, frame) : frame;
       };
       if (mode === "cover") setCoverCrop(apply);
       else setLandscapeCoverCrop(apply);
     },
-    [mode, sourceAspect],
+    [mode, galleryDevice, sourceAspect, activeTargetAspect, fallbackLandscapeCrop],
   );
 
   const handlePercentCropChange = useCallback(
@@ -185,9 +195,8 @@ export function CoverCropDialog({
   }, [setActiveCrop]);
 
   const resetActiveCrop = useCallback(() => {
-    if (mode === "cover") setCoverCrop(undefined);
-    else setLandscapeCoverCrop(undefined);
-  }, [mode]);
+    setActiveCrop({ ...DEFAULT_COVER_CROP, fit: "cover" });
+  }, [setActiveCrop]);
 
   const maximizeActiveCrop = useCallback(() => {
     setActiveCrop({ x: 0, y: 0, zoom: 1, fit: "cover" });
@@ -199,13 +208,10 @@ export function CoverCropDialog({
 
   const dialog = (
     <DialogPrimitive.Content onCloseAutoFocus={event => { event.preventDefault(); previousFocus.current?.focus(); }} aria-describedby={undefined} aria-label={t("extra.adjustCoverCrop")} className="fixed inset-0 z-[10000] flex items-stretch justify-center overflow-hidden modal-backdrop px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-[calc(env(safe-area-inset-top)+4.25rem)] md:left-[var(--desktop-sidebar-offset,0px)] md:items-center md:px-4 md:py-4">
-      <div className="flex h-full w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl animate-in fade-in zoom-in-95 duration-200 md:h-auto md:max-h-[calc(100dvh-2rem)]">
+      <div className="flex h-full w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl animate-in fade-in zoom-in-95 duration-200 md:h-[calc(100dvh-2rem)]">
         <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border px-4 py-3 sm:items-center sm:px-5">
           <div className="min-w-0">
-            <DialogPrimitive.Title className="text-sm font-semibold text-foreground">{t("extra.adjustCoverCrop")}</DialogPrimitive.Title>
-            <p className="mt-0.5 text-xs text-muted-foreground/60 max-sm:hidden">
-              {t("extra.crop.hint", "Drag the crop box, then set separate framing for cards and gallery previews.")}
-            </p>
+            <DialogPrimitive.Title className="text-sm font-semibold text-foreground" title={t("extra.crop.hint", "Drag the crop box, then set separate framing for cards and gallery previews.")}>{t("extra.adjustCoverCrop")}</DialogPrimitive.Title>
           </div>
           <button
             onClick={() => { if (!saving) onCancel(); }} disabled={saving}
@@ -217,7 +223,7 @@ export function CoverCropDialog({
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain p-3 sm:p-4">
-          <div className="mb-3 grid grid-cols-2 rounded-lg border border-border bg-card p-1 sm:mb-4 sm:inline-grid sm:w-fit">
+          <div className="mb-3 grid shrink-0 grid-cols-2 rounded-lg border border-border bg-card p-1 sm:mb-4 sm:inline-grid sm:w-fit">
             <button
               disabled={saving || !src}
               onClick={() => { if (mode !== "cover") { setSourceAspect(null); setImageFailed(false); setMode("cover"); } }}
@@ -242,42 +248,57 @@ export function CoverCropDialog({
             </button>
           </div>
 
+          {mode === "gallery" && <div className="mb-3 shrink-0 space-y-2">
+            <div className="flex flex-wrap gap-2" role="group" aria-label={t("coverEditor:extra.crop.galleryDevice")}>
+              {(["desktop", "mobile"] as const).map(device => <button key={device} type="button"
+                disabled={saving} aria-pressed={galleryDevice === device}
+                onClick={() => setGalleryDevice(device)}
+                className={`rounded-lg border px-3 py-2 text-xs font-medium ${galleryDevice === device ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground"}`}>
+                {t(`coverEditor:extra.crop.gallery${device === "desktop" ? "Desktop" : "Mobile"}`)}
+              </button>)}
+            </div>
+            <p className="text-xs text-muted-foreground">{t("coverEditor:extra.crop.galleryHint")}</p>
+          </div>}
+
           {hasMotion && <button type="button" onClick={() => setMotionPlaying(value => !value)} aria-pressed={motionPlaying}
-            className="mb-3 inline-flex w-fit items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs">
+            className="mb-3 inline-flex w-fit shrink-0 items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs">
             {motionPlaying ? <Pause size={14}/> : <Play size={14}/>}
             {t(motionPlaying ? "coverEditor:motion.pause" : "coverEditor:motion.play")}
           </button>}
 
-          <div className="flex flex-col gap-4 lg:grid lg:min-h-0 lg:grid-cols-[minmax(0,1fr)_320px]">
-            <div className="relative z-0 flex items-start justify-center overflow-hidden lg:min-h-0 lg:items-center">
-              <div className="isolate w-full rounded-xl border border-primary/25 bg-card/60 p-3 shadow-inner">
-                <div className="relative mx-auto flex w-full max-w-[760px] justify-center overflow-hidden rounded-lg border border-primary/40 bg-black">
-                  <ReactCrop
-                    crop={wholeImage ? undefined : activePercentCrop}
-                    disabled={wholeImage || saving || sourceAspect === null}
-                    aspect={activeTargetAspect}
-                    keepSelection
-                    ruleOfThirds
-                    onChange={(_, percentCrop) => handlePercentCropChange(percentCrop)}
-                    className="max-h-[48dvh] max-w-full sm:max-h-[56dvh]"
-                  >
-                    <CoverCropMedia playing={hasMotion && motionPlaying}
-                      key={`${mode}:${activeSrc}`}
-                      src={resolveImageUrl(activeSrc)}
-                      alt=""
-                      draggable={false}
-                      className="block max-h-[48dvh] max-w-full select-none sm:max-h-[56dvh]"
-                      onError={() => { setSourceAspect(null); setImageFailed(true); }}
-                      onLoad={(event) => {
-                        const image = event.currentTarget;
-                        if (image.naturalWidth > 0 && image.naturalHeight > 0) {
-                          const nextSourceAspect = image.naturalWidth / image.naturalHeight;
-                          setSourceAspect(nextSourceAspect);
+          <div className="flex shrink-0 flex-col gap-4 lg:grid lg:min-h-0 lg:flex-1 lg:basis-0 lg:grid-cols-[minmax(0,1fr)_320px] lg:grid-rows-[minmax(0,1fr)]">
+            <div className="relative z-0 h-[48dvh] min-h-0 sm:h-[56dvh] lg:h-full">
+              <div className="absolute inset-0 isolate rounded-xl border border-primary/25 bg-card/60 p-3 shadow-inner">
+                <div className="relative h-full w-full rounded-lg border border-primary/40 bg-black p-4">
+                  <div ref={viewportRef} className="flex h-full w-full items-center justify-center" data-crop-viewport>
+                    <ReactCrop
+                      crop={wholeImage ? undefined : activePercentCrop}
+                      disabled={wholeImage || saving || sourceAspect === null}
+                      aspect={activeTargetAspect}
+                      keepSelection
+                      ruleOfThirds
+                      onChange={(_, percentCrop) => handlePercentCropChange(percentCrop)}
+                      className="max-w-full"
+                      style={{ width: mediaWidth }}
+                    >
+                      <CoverCropMedia playing={hasMotion && motionPlaying}
+                        key={`${mode}:${activeSrc}`}
+                        src={resolveImageUrl(activeSrc)}
+                        alt=""
+                        draggable={false}
+                        className="block h-auto w-full select-none touch-none"
+                        onError={() => { setSourceAspect(null); setImageFailed(true); }}
+                        onLoad={(event) => {
+                          const image = event.currentTarget;
+                          if (image.naturalWidth > 0 && image.naturalHeight > 0) {
+                            const nextSourceAspect = image.naturalWidth / image.naturalHeight;
+                            setSourceAspect(nextSourceAspect);
 
-                        }
-                      }}
-                    />
-                  </ReactCrop>
+                          }
+                        }}
+                      />
+                    </ReactCrop>
+                  </div>
                   <div className="pointer-events-none absolute left-3 top-3 flex items-center gap-1.5 rounded-full bg-black/65 px-2.5 py-1 text-[11px] font-medium text-white/85">
                     <Move className="h-3 w-3" />
                     {wholeImage ? t("extra.crop.wholeImage") : t("extra.crop.dragHint", "Drag or resize the crop box")}
@@ -287,7 +308,6 @@ export function CoverCropDialog({
             </div>
 
             <div className="relative z-0 min-h-0 space-y-4 lg:overflow-y-auto lg:pr-1">
-              <p className="text-xs leading-relaxed text-muted-foreground">{t("extra.crop.framingHint")}</p>
               {!wholeImage && <div className="rounded-lg border border-border bg-card p-3">
                 <div className="mb-2 flex items-center justify-between">
                   <span className="text-xs font-medium text-foreground">{t("extra.cropSize")}</span>
@@ -343,7 +363,7 @@ export function CoverCropDialog({
               <div className="space-y-3 rounded-lg border border-border bg-card p-3">
                 <WorldCoverPreviews motion={hasMotion ? motionPlaying : undefined} placements={placements} details={details} src={src} landscapeSrc={landscapeSrc}
                   coverCrop={mode === "cover" ? activeCrop : coverCrop}
-                  landscapeCoverCrop={mode === "gallery" ? activeCrop : landscapeCoverCrop} />
+                  landscapeCoverCrop={previewGalleryCrop} />
               </div>
             </div>
           </div>
@@ -359,7 +379,7 @@ export function CoverCropDialog({
           </button>
           <button
             disabled={saving || sourceAspect === null || imageFailed}
-            onClick={() => onSave({ activeMode: mode, coverCrop: mode === "cover" ? activeCrop : coverCrop, landscapeCoverCrop: mode === "gallery" ? activeCrop : landscapeCoverCrop })}
+            onClick={() => onSave({ activeMode: mode, coverCrop: mode === "cover" ? activeCrop : coverCrop, landscapeCoverCrop: mode === "gallery" ? previewGalleryCrop : landscapeCoverCrop })}
             className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
           >
             <Check className="h-4 w-4" />

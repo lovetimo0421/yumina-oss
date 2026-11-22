@@ -1,6 +1,7 @@
 import type { Context, MiddlewareHandler, Next } from "hono";
-import { RATE_LIMITS, TRUSTED_PUBLISHING_RATE_LIMIT, type RateLimitTier, type RateLimitConfig } from "@yumina/shared";
+import { RATE_LIMITS, type RateLimitTier, type RateLimitConfig } from "@yumina/shared";
 import { redis } from "../lib/redis.js";
+import { clientIpFrom } from "../lib/client-ip.js";
 import { posthog, captureServerError } from "../lib/posthog.js";
 
 // ─── Configuration ──────────────────────────────────────────────────
@@ -276,6 +277,30 @@ export async function claimTurnImageDaily(max: number): Promise<boolean> {
   return next <= max;
 }
 
+/** Counts one card-asked picture against this save's daily allowance
+ *  (CARD_IMAGE_SESSION_DAILY_CAP): a card's code looping on api.images.generate
+ *  stops there. False once used up; 0 means no cap. */
+export async function claimCardImageSessionDaily(sessionId: string, max: number): Promise<boolean> {
+  if (max <= 0) return true;
+  const key = `card-image:day:${new Date().toISOString().slice(0, 10)}:${sessionId}`;
+  if (redis) {
+    try {
+      const results = await redis.multi().incr(key).expire(key, 2 * 86_400).exec();
+      if (!results) throw new Error("pipeline returned null");
+      if (results[0]?.[0]) throw results[0][0];
+      return ((results[0]![1] as number) ?? 1) <= max;
+    } catch (err) {
+      alertRedisFallback("cardImageDaily", err);
+    }
+  }
+  const today = key.slice(0, "card-image:day:".length + 10);
+  for (const k of memCardDaily.keys()) if (!k.startsWith(today)) memCardDaily.delete(k);
+  const next = (memCardDaily.get(key) ?? 0) + 1;
+  memCardDaily.set(key, next);
+  return next <= max;
+}
+const memCardDaily = new Map<string, number>();
+
 // ─── Password-reset limiter (inbox-bombing defense, NAT-safe) ───────
 // Keyed on the EMAIL, never the IP — it stops someone spamming reset mail at a
 // single victim without penalizing VPN / carrier-NAT users who share an exit IP
@@ -307,15 +332,18 @@ export async function checkPasswordResetRateLimit(
  *  protect, so the base cap only stalled legitimate bulk catalog updates.
  *  Other tiers are unaffected by the flag. */
 export function effectiveRateLimit(tier: RateLimitTier, skipReview: boolean | undefined): RateLimitConfig {
-  if (tier === "publishing" && skipReview) return TRUSTED_PUBLISHING_RATE_LIMIT;
+  void skipReview; // the trusted tier is gone (11/07); kept in the signature for callers
   return RATE_LIMITS[tier];
 }
 
 export function rateLimitMiddleware(tier: RateLimitTier): MiddlewareHandler {
   return async (c: Context, next: Next) => {
-    const user = c.get("user") as { id: string; skipReview?: boolean } | undefined;
+    const user = c.get("user") as { id: string; skipReview?: boolean; role?: string } | undefined;
     const userId = user?.id;
     if (!userId) return next();
+    // Staff making pictures and clips in bulk (demo footage, model checks) are not a submit storm. The
+    // active-job cap and the cost still apply to them.
+    if (tier === "media-generation" && user?.role === "admin") return next();
 
     // Same Redis key regardless of trust level, so toggling skip_review
     // changes the allowance without resetting the counted window.
@@ -341,10 +369,7 @@ export function ipRateLimitMiddleware(max: number, windowSeconds: number, scope?
   const windowMs = windowSeconds * 1000;
 
   return async (c: Context, next: Next) => {
-    const ip =
-      c.req.header("cf-connecting-ip") ??
-      c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ??
-      "unknown";
+    const ip = clientIpFrom((name) => c.req.header(name)) ?? "unknown";
 
     const result = await slidingWindowCheck(scope ? `rl:ip:${scope}:${ip}` : `rl:ip:${ip}`, max, windowMs);
 

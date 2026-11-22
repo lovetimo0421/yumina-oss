@@ -105,7 +105,7 @@ function hasOwnText(el: Element): boolean {
   return false;
 }
 
-function isUntouchedPlatformCard(card: HTMLElement, style: CSSStyleDeclaration) {
+function isUntouchedPlatformCard(style: CSSStyleDeclaration) {
   const border = parseColor(style.borderTopColor);
   const surfaceRgb = style.getPropertyValue("--cloudy-surface-rgb").trim().split(/[\s,]+/).map(Number);
   const bg = parseColor(style.backgroundColor);
@@ -136,7 +136,7 @@ function runGuard(card: HTMLElement, textarea: HTMLTextAreaElement) {
   //    card (only where the card left that part at the platform default), and
   //    the textarea itself goes flat.
   const cardStyle = getComputedStyle(card);
-  let untouched = isUntouchedPlatformCard(card, cardStyle);
+  let untouched = isUntouchedPlatformCard(cardStyle);
   if (card.matches(":focus-within")) untouched = lastUntouched.get(card) ?? untouched;
   else lastUntouched.set(card, untouched);
   for (const el of grow ? [grow, textarea] : [textarea]) {
@@ -253,7 +253,7 @@ export function useComposerGuard(
     inside.observe(card, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["style", "class"] });
     const ancestors = new MutationObserver(schedule);
     for (let node = card.parentElement; node; node = node.parentElement) {
-      ancestors.observe(node, { attributes: true, attributeFilter: ["class", "style", "data-theme", "data-mode"] });
+      ancestors.observe(node, { attributes: true, attributeFilter: ["class", "style", "data-theme", "data-mode", "data-play-color-mode"] });
     }
     card.addEventListener("focusout", schedule);
     window.addEventListener("resize", schedule);

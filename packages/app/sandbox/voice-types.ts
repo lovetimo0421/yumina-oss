@@ -7,7 +7,9 @@ export type VoiceEvent =
   /** Call lifetime only, independent of microphone/output mute or input warnings.
    * Anchor remainingMs to receipt on a monotonic clock; readiness never renews it.
    * A null notice clears it when this call ends. */
-  | { type: "call-notice"; notice: { kind: "ending-soon"; remainingMs: number; message: string } | null }
+  | { type: "call-notice"; notice: { kind: "ending-soon"; remainingMs: number; message: string;
+      /** Why: the time limit, nobody playing (idle), or Mushies running out. Absent = time limit. */
+      reason?: "time" | "idle" | "balance" } | null }
   /** Transport diagnostics only: no dialogue, microphone samples or private state. */
   | { type: 'diagnostic'; code: 'reply-sight-changed' | 'reply-public-state-changed' }
   | { type: 'diagnostic'; code: 'input-evidence'; evidence: 'silent' | 'signal' | 'unknown' }
@@ -122,6 +124,9 @@ export interface VoiceAPI {
   /** Clear buffered capture and deliberately take the next live speaking turn. */
   interrupt(): void;
   setMuted(options: { input: boolean; output: boolean }): void;
+  /** Tell the host the player is playing (keys, pointer, touch). Paid calls end after a few idle
+   * minutes; this keeps a call open while someone plays without speaking. Throttled; safe to call often. */
+  markActive(): void;
   updateContext(context: VoiceContext): void;
   /** Replace character direction at the next quiet turn boundary (1–12,000 characters). */
   updateInstructions(instructions: string): void;

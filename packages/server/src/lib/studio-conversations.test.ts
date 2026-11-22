@@ -528,6 +528,30 @@ describe("serverOwnedStudioRunsToAgentHistory", () => {
     assert.deepEqual(history.at(-1), { role: "assistant", content: "assistant 20" });
   });
 
+  it("puts what the creator added mid-run after the request that started it", () => {
+    const history = serverOwnedStudioRunsToAgentHistory([{
+      context: { ...withStudioUserMessageContext(undefined, { role: "user", content: "做好感系统" }),
+        steers: [{ id: "s1", text: "好感上限改成 100" }, { id: "s2", text: "  " }] },
+      committedTurns: [{ iteration: 3, textContent: "做好了", createdAt: new Date().toISOString(), commitId: "c1", lane: "answer" }],
+    }]);
+    assert.deepEqual(history, [
+      { role: "user", content: "做好感系统" },
+      { role: "user", content: "好感上限改成 100" },
+      { role: "assistant", content: "做好了" },
+    ]);
+  });
+
+  it("places each mid-run message before the answer of the step that read it, as the chat shows them", () => {
+    const at = (iteration: number, textContent: string) =>
+      ({ iteration, textContent, createdAt: new Date().toISOString(), commitId: `c${iteration}`, lane: "answer" as const });
+    const history = serverOwnedStudioRunsToAgentHistory([{
+      context: { ...withStudioUserMessageContext(undefined, { role: "user", content: "做好感系统" }),
+        steers: [{ id: "s1", text: "上限 100", iteration: 2 }, { id: "s2", text: "再加嫉妒值", iteration: 4 }] },
+      committedTurns: [at(2, "好感做好了"), at(4, "嫉妒值也加了")],
+    }]);
+    assert.deepEqual(history.map((m) => m.content), ["做好感系统", "上限 100", "好感做好了", "再加嫉妒值", "嫉妒值也加了"]);
+  });
+
   it("preserves valid server-owned content while filtering blanks", () => {
     const history = serverOwnedStudioRunsToAgentHistory([
       {

@@ -13,6 +13,33 @@ import type { GameComponent } from "./components.js";
 import type { Reaction } from "../events/types.js";
 
 /**
+ * One field of a pack's settings form: what a card author fills in after
+ * installing (a name, a voice, a picture). The value lands in a variable's
+ * defaultValue — at `path` inside it when the variable is json.
+ */
+export interface BundleSettingField {
+  id: string;
+  label: string;
+  hint?: string;
+  /** voice: one of the creator's own voices (我的声音), written as its fish.audio voice id.
+   *  liveCharacter: one of the creator's live characters, written as "@rig:<id>". */
+  type: "text" | "textarea" | "number" | "toggle" | "select" | "asset" | "voice" | "liveCharacter";
+  /** The variable whose defaultValue receives the value. */
+  variableId: string;
+  /** Dot path inside a json variable, e.g. "voice.id". */
+  path?: string;
+  /** select */
+  options?: { value: string; label: string }[];
+  /** asset: the file input's accept list. */
+  accept?: string;
+  /** asset: by the uploaded file's extension, write "@asset:<id>" at `path`
+   *  (default: the field's path) and set the extra values. */
+  extensionRules?: { ext: string; path?: string; also?: { path: string; value: unknown }[] }[];
+  /** voice / liveCharacter: other values written with a pick (e.g. body.type = "rig6" beside body.pack). */
+  also?: { path: string; value: unknown }[];
+}
+
+/**
  * A shareable resource pack.
  *
  * Bundles carry content (entries, variables, rules, audio) and optionally a
@@ -53,6 +80,11 @@ export interface YuminaBundle {
    *  bundle is a template or ships UI alongside its content. Absent for pure
    *  content packs. */
   rootComponent?: RootComponent;
+
+  /** The form a card author fills in after installing. */
+  settings?: BundleSettingField[];
+  /** Increases with each published update of the pack. */
+  version?: number;
 
   // ── Organization ──
   customTags?: string[];

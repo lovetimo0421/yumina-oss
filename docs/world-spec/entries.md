@@ -1,3 +1,8 @@
+---
+title: "Entries and sections"
+description: "The entry object in a world file: what it holds, when the AI sees it, which prompt section it lands in, keywords, conditions, depth and roles."
+---
+
 # Entries & Sections
 
 Entries are discrete content blocks the AI reads when generating each response. Every entry specifies **what** it contains, **when** the AI sees it, and **where** it's placed in the prompt.

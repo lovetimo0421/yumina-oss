@@ -1,4 +1,5 @@
 import { previewMacroNames, resolveDisplayMacros } from "@/lib/resolve-display-macros";
+import { fetchAssetBytes } from "@/lib/fetch-asset-bytes";
 import React, { createContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
@@ -16,8 +17,9 @@ import {
 import { bundleAndCompile, type BundleInput, type CompileRuntimeScope } from "@/lib/tsx/tsx-bundler";
 import { viewportUnitsToContainerFiles } from "@/lib/tsx/viewport-units";
 import { renderMessage } from "@/lib/markdown";
-import { absoluteImageUrl, getAssetCdnUrl } from "@/lib/asset-url";
-import { deepEqual, resolveBackground, sampleConversation, type ResolvedBackground } from "@yumina/engine";
+import { absoluteImageUrl, getAssetCdnUrl, getAssetOriginalUrl } from "@/lib/asset-url";
+import { deepEqual, hasLivePortrait, resolveBackground, sampleConversation, type ResolvedBackground } from "@yumina/engine";
+import { LiveStageLayout } from "@/../sandbox/chat/live-stage-layout";
 import { ChatBackground } from "@/../sandbox/chat/chat-background";
 import {
   DESIGNED_MESSAGE_CSS,
@@ -201,6 +203,8 @@ function ShadowHost({ children }: { children: React.ReactNode }) {
   );
 }
 
+const PreviewRigCharacter = React.lazy(() => import("./preview-rig-character"));
+
 // ── Live preview data, outside the compile ──────────────────────────
 
 type PreviewVars = Record<string, number | string | boolean | Record<string, unknown> | unknown[]>;
@@ -237,6 +241,11 @@ function readPreviewRuntime(latest: React.RefObject<PreviewRuntimeData>): Previe
   }
 }
 
+/** The canvas preview's stand-in for the card's browser-local storage: kept in
+ *  memory for this page, so a card that remembers things (settings, a notebook)
+ *  can read back what it wrote while the author clicks around. */
+const previewStorage = new Map<string, string>();
+
 function buildPreviewApi({ previewVars, worldName, mockMessages, play, entries }: PreviewRuntimeData): YuminaAPI {
   return {
     ai: {
@@ -246,6 +255,21 @@ function buildPreviewApi({ previewVars, worldName, mockMessages, play, entries }
       },
     },
     entries,
+    // No real board in the canvas preview: a sample one, so the card's layout shows.
+    leaderboard: {
+      submit: async (_board: string, score: number) => ({ ok: true as const, best: score, rank: 2, total: 3, improved: true, order: "desc" as const }),
+      get: async () => ({
+        ok: true as const,
+        order: "desc" as const,
+        total: 3,
+        entries: [
+          { rank: 1, name: "Mia", image: null, score: 12800, details: null, me: false },
+          { rank: 2, name: "You", image: null, score: 9400, details: null, me: true },
+          { rank: 3, name: "Kai", image: null, score: 7100, details: null, me: false },
+        ],
+        me: { rank: 2, score: 9400 },
+      }),
+    },
     sendMessage: () => {},
     setVariable: play ? (id, value) => play.setVariable(id, value as PreviewVars[string]) : () => {},
     executeAction: () => {},
@@ -254,7 +278,7 @@ function buildPreviewApi({ previewVars, worldName, mockMessages, play, entries }
     globalVariables: previewVars,
     worldName,
     resolveAssetUrl: (ref: string) => {
-      if (ref.startsWith("@asset:")) return getAssetCdnUrl(ref.slice(7));
+      if (ref.startsWith("@asset:")) return getAssetOriginalUrl(ref.slice(7));
       return ref;
     },
     // Session/streaming state for cards that read these
@@ -290,10 +314,19 @@ function buildPreviewApi({ previewVars, worldName, mockMessages, play, entries }
       return type === "bgm" ? s.bgmVolume : s.sfxVolume;
     },
     switchGreeting: play ? (index: number) => play.switchGreeting(index) : () => {},
+    // The card's own assets as bytes, the same reader play has: a card that draws its character from a model
+    // file (Live2D, .vrm, .rig6) asks for it here, and without it the canvas showed "api.fetchAsset is not a
+    // function" where the character should be.
+    fetchAsset: (ref: string) => fetchAssetBytes(ref, import.meta.env.VITE_API_URL || ""),
     // 现场 / story events: a preview makes no AI calls, so nothing to tell
     // and nothing to hear — but a card that calls them must still render.
     setScene: () => {},
     onStoryEvent: () => () => {},
+    storage: {
+      get: async (key: string) => previewStorage.get(key) ?? null,
+      set: async (key: string, value: string) => { previewStorage.set(key, String(value)); },
+      remove: async (key: string) => { previewStorage.delete(key); },
+    },
   };
 }
 
@@ -356,7 +389,8 @@ function RootComponentCanvas({ previewVars, entryFileOverride, inspect, greeting
     .filter((e) => e.enabled !== false)
     .slice()
     .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
-    .map((e) => ({ id: e.id, name: e.name, content: e.content, role: e.role ?? "lore", folderId: e.folderId, audience: e.audience, portrait: e.portrait ?? null })), [entries]);
+    .map((e) => ({ id: e.id, name: e.name, content: e.content, role: e.role ?? "lore", folderId: e.folderId, audience: e.audience, portrait: e.portrait ?? null,
+      portraitLive: e.role === "character" && hasLivePortrait(e) ? e.portraitLive!.trim() : null })), [entries]);
   const backgrounds = useEditorStore(s => s.worldDraft.backgrounds);
   const cover = useEditorStore(s => s.worldDraft.avatar);
   const previewGreetingId = greetingId;
@@ -526,7 +560,7 @@ function RootComponentCanvas({ previewVars, entryFileOverride, inspect, greeting
     // and a card still being written has nothing of its own to show them on.
     const previewHost: DesignedMessageHost = {
       sendMessage: () => {},
-      resolveAssetUrl: (ref) => (ref.startsWith("@asset:") ? getAssetCdnUrl(ref.slice(7)) : ref),
+      resolveAssetUrl: (ref) => (ref.startsWith("@asset:") ? getAssetOriginalUrl(ref.slice(7)) : ref),
       storage: null,
       canSend: () => true,
     };
@@ -583,11 +617,30 @@ function RootComponentCanvas({ previewVars, entryFileOverride, inspect, greeting
 
     // Stub Chat: renders messages via renderBubble + mock input placeholder
     const StubChat: React.FC<Record<string, unknown>> = (props) => {
-      const { mockMessages, background } = readPreviewRuntime(latestRuntime);
+      const { mockMessages, background, entries } = readPreviewRuntime(latestRuntime);
       const renderBubble = props.renderBubble as ((p: MockBubbleProps) => React.ReactNode) | undefined;
       const className = props.className as string | undefined;
       const children = props.children as React.ReactNode;
       const design = !renderBubble && props.design && typeof props.design === "object" ? props.design as MessageDesign : null;
+      // The stock chat shows a character's live character beside it, as play does (sandbox chat/live-stage).
+      const reader = props.appearance === "reader" || (props.appearance !== "creator" && !renderBubble && !design && !className && !children && props.aboveInput == null);
+      const live = reader ? entries.find((e) => e.role === "character" && e.portraitLive) : undefined;
+      const conversation = (
+        <>
+          <div style={{ flex: 1, overflowY: "auto" }}>
+            {design ? (
+              <div className="play-message-stack">
+                <DesignedList design={design} fontMap={props.fontMap as Record<string, string> | undefined} />
+              </div>
+            ) : mockMessages.map((msg, i) => (
+              <div key={i}>
+                {renderBubble ? renderBubble(msg) : <MockBubble msg={msg} />}
+              </div>
+            ))}
+          </div>
+          <MockComposer />
+        </>
+      );
       // Same shape as the sandbox's Chat: the background is a sibling under
       // the transcript, never an ancestor of it (see chat-background.tsx).
       return (
@@ -595,18 +648,9 @@ function RootComponentCanvas({ previewVars, entryFileOverride, inspect, greeting
           <ChatBackground background={background} />
           <div style={{ position: "relative", zIndex: 1, display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
             {children}
-            <div style={{ flex: 1, overflowY: "auto" }}>
-              {design ? (
-                <div className="play-message-stack">
-                  <DesignedList design={design} fontMap={props.fontMap as Record<string, string> | undefined} />
-                </div>
-              ) : mockMessages.map((msg, i) => (
-                <div key={i}>
-                  {renderBubble ? renderBubble(msg) : <MockBubble msg={msg} />}
-                </div>
-              ))}
-            </div>
-            <MockComposer />
+            {live?.portraitLive
+              ? <LiveStageLayout stage={<StubRigCharacter key={live.portraitLive} pack={live.portraitLive} />}>{conversation}</LiveStageLayout>
+              : conversation}
           </div>
         </div>
       );
@@ -659,7 +703,7 @@ function RootComponentCanvas({ previewVars, entryFileOverride, inspect, greeting
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            Model picker is disabled in studio preview — it works in the live game.
+            Model picker is off in the studio preview. It works in the live game.
           </div>
         </div>
       );
@@ -690,7 +734,7 @@ function RootComponentCanvas({ previewVars, entryFileOverride, inspect, greeting
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            Session memory is disabled in studio preview — it works in the live game.
+            Session memory is off in the studio preview. It works in the live game.
           </div>
         </div>
       );
@@ -739,6 +783,19 @@ function RootComponentCanvas({ previewVars, entryFileOverride, inspect, greeting
         </span>
       );
     };
+    // The real one (the play sandbox's component and runtime), loaded when a card has a live character; the
+    // figure holds its place until then.
+    const StubRigCharacter: React.FC<Record<string, unknown>> = (props) => (
+      <React.Suspense fallback={
+        <div data-rig-status="loading" style={{ position: "relative", width: "100%", height: "100%", minHeight: "120px",
+          ...(props.style as React.CSSProperties | undefined),
+          display: "grid", placeItems: "center", color: "rgba(255,255,255,0.4)", fontSize: "28px" }}>
+          🧍
+        </div>
+      }>
+        <PreviewRigCharacter {...(props as unknown as React.ComponentProps<typeof PreviewRigCharacter>)} />
+      </React.Suspense>
+    );
     const StubLorePanel: React.FC<Record<string, unknown>> = (props) => (
       <div style={{
         border: "1px solid rgba(255,255,255,0.1)", borderRadius: "12px",
@@ -753,12 +810,32 @@ function RootComponentCanvas({ previewVars, entryFileOverride, inspect, greeting
       </div>
     );
 
+    // The Studio preview has no room: three sample seats show where the party sits.
+    const StubRoomParty: React.FC<Record<string, unknown>> = (props) => {
+      const column = props.layout === "column";
+      const size = typeof props.size === "number" ? props.size : 44;
+      return (
+        <div data-room-party="" className={props.className as string | undefined} style={{ display: "flex", flexDirection: column ? "column" : "row", gap: 12, ...(props.style as React.CSSProperties | undefined) }}>
+          {["A", "B", "C"].map((n, i) => (
+            <div key={n} style={{ display: "flex", flexDirection: column ? "row" : "column", alignItems: "center", gap: 4 }}>
+              <div style={{ width: size, height: size, borderRadius: size * 0.22, display: "grid", placeItems: "center", fontWeight: 700, color: "#F3E3BF",
+                background: `linear-gradient(150deg, hsl(${i * 110} 32% 34%), hsl(${i * 110 + 40} 38% 15%))`, boxShadow: i === 0 ? "0 0 0 2px #C9A25E" : "0 0 0 1px rgba(255,255,255,0.15)" }}>{n}</div>
+              {props.showNames !== false && <div style={{ fontSize: 12, opacity: 0.8 }}>{n}</div>}
+            </div>
+          ))}
+        </div>
+      );
+    };
+
     return {
+      RoomParty: StubRoomParty,
       Chat: StubChat, MessageList: StubMessageList, MessageInput: StubMessageInput,
       ModelPickerModal: StubModelPickerModal, ModelTrigger: StubModelTrigger,
       SessionMemoryModal: StubSessionMemoryModal,
       LoreButton: StubLoreButton, LorePanel: StubLorePanel,
       LoreGroup: StubLoreGroup, LoreSwitch: StubLoreSwitch,
+      // The play sandbox's own component, read through the same asset reader (preview-rig-character).
+      RigCharacter: StubRigCharacter,
     };
   }, [tChat, sampleLang]);
 

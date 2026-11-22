@@ -101,7 +101,7 @@ export function aiTableSections(world: WorldDefinition, t: Translate): { ais: Ro
 
 const TONE: Record<Tone, string> = {
   yes: "text-zinc-100",
-  cond: "text-amber-200/90",
+  cond: "text-zinc-300",
   own: "font-semibold text-pink-200",
   no: "text-zinc-600",
 };
@@ -147,11 +147,7 @@ export function AiTable({ world, onJump, onClose }: { world: WorldDefinition; on
             </tbody>
           </table>
         </div>
-        <div className="flex flex-wrap gap-4 border-t border-white/[0.07] px-4 py-2.5 text-[11.5px] text-muted-foreground">
-          <span><span className={TONE.own}>{t("blueprint.aiTable.legendOwn")}</span></span>
-          <span><span className={TONE.cond}>{t("blueprint.aiTable.legendCond")}</span></span>
-          <span><span className={TONE.no}>{t("blueprint.aiTable.legendNo")}</span></span>
-        </div>
+
       </div>
     </div>
   );

@@ -15,8 +15,8 @@
 // Kept apart from illustrate.ts so /users/me can answer gate 1 without
 // loading the drawing pipeline.
 
-import { eq } from "drizzle-orm";
-import { readOwn } from "../../db/index.js";
+import { eq, sql } from "drizzle-orm";
+import { db, readOwn } from "../../db/index.js";
 import { user } from "../../db/schema.js";
 import { env } from "../env.js";
 import { getGenerationProvider } from "../generation/provider.js";
@@ -25,6 +25,13 @@ export function perTurnImagesEnabled(): boolean {
   return env.PER_TURN_IMAGES === "1" && getGenerationProvider() !== null && !!env.YUMINA_OPENROUTER_KEY;
 }
 
+/** How pictures are drawn: "default" is Anima Turbo, "detailed" Anima's full
+ *  model (slower, flatter anime), "vivid" WAI (glossier, brighter; one-person
+ *  pictures only, the rest stay on Anima). preferences.turnImageStyle; anything
+ *  else reads as default. */
+export const TURN_IMAGE_STYLES = ["default", "detailed", "vivid"] as const;
+export type TurnImageStyle = (typeof TURN_IMAGE_STYLES)[number];
+
 export interface TurnImagePrefs {
   /** Settings › Display › Story illustrations switch. */
   optedIn: boolean;
@@ -32,12 +39,34 @@ export interface TurnImagePrefs {
    *  alongside an explicit experimentalTurnImages:true (the composer writes both), so a
    *  stray autoTurnImages from before the default flip doesn't start paid drawing. */
   auto: boolean;
+  style: TurnImageStyle;
 }
 
 export function readTurnImagePrefs(preferences: unknown): TurnImagePrefs {
   const prefs = (preferences ?? {}) as Record<string, unknown>;
   const optedIn = prefs.experimentalTurnImages !== false;
-  return { optedIn, auto: prefs.experimentalTurnImages === true && prefs.autoTurnImages === true };
+  const style = TURN_IMAGE_STYLES.find((s) => s === prefs.turnImageStyle) ?? "default";
+  return { optedIn, auto: prefs.experimentalTurnImages === true && prefs.autoTurnImages === true, style };
+}
+
+/** Cards whose interface the player let draw paid pictures without asking again
+ *  (preferences.cardImageWorlds, world ids). */
+export function cardImagesAllowed(preferences: unknown, worldId: string): boolean {
+  const list = ((preferences ?? {}) as Record<string, unknown>).cardImageWorlds;
+  return Array.isArray(list) && list.includes(worldId);
+}
+
+export async function allowCardImages(userId: string, worldId: string): Promise<void> {
+  await db.update(user).set({
+    preferences: sql`coalesce(${user.preferences}, '{}'::jsonb) || jsonb_build_object('cardImageWorlds',
+      (CASE WHEN jsonb_typeof(${user.preferences}->'cardImageWorlds') = 'array' THEN ${user.preferences}->'cardImageWorlds' ELSE '[]'::jsonb END) || to_jsonb(${worldId}::text))`,
+  }).where(sql`${user.id} = ${userId} AND NOT coalesce(${user.preferences}->'cardImageWorlds' ? ${worldId}, false)`);
+}
+
+export async function userPreferences(userId: string): Promise<unknown> {
+  const rd = await readOwn(userId);
+  const [row] = await rd.select({ preferences: user.preferences }).from(user).where(eq(user.id, userId)).limit(1);
+  return row?.preferences ?? null;
 }
 
 /** The player's own switches, read from the primary (they just flipped them). */

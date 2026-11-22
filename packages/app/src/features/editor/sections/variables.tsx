@@ -8,9 +8,10 @@ import { useEditorStore } from "@/stores/editor";
 import { isContinuityOwned } from "@yumina/engine";
 import { ModuleScopeChips } from "../components/module-scope-chips";
 import { inModuleScope, moduleIdOfScope, normalizeModuleScope } from "../lib/module-scope";
-import type { Variable } from "@yumina/engine";
+import { textFieldKey, type Variable } from "@yumina/engine";
 import { OptionsEditor, PreciseTrackingEditor } from "../components/precise-tracking";
 import { Select } from "@/components/ui/select";
+import { InfoTip } from "@/components/ui/info-tip";
 import { TwoTapDeleteButton } from "@/components/ui/two-tap-delete-button";
 import { NumberInput } from "@/components/ui/number-input";
 import { DebouncedInput, DebouncedTextarea } from "../components/debounced-field";
@@ -97,10 +98,12 @@ export function VariablesSection({ compact, mobileListMode }: { compact?: boolea
     () => worldDraft.variables.filter((v) => !v.internal),
     [worldDraft.variables]
   );
-  const [selectedIdx, setSelectedIdx] = useState<number | null>(() => {
+  // Selected by id, not position: someone else adding, deleting or
+  // reordering variables meanwhile must not move the form (and the text
+  // waiting to be committed in it) onto a different variable.
+  const [selectedId, setSelectedId] = useState<string | null>(() => {
     if (mobileListMode) return null;
-    const first = worldDraft.variables.findIndex((v) => !v.internal); // skip hidden engine vars
-    return first === -1 ? null : first;
+    return worldDraft.variables.find((v) => !v.internal)?.id ?? null; // skip hidden engine vars
   });
 
   // One module, or the card's shared ones — the same chip row the lorebook
@@ -117,9 +120,8 @@ export function VariablesSection({ compact, mobileListMode }: { compact?: boolea
   const clearPendingFocus = useEditorStore((s) => s.clearPendingFocus);
   useEffect(() => {
     if (pendingFocus?.kind !== "variable") return;
-    const idx = worldDraft.variables.findIndex((v) => v.id === pendingFocus.id);
-    if (idx >= 0) {
-      setSelectedIdx(idx);
+    if (worldDraft.variables.some((v) => v.id === pendingFocus.id)) {
+      setSelectedId(pendingFocus.id);
       setView("list");
     }
     clearPendingFocus();
@@ -132,22 +134,33 @@ export function VariablesSection({ compact, mobileListMode }: { compact?: boolea
   const [expandedJsonId, setExpandedJsonId] = useState<string | null>(null);
   // Whether the "Technical information" <details> is open (see below).
   const [technicalOpenFor, setTechnicalOpenFor] = useState<string | null>(null);
-  const selectVariable = (idx: number | null) => setSelectedIdx(idx);
+  const selectVariable = (idx: number | null) =>
+    setSelectedId(idx === null ? null : useEditorStore.getState().worldDraft.variables[idx]?.id ?? null);
   const greetingCount = worldDraft.entries.filter((e) => e.role === "greeting").length;
   const showOpeningsToggle = greetingCount >= 1 && worldDraft.variables.length >= 1;
 
-  // Clamp selectedIdx when variables array changes (e.g., AI adds/removes variables).
-  // Respect an explicit null so the mobile back button (which sets selectedIdx=null)
-  // actually returns the user to the list view instead of snapping back to index 0.
+  // Where the selected variable is now. Respect an explicit null so the
+  // mobile back button (which clears the selection) returns to the list; a
+  // selected variable that is gone (deleted elsewhere) shows the first one.
   const clampedIdx = useMemo(() => {
-    if (selectedIdx === null) return null;
-    if (worldDraft.variables.length === 0) return null;
-    if (selectedIdx >= worldDraft.variables.length) return worldDraft.variables.length - 1;
-    return selectedIdx;
-  }, [selectedIdx, worldDraft.variables.length]);
+    if (selectedId === null || worldDraft.variables.length === 0) return null;
+    const at = worldDraft.variables.findIndex((v) => v.id === selectedId);
+    if (at >= 0) return at;
+    if (mobileListMode) return null;
+    const first = worldDraft.variables.findIndex((v) => !v.internal);
+    return first === -1 ? null : first;
+  }, [selectedId, worldDraft.variables, mobileListMode]);
 
   const selectedRaw = clampedIdx !== null ? worldDraft.variables[clampedIdx] ?? null : null;
   const selected = selectedRaw?.internal ? null : selectedRaw; // never open a hidden engine var
+  // Edits go to the variable they were made in, found by id when they land
+  // (a debounced field commits after a pause, by which time it may have moved).
+  const selectedVarId = selected?.id ?? null;
+  const updateSelected = (updates: Partial<Variable>) => {
+    if (!selectedVarId) return;
+    const at = useEditorStore.getState().worldDraft.variables.findIndex((v) => v.id === selectedVarId);
+    if (at >= 0) updateVariableAt(at, updates);
+  };
   // An in-story app (a bundle with its own screen and one variable) is that
   // variable's whole reason to exist. Deleting just the variable left the
   // app's dock button behind with nothing in it, and a creator deleted var
@@ -173,10 +186,7 @@ export function VariablesSection({ compact, mobileListMode }: { compact?: boolea
               <h1 className="text-[22px] font-bold tracking-tight text-foreground">
                 {t("variables.title")}
               </h1>
-              <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-                {t("variables.description")}{" "}
-                <a href={DOCS_URLS.variables} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{t("variables.learnMore")}</a>
-              </p>
+              <a href={DOCS_URLS.variables} target="_blank" rel="noopener noreferrer" className="mt-0.5 inline-block text-xs text-muted-foreground transition-colors hover:text-foreground">{t("variables.learnMore")}</a>
             </div>
             <div className="relative">
               <button
@@ -247,8 +257,6 @@ export function VariablesSection({ compact, mobileListMode }: { compact?: boolea
               <p className="text-sm font-medium text-muted-foreground">
                 {t("variables.noVariables")}
               </p>
-              <p className="mt-1.5 max-w-xs mx-auto text-xs text-muted-foreground/60">{t("variables.noVariablesDesc")}</p>
-              <a href={DOCS_URLS.variables} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-xs text-primary hover:underline">{t("variables.learnMore")}</a>
             </div>
           ) : !worldDraft.variables.some((v) => !v.internal && inModuleScope(scope, v.worldbookId)) ? (
             // The module chips can hide every variable while the card still
@@ -306,7 +314,7 @@ export function VariablesSection({ compact, mobileListMode }: { compact?: boolea
                         </span>
                       )}
                       {v.activation && v.activation.mode !== "always" && (
-                        <span className="shrink-0 rounded-full bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-sky-300">
+                        <span className="shrink-0 rounded-full bg-white/5 px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
                           {t(`variables.badges.${v.activation.mode}` as any)}
                         </span>
                       )}
@@ -339,7 +347,10 @@ export function VariablesSection({ compact, mobileListMode }: { compact?: boolea
                 <TwoTapDeleteButton
                   onConfirm={() => {
                     if (owningApp) removeInstalledBundle(owningApp.installId);
-                    else removeVariableAt(clampedIdx);
+                    else {
+                      const at = useEditorStore.getState().worldDraft.variables.findIndex((v) => v.id === selectedVarId);
+                      if (at >= 0) removeVariableAt(at);
+                    }
                     const vars =
                       useEditorStore.getState().worldDraft.variables;
                     selectVariable(vars.length > 0 ? 0 : null);
@@ -353,7 +364,7 @@ export function VariablesSection({ compact, mobileListMode }: { compact?: boolea
               {owningApp && (
                 <p className="-mt-3 mb-5 max-w-3xl text-xs leading-relaxed text-muted-foreground">
                   {t("appPacks.varDeleteHint", {
-                    defaultValue: "This variable is the {{name}} app's data. Deleting it removes the whole app, dock button included.",
+                    defaultValue: "Part of the {{name}} app. Deleting it removes the whole app.",
                     name: owningApp.name.replace(/^App\s*·\s*/, ""),
                   })}
                 </p>
@@ -368,7 +379,7 @@ export function VariablesSection({ compact, mobileListMode }: { compact?: boolea
                   <DebouncedInput
                     type="text"
                     value={selected.name}
-                    onCommit={(name) => updateVariableAt(clampedIdx, { name })}
+                    onCommit={(name) => updateSelected({ name })}
                     syncKey={selected.id}
                     className="w-full rounded-xl border border-border bg-card px-4 py-3 text-sm text-foreground shadow-inner transition-all focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/50"
                   />
@@ -384,7 +395,7 @@ export function VariablesSection({ compact, mobileListMode }: { compact?: boolea
                       const type = value as Variable["type"];
                       const defaultValue =
                         type === "number" ? 0 : type === "boolean" ? false : type === "json" ? {} : "";
-                      updateVariableAt(clampedIdx, { type, defaultValue, defaultValueText: undefined });
+                      updateSelected({ type, defaultValue, defaultValueText: undefined });
                     }}
                     options={typeOptions}
                     className="py-3"
@@ -399,7 +410,7 @@ export function VariablesSection({ compact, mobileListMode }: { compact?: boolea
                   {selected.type === "boolean" ? (
                     <button
                       onClick={() =>
-                        updateVariableAt(clampedIdx, {
+                        updateSelected({
                           defaultValue: !selected.defaultValue,
                         })
                       }
@@ -416,7 +427,7 @@ export function VariablesSection({ compact, mobileListMode }: { compact?: boolea
                     <NumberInput
                       value={selected.defaultValue as number}
                       onChange={(val) =>
-                        updateVariableAt(clampedIdx, {
+                        updateSelected({
                           defaultValue: val === "" ? 0 : val,
                         })
                       }
@@ -427,13 +438,13 @@ export function VariablesSection({ compact, mobileListMode }: { compact?: boolea
                       variable={selected}
                       expanded={expandedJsonId === selected.id}
                       onExpandedChange={(expanded) => setExpandedJsonId(expanded ? selected.id : null)}
-                      onChange={(updates) => updateVariableAt(clampedIdx, updates)}
+                      onChange={(updates) => updateSelected(updates)}
                     />
                   ) : (
                     <DebouncedInput
                       type="text"
                       value={String(selected.defaultValue ?? "")}
-                      onCommit={(defaultValue) => updateVariableAt(clampedIdx, { defaultValue })}
+                      onCommit={(defaultValue) => updateSelected({ defaultValue })}
                       syncKey={selected.id}
                       className="w-full rounded-xl border border-border bg-card px-4 py-3 text-sm text-foreground shadow-inner transition-all focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/50"
                     />
@@ -444,7 +455,7 @@ export function VariablesSection({ compact, mobileListMode }: { compact?: boolea
                 <div role="group" className="space-y-3 border-t border-border/60 pt-5" aria-label={t("variables.activationLabel")}>
                   <h3 className="text-sm font-semibold text-foreground">{t("variables.activationLabel")}</h3>
                   <VariableActivationEditor key={selected.id} variable={selected} variables={conditionVars} greetings={greetings}
-                    onChange={(updates) => updateVariableAt(clampedIdx, updates)} />
+                    onChange={(updates) => updateSelected(updates)} />
                 </div>
 
                 {/* Number-specific: min/max */}
@@ -455,7 +466,7 @@ export function VariablesSection({ compact, mobileListMode }: { compact?: boolea
                       <NumberInput
                         value={selected.min ?? ""}
                         onChange={(val) =>
-                          updateVariableAt(clampedIdx, {
+                          updateSelected({
                             min: val === "" ? undefined : val,
                           })
                         }
@@ -467,7 +478,7 @@ export function VariablesSection({ compact, mobileListMode }: { compact?: boolea
                       <NumberInput
                         value={selected.max ?? ""}
                         onChange={(val) =>
-                          updateVariableAt(clampedIdx, {
+                          updateSelected({
                             max: val === "" ? undefined : val,
                           })
                         }
@@ -481,15 +492,14 @@ export function VariablesSection({ compact, mobileListMode }: { compact?: boolea
                     adding any = the AI writes it freely, as before. */}
                 {selected.type === "string" && (
                   <div className="space-y-3">
-                    <label className="text-sm font-bold text-foreground">{t("variables.optionsLabel")}</label>
+                    <label className="flex items-center gap-1 text-sm font-bold text-foreground">{t("variables.optionsLabel")}<InfoTip text={t("variables.optionsHint")} /></label>
                     <OptionsEditor
                       key={selected.id}
                       values={selected.options ?? []}
-                      onChange={(options) => updateVariableAt(clampedIdx, { options: options.length > 0 ? options : undefined })}
+                      onChange={(options) => updateSelected({ options: options.length > 0 ? options : undefined })}
                       addLabel={t("variables.optionsAdd")}
                       placeholder={t("variables.optionsPlaceholder")}
                     />
-                    <p className="text-sm text-muted-foreground">{t("variables.optionsHint")}</p>
                   </div>
                 )}
 
@@ -499,41 +509,43 @@ export function VariablesSection({ compact, mobileListMode }: { compact?: boolea
                 {(selected.type === "number" ||
                   selected.type === "boolean" ||
                   (selected.type === "string" && (selected.options?.length ?? 0) > 0)) && (
-                  <PreciseTrackingEditor key={selected.id} variable={selected} onChange={(u) => updateVariableAt(clampedIdx, u)} />
+                  <PreciseTrackingEditor key={selected.id} variable={selected} onChange={(u) => updateSelected(u)} />
                 )}
 
                 {/* Behavior Rules */}
                 <div className="space-y-3">
-                  <label className="text-sm font-bold text-foreground">
+                  <label className="flex items-center gap-1 text-sm font-bold text-foreground">
                     {t("variables.behaviorRules")}
+                    <InfoTip text={t("variables.behaviorRulesHint")} />
                   </label>
                   <DebouncedTextarea
                     value={selected.behaviorRules ?? selected.updateHints ?? ""}
                     onCommit={(v) =>
-                      updateVariableAt(clampedIdx, {
+                      updateSelected({
                         behaviorRules: v || undefined,
                       })
                     }
                     syncKey={selected.id}
+                    // Typed together once the old hint field is gone (the box
+                    // shows that one until rules are written).
+                    sharedKey={selected.updateHints === undefined || selected.behaviorRules !== undefined ? textFieldKey({ kind: "row", key: "variables", id: selected.id, field: "behaviorRules" }) : undefined}
                     placeholder={t("variables.behaviorRulesPlaceholder")}
                     rows={3}
                     className="min-h-[96px] w-full resize-y rounded-xl border border-border bg-card px-4 py-4 text-sm leading-relaxed text-foreground shadow-inner transition-all placeholder:text-muted-foreground/30 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/50"
                   />
-                  <p className="text-sm text-muted-foreground">
-                    {t("variables.behaviorRulesHint")}
-                  </p>
                 </div>
 
                 {/* Module membership — inactive worldbook gates the variable */}
                 {(worldDraft.worldbooks?.length ?? 0) > 0 && (
                   <div className="space-y-2">
-                    <label className="text-sm font-bold text-foreground">
+                    <label className="flex items-center gap-1 text-sm font-bold text-foreground">
                       {t("variables.worldbookLabel")}
+                      <InfoTip text={t("variables.worldbookHint")} />
                     </label>
                     <select
                       value={selected.worldbookId ?? ""}
                       onChange={(e) =>
-                        updateVariableAt(clampedIdx, { worldbookId: e.target.value || undefined })
+                        updateSelected({ worldbookId: e.target.value || undefined })
                       }
                       className="w-full rounded-xl border border-border bg-card px-4 py-2.5 text-sm text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/50"
                     >
@@ -542,22 +554,26 @@ export function VariablesSection({ compact, mobileListMode }: { compact?: boolea
                         <option key={wb.id} value={wb.id}>{wb.name}</option>
                       ))}
                     </select>
-                    <p className="text-sm text-muted-foreground">{t("variables.worldbookHint")}</p>
                   </div>
                 )}
 
                 {/* AI access — what the AI may do with this variable. Last on
                     purpose: most authors never change it. */}
                 <div className="space-y-3 border-t border-border/60 pt-5">
-                  <label className="text-sm font-bold text-foreground">
+                  <label className="flex items-center gap-1 text-sm font-bold text-foreground">
                     {t("variables.aiAccessLabel")}
+                    <InfoTip
+                      text={preciseOwned
+                        ? t("variables.aiAccessHint.precise")
+                        : t(`variables.aiAccessHint.${selected.aiAccess ?? "write"}` as any)}
+                    />
                   </label>
                   <Select
                     value={selected.aiAccess ?? "write"}
                     onValueChange={(value) =>
                       // Store the default ("write") as undefined so legacy
                       // exports stay byte-identical.
-                      updateVariableAt(clampedIdx, {
+                      updateSelected({
                         aiAccess: value === "write" ? undefined : (value as Variable["aiAccess"]),
                       })
                     }
@@ -570,11 +586,6 @@ export function VariablesSection({ compact, mobileListMode }: { compact?: boolea
                     }
                     className="py-3"
                   />
-                  <p className="text-sm text-muted-foreground">
-                    {preciseOwned
-                      ? t("variables.aiAccessHint.precise")
-                      : t(`variables.aiAccessHint.${selected.aiAccess ?? "write"}` as any)}
-                  </p>
                 </div>
 
                 <details
@@ -593,8 +604,10 @@ export function VariablesSection({ compact, mobileListMode }: { compact?: boolea
                         interface file for references. */}
                     {technicalOpenFor === selected.id && (
                       <VariableIdEditor key={clampedIdx} world={worldDraft} variable={selected} onCommit={(id) => {
-                        updateVariableAt(clampedIdx, { id });
-                        const nextId = useEditorStore.getState().worldDraft.variables[clampedIdx]?.id ?? selected.id;
+                        const at = useEditorStore.getState().worldDraft.variables.findIndex((v) => v.id === selectedVarId);
+                        if (at >= 0) updateVariableAt(at, { id });
+                        const nextId = (at >= 0 ? useEditorStore.getState().worldDraft.variables[at]?.id : null) ?? selected.id;
+                        setSelectedId(nextId);
                         // Keep the section open across the id change.
                         setTechnicalOpenFor(nextId);
                         return nextId;

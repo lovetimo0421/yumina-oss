@@ -142,9 +142,17 @@ function isLeadingRefusalWithAlternatives(text: string, which: RefusalLang[]): b
   return countHits(text.slice(0, REFUSAL_LEAD), REFUSAL, which) >= 1 && countHits(text, ALTERNATIVES, which) >= 1;
 }
 
+/** Provider content-filter stock replies that carry no policy words. Tencent Hunyuan (Hy4, Hy4 Flash) answers a
+ *  filtered turn with exactly this sentence pair, in Chinese even for an English chat (2026-11-16: 19 of 24 adult
+ *  summaries). Matched as the whole reply only, so a story that quotes it is never flagged. */
+const CANNED_FILTER_REPLIES: RegExp[] = [
+  /^我无法提供相关信息[。.]?\s*(?:如果(?:你|您)有其他(?:的)?问题[，,]?\s*我(?:会)?很乐意为(?:你|您)解答[。.!！]?)?$/,
+];
+
 export function detectRefusal(text: string, options?: DetectRefusalOptions): boolean {
   const trimmed = (text ?? "").trim();
   if (!trimmed || trimmed.length > LONG_REPLY_MAX) return false;
+  if (CANNED_FILTER_REPLIES.some((re) => re.test(trimmed))) return true;
   const which = langs(options);
 
   if (trimmed.length <= SHORT_REPLY_MAX) {

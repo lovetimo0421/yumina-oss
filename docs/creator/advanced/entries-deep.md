@@ -1,3 +1,8 @@
+---
+title: "Writing great entries"
+description: "How to write character entries that describe behavior, gate lore on variables and keywords, and use depth, recursion and position settings."
+---
+
 <div v-pre>
 
 # Writing Great Entries
@@ -18,11 +23,11 @@ Don't just list traits. Describe how those traits show up in action.
 
 > Kasu is shy, introverted, and desperate to be accepted.
 
-**Write this** — from the *Poison in the Jar (壺中の毒 · 大逃杀)* card, the actual entry for Kasu:
+**Write this**, from the *Poison in the Jar (壺中の毒 · 大逃杀)* card, the actual entry for Kasu:
 
-> Kasu is so introverted he barely registers as a presence, and what he wants most is to be accepted. In three years of school, he hardly ever spoke to anyone unprompted — not out of coldness, but out of fear. He's afraid that if he opens his mouth he'll be rejected, mocked, or ignored. So he stays silent and turns himself into background.
+> Kasu is so introverted he barely registers as a presence, and what he wants most is to be accepted. In three years of school, he hardly ever spoke to anyone unprompted, not out of coldness, but out of fear. He's afraid that if he opens his mouth he'll be rejected, mocked, or ignored. So he stays silent and turns himself into background.
 >
-> In the cave group, Kasu quietly does the most physical work — fetching water from the stream, sorting out the bedding, gathering shellfish at low tide. He never complains, because "having something to do" is what makes him feel needed.
+> In the cave group, Kasu quietly does the most physical work: fetching water from the stream, sorting out the bedding, gathering shellfish at low tide. He never complains, because "having something to do" is what makes him feel needed.
 
 The AI can't act out "shy" in a consistent way. But it can keep acting out "fetches the water, never complains, turns himself into background."
 
@@ -42,7 +47,7 @@ As the relationship variable changes, the AI's guidance shifts automatically.
 ::: details How to set this up
 On the canvas, this is **Conditional lore**:
 
-1. Write one entry per stage ("Rin — Early Stage", "Rin — Growing Trust", etc.).
+1. Write one entry per stage ("Rin: Early Stage", "Rin: Growing Trust", etc.).
 2. Drag the `rin_affinity` variable onto an entry. A line connects them and the entry moves into the **Conditional lore** block. Click the line and set the condition, e.g. `≥ 26`.
 3. For a range, drag the variable onto the same entry again and set the second condition (`< 51`). With two or more conditions, the entry's **When the AI sees this** lets you choose whether all of them or any one must hold. For a stage range, use all.
 
@@ -143,7 +148,7 @@ The entry then switches on the **actual value of a variable**, not on whether th
 
 ### Real-world example: companion attitudes
 
-Wandering Diary uses this pattern to change how companions behave toward the player. Each companion has three entries — one for low affinity (cautious and distant), one for mid (warming up), one for high (deep loyalty) — and the right one goes to the AI as the affinity variable crosses each threshold.
+Wandering Diary uses this pattern to change how companions behave toward the player. Each companion has three entries: one for low affinity (cautious and distant), one for mid (warming up), one for high (deep loyalty). The right one goes to the AI as the affinity variable crosses each threshold.
 
 The player never sees this machinery. They just experience a companion who gradually opens up.
 
@@ -240,7 +245,7 @@ Earlier always-sent entries get cached more efficiently, so put your most stable
 
 **Entries that never go out.** An entry with **Always Send** off and no keywords or conditions is never sent on its own. That's **Standby lore**, which is what you want when a behavior opens it. If you didn't mean that, give it keywords or a condition, or tick Always Send.
 
-**Overlapping stage ranges.** If "Rin — Early Stage" is sent when affinity < 30 and "Rin — Growing Trust" when affinity > 25, both reach the AI between 26-29. Use non-overlapping ranges: `< 26` and `≥ 26` with `< 51`. The same goes for behaviors that enable and disable stage entries.
+**Overlapping stage ranges.** If "Rin: Early Stage" is sent when affinity < 30 and "Rin: Growing Trust" when affinity > 25, both reach the AI between 26-29. Use non-overlapping ranges: `< 26` and `≥ 26` with `< 51`. The same goes for behaviors that enable and disable stage entries.
 
 **Too-specific keywords that never match.** If your entry about the "Crystalline Sanctum" only triggers on `crystalline sanctum`, players who type "crystal place" or "that temple" will never see it. Think about how players actually refer to things, not just the canonical name.
 
@@ -250,9 +255,9 @@ Earlier always-sent entries get cached more efficiently, so put your most stable
 
 ## See also
 
-- [Designing Game State](/creator/advanced/variables-deep) — choosing and structuring the variables your entries react to
-- [AI Directives & Macros](/creator/advanced/directives-macros) — the `{{macro}}` syntax and directive format used inside entries
-- [Behaviors & Automation](/creator/advanced/rules-deep) — using **Enable lore entry** / **Disable lore entry** to open and close entries from behaviors
+- [Designing Game State](/creator/advanced/variables-deep): choosing and structuring the variables your entries react to
+- [AI Directives & Macros](/creator/advanced/directives-macros): the `{{macro}}` syntax and directive format used inside entries
+- [Behaviors & Automation](/creator/advanced/rules-deep): using **Enable lore entry** / **Disable lore entry** to open and close entries from behaviors
 
 Full schema reference → [World Spec: Entries & Sections](/world-spec/entries)
 

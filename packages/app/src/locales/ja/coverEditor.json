@@ -1072,7 +1072,7 @@
     "saveTitle": "保存（Ctrl+S）",
     "saveTooltip": "保存 (Ctrl+S)",
     "publish": "公開",
-    "publishTooltip": "Discoverに公開",
+    "publishTooltip": "公開設定",
     "publishUpdate": "更新",
     "publishUpdateTooltip": "公開中のリスティングを更新",
     "play": "プレイ",
@@ -1178,12 +1178,11 @@
     "audio": "オーディオ",
     "sceneImages": "シーン画像",
     "assets": "アセット",
-    "overview": "概要",
+    "overview": "カードの設定",
     "bundles": "バンドル",
-    "aiGeneration": "AI生成",
+    "aiGeneration": "アトリエ",
     "worldbooks": "シチュエーション",
-    "packs": "仕組みパック",
-    "backgrounds": "背景画像"
+    "backgrounds": "チャット背景"
   },
   "firstMessage": {
     "title": "最初のメッセージ",
@@ -2389,7 +2388,7 @@
     "stage": {
       "tabBlueprint": "ストーリー",
       "tabFrontend": "プレイヤー画面",
-      "tabGeneration": "AI 生成",
+      "tabGeneration": "アトリエ",
       "toStage": "キャンバスワークステーション — キャンバスが全面に",
       "toClassic": "旧パネルレイアウトに切り替え",
       "collapse": "折りたたむ",
@@ -2451,16 +2450,15 @@
       "audio": "オーディオ",
       "sceneImages": "シーン画像",
       "assets": "アセット",
-      "overview": "概要",
+      "overview": "カードの設定",
       "previewControls": "プレビュー操作",
       "canvas": "画面プレビュー",
       "aiAssistant": "AIアシスタント",
       "playtest": "プレイテスト",
       "marketplace": "マーケットプレイス",
-      "aiGeneration": "AI生成",
+      "aiGeneration": "アトリエ",
       "worldbooks": "シチュエーション",
-      "packs": "仕組みパック",
-      "backgrounds": "背景画像"
+      "backgrounds": "チャット背景"
     },
     "layouts": {
       "blueprint": "キャンバス",
@@ -2852,6 +2850,9 @@
         "update_settings": "設定を変更",
         "load_skill": "ガイドを読む",
         "list_assets": "素材を見る",
+        "view_asset": "画像を見る",
+        "set_cover": "カバーに設定",
+        "list_voices": "ボイスを探す",
         "browse_assets": "素材を見る",
         "compile_tsx": "画面コードをチェック",
         "generate_image": "画像を1枚作る",
@@ -2860,7 +2861,8 @@
         "analyze_token_cost": "使用量を見積もる",
         "validate_ui_blueprint": "画面をチェック",
         "list_templates": "テンプレートを見る",
-        "other": "その他の手順"
+        "other": "その他の手順",
+        "screenshot_ui": "画面を見る"
       },
       "field": {
         "name": "名前",
@@ -4725,7 +4727,7 @@
     "cropSize": "トリミングサイズ",
     "cardCover": "カードのカバー",
     "galleryPreview": "ギャラリープレビュー",
-    "detailHeroPreview": "詳細バナー · 16:5",
+    "detailHeroPreview": "詳細バナー · 21:9",
     "crop": {
       "hint": "このカバーの切り抜きを選びます。プレビューは見つけるページのカードと同じ表示です。",
       "dragHint": "枠をドラッグまたはサイズ変更",
@@ -4735,7 +4737,11 @@
       "reset": "この表示をリセット",
       "save": "トリミングを保存",
       "phone": "縦型カード · 2:3",
-      "desktop": "横型画像 · 16:9",
+      "desktop": "ギャラリー表示",
+      "galleryDesktop": "デスクトップバナー · 21:9",
+      "galleryMobile": "モバイルとギャラリーカード · 16:9",
+      "galleryDevice": "ギャラリー表示形式",
+      "galleryHint": "それぞれ別々に調整できます。デスクトップバナーはストーリープレビューとライブラリの詳細に使われます。モバイルプレビューと横長カードはモバイルの切り抜きを使います。",
       "framing": "構図",
       "wholeImage": "画像全体",
       "fillFrame": "枠に合わせる",
@@ -4840,7 +4846,7 @@
       },
       "publish": {
         "title": "世界を公開しよう",
-        "body": "完成したら右上のここから公開申請。審査を通ればハブに並んで、みんなが遊べるようになるよ！"
+        "body": "プレイできる人を選び、審査に提出します。"
       },
       "save": {
         "title": "保存を忘れずに",
@@ -4868,7 +4874,7 @@
       },
       "publishM": {
         "title": "世界を公開しよう",
-        "body": "完成したら上のここから公開申請。審査を通ればハブに並んで、みんなが遊べるようになるよ！"
+        "body": "プレイできる人を選び、審査に提出します。"
       },
       "menuOpen": {
         "title": "セクションメニュー",
@@ -4928,7 +4934,7 @@
       },
       "sPublish": {
         "title": "公開",
-        "body": "納得できたらここから公開申請。承認されると発見ページに載り、みんなが遊べます。"
+        "body": "プレイできる人を選び、審査に提出します。"
       },
       "sAdvanced": {
         "title": "もっと本格的に？",
@@ -5042,19 +5048,6 @@
     "before": "元の画像",
     "after": "処理後",
     "previewSentence": "雨が街全体を低く押さえつけていた。彼女は振り返らず、傘をあなたのほうへ少しだけ傾けた。"
-  },
-  "packs": {
-    "title": "仕組みパック",
-    "blurb": "そのまま動く変数・行動・項目のセットを、ワンクリックで追加します。追加されたものはカード自身の内容です——開けて、読めて、直せます。",
-    "add": "このカードに追加",
-    "addedAgain": "追加済み — もう一度追加",
-    "installed": "「{{name}}」を追加しました",
-    "countVariables": "変数 {{count}}",
-    "countBehaviors": "行動 {{count}}",
-    "countEntries": "項目 {{count}}",
-    "deterministic": "本物の変数——エンジンが処理するので、モデルを変えても壊れません。",
-    "promptOnly": "プロンプトのみ——従うかはモデル次第。正確さが要るなら変数を。",
-    "footnote": "パックは重ねられます。好感度と生存を同じカードに入れられます。不要なら資源ページから外せば、持ち込まれたものも一緒に消えます。"
   },
   "reviewState": {
     "rejectReasons": {

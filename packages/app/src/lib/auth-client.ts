@@ -11,6 +11,7 @@ import { resetAnalyticsUser } from "@/lib/analytics";
 import { clearSessionPickerCache } from "@/lib/session-picker-cache";
 import { assetImportStore } from "@/stores/asset-import";
 import { useUserAssetStore } from "@/stores/user-assets";
+import { createSessionCheck } from "@/lib/session-check";
 
 export const authClient = createAuthClient({
   baseURL: import.meta.env?.VITE_API_URL || "",
@@ -29,49 +30,22 @@ const {
 export { signIn, signUp, useSession };
 
 /**
- * Get session with retry for dev HMR resilience.
- * During Vite HMR, getSession() can transiently return null — retry once
- * after a short delay to avoid false redirects to /login.
- *
- * Results are cached for 30 seconds so that TanStack Router `beforeLoad`
- * checks don't block navigation with a network request on every route change.
+ * Session check for route guards (see session-check.ts): only the server's
+ * "signed in / signed out" is cached, for 30s; a network or server hiccup
+ * keeps the last known answer instead of reading as signed out.
  */
-let sessionCache: { result: Awaited<ReturnType<typeof authClient.getSession>>; ts: number } | null = null;
-const SESSION_CACHE_MS = 30_000;
+const sessionCheck = createSessionCheck(() => authClient.getSession(), {
+  // Vite HMR can briefly answer "no session" in dev.
+  retrySignedOut: () => Boolean(import.meta.env?.DEV),
+});
 
-export async function getSessionSafe() {
-  // Return cached result if fresh — prevents route transitions from stalling
-  // while the auth check round-trips to the server.
-  if (sessionCache && Date.now() - sessionCache.ts < SESSION_CACHE_MS) {
-    return sessionCache.result;
-  }
+export const getSessionSafe = sessionCheck.get;
 
-  try {
-    let session = await authClient.getSession();
-
-    // Dev-only retry for HMR races on protected routes. Cache the outcome so
-    // public auth navigations (e.g. /login) don't pay this delay on every visit.
-    if (import.meta.env.DEV && !session.data) {
-      await new Promise((r) => setTimeout(r, 500));
-      session = await authClient.getSession();
-    }
-
-    sessionCache = { result: session, ts: Date.now() };
-    return session;
-  } catch {
-    // Network error (e.g. server restarting during deploy) — fall back to
-    // stale cache so we don't false-logout the user.
-    if (sessionCache) {
-      return sessionCache.result;
-    }
-    return { data: null } as Awaited<ReturnType<typeof authClient.getSession>>;
-  }
-}
+/** True when getSessionSafe() could not reach a verdict (not the same as signed out). */
+export const isSessionUnverified = sessionCheck.isUnverified;
 
 /** Invalidate the session cache (call on sign-out). */
-export function clearSessionCache() {
-  sessionCache = null;
-}
+export const clearSessionCache = sessionCheck.clear;
 
 export function clearAllStores() {
   assetImportStore.getState().resetOwner(null);

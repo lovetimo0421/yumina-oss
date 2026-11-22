@@ -84,6 +84,8 @@ CREATE TABLE IF NOT EXISTS worlds (
     allow_reviews BOOLEAN NOT NULL DEFAULT true,
     allow_live_canon BOOLEAN NOT NULL DEFAULT false,
     allow_live_canon_additions BOOLEAN NOT NULL DEFAULT false,
+    retained JSONB,
+    sealed_content BOOLEAN NOT NULL DEFAULT false,
     age_rating TEXT NOT NULL DEFAULT 'all', visibility TEXT NOT NULL DEFAULT 'public',
     download_count INTEGER NOT NULL DEFAULT 0,
     display_download_count INTEGER,
@@ -111,6 +113,8 @@ ALTER TABLE worlds ADD COLUMN IF NOT EXISTS allow_reviews BOOLEAN NOT NULL DEFAU
 ALTER TABLE worlds ADD COLUMN IF NOT EXISTS allow_custom_api BOOLEAN NOT NULL DEFAULT true;
 ALTER TABLE worlds ADD COLUMN IF NOT EXISTS allow_live_canon BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE worlds ADD COLUMN IF NOT EXISTS allow_live_canon_additions BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE worlds ADD COLUMN IF NOT EXISTS retained JSONB;
+ALTER TABLE worlds ADD COLUMN IF NOT EXISTS sealed_content BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE worlds ADD COLUMN IF NOT EXISTS blur_cover BOOLEAN;
 ALTER TABLE worlds ADD COLUMN IF NOT EXISTS language TEXT;
 ALTER TABLE worlds ADD COLUMN IF NOT EXISTS language_group_id TEXT;

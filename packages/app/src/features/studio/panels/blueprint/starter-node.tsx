@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 
 export const STARTER_NODE_WIDTH = 300;
-export const STARTER_PLACEHOLDER_HEIGHT = 156;
+export const STARTER_PLACEHOLDER_HEIGHT = 112;
 
 export type StarterNodeData = Record<string, unknown> & {
   kind: "setting" | "opening";
@@ -36,11 +36,11 @@ export const StarterNode = memo(function StarterNode({ data }: NodeProps<Node<St
       onDoubleClick={(event) => event.stopPropagation()}
       onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); }}
     >
-      <div className="flex items-center gap-2 text-sm font-medium">
+      <div className="flex items-center gap-2 text-sm font-medium" title={t(`blueprint.starter.${data.kind}Hint`)}>
         <Icon className={cn("h-4 w-4 shrink-0", setting ? "text-violet-300" : "text-emerald-300")} />
         {t(`blueprint.starter.${data.kind}Title`)}
       </div>
-      <p className="mb-3 mt-2 flex-1 text-[12px] leading-[18px] text-zinc-400">{t(`blueprint.starter.${data.kind}Hint`)}</p>
+      <div className="flex-1" />
       <button
         type="button"
         onClick={data.onCreate}

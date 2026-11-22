@@ -25,10 +25,20 @@ export interface CardVoiceWorld {
   settings?: { narratorVoice?: string | null } | null;
 }
 
-export function resolveCardVoice(world: CardVoiceWorld | null | undefined, text: string): string | undefined {
-  if (!world) return undefined;
+/**
+ * `picks` are the voices the player chose for speakers in this chat (keyed by
+ * name, "narrator" for the narrator). They come before the card's.
+ */
+export function resolveCardVoice(world: CardVoiceWorld | null | undefined, text: string, picks: Readonly<Record<string, string>> = {}): string | undefined {
+  const picked = (name: string | undefined) => {
+    const voice = name ? picks[name.trim()] : undefined;
+    return voice && isValidTtsVoice(voice) ? voice : undefined;
+  };
+  if (!world) return picked("narrator");
   const speaker = resolveSpeaker(world.entries ?? [], text, aiFrameIds(world.worldbooks));
+  const own = picked(speaker?.name);
+  if (own) return own;
   if (speaker?.voice && isValidTtsVoice(speaker.voice)) return speaker.voice;
-  const narrator = world.settings?.narratorVoice;
+  const narrator = picked("narrator") ?? world.settings?.narratorVoice;
   return narrator && isValidTtsVoice(narrator) ? narrator : undefined;
 }

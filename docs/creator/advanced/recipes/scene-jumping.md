@@ -1,3 +1,8 @@
+---
+title: "Scene jumping & entry switching via UI"
+description: "Let the player jump between pre-written openings with a button, and type a rule into a box that changes what a lore entry tells the AI."
+---
+
 <div v-pre>
 
 # Scene Jumping & Entry Switching via UI
@@ -10,7 +15,7 @@
 
 ### What you'll build
 
-A world with multiple pre-written opening scenes. The player sees the "main" opening first, with clickable buttons. When they click one, the first message in chat switches to another pre-written opening at once — no AI generation, just the text you wrote.
+A world with multiple pre-written opening scenes. The player sees the "main" opening first, with clickable buttons. When they click one, the first message in chat switches to another pre-written opening at once. No AI generation, just the text you wrote.
 
 ### How it works
 
@@ -39,9 +44,9 @@ If something else should happen when the route is picked (music, a notice), add 
 
 On the canvas, click the opening's row and write the first one. To add another, click the **＋** in the top right of the opening block.
 
-**The first opening (main opening — presents the route choice):**
+**The first opening (main opening, presents the route choice):**
 
-This is what the player sees first when they open the session — describe the scene and guide them toward a choice:
+This is what the player sees first when they open the session. Describe the scene and guide them toward a choice:
 
 ```
 *You wake up in a mysterious forest. Morning mist swirls between ancient trees.*
@@ -137,7 +142,7 @@ For a route with a lot of its own lore, variables and AIs, put it in a [scenario
 
 #### Step 4: Add route buttons in interface code
 
-To put the buttons inside the first chat bubble, write them in interface code. Open **Panels → Front End Code** → `index.tsx` and replace its contents with:
+To put the buttons inside the first chat bubble, write them in interface code. Open **Panels → Interface code** → `index.tsx` and replace its contents with:
 
 ```tsx
 export default function MyWorld() {
@@ -205,13 +210,13 @@ export default function MyWorld() {
 
 **Line-by-line explanation:**
 
-- `<Chat renderBubble={...} />` — uses the platform's default chat interface (input box, swipe switching, save points are all built in), you only take over how bubbles render
-- `const api = useYumina()` — gets Yumina's API, letting you read variables, write variables, set off behaviors, switch openings
-- `api.variables.current_route` — reads the current route variable's value
-- `hasChosen` — if it's not `"none"`, the player has already chosen
-- `msg.contentHtml` — the pre-rendered HTML that renderBubble passes in (Markdown is already processed)
-- `msg.messageIndex === 0` — only show buttons on the first message (not every message)
-- `api.switchGreeting(1)` — switches the first message to index 1 (the second opening). The variables reset to that opening's starting values, so `current_route` becomes `"dark"`, the buttons disappear and the cave lore starts being sent
+- `<Chat renderBubble={...} />`: uses the platform's default chat interface (input box, swipe switching, save points are all built in), you only take over how bubbles render
+- `const api = useYumina()`: gets Yumina's API, letting you read variables, write variables, set off behaviors, switch openings
+- `api.variables.current_route`: reads the current route variable's value
+- `hasChosen`: if it's not `"none"`, the player has already chosen
+- `msg.contentHtml`: the pre-rendered HTML that renderBubble passes in (Markdown is already processed)
+- `msg.messageIndex === 0`: only show buttons on the first message (not every message)
+- `api.switchGreeting(1)`: switches the first message to index 1 (the second opening). The variables reset to that opening's starting values, so `current_route` becomes `"dark"`, the buttons disappear and the cave lore starts being sent
 
 **Doing more on click.** If the button should also run a behavior (play music, show a notice, change other values), switch first and run the behavior after the switch has finished:
 
@@ -235,15 +240,15 @@ Click **Creation assistant** in the top right of the canvas and describe the but
 1. Click **Save** in the top bar
 2. Click **Play** to start a playtest
 3. You'll see the main opening with two buttons below
-4. Click "Enter the Dark Cave" — the first message becomes your cave opening and the buttons disappear
-5. Send a few messages to the AI — if you did Step 3, the AI's replies follow the cave lore
+4. Click "Enter the Dark Cave". The first message becomes your cave opening and the buttons disappear
+5. Send a few messages to the AI. If you did Step 3, the AI's replies follow the cave lore
 6. To test the other route, start a new playtest and click the other button
 
 **Troubleshooting:**
 
 | Symptom | Likely cause | Fix |
 |---------|--------------|-----|
-| Don't see buttons | The interface code isn't saved or has a syntax error | **Panels → Front End Code** should show **OK**, not **Error** |
+| Don't see buttons | The interface code isn't saved or has a syntax error | **Panels → Interface code** should show **OK**, not **Error** |
 | Button clicks but opening doesn't switch | Not enough openings | Confirm the card has 3 openings |
 | Opening switches but the buttons stay | The opening has no starting value for `current_route` | Drag that opening onto `current_route` and set its value |
 | Lore doesn't switch | The entry's condition doesn't match | Click the line between `current_route` and the entry and check the value (`dark` / `light`) |
@@ -326,7 +331,7 @@ The following rule is in effect for this world and must be respected at all time
 
 > Every time the engine builds the prompt, it looks for `{{...}}` in the entries. If the name inside the braces matches a variable, the variable's current value replaces it.
 >
-> If the variable is empty, the line becomes empty — the AI sees "The following rule is in effect..." with nothing after. If the value is "Magic is forbidden", the AI sees "The following rule is in effect... Magic is forbidden".
+> If the variable is empty, the line becomes empty. The AI sees "The following rule is in effect..." with nothing after. If the value is "Magic is forbidden", the AI sees "The following rule is in effect... Magic is forbidden".
 
 ---
 
@@ -398,12 +403,12 @@ const isLastMsg = msg.messageIndex === msgs.length - 1;    // whether this is th
 
 **Line-by-line explanation:**
 
-- `isLastMsg` — only show the input on the last message, otherwise every message would have one
-- `currentRule` — reads the variable's current value, shown above the input so the player can see the current rule
-- `ruleInput` — React state tracking what's being typed
-- `onKeyDown` — pressing Enter also submits, not just clicking the button
-- `api.setVariable("custom_rule", ...)` — writes the player's text into the variable. Next AI reply, `{{custom_rule}}` in the entry is replaced with this text
-- `setRuleInput("")` — clear the input after submit
+- `isLastMsg`: only show the input on the last message, otherwise every message would have one
+- `currentRule`: reads the variable's current value, shown above the input so the player can see the current rule
+- `ruleInput`: React state tracking what's being typed
+- `onKeyDown`: pressing Enter also submits, not just clicking the button
+- `api.setVariable("custom_rule", ...)`: writes the player's text into the variable. Next AI reply, `{{custom_rule}}` in the entry is replaced with this text
+- `setRuleInput("")`: clear the input after submit
 
 ::: info Why put it inside renderBubble?
 Returning `<Chat />` from `index.tsx` gives you the platform's chat. To put interactive elements (buttons, inputs) into the chat, there are two ways: 1) put them inside `<Chat renderBubble={...} />`, like here, so they render alongside message bubbles; 2) put `<Chat />` and your own component side by side in a flex layout (for sidebars). For a full-screen UI with no chat (e.g., a visual novel), skip `<Chat />` and write your own layout, using `<MessageList />` + `<MessageInput />` if needed.
@@ -416,10 +421,10 @@ Returning `<Chat />` from `index.tsx` gives you the platform's chat. To put inte
 1. Save the card and start a playtest with **Play**
 2. Below the last message, you'll see "World Rule: (not set)" and an input box
 3. Type "Magic is forbidden" and click "Apply" (or press Enter)
-4. The text above the input changes to "World Rule: Magic is forbidden" — the variable has updated
-5. **Now send a message** (e.g., "I try to cast a fireball") — this is when the engine builds the prompt, replacing `{{custom_rule}}` with "Magic is forbidden"
+4. The text above the input changes to "World Rule: Magic is forbidden". The variable has updated
+5. **Now send a message** (e.g., "I try to cast a fireball"). This is when the engine builds the prompt, replacing `{{custom_rule}}` with "Magic is forbidden"
 6. The AI's response should reflect this rule (e.g., "You raise your hand to cast, but your mana feels locked away by some unseen force")
-7. Change the rule again (e.g., to "Only fire magic is allowed") and send another message — the AI adapts
+7. Change the rule again (e.g., to "Only fire magic is allowed") and send another message. The AI adapts
 
 ---
 
@@ -429,7 +434,7 @@ You can combine opening switching and entry modification. A concrete example:
 
 **Character creation + story opening:**
 
-- **The first opening (index 0)** isn't the story — it's a character creation screen with inputs for name, class, and backstory
+- **The first opening (index 0)** isn't the story: it's a character creation screen with inputs for name, class, and backstory
 - Player fills it in → the inputs write to variables → entries with `{{player_name}}`, `{{player_class}}`, `{{player_backstory}}` macros pick up the values
 - Player clicks "Start Adventure" → `switchGreeting(1)` jumps to the real story opening. Switching resets variables to that opening's starting values, so save the answers **after** the switch (await `switchGreeting`, then `setVariable` or `patchVariables`)
 - From the first AI reply onward, the AI already knows the player character's name, class, and backstory

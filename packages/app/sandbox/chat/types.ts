@@ -25,6 +25,9 @@ export interface SandboxSwipe {
   /** Server refusal-detector flag: this reply is a model policy refusal, not
    *  story text. The UI reads `message.swipes[message.activeSwipeIndex ?? 0].refusal`. */
   refusal?: boolean;
+  /** The reply stopped before the model finished: the length limit, or the
+   *  provider's content filter on a reply it still sent. */
+  cut?: "length" | "filter";
 }
 
 export interface SandboxMessage {
@@ -46,6 +49,10 @@ export interface SandboxMessage {
   creditBalanceAfter?: number | null;
   compacted?: boolean;
   attachments?: SandboxMessageAttachment[] | null;
+  /** A story room's round: one entry per player's action. */
+  contributions?: Array<{ userId: string; name: string; text: string; roleId?: string; roleName?: string }> | null;
+  /** 给 AI 的话 sent with this turn (never story text). */
+  playerNote?: string | null;
   createdAt: string;
   /** Host-side, not persisted: the per-turn picture is drawing, or why it wasn't drawn. */
   turnImage?: { status: "drawing"; cancelling?: boolean; cancelFailed?: boolean } | { status: "cancelled" } | { status: "failed"; reason: "busy" | "timeout" | "unavailable" | "credits" };

@@ -153,17 +153,59 @@ function AppDock({ apps }) {
 }
 `;
 
-export function generateComposedIndex(bundleFolders: string[]): string {
+/** How a composed index mounts its packs beyond the default (the author's
+ *  root as the screen, every pack an overlay or App). */
+export interface ComposedLayout {
+  /** A pack folder whose UI IS the card's screen, in place of
+   *  `__user-root.tsx` (the author's root stays as a file, unmounted). */
+  screen?: string;
+  /** Pack folders that are installed but not mounted at all: a pack that was
+   *  the screen before another one replaced it. */
+  parked?: string[];
+}
+
+const LAYOUT_PREFIX = "// layout: ";
+
+/** The layout a composed index was generated with, read back from its own
+ *  header line, so whoever regenerates it keeps the same screen. */
+export function readComposedLayout(code: string | undefined): ComposedLayout {
+  if (!code?.startsWith(COMPOSED_MARKER)) return {};
+  const line = code.split("\n").find((l) => l.startsWith(LAYOUT_PREFIX));
+  if (!line) return {};
+  try {
+    const parsed = JSON.parse(line.slice(LAYOUT_PREFIX.length)) as ComposedLayout;
+    return {
+      ...(typeof parsed.screen === "string" && parsed.screen ? { screen: parsed.screen } : {}),
+      ...(Array.isArray(parsed.parked) && parsed.parked.length ? { parked: parsed.parked.filter((f) => typeof f === "string") } : {}),
+    };
+  } catch {
+    return {};
+  }
+}
+
+export function generateComposedIndex(bundleFolders: string[], layout: ComposedLayout = {}): string {
+  const screen = layout.screen && bundleFolders.includes(layout.screen) ? layout.screen : undefined;
+  const parked = (layout.parked ?? []).filter((f) => f !== screen && bundleFolders.includes(f));
+  const mounted = bundleFolders.filter((f) => f !== screen && !parked.includes(f));
   const imports = [
     `import UserRoot from "./__user-root";`,
-    ...bundleFolders.map((f, i) => `import * as Bundle${i} from "./_bundles/${f}/index";`),
+    ...mounted.map((f, i) => `import * as Bundle${i} from "./_bundles/${f}/index";`),
+    ...(screen ? [`import * as ScreenBundle from "./_bundles/${screen}/index";`] : []),
   ];
-  const list = bundleFolders.map((_, i) => `Bundle${i}`).join(", ");
+  const list = mounted.map((_, i) => `Bundle${i}`).join(", ");
+  // Only a non-default layout writes the line: a card without one keeps the
+  // exact bytes it always had (the server composes the same file).
+  const layoutLine = screen || parked.length
+    ? `${LAYOUT_PREFIX}${JSON.stringify({ ...(screen ? { screen } : {}), ...(parked.length ? { parked } : {}) })}\n`
+    : "";
+  const root = screen ? "ScreenRoot" : "UserRoot";
   return (
     `${COMPOSED_MARKER} — do not edit. Regenerated on every bundle import.\n` +
     `// Edit ./__user-root.tsx to change your main UI.\n` +
+    layoutLine +
     imports.join("\n") +
     `\n\nconst BUNDLES = [${list}];\n` +
+    (screen ? `const ScreenRoot = ScreenBundle.default || UserRoot;\n` : "") +
     APP_DOCK_TSX +
     `\nexport default function App() {\n` +
     `  // An App installed twice keeps one dock button: the first copy wins.\n` +
@@ -172,7 +214,7 @@ export function generateComposedIndex(bundleFolders: string[]): string {
     `  return (\n` +
     `    <>\n` +
     `      <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", minHeight: 0 }}>\n` +
-    `        <UserRoot />\n` +
+    `        <${root} />\n` +
     `      </div>\n` +
     `      {overlays.map((b, i) => { const Overlay = b.default; return <Overlay key={i} />; })}\n` +
     `      {apps.length > 0 ? <AppDock apps={apps} /> : null}\n` +

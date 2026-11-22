@@ -5,6 +5,7 @@ import { PLAY_MODELS } from "@yumina/shared";
 import { useEditorStore } from "@/stores/editor";
 import { DraftInput, NumberInput } from "@/features/studio/panels/blueprint/controls";
 import { modelReach } from "../lib/ai-call-settings";
+import { temperatureMayGarble } from "@/lib/temperature-warning";
 
 const field = "rounded-lg border border-border bg-background px-2 py-1.5 text-sm text-foreground outline-none focus:border-primary/50";
 
@@ -23,10 +24,11 @@ export function StoryAiSettingsFields() {
   const recommended = settings?.recommendedModel ?? "";
   const unknown = recommended.trim() !== "" && !modelReach(recommended).known;
   const limits = AUTHOR_SAMPLING_LIMITS;
+  const temperature = clampToRange(settings?.temperature ?? 1, limits.temperature);
   return (
     <div className="space-y-3" data-story-ai-classic>
       <div>
-        <label className="mb-1.5 block text-sm font-bold text-foreground">{t("blueprint.storyAi.sampling")}</label>
+        <label className="mb-1.5 block text-sm font-bold text-foreground" title={`${t("blueprint.storyAi.samplingHint")} ${t("blueprint.storyAi.alwaysPlayer")}`}>{t("blueprint.storyAi.sampling")}</label>
         <select
           value={author ? "author" : "player"}
           onChange={(e) => setSettings("samplingPolicy", e.target.value === "author" ? "author" : undefined)}
@@ -41,7 +43,7 @@ export function StoryAiSettingsFields() {
               {t("blueprint.storyAi.temperature")}
               <NumberInput
                 aria-label={t("blueprint.storyAi.temperature")}
-                value={clampToRange(settings?.temperature ?? 1, limits.temperature)}
+                value={temperature}
                 min={limits.temperature.min}
                 max={limits.temperature.max}
                 step={0.05}
@@ -63,10 +65,12 @@ export function StoryAiSettingsFields() {
             </label>
           </div>
         )}
-        <p className="mt-1 text-xs text-muted-foreground/40">{t("blueprint.storyAi.samplingHint")} {t("blueprint.storyAi.alwaysPlayer")}</p>
+        {author && temperatureMayGarble(temperature) && (
+          <p className="mt-1 text-xs text-amber-500/80" data-temperature-garble-warn>{t("blueprint.storyAi.temperatureGarbleWarning")}</p>
+        )}
       </div>
       <div>
-        <label className="mb-1.5 block text-sm font-bold text-foreground">{t("blueprint.storyAi.recommendedModel")}</label>
+        <label className="mb-1.5 block text-sm font-bold text-foreground" title={unknown ? undefined : t("blueprint.storyAi.recommendedModelHint")}>{t("blueprint.storyAi.recommendedModel")}</label>
         <DraftInput
           list={listId}
           value={recommended}
@@ -78,7 +82,7 @@ export function StoryAiSettingsFields() {
         <datalist id={listId}>
           {PLAY_MODELS.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
         </datalist>
-        <p className="mt-1 text-xs text-muted-foreground/40">{t(unknown ? "blueprint.storyAi.recommendedUnknown" : "blueprint.storyAi.recommendedModelHint")}</p>
+        {unknown && <p className="mt-1 text-xs text-amber-500/80">{t("blueprint.storyAi.recommendedUnknown")}</p>}
       </div>
     </div>
   );

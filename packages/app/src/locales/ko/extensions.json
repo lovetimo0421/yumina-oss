@@ -1,0 +1,137 @@
+{
+  "title": "확장 기능",
+  "subtitle": "내 계정에서 사용할 수 있는 공식 기능",
+  "viewMore": "더 보기",
+  "getMore": "더 받기",
+  "manage": "관리",
+  "discover": "탐색",
+  "installed": "설치됨",
+  "previouslyInstalled": "이전에 설치함",
+  "installedBadge": "설치됨",
+  "install": "설치",
+  "uninstall": "제거",
+  "reinstall": "다시 설치",
+  "empty": "아직 확장 기능이 없어요",
+  "emptyHint": "아래 탐색에서 첫 확장 기능을 추가해 보세요.",
+  "search": "확장 기능 검색",
+  "noResults": "검색 결과와 일치하는 확장 기능이 없어요.",
+  "sort": {
+    "recommended": "추천",
+    "popular": "인기",
+    "newest": "최신"
+  },
+  "category": {
+    "all": "전체",
+    "memory": "메모리",
+    "narrative": "내러티브",
+    "tools": "도구",
+    "social": "소셜"
+  },
+  "detail": {
+    "byAuthor": "제작: {{author}}",
+    "about": "소개",
+    "whatItDoes": "주요 기능",
+    "reviewsWithCount": "리뷰 ({{count}})"
+  },
+  "reviews": {
+    "write": "리뷰 작성",
+    "submit": "리뷰 등록",
+    "placeholder": "사용 후기를 남겨 주세요… (선택)",
+    "none": "아직 리뷰가 없어요",
+    "noComment": "코멘트 없음",
+    "hidden": "숨김",
+    "raterCount": "평점 {{count}}개",
+    "raterCount_one": "평점 {{count}}개",
+    "yourRating": "내 평점",
+    "confirmDelete": "이 댓글을 삭제할까요?",
+    "deleted": "댓글을 삭제했어요",
+    "deleteFailed": "댓글을 삭제하지 못했어요",
+    "deleteTitle": "댓글 삭제"
+  },
+  "toast": {
+    "installed": "확장 기능을 설치했어요",
+    "uninstalled": "확장 기능을 제거했어요",
+    "reinstalled": "확장 기능을 다시 설치했어요",
+    "installFailed": "설치하지 못했어요",
+    "uninstallFailed": "제거하지 못했어요",
+    "reviewSubmitted": "리뷰를 등록했어요",
+    "reviewFailed": "리뷰를 등록하지 못했어요",
+    "memoryCostNotice": "메모리 업데이트에는 약간의 비용이 들어요. 채팅에서 언제든 무료 모델로 바꿀 수 있어요."
+  },
+  "catalog": {
+    "state-update-guard": {
+      "name": "상태 업데이트 가드 (베타)",
+      "shortDescription": "답변을 저장하기 전에 AI의 업데이트를 확인해요. 형식이 없거나 잘못됐다면 한 번 수정을 시도해요.",
+      "longDescription": "AI가 잘못된 형식으로 답할 때도 스토리의 값이 계속 업데이트되도록 도와줘요. 기존 카드에서도 작동해요. 모든 답변에는 올바른 업데이트가 있거나 업데이트가 없다고 명시되어 있어야 해요. 확인이나 수정에 실패하면 이전 상태가 유지되고 해당 답변에는 요금이 청구되지 않아요. 형식만 확인하며, 스토리의 사실이 맞는지는 확인하지 않아요.\n\n확인은 무료예요. 유료 Yumina 모델로 수정 내용을 저장한 경우에만 버섯코인이 들어요. 기본 모델은 메모리와 같은 Gemini 2.5 Flash Lite예요. 무료로 수정하려면 패널에서 무료 모델 사용을 선택하세요. 직접 입력한 API 키를 사용하면 Yumina는 버섯코인을 차감하지 않지만, 제공업체에서 요금이 청구될 수 있어요.\n\n채팅 도구 모음에서 패널을 열어 켜고 끄거나, 수정 모델을 선택하거나, 변경 내용을 확인할 수 있어요. 끄면 기본 카드 업데이트 방식으로 돌아가요. 제거해도 저장된 상태와 기록은 유지돼요. 설치 변경 사항이 적용되기까지 최대 60초가 걸릴 수 있어요.",
+      "tags": {
+        "state": "상태",
+        "reliability": "안정성",
+        "beta": "베타"
+      },
+      "explanations": [
+        {
+          "title": "Works with existing cards",
+          "body": "Uses the card's existing variables and commands. No need to rewrite its prompt or interface."
+        },
+        {
+          "title": "Clear results",
+          "body": "See whether a reply needed a fix and which values changed. No updates must be explicitly confirmed. Automatic game rules still run."
+        },
+        {
+          "title": "Only fixes when needed",
+          "body": "Valid replies need no extra model call. Invalid replies get one attempt with your correction model. Saved paid Yumina corrections cost mushies; free models and your own API do not. Your API provider may charge."
+        }
+      ]
+    },
+    "session-memory-summary": {
+      "name": "플레이 메모리 & 스토리 요약 (베타)",
+      "shortDescription": "AI가 핵심 사실 목록을 직접 관리하고, 이전 줄거리의 모든 챕터를 읽고 편집할 수 있어요. 베타.",
+      "longDescription": "이전 줄거리와 고정 메모는 이제 확장 기능 없이도 누구나 쓸 수 있어요. 이 확장 기능은 두 가지를 더해줘요.\n\nAI가 핵심 사실(관계, 아이템, 약속, 목표) 목록을 직접 관리하고, 매 답변과 함께 보내요.\n이전 줄거리의 모든 챕터를 읽고 편집할 수 있어요.\n\n메모를 작성하는 데 약간의 비용이 들며, 업데이트당 보통 1 버섯코인 미만이에요. 한 번의 탭으로 무료 모델로 바꿀 수 있어요. 베타라서 가끔 세부 내용이 틀릴 수 있고, 직접 고칠 수 있어요.\n\n채팅창의 + 메뉴에서 메모리를 열어 보세요.",
+      "tags": {
+        "memory": "메모리",
+        "context": "컨텍스트",
+        "long-play": "장기 플레이",
+        "summary": "요약"
+      },
+      "explanations": [
+        {
+          "title": "The AI keeps key facts",
+          "body": "Relationships, items, promises and goals, kept as a list and sent with every reply."
+        },
+        {
+          "title": "You can read and change it",
+          "body": "Under Memory in the + menu: edit the notes, read and edit each recap chapter."
+        },
+        {
+          "title": "Uninstalling keeps your notes",
+          "body": "Turning it off leaves everything written so far intact. Reinstall later and it picks the same notes back up."
+        }
+      ]
+    },
+    "live-canon": {
+      "name": "Lore Shift (베타)",
+      "shortDescription": "플레이하는 동안 크리에이터가 승인한 스토리 상태와 로어를 업데이트해요. 변경 사항은 이 플레이에만 적용돼요.",
+      "longDescription": "Lore Shift는 진행 중인 스토리에 크리에이터가 제어하는 작은 편집 레이어를 더해줘요. 나이, 위치, 카운터, 플래그 같은 사실은 스토리 상태에 입력하면 카드의 기존 규칙이 반응할 수 있어요. 서술형 사실과 크리에이터가 승인한 로어 수정은 플레이 로어에 입력하세요.\n\n모든 변경은 현재 플레이에만 적용돼요. 크리에이터의 원본 카드와 다른 플레이어의 스토리는 바뀌지 않아요. 크리에이터가 편집을 닫아 두면 Lore Shift는 편집기나 데이터를 보여 주지 않고 안내 문구를 표시해요.",
+      "tags": {
+        "lore": "로어",
+        "state": "상태",
+        "session": "플레이",
+        "author-controlled": "크리에이터 제어"
+      },
+      "explanations": [
+        {
+          "title": "Story State",
+          "body": "Change approved typed facts such as age or location so existing rules can react."
+        },
+        {
+          "title": "Session Lore",
+          "body": "Correct approved lore or add a new fact without touching the original card."
+        },
+        {
+          "title": "Author controlled",
+          "body": "A locked card shows a warning and exposes no Lore Shift editor or data."
+        }
+      ]
+    }
+  }
+}

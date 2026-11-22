@@ -5,7 +5,7 @@ import type { playSessions } from "../db/schema.js";
 import type { ChatMessage, GenerateParams } from "./llm/types.js";
 import { retrieveLorebookEntries } from "./lorebook-retriever.js";
 import { applyPersonaMetadataToState, type AccountLike } from "./persona-metadata.js";
-import { buildPersonaSystemMessage } from "./persona-prompt.js";
+import { appendPersonaSystemMessage } from "./persona-prompt.js";
 import { resolvePersonaForSession } from "./resolve-persona.js";
 import { loadUserPrompts } from "./user-prompts.js";
 
@@ -24,7 +24,7 @@ export const sessionCompletionSettingsSchema = z.object({
 });
 
 type Settings = z.infer<typeof sessionCompletionSettingsSchema>;
-type CompletionSession = Pick<typeof playSessions.$inferSelect, "id" | "userId" | "state" | "sessionPersona" | "personaLocked">;
+type CompletionSession = Pick<typeof playSessions.$inferSelect, "id" | "userId" | "worldId" | "state" | "sessionPersona" | "personaLocked">;
 
 export function resolveSessionCompletionSettings(input: Settings, world: WorldDefinition): Pick<GenerateParams,
   "maxTokens" | "temperature" | "topP" | "frequencyPenalty" | "presencePenalty" | "repetitionPenalty" | "topK" | "minP" | "reasoningEffort" | "stream"
@@ -71,7 +71,7 @@ export async function buildSessionCompletionMessages(options: {
   const { session, account, world, model, messages, settings } = options;
   const [persona, prompts] = await Promise.all([
     resolvePersonaForSession(session),
-    loadUserPrompts(session.userId, { modelId: model }),
+    loadUserPrompts(session.userId, { modelId: model, worldId: session.worldId }),
   ]);
   // Clone before overlaying identity/macros: prompt construction never writes
   // the session or exposes the private persona row to the client.
@@ -144,8 +144,7 @@ export async function buildSessionCompletionMessages(options: {
   const promptWorld = allowedBooks === undefined ? world : { ...world, entries: [...matched.alwaysSend, ...matched.triggered] };
   const result: ChatMessage[] = builder.buildSystemMessages(promptWorld, promptState, undefined, undefined,
     state.ruleState?.activeDirectives ?? [], undefined, collected);
-  const personaMessage = buildPersonaSystemMessage(persona);
-  if (personaMessage) result.push({ role: "system", content: personaMessage });
+  appendPersonaSystemMessage(result, persona);
   // Example parsing must recognize the same names that {{user}}/{{char}}
   // expand to, including active personas and cards without a character entry.
   const exampleWorld = { ...promptWorld, name: expandMacros("{{char}}", promptWorld, promptState),

@@ -1,9 +1,9 @@
 import { makeSignature } from "better-auth/crypto";
 import { auth } from "./auth.js";
 import { env } from "./env.js";
-import type { ToolDefinition } from "./llm/types.js";
 import { runPlaytest } from "./studio-tools/playtest-runner.js";
-import { PLAYTEST_TURNS_PER_HOUR, takePlaytestTurns } from "./outside-ai-guards.js";
+import { SCREENSHOT_UI, SCREENSHOTS_PER_HOUR, SHOT_SECRET, SHOT_URL, isScreenshotEnabled } from "./studio-tools/screenshot-tool.js";
+import { PLAYTEST_TURNS_PER_HOUR, playtestTurnsLeft, takePlaytestTurns } from "./outside-ai-guards.js";
 
 /**
  * Eyes for an AI that is not ours: the card's real player screen, rendered by
@@ -12,15 +12,8 @@ import { PLAYTEST_TURNS_PER_HOUR, takePlaytestTurns } from "./outside-ai-guards.
  * for this one picture and deleted right after.
  */
 
-const SHOT_URL = process.env.SCREENSHOT_URL ?? "";
-const SHOT_SECRET = process.env.SCREENSHOT_SECRET ?? "";
+export { SCREENSHOT_UI, isScreenshotEnabled, SCREENSHOTS_PER_HOUR };
 
-export function isScreenshotEnabled(): boolean {
-  return Boolean(SHOT_URL && SHOT_SECRET && env.APP_URL);
-}
-
-/** Screenshots an outside AI may take for one creator per hour (per instance). */
-export const SCREENSHOTS_PER_HOUR = 30;
 const shotTimes = new Map<string, number[]>();
 
 function takeShot(userId: string): boolean {
@@ -34,24 +27,30 @@ function takeShot(userId: string): boolean {
 
 const VIEWPORTS = { desktop: { width: 1280, height: 800 }, mobile: { width: 390, height: 844 } } as const;
 
-export const SCREENSHOT_UI: ToolDefinition = {
-  type: "function",
-  function: {
-    name: "screenshot_ui",
-    description:
-      "See the card the way a player does: starts a throwaway playthrough, optionally plays a few moves, and returns a screenshot of the real player screen (the custom interface, the opening, the replies). " +
-      "Use it after changing the interface or the opening to check how it actually looks. Without moves it is free; each move is a real playtest turn that costs the creator mushies and counts toward the " +
-      `${PLAYTEST_TURNS_PER_HOUR}-turns-an-hour playtest limit. At most ${SCREENSHOTS_PER_HOUR} screenshots an hour.`,
-    parameters: {
-      type: "object",
-      properties: {
-        device: { type: "string", enum: ["desktop", "mobile"], description: "Screen size: desktop (1280×800, default) or mobile (390×844)." },
-        moves: { type: "array", items: { type: "string" }, maxItems: 3, description: "Optional: up to 3 things a player would type before the screenshot. Each costs a playtest turn." },
-        wait_seconds: { type: "number", description: "Extra seconds to let animations settle before the shot (1-10, default 3)." },
-      },
-    },
-  },
-};
+/** What the presses did, as the shot service reports it. */
+interface ShotReport {
+  actions: { did: string; found: boolean; textChanged: boolean; blocked: string[] }[];
+  blocked: string[];
+  paidWrites: number;
+}
+/** Billed turns the presses of one screenshot may cause. */
+const MAX_PAID_PRESSES = 3;
+
+function readReport(header: string | null): ShotReport | null {
+  if (!header) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(header, "base64").toString("utf8")) as ShotReport;
+    return Array.isArray(parsed.actions) ? parsed : null;
+  } catch { return null; }
+}
+
+function describeReport(report: ShotReport): string {
+  const lines = report.actions.map((a, i) => {
+    const outcome = !a.found ? "NOT FOUND on screen" : a.textChanged ? "the screen's words changed" : "nothing on screen changed (a canvas or 3D view can still have moved: look at the picture)";
+    return `${i + 1}. ${a.did}: ${outcome}${a.blocked.length ? `; tried to send and was not let through: ${a.blocked.join(", ")}` : ""}`;
+  });
+  return lines.join("\n");
+}
 
 export async function runScreenshot(args: { userId: string; worldId: string; input: Record<string, unknown> }): Promise<{ ok: boolean; result?: unknown; error?: string; image?: { data: string; mimeType: string } }> {
   const { userId, worldId, input } = args;
@@ -62,6 +61,7 @@ export async function runScreenshot(args: { userId: string; worldId: string; inp
   if (moves.length && takePlaytestTurns(userId, moves.length) < moves.length) {
     return { ok: false, error: `Playtest limit reached: ${PLAYTEST_TURNS_PER_HOUR} turns per hour. Take the screenshot without moves, or try later.` };
   }
+  const actions = (Array.isArray(input.actions) ? input.actions : []).filter((a) => a && typeof a === "object").slice(0, 8);
   if (!takeShot(userId)) return { ok: false, error: `Screenshot limit reached: ${SCREENSHOTS_PER_HOUR} an hour. Try again later.` };
 
   let sessionId: string;
@@ -89,14 +89,31 @@ export async function runScreenshot(args: { userId: string; worldId: string; inp
         cookies: [{ name: cookie.name, value, url: app.origin, httpOnly: true, secure: app.protocol === "https:", sameSite: "Lax" }],
         viewport: VIEWPORTS[device],
         waitMs: Math.min(Math.max(Number(input.wait_seconds) || 3, 1), 10) * 1000,
+        // Presses happen in a throwaway playthrough, and may write to it and nothing
+        // else: the turn, the card's own AI call, a button's action, its variables.
+        ...(actions.length > 0 && {
+          actions,
+          writes: {
+            paths: ["messages", "ai-call", "execute-action", "state", "player-state"].map((p) => `/api/sessions/${sessionId}/${p}`),
+            paid: ["messages", "ai-call"].map((p) => `/api/sessions/${sessionId}/${p}`),
+            max: 16,
+            maxPaid: Math.min(MAX_PAID_PRESSES, playtestTurnsLeft(userId)),
+          },
+        }),
       }),
-      signal: AbortSignal.timeout(90_000),
+      signal: AbortSignal.timeout(actions.length > 0 ? 240_000 : 90_000),
     });
     if (!res.ok) return { ok: false, error: `The screenshot could not be taken (${res.status}).` };
     const data = Buffer.from(await res.arrayBuffer()).toString("base64");
+    const report = readReport(res.headers.get("x-shot-report"));
+    // The turns the presses caused count like typed moves.
+    if (report?.paidWrites) takePlaytestTurns(userId, report.paidWrites);
+    const pressed = actions.length === 0 ? ""
+      : report ? `\nWhat the presses did:\n${describeReport(report)}`
+      : "\nThe presses were not carried out (the screenshot service does not support them yet); this is the screen without them.";
     return {
       ok: true,
-      result: `Screenshot of the player screen (${device}${moves.length ? `, after ${moves.length} move(s)` : ", the opening"}). Playtest session ${sessionId}.`,
+      result: `Screenshot of the player screen (${device}${moves.length ? `, after ${moves.length} move(s)` : ", the opening"}${actions.length && report ? `, after ${report.actions.length} press(es)` : ""}). Playtest session ${sessionId}.${pressed}`,
       image: { data, mimeType: "image/png" },
     };
   } catch (error) {

@@ -1,3 +1,7 @@
+---
+title: "Dynamic AI personality switching"
+description: "Let the player switch the AI narration between normal, comedy and horror with one tap, using lore entries that only apply while a mode is on."
+---
 <div v-pre>
 
 # Dynamic AI Personality Switching
@@ -47,7 +51,7 @@ To show the mode in chat, click **Show on the player screen**.
 
 ### Step 2: Write one lore entry per style
 
-Add two lore entries (the **＋** in the top right of **Character and world**, or **Add** in the toolbar).
+Add two lore entries (the **＋** in the top right of **Character and world**).
 
 #### Entry: Comedy style
 
@@ -132,7 +136,7 @@ Click **Play** in the top bar.
 
 If you write your own interface, draw the buttons yourself and set the same variable. The lore entries from Step 2 don't change.
 
-**Panels → Front End Code** → open `index.tsx` and replace the default `return <Chat />`:
+**Panels → Interface code** → open `index.tsx` and replace the default `return <Chat />`:
 
 ```tsx
 export default function MyWorld() {
@@ -206,7 +210,7 @@ export default function MyWorld() {
 - The active button gets a dot and a highlight, and tapping it again does nothing
 - To run a behavior instead of setting the variable directly, call `api.executeAction("mode-comedy")`
 
-The status next to the file in **Panels → Front End Code** should read a green **OK**.
+The status next to the file in **Panels → Interface code** should read a green **OK**.
 
 ::: tip Don't want to write code yourself?
 Click **Creation assistant** at the top right of the canvas and describe the buttons you want.

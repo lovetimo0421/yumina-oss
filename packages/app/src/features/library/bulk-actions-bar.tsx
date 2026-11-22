@@ -1,4 +1,5 @@
 import { CheckSquare, ChevronDown, Copy, Download, FolderInput, Link, Trash2, X } from "lucide-react";
+import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -19,6 +20,8 @@ interface BulkActionsBarProps {
   onCopyRefs?: () => void;
   onCopyUrls?: () => void;
   busy?: boolean;
+  /** Further actions on the selection, before Delete. */
+  extraActions?: ReactNode;
 }
 
 export function BulkActionsBar({
@@ -37,6 +40,7 @@ export function BulkActionsBar({
   onCopyRefs,
   onCopyUrls,
   busy = false,
+  extraActions,
 }: BulkActionsBarProps) {
   const { t } = useTranslation("library");
   const allSelected = selectedCount > 0 && selectedCount === totalCount;
@@ -46,7 +50,7 @@ export function BulkActionsBar({
       <button
         onClick={onToggle}
         disabled={totalCount === 0}
-        className={cn("flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30", selectClassName)}
+        className={cn("flex items-center gap-1.5 rounded-lg bg-white/[0.05] px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-white/[0.09] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30", selectClassName)}
       >
         <CheckSquare size={14} strokeWidth={2} />
         {selectLabel ?? t("bulk.select")}
@@ -90,6 +94,8 @@ export function BulkActionsBar({
           {onCopyUrls && <DropdownMenuItem onSelect={onCopyUrls}><Link size={14} />{t("assets.copyUrl")}</DropdownMenuItem>}
         </DropdownMenuContent>
       </DropdownMenu>}
+
+      {extraActions}
 
       <button
         onClick={onDelete}

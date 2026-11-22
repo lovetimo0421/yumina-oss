@@ -176,7 +176,11 @@ test("versions flush layout edits and refuse snapshots of a partially saved draf
     assert.ok(text().includes(tr("liveChanged")));
 
   } finally {
-    await act(async () => { root.unmount(); await new Promise(resolve => setTimeout(resolve, 0)); }); await vite.close(); dom.window.close();
+    await act(async () => { root.unmount(); await new Promise(resolve => setTimeout(resolve, 0)); });
+    // better-auth's session store tears down its window listeners 1 s after its last subscriber leaves
+    // (nanostores' unmount delay): let that run while window still exists.
+    await new Promise(resolve => setTimeout(resolve, 1_100));
+    await vite.close(); dom.window.close();
     for (const [key, descriptor] of original) { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else Reflect.deleteProperty(globalThis, key); }
   }
 });

@@ -74,10 +74,11 @@ test("every way between 简单 / 完整 / 画布 (the 画布 pill and the ⋮ it
     // 简单模式 in the canvas's or 完整's ⋮ menu.
     rememberEditorChoice("card", "simple");
     assert.equal(opens("advanced"), "simple", "from the canvas or 完整 to simple");
-    // 完整模式 in the simple editor's ⋮ menu, and the canvas's pill turned off.
+    // 完整模式 in the simple editor's ⋮ menu: on a computer the canvas is
+    // the full editor now (it has no pill to turn off).
     rememberEditorChoice("card", "classic");
-    assert.equal(opens("simple"), "classic", "to 完整");
-    assert.equal(opens("advanced"), "classic", "the canvas's pill off lands on 完整, not back on the canvas");
+    assert.equal(opens("simple"), "visual", "to the canvas");
+    assert.equal(opens("advanced"), "visual", "an old 完整 choice still opens the canvas");
     // The pill turned on, from the simple editor.
     rememberEditorChoice("card", "visual");
     assert.equal(opens("simple"), "visual", "from simple to the canvas");

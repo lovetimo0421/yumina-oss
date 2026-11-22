@@ -34,8 +34,9 @@ export class GameRoomConnection {
 
   constructor(private onFrame: (frame: Record<string, unknown>) => void, private options: ConnectionOptions = {}) {}
 
-  /** One bounded, cancellable attempt; a stale attempt cannot replace a new socket. */
-  join(roomId: string): Promise<JoinResult> {
+  /** One bounded, cancellable attempt; a stale attempt cannot replace a new socket.
+   *  `worldId` names the card for a `rules:` table (its rules file runs there). */
+  join(roomId: string, opts: { worldId?: string } = {}): Promise<JoinResult> {
     this.destroy();
     const epoch = this.epoch;
     this.releaseReloadHold = holdReload("game-room");
@@ -65,8 +66,11 @@ export class GameRoomConnection {
       });
       void (async () => {
         try {
-          let response = await request("ticket", { roomId });
+          const rules = roomId.startsWith("rules:");
+          let response = await request("ticket", rules ? { roomId, worldId: opts.worldId } : { roomId });
           if (!alive()) return;
+          // Rules tables seat accounts only: the ticket carries the card's age gate.
+          if (response.status === 401 && rules) { fail("sign-in-required"); return; }
           if (response.status === 401) {
             const guest = await (this.options.guest ? this.options.guest() : getGameIdentityClient().then(c => c?.markGuestVisit() ?? null));
             if (!alive()) return;
@@ -74,7 +78,12 @@ export class GameRoomConnection {
           }
           if (!alive()) return;
           if (!response.ok) {
-            fail(response.status === 503 ? "unavailable" : response.status === 429 ? "rate-limited" : `ticket-${response.status}`);
+            // A rules table's refusal names its fix (birth-year-required, adult-required…).
+            const refusal = rules && response.status !== 503 && response.status !== 429
+              ? await response.json().then((b: { error?: unknown }) => typeof b?.error === "string" ? b.error : null, () => null)
+              : null;
+            if (!alive()) return;
+            fail(refusal ?? (response.status === 503 ? "unavailable" : response.status === 429 ? "rate-limited" : `ticket-${response.status}`));
             return;
           }
           const data = await response.json() as { ticket: string; url: string };

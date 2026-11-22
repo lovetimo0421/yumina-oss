@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { WorldPreviewDetail } from "./world-detail-info";
 
 export interface ActivityStats {
   worldId: string;
@@ -6,8 +7,12 @@ export interface ActivityStats {
   messageCount: number | null | undefined;
   favoriteCount: number | null | undefined;
   uniquePlayerCount?: number | null;
-  averageSessionSeconds?: number | null;
+  averagePlaytimePerPlayerSeconds?: number | null;
   averageRating?: number | null;
+  /** How many ratings `averageRating` is made of. */
+  reviewCount?: number | null;
+  /** Hours played across every save; only sent where the server shares it. */
+  totalPlaytimeSeconds?: number | null;
 }
 
 interface UseActivityStatsOptions extends ActivityStats {
@@ -30,9 +35,28 @@ function activityStatsEqual(left: ActivityStats, right: ActivityStats) {
     && left.messageCount === right.messageCount
     && left.favoriteCount === right.favoriteCount
     && left.uniquePlayerCount === right.uniquePlayerCount
-    && left.averageSessionSeconds === right.averageSessionSeconds
-    && left.averageRating === right.averageRating;
+    && left.averagePlaytimePerPlayerSeconds === right.averagePlaytimePerPlayerSeconds
+    && left.averageRating === right.averageRating
+    && left.reviewCount === right.reviewCount
+    && left.totalPlaytimeSeconds === right.totalPlaytimeSeconds;
 }
+
+/** Optional figures are set only when known, so "not loaded" stays a missing key. */
+function withOptionalStats(
+  stats: ActivityStats,
+  optional: Pick<ActivityStats, "averageRating" | "reviewCount" | "totalPlaytimeSeconds">,
+): ActivityStats {
+  const next = { ...stats };
+  for (const key of ["averageRating", "reviewCount", "totalPlaytimeSeconds"] as const) {
+    if (optional[key] !== undefined) next[key] = optional[key];
+  }
+  return next;
+}
+
+const finiteNumber = (value: unknown): number | undefined => {
+  const n = typeof value === "string" && value.trim() !== "" ? Number(value) : value;
+  return typeof n === "number" && Number.isFinite(n) ? n : undefined;
+};
 
 function statsForSource(
   state: ActivityState,
@@ -68,23 +92,36 @@ export function useActivityStats({
   downloadCount,
   messageCount,
   favoriteCount,
+  averageRating,
+  reviewCount,
+  totalPlaytimeSeconds,
 }: UseActivityStatsOptions) {
-  const initialStats = useMemo<ActivityStats>(() => ({
+  const initialStats = useMemo<ActivityStats>(() => withOptionalStats({
     worldId,
     downloadCount,
     messageCount,
     favoriteCount,
-  }), [downloadCount, favoriteCount, messageCount, worldId]);
+  }, {
+    averageRating: reviewCount ? averageRating : undefined,
+    reviewCount,
+    totalPlaytimeSeconds,
+  }), [averageRating, downloadCount, favoriteCount, messageCount, reviewCount, totalPlaytimeSeconds, worldId]);
   const sourceKey = useMemo(
     () => JSON.stringify([
       worldId,
       downloadCount,
       messageCount,
       favoriteCount,
+      averageRating,
+      reviewCount,
+      totalPlaytimeSeconds,
       creatorAnalyticsEnabled,
     ]),
-    [creatorAnalyticsEnabled, downloadCount, favoriteCount, messageCount, worldId],
+    [averageRating, creatorAnalyticsEnabled, downloadCount, favoriteCount, messageCount, reviewCount, totalPlaytimeSeconds, worldId],
   );
+  // The preview response also describes the card (gallery, size, author's
+  // note). Library rows lack some of it, so the detail view reads it from here.
+  const [detail, setDetail] = useState<{ worldId: string; data: WorldPreviewDetail } | null>(null);
   const [activityState, setActivityState] = useState<ActivityState>(() => ({
     stats: initialStats,
     sourceKey,
@@ -114,9 +151,14 @@ export function useActivityStats({
         if (!response.ok) return;
 
         const body = await response.json() as {
-          data?: Partial<Pick<ActivityStats, "downloadCount" | "messageCount" | "favoriteCount">>;
+          data?: Partial<Pick<ActivityStats, "downloadCount" | "messageCount" | "favoriteCount" | "totalPlaytimeSeconds">>
+            & { reviewCount?: number | string | null; averageRating?: number | string | null }
+            & WorldPreviewDetail;
         };
         if (ignore || !body.data) return;
+        setDetail({ worldId, data: body.data });
+        const previewReviewCount = finiteNumber(body.data.reviewCount);
+        const previewAverage = finiteNumber(body.data.averageRating);
 
         setActivityState((current) => {
           if (ignore) return current;
@@ -126,7 +168,7 @@ export function useActivityStats({
               current.stats.worldId === worldId
               && favoriteRevisionRef.current !== favoriteRevision
             );
-          const nextStats: ActivityStats = {
+          const nextStats: ActivityStats = withOptionalStats({
             ...currentStats,
             worldId,
             downloadCount: typeof body.data!.downloadCount === "number"
@@ -140,7 +182,16 @@ export function useActivityStats({
               : typeof body.data!.favoriteCount === "number"
                 ? body.data!.favoriteCount
                 : initialStats.favoriteCount,
-          };
+          }, {
+            reviewCount: previewReviewCount ?? currentStats.reviewCount,
+            averageRating: previewReviewCount === 0
+              ? null
+              : currentStats.averageRating ?? (previewReviewCount ? previewAverage : undefined),
+            // Absent = the server does not share it here; null = unknown.
+            totalPlaytimeSeconds: body.data!.totalPlaytimeSeconds !== undefined
+              ? finiteNumber(body.data!.totalPlaytimeSeconds) ?? null
+              : currentStats.totalPlaytimeSeconds,
+          });
           if (
             current.sourceKey === sourceKey
             && current.favoriteDirty === preserveFavorite
@@ -184,7 +235,7 @@ export function useActivityStats({
         const body = await response.json() as {
           data?: {
             totalUniquePlayers?: number;
-            avgSessionSeconds?: number;
+            avgPlaytimePerPlayerSeconds?: number;
             averageRating?: number;
             reviewCount?: number;
           };
@@ -201,17 +252,18 @@ export function useActivityStats({
           const nextStats: ActivityStats = {
             ...currentStats,
             uniquePlayerCount: totalUniquePlayers,
-            averageSessionSeconds: totalUniquePlayers != null && totalUniquePlayers > 0
-              && Number.isFinite(body.data!.avgSessionSeconds)
-              ? body.data!.avgSessionSeconds!
+            averagePlaytimePerPlayerSeconds: totalUniquePlayers != null && totalUniquePlayers > 0
+              && Number.isFinite(body.data!.avgPlaytimePerPlayerSeconds)
+              ? body.data!.avgPlaytimePerPlayerSeconds!
               : totalUniquePlayers === 0
                 ? null
-                : currentStats.averageSessionSeconds,
+                : currentStats.averagePlaytimePerPlayerSeconds,
             averageRating: Number.isFinite(reviewCount) && reviewCount === 0
               ? null
               : Number.isFinite(body.data!.averageRating)
                 ? body.data!.averageRating!
                 : currentStats.averageRating,
+            ...(Number.isFinite(reviewCount) ? { reviewCount: reviewCount! } : {}),
           };
           if (current.sourceKey === sourceKey && activityStatsEqual(current.stats, nextStats)) {
             return current;
@@ -258,14 +310,18 @@ export function useActivityStats({
     });
   }, [displayedActivityStats.favoriteCount, initialStats, sourceKey]);
 
-  return { activityStats: displayedActivityStats, reconcileFavoriteCount };
+  return {
+    activityStats: displayedActivityStats,
+    reconcileFavoriteCount,
+    detail: detail?.worldId === worldId ? detail.data : null,
+  };
 }
 
 export function formatStatCount(value: number | null | undefined) {
   return value == null ? "—" : value.toLocaleString();
 }
 
-export function formatAverageSession(value: number | null | undefined) {
+export function formatAveragePlaytimePerPlayer(value: number | null | undefined) {
   if (value == null) return "—";
   if (value <= 0) return "0m";
   if (value < 60) return "<1m";
@@ -279,4 +335,16 @@ export function formatAverageSession(value: number | null | undefined) {
 
 export function formatAverageRating(value: number | null | undefined) {
   return value == null || value <= 0 ? "—" : value.toFixed(1);
+}
+
+/**
+ * Whole hours across every save ("<1h" below one); "—" when unknown. Rounded
+ * down, as the card stats on Discover are, so 12.5h reads 12h in both places.
+ */
+export function formatTotalPlaytime(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value) || value < 0) return "—";
+  if (value === 0) return "0h";
+  const hours = value / 3600;
+  if (hours < 1) return "<1h";
+  return `${Math.floor(hours).toLocaleString()}h`;
 }

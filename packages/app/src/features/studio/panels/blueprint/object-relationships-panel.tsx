@@ -108,7 +108,7 @@ export function ObjectRelationshipsPanel({ world, graph, objectId, onOpenObject,
   return <div className="flex h-full min-h-0 w-full flex-col bg-[#131118]" data-object-relationships={objectId}>
     <div className="flex items-center gap-2.5 border-b border-white/[0.07] px-3.5 py-3">
       <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-sky-500/10 text-sky-300"><Network className="h-4 w-4" /></span>
-      <div className="min-w-0 flex-1"><h2 className="truncate text-sm font-semibold">{name(object)}</h2><p className="text-[11px] text-muted-foreground">{t("blueprint.relationships.title")}</p></div>
+      <div className="min-w-0 flex-1"><h2 className="truncate text-sm font-semibold">{name(object)}</h2><p className="text-[11px] text-muted-foreground" title={hasDynamicCodeAccess ? t("blueprint.relationships.dynamicCodeHint") : undefined}>{t("blueprint.relationships.title")}</p></div>
       <button type="button" onClick={onClose} title={t("blueprint.rowEdit.close")} aria-label={t("blueprint.rowEdit.close")} className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"><X className="h-4 w-4" /></button>
     </div>
     <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-3.5">
@@ -149,7 +149,7 @@ export function ObjectRelationshipsPanel({ world, graph, objectId, onOpenObject,
           <h3 className="flex items-center gap-2 text-xs font-medium"><Boxes className="h-3.5 w-3.5 text-violet-300" />{t("blueprint.relationships.members")}<span className="ml-auto text-[11px] tabular-nums text-muted-foreground">{members.length}</span></h3>
           {members.map(member => <div key={member.graphNodeId}>{relatedObject(member)}</div>)}
         </section>}
-        {hasDynamicCodeAccess && <p className="mt-auto border-t border-white/[0.06] pt-3 text-[11px] leading-5 text-foreground/45">{t("blueprint.relationships.dynamicCodeHint")}</p>}
+
       </>}
     </div>
   </div>;

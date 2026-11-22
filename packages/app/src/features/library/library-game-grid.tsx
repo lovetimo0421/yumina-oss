@@ -1,10 +1,17 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import {
   Search,
   Loader2,
   Library,
   Trash2,
+  Plus,
+  Ellipsis,
+  Pencil,
+  EyeOff,
+  Eye,
+  FolderPlus,
+  ChevronDown,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { feedback } from "@/lib/feedback";
@@ -22,7 +29,9 @@ import { VariantForkPicker } from "@/components/variant-fork-picker";
 import { fetchVariantsForDownload } from "@/lib/download-world";
 import type { LanguageVariant } from "@/lib/languages";
 import { LibraryGameCard } from "./library-game-card";
-import { sortLibraryGameItems, type LibraryGameSort } from "./library-game-sort";
+import { collectionFilter, filterCollectionId, filterLibraryGameItems, formatLastPlayed, sortLibraryGameItems, type LibraryGameSort } from "./library-game-sort";
+import { CollectionEditorDialog, CollectionMenuItems, useLibraryCollections, type CollectionEditorTarget } from "./library-collections";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { LibraryEmptyState } from "./library-empty-state";
 import { LibraryTombstoneCard } from "./library-tombstone-card";
 import { SortDropdown } from "./sort-dropdown";
@@ -56,9 +65,11 @@ export function LibraryGameGrid({
   userId,
   loading: externalLoading,
 }: LibraryGameGridProps) {
-  const { t } = useTranslation("library");
+  const { t, i18n } = useTranslation("library");
   const sortBy = useLibrarySearchStore((s) => s.gameSort);
   const setSortBy = useLibrarySearchStore((s) => s.setGameSort);
+  const gameFilter = useLibrarySearchStore((s) => s.gameFilter);
+  const setGameFilter = useLibrarySearchStore((s) => s.setGameFilter);
   const [confirmCopyItem, setConfirmCopyItem] = useState<WorldItem | null>(null);
   const [confirmRemoveId, setConfirmRemoveId] = useState<{
     worldId: string;
@@ -83,8 +94,17 @@ export function LibraryGameGrid({
   const worlds = useWorldsStore((s) => s.worlds);
   const libraryItems = useLibraryStore((s) => s.items);
   const hasMore = useLibraryStore((s) => s.hasMore);
+  const libraryPageLoading = useLibraryStore((s) => s.loading);
   const fetchMore = useLibraryStore((s) => s.fetchMore);
   const removeFromLibrary = useLibraryStore((s) => s.removeFromLibrary);
+  const collections = useLibraryCollections();
+  const deleteCollection = useLibraryStore((s) => s.deleteCollection);
+  const addToCollection = useLibraryStore((s) => s.addToCollection);
+  const setShelf = useLibraryStore((s) => s.setShelf);
+  /** The collection dialog: a new one (these games ticked to start) or an edit. */
+  const [editor, setEditor] = useState<CollectionEditorTarget | null>(null);
+  const [confirmDeleteCollection, setConfirmDeleteCollection] = useState<{ id: string; name: string } | null>(null);
+  const [deletingCollection, setDeletingCollection] = useState(false);
   const markUpdateSeen = useLibraryStore((s) => s.markUpdateSeen);
   // Opening or playing a card is how the player "sees" its update, so either
   // clears the dot. Only cards that show it make the request.
@@ -151,7 +171,51 @@ export function LibraryGameGrid({
   // Favorites still lead the list, but the membership used for sorting is
   // frozen for this mount. Tapping a heart updates its visual state in place;
   // the new favorite order takes effect after the next page entry/refresh.
-  const sorted = sortLibraryGameItems(filteredLibrary, sortBy, sortFavoriteIdsRef.current);
+  const sorted = sortLibraryGameItems(
+    filterLibraryGameItems(filteredLibrary, gameFilter, new Set(favorites.map((favorite) => favorite.worldId))),
+    sortBy,
+    sortFavoriteIdsRef.current,
+  );
+  const hasUpdates = libraryItems.some((li) => li.hasUpdate);
+  const hasHidden = libraryItems.some((li) => li.shelf === "hidden");
+  const filterOptions: Array<"all" | "favorites" | "updates" | "unplayed"> = ["all", "favorites", ...(hasUpdates || gameFilter === "updates" ? ["updates" as const] : []), "unplayed"];
+  const activeCollectionId = filterCollectionId(gameFilter);
+
+  // A collection deleted elsewhere (or on another device) leaves its filter
+  // pointing at nothing: fall back to everything.
+  useEffect(() => {
+    if (activeCollectionId && !collections.some((c) => c.id === activeCollectionId)) setGameFilter("all");
+  }, [activeCollectionId, collections, setGameFilter]);
+  useEffect(() => {
+    if (gameFilter === "hidden" && !hasHidden && !hasMore) setGameFilter("all");
+  }, [gameFilter, hasHidden, hasMore, setGameFilter]);
+
+  async function bulkAddToCollection(collectionId: string) {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    if (!(await addToCollection(collectionId, ids))) { feedback.error(t("collections.error.failed")); return; }
+    exitBulkMode();
+  }
+
+  async function bulkSetHidden(hidden: boolean) {
+    const ids = Array.from(selectedIds);
+    const results = await Promise.all(ids.map((id) => setShelf(id, hidden ? "hidden" : null)));
+    if (results.some((ok) => !ok)) feedback.error(t("collections.error.failed"));
+    exitBulkMode();
+  }
+
+  // The library arrives 50 at a time. A filter only answers truthfully over
+  // all of it, so while one is on, keep pulling pages until there are none.
+  useEffect(() => {
+    if (gameFilter !== "all" && hasMore && !libraryPageLoading && !externalLoading) void fetchMore();
+  }, [gameFilter, hasMore, libraryPageLoading, externalLoading, fetchMore]);
+
+  const lastPlayedLabel = (li: LibraryItem) => {
+    const played = li.lastPlayedAt
+      ? t("card.lastPlayed", { date: formatLastPlayed(li.lastPlayedAt, i18n.language) })
+      : t("card.neverPlayed");
+    return played;
+  };
 
   // Inner duplicate request used by both the single-variant flow and the
   // VariantForkPicker. Surfaces the server's `error` field on non-OK so a
@@ -328,8 +392,8 @@ export function LibraryGameGrid({
         messageCount: li.worldMessageCount ?? 0,
         tags: li.worldTags,
         announcement: null,
-        totalTokens: null,
-        approxTime: null,
+        totalTokens: li.worldTotalTokens ?? null,
+        approxTime: li.worldApproxTime ?? null,
         galleryImages: null,
         sourceWorldId: null,
         sourceWorldTakenDown: null,
@@ -338,7 +402,8 @@ export function LibraryGameGrid({
         creatorName: li.creatorName,
         language: li.worldLanguage ?? null,
         languageGroupId: li.worldLanguageGroupId ?? null,
-        createdAt: li.addedAt,
+        // The card's creation date; `addedAt` is when this player saved it.
+        createdAt: li.worldCreatedAt ?? li.addedAt,
         updatedAt: li.lastPlayedAt ?? li.addedAt,
       };
 
@@ -352,6 +417,7 @@ export function LibraryGameGrid({
           onClick={() => { seeUpdate(li); onSelectItem(syntheticItem); }}
           status="installed"
           hasUpdate={li.hasUpdate}
+          subtitle={lastPlayedLabel(li)}
           onPlay={() => { seeUpdate(li); void startPlay({ id: li.worldId, name: li.worldName, thumbnailUrl: li.worldThumbnailUrl, language: li.worldLanguage, languageGroupId: li.worldLanguageGroupId ?? null }); }}
           playPending={playPendingId === li.worldId}
           onEdit={canFork ? () => handleEditClick(syntheticItem) : undefined}
@@ -377,6 +443,7 @@ export function LibraryGameGrid({
         onClick={() => { seeUpdate(li); onSelectItem(worldItem); }}
         status="installed"
         hasUpdate={li.hasUpdate}
+        subtitle={lastPlayedLabel(li)}
         onEdit={canForkWorld ? () => handleEditClick(worldItem) : undefined}
         onDelete={() => setConfirmRemoveId({ worldId: li.worldId, worldName: worldItem.name, thumbnailUrl: worldItem.thumbnailUrl })}
         deleteTitle={t("games.removeFromLibrary")}
@@ -396,11 +463,59 @@ export function LibraryGameGrid({
     <>
       <div className="library-section-stack mb-10">
         <div className="library-section-header library-list-header flex flex-wrap items-center justify-between gap-3 px-2">
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <div className="h-6 w-1.5 rounded-full bg-primary" />
             <h2 className="library-list-title text-2xl font-black tracking-tight text-foreground">
               {t("games.title")} <span className="text-muted-foreground text-lg font-bold ml-1">{t("games.count", { count: sorted.length })}</span>
             </h2>
+            <div className="library-filter-chips" role="group" aria-label={t("filter.label")}>
+              {filterOptions.map((option) => (
+                <button key={option} type="button" aria-pressed={gameFilter === option}
+                  className="library-filter-chip" onClick={() => setGameFilter(option)}>
+                  {t(`filter.${option}`)}
+                </button>
+              ))}
+              {collections.map((c) => {
+                const active = activeCollectionId === c.id;
+                return (
+                  <span key={c.id} className="library-collection-chip" data-active={active || undefined}>
+                    <button type="button" aria-pressed={active} className="library-filter-chip"
+                      onClick={() => setGameFilter(collectionFilter(c.id))}>
+                      {c.name}
+                    </button>
+                    {active && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button type="button" className="library-collection-chip-more"
+                            aria-label={t("collections.manage", { name: c.name })} title={t("collections.manage", { name: c.name })}>
+                            <Ellipsis className="h-4 w-4" aria-hidden="true" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start" sideOffset={6} className="min-w-40">
+                          <DropdownMenuItem onSelect={() => setEditor({ kind: "edit", id: c.id, name: c.name })} className="gap-2.5">
+                            <Pencil className="h-4 w-4 text-muted-foreground" />{t("collections.edit")}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => setConfirmDeleteCollection({ id: c.id, name: c.name })} className="gap-2.5 text-red-400 focus:text-red-400">
+                            <Trash2 className="h-4 w-4" />{t("collections.delete")}
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
+                  </span>
+                );
+              })}
+              {(hasHidden || gameFilter === "hidden") && (
+                <button type="button" aria-pressed={gameFilter === "hidden"}
+                  className="library-filter-chip" onClick={() => setGameFilter("hidden")}>
+                  {t("filter.hidden")}
+                </button>
+              )}
+              <button type="button" className="library-filter-chip library-filter-chip--icon"
+                aria-label={t("collections.new")} title={t("collections.new")}
+                onClick={() => setEditor({ kind: "new", worldIds: [] })}>
+                <Plus className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </div>
           </div>
 
           <div className="flex items-center gap-2">
@@ -412,6 +527,25 @@ export function LibraryGameGrid({
               onSelectAll={() => setSelectedIds(new Set(sorted.map((li) => li.worldId)))}
               onClear={() => setSelectedIds(new Set())}
               onDelete={() => setConfirmBulkDelete(true)}
+              extraActions={<>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button type="button" disabled={selectedIds.size === 0}
+                      className="flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground/80 hover:bg-white/5 hover:text-foreground disabled:opacity-40">
+                      <FolderPlus size={12} />{t("collections.addTo")}<ChevronDown size={11} />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="min-w-48 max-w-72">
+                    <CollectionMenuItems collections={collections} keepOpen={false}
+                      onPick={(c) => void bulkAddToCollection(c.id)}
+                      onNew={() => setEditor({ kind: "new", worldIds: Array.from(selectedIds) })} />
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <button type="button" disabled={selectedIds.size === 0} onClick={() => void bulkSetHidden(gameFilter !== "hidden")}
+                  className="flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground/80 hover:bg-white/5 hover:text-foreground disabled:opacity-40">
+                  {gameFilter === "hidden" ? <><Eye size={12} />{t("hidden.show")}</> : <><EyeOff size={12} />{t("hidden.hide")}</>}
+                </button>
+              </>}
             />
             {!bulkMode && (
               <SortDropdown
@@ -449,7 +583,17 @@ export function LibraryGameGrid({
             )}
           </>
         ) : (
-          searchQuery ? (
+          gameFilter !== "all" && libraryItems.length > 0 ? (
+            hasMore ? (
+              <div className="flex justify-center py-20">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground/40" />
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
+                <p className="text-sm">{t("games.filterEmpty")}</p>
+              </div>
+            )
+          ) : searchQuery ? (
             <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
               <Search size={48} className="mb-4 opacity-20" />
               <p className="text-sm">
@@ -467,6 +611,34 @@ export function LibraryGameGrid({
           )
         )}
       </div>
+
+      <CollectionEditorDialog
+        target={editor}
+        onClose={() => setEditor(null)}
+        onCreated={(created) => {
+          if (bulkMode) exitBulkMode();
+          setGameFilter(collectionFilter(created.id));
+        }}
+      />
+
+      <ConfirmDialog
+        open={!!confirmDeleteCollection}
+        onOpenChange={(open) => { if (!open && !deletingCollection) setConfirmDeleteCollection(null); }}
+        title={t("collections.deleteTitle", { name: confirmDeleteCollection?.name ?? "" })}
+        descriptionHtml={t("collections.deleteConfirm")}
+        confirmLabel={t("collections.delete")}
+        cancelLabel={t("dialog.cancel")}
+        busy={deletingCollection}
+        onConfirm={async () => {
+          if (!confirmDeleteCollection || deletingCollection) return;
+          setDeletingCollection(true);
+          const ok = await deleteCollection(confirmDeleteCollection.id);
+          setDeletingCollection(false);
+          if (!ok) { feedback.error(t("collections.error.failed")); return; }
+          setConfirmDeleteCollection(null);
+          setGameFilter("all");
+        }}
+      />
 
       <ConfirmDialog
         open={!!confirmRemoveId}

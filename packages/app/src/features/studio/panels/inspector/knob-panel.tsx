@@ -93,20 +93,22 @@ function TextKnob({ knob, onChange }: { knob: UiKnob; onChange: (value: string) 
 export function KnobPanel({
   group,
   onChange,
+  bare = false,
 }: {
   group: UiKnobGroup;
   onChange: (knobId: string, value: string | number) => void;
+  /** Inside a list that already names the group and explains knobs once. */
+  bare?: boolean;
 }) {
   const { t } = useTranslation("editor");
   return (
     <div className="space-y-1.5">
-      <div className="flex items-baseline justify-between">
-        <span className="text-[11px] font-medium text-muted-foreground">{group.label}</span>
-        <span className="text-[9px] text-muted-foreground/45">{t("studio.inspect.knobsBadge")}</span>
-      </div>
-      <p className="pb-1 text-[9px] leading-relaxed text-muted-foreground/45">
-        {t("studio.inspect.knobsHint")}
-      </p>
+      {!bare && <>
+        <div className="flex items-baseline justify-between">
+          <span className="text-[11px] font-medium text-muted-foreground">{group.label}</span>
+          <span className="cursor-help text-[9px] text-muted-foreground/45" title={t("studio.inspect.knobsHint")}>{t("studio.inspect.knobsBadge")}</span>
+        </div>
+      </>}
       {group.knobs.map((knob) => (
         <label key={knob.id} className="block space-y-0.5">
           <span className={LABEL}>{knob.label}</span>

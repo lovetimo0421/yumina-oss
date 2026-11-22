@@ -30,6 +30,9 @@ test("the desktop sidebar remains visible while non-Discover content keeps a sep
     "calc(var(--sidebar-collapsed-width) + var(--desktop-sidebar-content-gap))",
   );
   assert.equal(getDesktopSidebarOffset("/app/library", true), "0px");
+  assert.equal(getDesktopSidebarOffset("/app/generate", false), "var(--sidebar-collapsed-width)");
+  assert.equal(getDesktopSidebarOffset("/app/generate/", false), "var(--sidebar-collapsed-width)");
+  assert.equal(getDesktopSidebarOffset("/app/generate", true), "0px");
   assert.match(
     appShellSource,
     /"--desktop-sidebar-offset": desktopSidebarOffset/,

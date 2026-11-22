@@ -308,6 +308,23 @@ function shimToggleImmersive(): void {
     get: () => () => shimFireAndForget("toggleImmersive", []),
     configurable: true,
   });
+  // In fullscreen the host locks Escape so a game can use it (pause menus,
+  // closing a drawer). A card claims the key with preventDefault; an Escape
+  // nobody claimed goes back to the host, which leaves immersive mode as the
+  // browser would have. Checked after dispatch so listener order is moot.
+  // Players hold Escape to leave fullscreen, and a held key repeats: a card
+  // that toggles its pause menu on Escape would flash it for the whole hold.
+  // Only the first press reaches the card; capture on window runs before any
+  // listener the card adds.
+  window.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && event.repeat) event.stopImmediatePropagation();
+  }, true);
+  window.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || event.isComposing || !event.isTrusted) return;
+    setTimeout(() => {
+      if (!event.defaultPrevented) shimFireAndForget("leaveImmersive", []);
+    }, 0);
+  });
 }
 
 // ── 5. navigator.clipboard → bridge call ────────────────────────────

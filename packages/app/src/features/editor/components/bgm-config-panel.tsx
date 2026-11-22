@@ -57,12 +57,9 @@ export function BgmConfigPanel({ onBack }: { onBack?: () => void } = {}) {
         </button>
       )}
       <div className="mx-auto max-w-3xl space-y-6">
-        <div className="space-y-1">
-          <h2 className="text-[22px] font-bold text-foreground tracking-tight">
-            {t("audio.bgmConfigTitle")}
-          </h2>
-          <p className="text-xs text-muted-foreground">{t("audio.bgmConfigDesc")}</p>
-        </div>
+        <h2 className="text-[22px] font-bold text-foreground tracking-tight">
+          {t("audio.bgmConfigTitle")}
+        </h2>
 
         {/* ── Default Playlist ── */}
         <div className="rounded-2xl border border-border bg-card p-6">
@@ -159,7 +156,7 @@ export function BgmConfigPanel({ onBack }: { onBack?: () => void } = {}) {
         <div className="rounded-2xl border border-border bg-card p-6">
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-2">
-              <ShieldAlert className="h-5 w-5 text-primary" />
+              <ShieldAlert className="h-5 w-5 text-muted-foreground" />
               <h3 className="text-[15px] font-bold text-foreground tracking-wide">
                 {t("audio.conditionalBGM")}
               </h3>
@@ -167,7 +164,7 @@ export function BgmConfigPanel({ onBack }: { onBack?: () => void } = {}) {
             {bgmTracks.length > 0 && (
               <button
                 onClick={addConditionalBGM}
-                className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/10 px-4 py-1.5 text-xs font-bold text-primary transition-colors hover:bg-primary/20"
+                className="flex items-center gap-2 rounded-lg border border-border px-4 py-1.5 text-xs font-bold text-foreground transition-colors hover:bg-accent"
               >
                 <Plus className="h-3.5 w-3.5" />
                 {t("audio.addConditionalRule")}
@@ -185,9 +182,6 @@ export function BgmConfigPanel({ onBack }: { onBack?: () => void } = {}) {
               <p className="mt-2 text-sm font-medium text-muted-foreground/50">
                 {t("audio.noConditionalRules")}
               </p>
-              <p className="mt-1 text-xs text-muted-foreground/40 max-w-sm mx-auto">
-                {t("audio.noConditionalRulesDesc")}
-              </p>
             </div>
           ) : (
             <div className="space-y-4">
@@ -202,7 +196,7 @@ export function BgmConfigPanel({ onBack }: { onBack?: () => void } = {}) {
                       type="text"
                       value={rule.name}
                       onCommit={(name) => updateConditionalBGM(rule.id, { name })}
-                      className="bg-transparent text-[14px] font-bold text-primary focus:outline-none focus:border-b focus:border-primary/50 px-1 w-64"
+                      className="bg-transparent text-[14px] font-bold text-foreground focus:outline-none focus:border-b focus:border-primary/50 px-1 w-64"
                     />
                     <TwoTapDeleteButton
                       onConfirm={() => removeConditionalBGM(rule.id)}
@@ -297,7 +291,7 @@ export function BgmConfigPanel({ onBack }: { onBack?: () => void } = {}) {
                       )}
 
                       {(rule.triggerType ?? "variable") === "turn-count" && (
-                        <div className="space-y-3">
+                        <div className="space-y-3" title={t("audio.turnCountHint")}>
                           <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-1.5">
                               <label className="text-[12px] font-bold text-muted-foreground">
@@ -326,17 +320,9 @@ export function BgmConfigPanel({ onBack }: { onBack?: () => void } = {}) {
                               />
                             </div>
                           </div>
-                          <p className="text-[11px] text-muted-foreground/60">
-                            {t("audio.turnCountHint")}
-                          </p>
                         </div>
                       )}
 
-                      {(rule.triggerType ?? "variable") === "session-start" && (
-                        <p className="text-[12px] text-muted-foreground/60 italic">
-                          {t("audio.sessionStartHint")}
-                        </p>
-                      )}
                     </div>
 
                     {/* Play track */}
@@ -495,20 +481,19 @@ function KeywordInput({
   }
 
   return (
-    <div className="space-y-3">
-      <p className="text-[11px] text-muted-foreground/60">{helperText}</p>
+    <div className="space-y-3" title={helperText}>
 
       {/* Tags */}
       <div className="flex flex-wrap gap-1.5">
         {keywords.map((kw) => (
           <span
             key={kw}
-            className="inline-flex items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-2 py-0.5 text-[12px] font-medium text-primary"
+            className="inline-flex items-center gap-1 rounded-md border border-border bg-secondary px-2 py-0.5 text-[12px] font-medium text-foreground"
           >
             {kw}
             <button
               onClick={() => removeKeyword(kw)}
-              className="text-primary/60 hover:text-primary"
+              className="text-muted-foreground hover:text-foreground"
             >
               <X className="h-3 w-3" />
             </button>

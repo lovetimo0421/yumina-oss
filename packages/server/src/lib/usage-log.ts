@@ -65,8 +65,16 @@ export const USAGE_ENDPOINT_BILLING_POLICY: Record<string, "billed" | "free-by-d
   "state-update-guard-default": "free-by-design",
   "studio-agent": "billed",
   "studio-playtest": "billed",
+  // Studio assistant web_search (lib/studio-web-search.ts): one platform-key
+  // search per call, charged from the creator's balance at the Studio markup.
+  "studio-web-search": "billed",
+  // Card AI review (lib/world-ai-review.ts): two vision-model calls per card
+  // submitted for review, platform key. A moderation cost, never the author's.
+  "world-ai-review": "free-by-design",
   "source-digest": "billed",
   "side-completion": "billed",
+  // AI seats at a rules room table (lib/rules-room.ts), billed to the table's host.
+  "rules-ai": "billed",
   // Same existing side-call billing; distinguish silent output so it does not
   // become a successful play interaction in analytics.
   "side-completion_empty": "billed",
@@ -115,9 +123,24 @@ export const USAGE_ENDPOINT_BILLING_POLICY: Record<string, "billed" | "free-by-d
   // generation billing and adds no user charge, including refused/failed
   // rewrites. Owner-authorized usage visibility fix, 2026-09-08.
   "generation-enhance": "free-by-design",
+  // Who a workbench picture on a canon-refusing model is of (generation/canon-route.ts): one short call
+  // before the picture that is billed. Same policy as prompt rewriting.
+  "generation-canon-check": "free-by-design",
+  // The audio studio's AI 写词: lyrics drafted into the box before a song is made (the song itself is billed).
+  // Same policy as prompt rewriting, owner-approved audio studio rework 2026-11-08.
+  "music-lyrics": "free-by-design",
+  // 我的声音 › 克隆: Fish builds a voice from a recording at no charge to us, so the creator pays nothing (logged at
+  // $0 so the call stays visible). Owner decision 2026-11-07: cloning is open, publishing is where it is checked.
+  "voice-clone": "free-by-design",
   // Update-log editor "auto-translate" (admins only, platform key): an internal
   // publishing tool, never a user action. Logged so the spend stays visible.
   "changelog-translate": "free-by-design",
+  // Gallery (生图广场) AI first review: one vision call per posted picture, on
+  // the platform key. Moderation is Yumina's cost, owner-approved 2026-11-06.
+  "image-post-review": "free-by-design",
+  // A live character's picture looked at before anything is charged (lib/rig/picture-check.ts): the platform's
+  // small model, paid by the platform, so a refused picture costs the creator nothing.
+  "rig-picture-check": "free-by-design",
   // Voice readout (TTS). Priced per UTF-8 byte of input text; cost is computed
   // locally (byteLength × per-byte price) and deducted via providerCostUsd —
   // cache hits (same text+voice replayed) never reach recordUsageLog at all.
@@ -145,6 +168,10 @@ export const USAGE_ENDPOINT_BILLING_POLICY: Record<string, "billed" | "free-by-d
   // Jev casting (who says each line, which voice a new speaker gets):
   // platform-funded, like the emotion cues it runs alongside.
   "tts-cast": "free-by-design",
+  // AI voice design (routes/voice-design.ts): fish.audio direct, charged up
+  // front at provider cost × TTS_MARKUP and refunded when nothing comes back.
+  "voice-design": "billed",
+  "voice-design-save": "billed",
 };
 
 /**

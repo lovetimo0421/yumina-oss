@@ -12,7 +12,7 @@ test("Library metadata includes saved groups, favorites, own drafts and direct l
   const pg = new PGlite();
   t.after(() => pg.close());
   await pg.exec(`
-    CREATE TABLE worlds (id text PRIMARY KEY, creator_id text, is_published boolean, language_group_id text);
+    CREATE TABLE worlds (id text PRIMARY KEY, creator_id text, is_published boolean, language_group_id text, visibility text DEFAULT 'public');
     CREATE TABLE user_library (user_id text, world_id text);
     CREATE TABLE favorites (user_id text, world_id text);
   `);
@@ -34,6 +34,11 @@ test("Library metadata includes saved groups, favorites, own drafts and direct l
   assert.deepEqual(await read(id(7)), [1, 2, 3, 4, 5, 7].map(id));
   assert.deepEqual(await read(id(6)), [1, 2, 3, 4, 5].map(id), "deep links cannot expose another user's draft");
   assert.deepEqual(await read("bad' OR true --"), [1, 2, 3, 4, 5].map(id));
+  await pg.query("UPDATE worlds SET visibility='unlisted' WHERE id = $1", [id(3)]);
+  assert.deepEqual(await read(), [1, 2, 4, 5].map(id), "saved public variants must not reveal unlisted siblings");
+  assert.deepEqual(await read(id(3)), [1, 2, 3, 4, 5].map(id), "an explicit link still opens an unlisted sibling");
+  await pg.query("INSERT INTO user_library VALUES ('alice',$1)", [id(3)]);
+  assert.deepEqual(await read(), [1, 2, 3, 4, 5].map(id), "intentionally saved unlisted cards remain in Library");
   await pg.query("INSERT INTO worlds VALUES ('legacy-import-id','bob',true,NULL)");
   assert.deepEqual(await read("legacy-import-id"), [...[1, 2, 3, 4, 5].map(id), "legacy-import-id"]);
 });

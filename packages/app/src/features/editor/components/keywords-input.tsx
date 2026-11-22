@@ -26,7 +26,7 @@ interface Props {
   className?: string;
   /** When true, renders a <textarea> instead of a single-line <input>. */
   multiline?: boolean;
-  /** Show the "Press Enter to add" hint below the input. Default: true. */
+  /** Show the "Press Enter to add" hint on hover. Default: true. */
   showHint?: boolean;
   /** Override hint text (defaults to t("entries.keywordsEnterHint")). */
   hintText?: string;
@@ -146,13 +146,12 @@ export function KeywordsInput({
     },
     onBlur: () => flushEmit(raw),
     placeholder,
+    title: showHint ? (hintText ?? t("entries.keywordsEnterHint")) : undefined,
     className: cn(
       "w-full rounded-xl border border-border bg-card px-4 py-3 text-sm text-foreground shadow-inner transition-all placeholder:text-muted-foreground/30 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/50",
       className,
     ),
   };
-
-  const hint = showHint ? (hintText ?? t("entries.keywordsEnterHint")) : null;
 
   return (
     <div className="space-y-1.5">
@@ -160,9 +159,6 @@ export function KeywordsInput({
         <textarea {...sharedProps} rows={2} />
       ) : (
         <input type="text" {...sharedProps} />
-      )}
-      {hint && (
-        <p className="text-[11px] text-muted-foreground/50">{hint}</p>
       )}
     </div>
   );

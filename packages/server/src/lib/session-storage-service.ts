@@ -158,3 +158,19 @@ export async function restoreSessionStorage(tx: Executor, sessionId: string, che
         AS restored(key text,value jsonb,version integer,deleted boolean,size_bytes integer)`);
   }
 }
+
+/**
+ * A branch starts with the card's saved data as it stood at the branch point, then diverges: the rows that were
+ * live in the parent at `at` (now, when `at` is null). Each keeps its own added_at, so branching does not spend
+ * the hourly write budget; deleted keys are simply absent in the new session.
+ */
+export async function copySessionStorageToBranch(tx: Executor, fromSessionId: string, toSessionId: string, at: Date | null) {
+  const live = at
+    ? sql`added_at <= ${at.toISOString()}::timestamptz AND (removed_at IS NULL OR removed_at > ${at.toISOString()}::timestamptz)`
+    : sql`removed_at IS NULL`;
+  await tx.execute(sql`INSERT INTO session_storage(id,session_id,key,value,version,deleted,size_bytes,added_at)
+    SELECT gen_random_uuid()::text,${toSessionId},key,value,1,false,size_bytes,added_at FROM (
+      SELECT DISTINCT ON (key) key,value,deleted,size_bytes,added_at FROM session_storage
+      WHERE session_id=${fromSessionId} AND ${live} ORDER BY key,version DESC
+    ) parent WHERE NOT deleted`);
+}

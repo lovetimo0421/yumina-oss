@@ -15,6 +15,8 @@ export type { VoicePlaybackFrame } from "../src/lib/voice-playback-performance";
 import type { VoiceEvent } from "./voice-types";
 export type { VoiceAPI, VoiceEvent } from "./voice-types";
 
+export type MessageButtonColor = "default" | "lighter" | "darker";
+
 export type SandboxMode = "session" | "guest-preview";
 
 export interface SandboxCapabilities {
@@ -47,6 +49,9 @@ export interface SandboxEntry {
   portrait?: string | null;
   /** Moving portrait clips as absolute URLs (host-resolved), or null. */
   portraitVideo?: { idle: string | null; speaking: string | null } | null;
+  /** A live character beside the chat: its `@rig:` / `@asset:` ref as written
+   *  (the sandbox's fetchAsset reads it), or null. */
+  portraitLive?: string | null;
 }
 
 export type SandboxLoreUiBinding = LoreUiBinding;
@@ -65,6 +70,10 @@ export interface PlayerPromptsChannelData {
   /** Name of the installed prompt bound to the current model's family and
    *  auto-applied this turn, or null when nothing is bound to it. */
   boundPromptName: string | null;
+  /** Switches in the panel belong to the world being played. */
+  worldScoped?: boolean;
+  /** This world has its own switches (it no longer follows Settings). */
+  worldCustomized?: boolean;
   prompts: Array<{
     id: string;
     name: string;
@@ -97,6 +106,10 @@ export interface PlayerPromptsChannelData {
   /** Name of the installed prompt bound to the current model's family and
    *  auto-applied this turn, or null when nothing is bound to it. */
   boundPromptName: string | null;
+  /** Switches in the panel belong to the world being played. */
+  worldScoped?: boolean;
+  /** This world has its own switches (it no longer follows Settings). */
+  worldCustomized?: boolean;
   prompts: Array<{
     id: string;
     name: string;
@@ -125,6 +138,7 @@ export interface LocalBridgeChannelData {
 // expose a flat shape to creator code.
 
 export interface SandboxState {
+  playerRegexRules?: import("@yumina/shared").RegexRule[];
   modelFallback?: import("@yumina/shared").ModelFallbackNotice | null;
   variables: Record<string, unknown>;
   globalVariables: Record<string, unknown>;
@@ -161,6 +175,8 @@ export interface SandboxState {
   replyRules?: ReplyRule[];
   /** The card's setting: split one reply into a bubble per speaker. */
   speakerBubbles?: boolean;
+  /** The card turned 帮我写 off (settings.composeAssist === false). */
+  composeAssistOff?: boolean;
 
   /** Legacy field kept for API shape parity — unused by the single-rootComponent runtime. */
   canvasMode: "chat" | "custom" | "fullscreen";
@@ -195,10 +211,17 @@ export interface SandboxState {
   localBridge: LocalBridgeChannelData | null;
   mixMode: boolean;
   modelPool: Array<{ modelId: string; weight: number; locked?: boolean }>;
+  /** The player's thinking level ("none" = off) and streaming choice, as in AI settings. */
+  reasoningEffort?: string;
+  streaming?: boolean;
+  /** The model 帮我写 runs on: the player's pick, else the story model. */
+  composeModel?: string;
   /** Whether older history pages exist server-side (messages are windowed). */
   hasEarlierMessages: boolean;
   /** True while an older history page is being fetched. */
   isLoadingEarlier: boolean;
+  /** Session position of messages[0] (see MessagesChannelData). */
+  firstMessageNumber?: number;
 
   // ── Audio volume ──
   /** Current BGM volume (0–1) */
@@ -214,6 +237,9 @@ export interface SandboxState {
    *  Null = unknown (not loaded, or no wallet). The model-pill prefers this over
    *  the per-message recorded balance so it's consistent across cards/devices. */
   balance: number | null;
+  /** Browser-local palette for the built-in reader. Missing means dark. */
+  messageButtonColor?: MessageButtonColor;
+  playColorMode?: "dark" | "light";
   /** "Press Enter to send" preference — see UIChannelData.composerSendKey. */
   composerSendKey: "enter" | "mod-enter";
   /** Send-failure counter — see UIChannelData.sendFailureNonce. */
@@ -226,6 +252,12 @@ export interface SandboxState {
   tts: TtsChannelData;
   /** Hold-to-talk voice input — see UIChannelData.voiceInput. */
   voiceInput?: VoiceInputChannelData;
+  /** Floating window — see UIChannelData.hostWindow. */
+  hostWindow?: HostWindowChannelData;
+  /** The story room on this chat (friends sharing it), or null. */
+  storyRoom?: StoryRoomChannelData | null;
+  /** The card is on for playing with friends in story mode, and this viewer may open a room. */
+  storyRoomOffer?: boolean;
 }
 
 // ── Channel data shapes ─────────────────────────────────────────────
@@ -244,6 +276,9 @@ export interface VariablesChannelData {
 /** Chat messages — updates on message add/edit/delete */
 export interface MessagesChannelData {
   messages: Array<Record<string, unknown>>;
+  /** The number of messages[0] in the whole session (1 = the opening), so the
+   *  chat numbers rows by session position, not by the loaded window. */
+  firstMessageNumber?: number;
 }
 
 /** Streaming state — high frequency during generation (~30Hz) */
@@ -274,10 +309,14 @@ export interface SessionChannelData {
   replyRules?: ReplyRule[];
   /** The card's setting: split one reply into a bubble per speaker. */
   speakerBubbles?: boolean;
+  /** The card turned 帮我写 off. */
+  composeAssistOff?: boolean;
 }
 
 /** UI state — changes on user interaction */
 export interface UIChannelData {
+  /** The player's regex rules that change what is shown (shared/src/regex-rules.ts). */
+  playerRegexRules?: import("@yumina/shared").RegexRule[];
   /** The picture painted behind the chat this turn, already resolved by the
    *  host: `url` is final (the `@cover` sentinel is gone), `dim` is 0–1.
    *  Null when the card has no background, or its only one is cover-backed on
@@ -300,6 +339,11 @@ export interface UIChannelData {
   localBridge: LocalBridgeChannelData | null;
   mixMode: boolean;
   modelPool: Array<{ modelId: string; weight: number; locked?: boolean }>;
+  /** The player's thinking level ("none" = off) and streaming choice, as in AI settings. */
+  reasoningEffort?: string;
+  streaming?: boolean;
+  /** The model 帮我写 runs on: the player's pick, else the story model. */
+  composeModel?: string;
   /** Whether older history pages exist server-side (messages are windowed). */
   hasEarlierMessages: boolean;
   /** True while an older history page is being fetched. */
@@ -316,6 +360,9 @@ export interface UIChannelData {
    *  sends / Enter newline. The sandbox composer must honor it — the iframe
    *  can't read the host's ui store. */
   composerSendKey: "enter" | "mod-enter";
+  /** Browser-local palette for the built-in reader. Missing means dark. */
+  messageButtonColor?: MessageButtonColor;
+  playColorMode?: "dark" | "light";
   /** The user's font-size preference as a multiplier (Settings → Display;
    *  1 = default). Applied to the sandbox document's root font-size so
    *  rem-based text (the injected chat UI, creator Tailwind classes) scales. */
@@ -337,6 +384,52 @@ export interface UIChannelData {
   /** Hold-to-talk voice input: player prefs resolved against the card's
    *  default. Optional so an older host simply shows no microphone. */
   voiceInput?: VoiceInputChannelData;
+  /** Whether the card can float in its own always-on-top window, and whether
+   *  it is floating now. Optional so an older host simply never floats. */
+  hostWindow?: HostWindowChannelData;
+  /** The story room on this chat (friends sharing it), or null. */
+  storyRoom?: StoryRoomChannelData | null;
+  /** The card is on for playing with friends in story mode, and this viewer may open a room. */
+  storyRoomOffer?: boolean;
+}
+
+/** A story room as the chat UI needs it. The server sends each round to the
+ *  AI as the host; everyone (host included) posts their actions to the round. */
+export interface StoryRoomChannelData {
+  isHost: boolean;
+  meId: string;
+  turnMode: "free" | "host";
+  /** Everyone in the room by user id, for the players' bubbles. */
+  people: Record<string, { name: string; image: string | null; roleName: string | null }>;
+  /** Who has acted in the round being gathered, in order. */
+  actedIds: string[];
+  /** Who acted with 「AI 先别接」 only. */
+  heldIds: string[];
+  /** My newest action that can still be withdrawn. */
+  mine: { id: string; text: string } | null;
+  /** Below the card's minimum player count. */
+  waiting: { have: number; need: number } | null;
+  /** The server's round clock. `dueAt` (epoch ms) while counting; `failedCode` when the last send failed. */
+  round: { status: "idle" | "counting" | "held" | "writing" | "failed" | "waiting"; dueAt: number | null; windowMs: number; failedCode: string | null };
+  /** The round stopped at the host's spending limit: the host may raise it one step (`to`: null = no limit). */
+  raiseCap?: { to: number | null } | null;
+  meReady: boolean;
+  /** Online players who acted or said ready, out of everyone online. */
+  doneCount: number;
+  onlineCount: number;
+  /** This viewer may press 让 AI 接. */
+  canSendNow: boolean;
+  /** When each other player last showed they were writing (epoch ms). */
+  typingAt: Record<string, number>;
+  /** 只给队友看 lines, oldest first. */
+  talk: Array<{ id: string; userId: string; name: string; text: string; createdAt: string }>;
+}
+
+export interface HostWindowChannelData {
+  /** The browser can open a floating window here (Chrome / Edge on desktop). */
+  canFloat: boolean;
+  /** The card is drawn in the floating window right now. */
+  floating: boolean;
 }
 
 export interface VoiceInputChannelData {
@@ -358,14 +451,18 @@ export interface TtsChannelData {
   /** Voice readout can run here at all (a real session — billing anchor).
    *  False in guest preview / replay / Studio canvases: hide ALL voice UI. */
   available: boolean;
-  /** The player's opt-in (Settings › Display). False: show no readout UI at
-   *  all — readout is only switched on from Settings. */
+  /** The player's opt-in (Settings › Display, or yes in the dialog a card's
+   *  `tts.setPrefs({ enabled: true })` click opens). False: offer that button
+   *  (or point to Settings) instead of readout controls. */
   enabled: boolean;
   /** Legacy single-voice preference ("" = platform default). */
   voice: string;
   /** The player's voice pool: the voices AI casting may give characters
    *  (empty = every voice). Optional so an older host still works. */
   voicePool?: string[];
+  /** The player's own voices (designed, cloned, or taken from the 声音广场), by the
+   *  names they gave them: offered beside the curated voices. Optional for older hosts. */
+  customVoices?: { id: string; label: string }[];
   mode: "full" | "dialogue";
   autoPlay: boolean;
   /** Voice volume preference, 0–100. */
@@ -377,6 +474,17 @@ export interface TtsChannelData {
    *  is unsupported. Blocked ordinary readouts retry on a user gesture;
    *  waitForEnd calls fail. */
   playback: { key: string; status: "loading" | "playing" | "blocked"; progress?: number; level?: number } | null;
+  /** Who can speak in this chat and in whose voice ("narrator" first). The
+   *  player can give any of them a voice of their own. Optional for older hosts. */
+  speakers?: TtsSpeakerVoice[];
+}
+
+export interface TtsSpeakerVoice {
+  name: string;
+  /** null: casting picks one when they first speak. */
+  voice: string | null;
+  /** player: picked in this chat · card: the author's · auto: given by casting. */
+  source: "player" | "card" | "auto";
 }
 
 /** Map channel names to their data types */
@@ -494,6 +602,24 @@ export interface OpenMemoryPanelMessage {
   type: "open-memory-panel";
 }
 
+/** Ask the sandbox to open the chat-history search. Sent by the parent
+ *  play-controls bar, which every card has, including custom UIs that never
+ *  render the composer's menu. */
+export interface OpenChatSearchMessage {
+  type: "open-chat-search";
+}
+
+/** Open the current session at one message: load history up to it, scroll
+ *  there and mark it (the save picker's search). Waits in the sandbox until
+ *  `sessionId` is the session on screen. */
+export interface JumpToMessageMessage {
+  type: "jump-to-message";
+  sessionId: string;
+  messageId: string;
+  position: number;
+  query?: string;
+}
+
 export type ParentMessage =
   | { type: "voice-event"; event: VoiceEvent; sessionId?: string }
   | { type: "video-event"; event: Record<string, unknown> }
@@ -510,7 +636,9 @@ export type ParentMessage =
   | VoicePlaybackFrameMessage
   | RestoreComposerDraftMessage
   | RoomFrameMessage
-  | OpenMemoryPanelMessage;
+  | OpenMemoryPanelMessage
+  | OpenChatSearchMessage
+  | JumpToMessageMessage;
 
 // ── Sandbox → Parent messages ───────────────────────────────────────
 
@@ -638,9 +766,23 @@ export function getParentOrigin(): string {
   return cachedParentOrigin;
 }
 
+/** This document runs card code, so it only ever takes orders when the browser
+ *  has given it no origin of its own (the app's iframe: allow-scripts without
+ *  allow-same-origin). Opened as a page, or framed by another site without that
+ *  sandbox, it would be running as the platform's origin with the player's
+ *  login, and the frame around it would be whoever asked. It then does nothing. */
+export function runsIsolated(): boolean {
+  try {
+    return window.origin === "null";
+  } catch {
+    return false;
+  }
+}
+
 /** True iff the message came from the embedding parent window (and, when the
  *  parent origin is pinned, from its exact origin). */
 export function isFromParent(event: MessageEvent): boolean {
+  if (!runsIsolated()) return false;
   if (event.source !== window.parent) return false;
   const expected = getParentOrigin();
   return expected === "*" || event.origin === expected;

@@ -1,10 +1,13 @@
+import { openStoryPublish } from "@/edition/slots";
+import { composeAssistModel, FOLLOW_STORY_MODEL, makeTextRule, REGEX_RULES_MAX } from "@yumina/shared";
+import { fetchAssetBytes } from "@/lib/fetch-asset-bytes";
 import { withSessionHistoryMutation } from "@/lib/session-history-operations";
 import { readLegacyGallery } from './legacy-gallery-migration';
 import { ChatAssetPicker } from "./chat-asset-picker";
 import { readChatAsset } from "@/lib/chat-asset-input";
 import { chatImageCopy as chatInputCopy } from "@/lib/chat-image-input";
 import type { ChatImageAttachment, ChatImageInput } from "@yumina/shared";
-import { isTtsOptedIn, readTtsVoicePool } from "@yumina/shared";
+import { isTtsOptedIn, isValidTtsVoice, readTtsCustomVoices, readTtsVoicePool, ttsCustomVoiceLabel } from "@yumina/shared";
 import { toast } from "sonner";
 import { savePreferredProvider } from "@/lib/provider-switch";
 import { notePlayInteraction } from "./play-interaction";
@@ -20,7 +23,8 @@ import { useStoryNavigation } from "@/hooks/use-story-navigation";
 
 import { queueSessionStateOperation } from "@/lib/session-state-queue";
 import { reconcileSessionStateConfirmation } from "@/lib/session-state-confirmation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import posthog from "posthog-js";
@@ -35,13 +39,14 @@ import { isVoiceAttempt, type VoiceEvent } from "../../../sandbox/voice-types";
 import { slimMessages } from "./slim-messages";
 import { scopeStorageKey, writeWorldStorage } from "./world-storage";
 import { createSideCallStreamReader } from "./side-call-stream";
-import { isCompiledValid, type CompiledRoot } from "@/features/studio/lib/compiled-format";
+import { isCompiledUsable, type CompiledRoot } from "@/features/studio/lib/compiled-format";
 import { absoluteImageUrl } from "@/lib/asset-url";
 import type { YuminaAPI } from "@/features/studio/lib/custom-component-renderer";
 import { dispatchAwaitedAction } from "./awaited-action";
 import { dispatchActorContextCall } from "./actor-context-bridge";
 import { hydrateVoiceSceneNotice, bindVoiceReplyAuthority } from "./voice-scene-notice";
 import type { Condition, LoreUiBinding, Worldbook, StateChannel, ReplyRule } from "@yumina/engine";
+import { hasLivePortrait } from "@yumina/engine";
 import type {
   VariablesChannelData,
   MessagesChannelData,
@@ -54,19 +59,26 @@ import type {
   SandboxMode,
 } from "@/../sandbox/protocol";
 import { useLocalModelStore } from "@/features/local-model/store";
+import { runtimeNames } from "@/features/local-model/detect";
 import { useUserProfileStore } from "@/stores/user-profile";
 import { useModelsStore } from "@/stores/models";
 import { useAudioStore, onAudioTrackEnded, onVoicePlaybackFrame } from "@/stores/audio";
 import { useUiStore, FONT_SIZE_SCALE } from "@/stores/ui";
 import { useCreditStore } from "@/edition/slots.state";
-import { useChatStore } from "@/stores/chat";
+import { canWriteGameState, useChatStore } from "@/stores/chat";
 import { useConfigStore } from "@/stores/config";
+import { effectiveStoryMemory } from "@/lib/effective-story-memory";
+import { RECAP_FOLD_FREE_CREDITS, recapBackfillConfirmCopy, recapFoldConfirmCopy } from "./recap-backfill-copy";
+
+/** One-time tips the sandbox chat may ask the host about (hintSeen). */
+const PLATFORM_HINTS = new Set(["remember-pin"]);
 import { buildSideCompletionRequest, type SideCompletionParams } from "./side-completion-request";
 import { requestSideDecision } from "./side-decision-request";
 import { handlePlayerPromptsBridgeCall, usePlayerPromptsChannel } from "@/features/chat/player-prompts-channel";
 import { ModelBrowser } from "./model-browser";
 import { sessionRecommendedModel } from "./recommended-model";
 import { fetchApiKeyModelProfiles, resolveOfficialSelectedModel, resolvePrivateSelectedModel } from "@/lib/provider-model-selection";
+import { cleanNote, editReplyAction } from "../../../sandbox/chat/player-note-draft";
 import {
   setComposerDraft,
   loadComposerDraft,
@@ -76,6 +88,8 @@ import { chatSessionTarget, createdSessionId } from "@/lib/session-navigation";
 import { SANDBOX_DOC_URL, SANDBOX_DOC_RETRY_URL } from "@/lib/sandbox-doc-url";
 import { feedback } from "@/lib/feedback";
 import { haltTts, loadTtsUnlessHalted } from "@/lib/tts-stop-signal";
+import { castFor, setVoicePick, subscribeVoiceCast, voiceCastVersion, voicePicksFor } from "@/lib/tts-cast-store";
+import { listSpeakerVoices, type SpeakerVoiceWorld } from "@/lib/tts-speakers";
 import { getVideoController, type RealtimeVideoController, type VideoStartOptions } from "./realtime-video/controller";
 import { FastForwardVeil } from "./realtime-video/fast-forward-veil";
 import { filmText, type FilmT } from "./realtime-video/film-text";
@@ -90,6 +104,7 @@ import { toPillText } from "@/lib/feedback-policy";
 import { listSessionImages, uploadSessionImage, chooseSessionImage, mediaRequest } from "@/lib/session-media";
 import { readSessionStorage, writeSessionStorage, removeSessionStorage, type SessionStorageWriteOptions } from "@/lib/session-storage";
 import { adaptOncinGalleryFiles, createOncinCloudGallery, isOncinGalleryKey, oncinGallerySessionKey } from "./oncin-cloud-gallery";
+import { MESSAGE_JUMP_REQUEST_EVENT, takeMessageJump } from "@/lib/pending-message-jump";
 
 const SANDBOX_URL = SANDBOX_DOC_URL;
 const apiBase = import.meta.env.VITE_API_URL || "";
@@ -102,11 +117,6 @@ function bootConnectionType(): string {
   const conn = (navigator as Navigator & { connection?: { effectiveType?: string } }).connection;
   return conn?.effectiveType ?? "unknown";
 }
-/** Ceiling for `api.fetchAsset`. Comfortably fits a game-ready GLB with textures
- *  while keeping one bad call from ballooning the tab — the bytes are buffered
- *  in the parent and then structured-cloned into the iframe, so they land twice. */
-const MAX_FETCH_ASSET_BYTES = 32 * 1024 * 1024;
-
 /** The pin list for a catalog scope. Cards only ever see the one that matches
  *  the models they were handed. */
 function pinnedFor(
@@ -114,6 +124,16 @@ function pinnedFor(
   scope: "official" | "private",
 ): string[] {
   return scope === "private" ? config.pinnedPrivateModels : config.pinnedModels;
+}
+
+/** Ids a card hands to the session/message API go into a URL path. Only this
+ * shape is let through, so "../users/me/…" can never name another route. */
+const CARD_SUPPLIED_ID = /^[A-Za-z0-9_-]{1,64}$/;
+
+/** A message the card may edit, delete or swipe: one of the open session's own. */
+function isOpenSessionMessageId(value: unknown): value is string {
+  return typeof value === "string" && CARD_SUPPLIED_ID.test(value)
+    && useChatStore.getState().messages.some((message) => message.id === value);
 }
 
 function isPendingMessageId(value: unknown): value is string {
@@ -182,6 +202,7 @@ interface WorldRendererProps {
     conditionLogic?: "all" | "any";
     portrait?: string;
     portraitVideo?: { idle?: string; speaking?: string };
+    portraitLive?: string;
     folderId?: string;
     audience?: SandboxEntry["audience"];
   }>;
@@ -190,6 +211,8 @@ interface WorldRendererProps {
   replyRules?: ReplyRule[];
   /** The card's setting: split one reply into a bubble per speaker. */
   speakerBubbles?: boolean;
+  /** The card turned 帮我写 off (settings.composeAssist === false). */
+  composeAssistOff?: boolean;
 }
 
 export function WorldRenderer({
@@ -212,10 +235,14 @@ export function WorldRenderer({
   worldbooks,
   replyRules,
   speakerBubbles,
+  composeAssistOff,
 }: WorldRendererProps) {
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [modelPickerChatTrial, setModelPickerChatTrial] = useState(true);
+  // The story model, or 帮我写's own (roleModels.write).
+  const [modelPickerFor, setModelPickerFor] = useState<"story" | "write">("story");
   const selectedModel = useConfigStore((s) => s.selectedModel);
+  const composeModel = useConfigStore((s) => composeAssistModel(s.roleModels, s.selectedModel));
   const contextTokens = useChatStore((s) => {
     if (s.session?.id !== sessionId) return null;
     for (let i = s.messages.length - 1; i >= 0; i--) {
@@ -234,8 +261,13 @@ export function WorldRenderer({
   const playerPrompts = usePlayerPromptsChannel(
     mode === "session" && capabilities.canUseSessionApis !== false,
     selectedModel,
+    worldId,
   );
   const files=useMemo(()=>adaptOncinGalleryFiles(worldId,incomingFiles),[worldId,incomingFiles]);
+  const reasoningEffort = useConfigStore((s) => s.reasoningEffort);
+  const regexRules = useConfigStore((s) => s.regexRules);
+  const lastRegexAddRef = useRef(0);
+  const streamingPref = useConfigStore((s) => s.streaming);
   const bgmVolume = useAudioStore((s) => s.bgmVolume);
   const sfxVolume = useAudioStore((s) => s.sfxVolume);
   // Voice readout: live playback (drives per-message speaker button states in
@@ -251,8 +283,20 @@ export function WorldRenderer({
   // Serialized so the selector returns a stable primitive (a fresh array would
   // re-render every store change).
   const ttsVoicePoolKey = useUserProfileStore((s) => readTtsVoicePool(s.profile?.preferences).join(","));
+  // The player's own voices (我的声音 and the 声音广场's), serialized for the same reason.
+  const ttsCustomVoicesKey = useUserProfileStore((s) => JSON.stringify(readTtsCustomVoices(s.profile?.preferences).map((v) => [v.id, ttsCustomVoiceLabel(v)])));
+  const ttsCustomVoices = useMemo(() => (JSON.parse(ttsCustomVoicesKey) as [string, string][]).map(([id, label]) => ({ id, label })), [ttsCustomVoicesKey]);
   const ttsModePref = useUserProfileStore((s) =>
     s.profile?.preferences?.ttsMode === "dialogue" ? ("dialogue" as const) : ("full" as const),
+  );
+  // Who speaks in this chat and in whose voice, for the voice panel. Re-read
+  // whenever casting hands out a voice or the player picks one.
+  const voiceCastTick = useSyncExternalStore(subscribeVoiceCast, voiceCastVersion);
+  const ttsSpeakerWorld = useChatStore((s) => s.session?.world?.schema as SpeakerVoiceWorld | undefined);
+  const ttsSpeakers = useMemo(
+    () => (sessionId ? listSpeakerVoices(ttsSpeakerWorld, castFor(sessionId), voicePicksFor(sessionId)) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- voiceCastTick stands for the store's contents
+    [sessionId, ttsSpeakerWorld, voiceCastTick],
   );
   const ttsVolumePref = useUserProfileStore((s) => {
     const v = s.profile?.preferences?.ttsVolume;
@@ -288,6 +332,8 @@ export function WorldRenderer({
   // Site-wide composer/display prefs, mirrored across the bridge — the sandbox
   // document can't read the host ui store, so without these the "Press Enter
   // to send" and font-size settings silently didn't apply in-play.
+  const messageButtonColor = useUiStore((s) => s.messageButtonColors?.[sessionId] ?? "default");
+  const playColorMode = useUiStore((s) => s.playColorMode);
   const composerSendKey = useUiStore((s) => s.composerSendKey ?? "enter");
   const uiFontSize = useUiStore((s) => s.fontSize ?? "default");
   const uiFontScale = FONT_SIZE_SCALE[uiFontSize] ?? 1;
@@ -298,7 +344,7 @@ export function WorldRenderer({
   const localArmed = useLocalModelStore((s) => s.armed);
   const localStatus = useLocalModelStore((s) => s.status);
   const localRuntimeLabel = useLocalModelStore((s) =>
-    s.detection?.status === "ready" ? s.detection.runtime.label : null,
+    s.detection?.status === "ready" ? runtimeNames(s.detection) : null,
   );
   const localModels = useModelsStore((s) => s.localModels);
 
@@ -400,6 +446,8 @@ export function WorldRenderer({
     },
   });
   const realtimeVoiceCallRef = useRef(realtimeVoice.call); realtimeVoiceCallRef.current = realtimeVoice.call;
+  // Floating window controls, filled in once useSandbox has returned the bridge.
+  const floatRef = useRef<{ float: (opts: { width?: number; height?: number }) => Promise<{ ok: boolean; reason?: string }>; dock: () => void } | null>(null);
   const voiceEntriesRef = useRef(entries); voiceEntriesRef.current = entries;
   // `gameState` also carries optimistic setVariable writes. Notices may only
   // cite the loaded snapshot or a state acknowledgement returned by the server.
@@ -419,6 +467,14 @@ export function WorldRenderer({
       };
 
       switch (method) {
+        case "hostWindow.float":
+          // Synchronous up to requestWindow, so the click that sent this
+          // (activation propagates up from the iframe) still counts.
+          return floatRef.current?.float((args[0] ?? {}) as { width?: number; height?: number })
+            ?? Promise.resolve({ ok: false, reason: "unavailable" });
+        case "hostWindow.dock":
+          floatRef.current?.dock();
+          return;
         case "ai.decide": {
           const sid = sessionIdRef.current;
           if (!sid || !voiceHostAvailableRef.current) return Promise.reject(new Error("Decisions require an active session"));
@@ -438,7 +494,7 @@ export function WorldRenderer({
         });
         case "realtimeVideo.start": case "realtimeVideo.stop": case "realtimeVideo.setSlot":
         case "realtimeVideo.direct": case "realtimeVideo.setMuted": case "realtimeVideo.release": case "realtimeVideo.skip": case "realtimeVideo.rewind":
-        case "realtimeVideo.retake": case "realtimeVideo.openWindow": {
+        case "realtimeVideo.retake": case "realtimeVideo.openWindow": case "realtimeVideo.setStyle": {
           const sid = sessionIdRef.current;
           if (method === "realtimeVideo.setSlot") {
             const r = args[0] as { x?: unknown; y?: unknown; width?: unknown; height?: unknown; radius?: unknown } | null;
@@ -455,12 +511,13 @@ export function WorldRenderer({
           else if (method === "realtimeVideo.rewind") controller.rewind();
           else if (method === "realtimeVideo.retake") controller.regenerate();
           else if (method === "realtimeVideo.openWindow") controller.openWindow();
+          else if (method === "realtimeVideo.setStyle") { const look = String(args[0] ?? ""); if (["source", "live", "anime", "painted"].includes(look)) controller.setStyle(look); }
           else if (method === "realtimeVideo.direct") controller.direct(String(args[0] ?? ""));
           else controller.setMuted(!!args[0]);
           return undefined;
         }
         case 'realtimeVoice.getConfig': case 'realtimeVoice.finish':
-        case "realtimeVoice.prepare": case "realtimeVoice.start": case "realtimeVoice.stop": case "realtimeVoice.interrupt": case "realtimeVoice.setMuted":
+        case "realtimeVoice.prepare": case "realtimeVoice.start": case "realtimeVoice.stop": case "realtimeVoice.interrupt": case "realtimeVoice.setMuted": case "realtimeVoice.active":
         case "realtimeVoice.updateContext": case "realtimeVoice.updateInstructions": case "realtimeVoice.cancelSceneReaction": case "realtimeVoice.reactToScene": case "realtimeVoice.resolveTool": case "realtimeVoice.resolveDelegation": case "realtimeVoice.setSpatial": case "realtimeVoice.ackVideoFrame": {
           // The existing generic bridge resolves results; contain rejections here
           // so consent denial reaches the SDK immediately instead of timing out.
@@ -543,13 +600,16 @@ export function WorldRenderer({
           // AI call to send it with.
           if (mode === "session") useChatStore.getState().setLiveScene(args[0], args[1]);
           return;
-        case "sendMessage":
-          currentApi.sendMessage(args[0] as string, args[1] as import("@yumina/shared").ChatImageInput[] | undefined);
+        case "sendMessage": {
+          const note = (args[2] as { note?: unknown } | undefined)?.note;
+          currentApi.sendMessage(args[0] as string, args[1] as import("@yumina/shared").ChatImageInput[] | undefined,
+            typeof note === "string" && note.trim() ? { note: note.trim().slice(0, 500) } : undefined);
           return;
+        }
         case "patchVariables": {
           const sid = sessionIdRef.current;
           const values = args[0];
-          if (!sid || mode !== "session" || useChatStore.getState().readOnly) throw new Error("This view is read-only");
+          if (!sid || mode !== "session" || !canWriteGameState(useChatStore.getState())) throw new Error("This view is read-only");
           if (!values || typeof values !== "object" || Array.isArray(values)) throw new Error("Expected variable patch");
           return queueSessionStateOperation(async (signal) => {
             if (sessionIdRef.current !== sid || useChatStore.getState().session?.id !== sid) throw new Error("Session changed");
@@ -642,7 +702,8 @@ export function WorldRenderer({
           return;
         case "executeActionAndWait":
           return dispatchAwaitedAction(args,
-            mode === "session" && !!sessionIdRef.current && sessionIdRef.current === useChatStore.getState().session?.id && capabilities.canUseSessionApis && !useChatStore.getState().readOnly && !(currentApi as YuminaAPI & { readOnly?: boolean }).readOnly,
+            // A story room member's press counts too: the server checks the room.
+            mode === "session" && !!sessionIdRef.current && sessionIdRef.current === useChatStore.getState().session?.id && capabilities.canUseSessionApis && canWriteGameState(useChatStore.getState()),
             currentApi.executeActionAndWait);
         case "callAi":
           // The card's screen calls one of its AIs and waits for the answer.
@@ -705,22 +766,68 @@ export function WorldRenderer({
               : { ok: false, reason: "superseded" })
             .catch(() => ({ ok: false, reason: "error" }));
         }
+        case "tts.prefetch": {
+          // Synthesize ahead (no playback) so the card's next sentence starts
+          // from the CDN cache. Same gate and billing as tts.speak.
+          const sid = sessionIdRef.current;
+          if (!sid || !voiceHostAvailableRef.current) {
+            return Promise.resolve({ ok: false, reason: "unavailable" });
+          }
+          const opts = (args[0] ?? {}) as { text?: string; voice?: string };
+          return loadTtsUnlessHalted(() => import("@/lib/tts-playback"))
+            .then((m) => m && voiceHostAvailableRef.current && sessionIdRef.current === sid
+              ? m.prefetchSpeech(sid, opts)
+              : { ok: false, reason: "superseded" })
+            .catch(() => ({ ok: false, reason: "error" }));
+        }
         case "tts.stop":
           haltTts();
           return;
         case "tts.setPrefs": {
           // These prefs live on the account and spend the player's mushies
-          // on every future reply. Readout itself is only switched on from
-          // Settings (applyTtsPrefs ignores enabled:true and everything while
-          // it is off); auto-read ON takes a real click. User activation
-          // propagates from the sandbox iframe to this frame; card code
-          // running on its own can't produce it.
+          // on every future reply. applyTtsPrefs never switches readout on;
+          // auto-read ON takes a real click. User activation propagates from
+          // the sandbox iframe to this frame; card code running on its own
+          // can't produce it.
+          // enabled:true from a click (a card's "turn on her voice" button)
+          // asks the player in Yumina's own dialog; only their yes turns
+          // readout on, then the rest of the patch applies.
           const partial = { ...((args[0] ?? {}) as Record<string, unknown>) };
           const activation = (navigator as Navigator & { userActivation?: { isActive: boolean } }).userActivation;
-          if (activation && !activation.isActive) {
-            if (partial.autoPlay === true) delete partial.autoPlay;
-          }
-          void import("@/lib/tts-playback").then((m) => m.applyTtsPrefs(partial)).catch(() => {});
+          const fromClick = !activation || activation.isActive;
+          if (!fromClick && partial.autoPlay === true) delete partial.autoPlay;
+          const wantsOn = partial.enabled === true && fromClick && mode === "session" && Boolean(sessionIdRef.current);
+          if (partial.enabled === true) delete partial.enabled;
+          void import("@/lib/tts-playback").then(async (m) => {
+            if (wantsOn && !m.getTtsPrefs().enabled) {
+              const ok = await m.requestTtsEnableFromCard(() =>
+                import("@/components/ui/global-confirm-dialog").then(({ confirmAction }) =>
+                  confirmAction(
+                    i18n.t("chat:tts.cardAsks.body", {
+                      defaultValue: "This story wants to talk to you out loud. Voice readout reads lines with AI voices and costs mushies per character. You can switch it off any time in Settings › Display / Language.",
+                    }),
+                    {
+                      title: i18n.t("chat:tts.cardAsks.title", { defaultValue: "Turn on voice readout?" }),
+                      confirmLabel: i18n.t("chat:tts.cardAsks.confirm", { defaultValue: "Turn on" }),
+                      tone: "warning",
+                    },
+                  ),
+                ),
+              );
+              if (!ok) return;
+            }
+            m.applyTtsPrefs(partial);
+          }).catch(() => {});
+          return;
+        }
+        case "tts.setSpeakerVoice": {
+          // The player's own pick, from the in-chat voice panel; the next
+          // readout uses it. Only real ids, and only for this session.
+          const [speaker, voice] = args as [unknown, unknown];
+          const sid = sessionIdRef.current;
+          if (!sid || typeof speaker !== "string" || !speaker.trim() || speaker.length > 32) return;
+          if (voice !== null && (typeof voice !== "string" || !isValidTtsVoice(voice))) return;
+          setVoicePick(sid, speaker, voice);
           return;
         }
         case "voice.prepare": {
@@ -756,7 +863,7 @@ export function WorldRenderer({
           const sid = sessionIdRef.current;
           if (!sid || useChatStore.getState().isStreaming || useChatStore.getState().session?.id !== sid) return Promise.resolve({});
           const [swipeMsgId, direction] = args as [string, "left" | "right"];
-          if (isPendingMessageId(swipeMsgId)) return Promise.resolve({});
+          if (isPendingMessageId(swipeMsgId) || !isOpenSessionMessageId(swipeMsgId)) return Promise.resolve({});
           const apiBase = import.meta.env.VITE_API_URL || "";
           return withSessionHistoryMutation(sid, () => fetch(`${apiBase}/api/messages/${swipeMsgId}/swipe`, {
             method: "POST",
@@ -788,12 +895,32 @@ export function WorldRenderer({
         case "toggleImmersive":
           (window as any).__yuminaToggleImmersive?.();
           return;
+        case "leaveImmersive":
+          // An Escape the card did not claim, or the card's "Exit full
+          // screen" (api.exitFullscreen); only ever leaves, never enters.
+          if (useUiStore.getState().theaterMode) (window as any).__yuminaToggleImmersive?.();
+          return;
+        case "isFullscreen":
+          return useUiStore.getState().theaterMode;
+        case "backToYumina":
+          (window as any).__yuminaLeavePlay?.();
+          return;
         case "getPersonaProfile": {
           const currentSessionId = sessionIdRef.current;
           return import("@/lib/persona-profile").then(({ readPersonaProfile }) =>
             readPersonaProfile(currentSessionId, useChatStore.getState().session),
           );
         }
+        case "setMessageButtonColor": {
+          const [id, color] = args;
+          if (mode === "session" && id && id === sessionIdRef.current && (color === "default" || color === "lighter" || color === "darker")) {
+            useUiStore.getState().setMessageButtonColor(sessionIdRef.current, color);
+          }
+          return;
+        }
+        case "setPlayColorMode":
+          if (args[0] === "dark" || args[0] === "light") useUiStore.getState().setPlayColorMode(args[0]);
+          return;
         case "openPersonaManager":
           useUiStore.getState().openPersonaManager();
           return;
@@ -806,6 +933,114 @@ export function WorldRenderer({
         case "openSessionManager":
           useUiStore.getState().openSessionManager();
           return;
+        case "openStoryRoom": {
+          const sid = sessionIdRef.current;
+          if (sid && mode === "session" && !useChatStore.getState().readOnly) {
+            void import("@/features/story-room/room-store").then(({ useRoomStore }) =>
+              useRoomStore.getState().openForSession(sid, { invite: true }));
+          }
+          return;
+        }
+        // The story room's round strip (platform chat UI, not the card API).
+        case "storyRoom.sendNow":
+          void import("@/features/story-room/room-store").then(({ sendRoomNow }) => sendRoomNow(sessionIdRef.current ?? undefined));
+          return;
+        // At the spending limit: the host's one-tap raise (the host's own room only; the server checks).
+        case "storyRoom.raiseCap": {
+          const to = args[0] === null ? null : typeof args[0] === "number" && Number.isFinite(args[0]) ? args[0] : undefined;
+          if (to === undefined) return;
+          void import("@/features/story-room/room-store").then(({ raiseRoomCapAndSend }) => raiseRoomCapAndSend(sessionIdRef.current ?? undefined, to));
+          return;
+        }
+        case "storyRoom.composer":
+          void import("@/features/story-room/room-store").then(({ useRoomStore }) => useRoomStore.setState({ composer: args[0] === true }));
+          return;
+        case "storyRoom.typing":
+          void import("@/features/story-room/room-store").then(({ sendRoomTyping }) => sendRoomTyping(sessionIdRef.current ?? undefined));
+          return;
+        // The room composers: a line for the round, or 只给队友看 talk.
+        case "storyRoom.post": {
+          const text = typeof args[0] === "string" ? args[0] : "";
+          const opts = (args[1] ?? {}) as { talk?: unknown; hold?: unknown };
+          void import("@/features/story-room/room-store").then(({ routeSendToRoom }) =>
+            routeSendToRoom(sessionIdRef.current ?? undefined, text, { talk: opts.talk === true, hold: opts.hold === true }));
+          return;
+        }
+        case "storyRoom.ready":
+        case "storyRoom.withdraw":
+          return import("@/features/story-room/room-store").then(async ({ useRoomStore }) => {
+            const room = useRoomStore.getState().room;
+            if (!room || room.sessionId !== sessionIdRef.current) return { ok: false };
+            const { storyRoomApi } = await import("@/features/story-room/api");
+            if (method === "storyRoom.ready") await storyRoomApi.setReady(room.code, args[0] === true);
+            else if (typeof args[0] === "string") await storyRoomApi.withdrawAction(room.code, args[0]);
+            return { ok: true };
+          }).catch(() => {
+            feedback.error(String(i18n.t("common:storyRoom.updateFailed")));
+            return { ok: false };
+          });
+        // api.room.invite({ roomId }): a rules table ("rules:CODE") gets the
+        // invite sheet with its table link; anything else is this chat's story
+        // room (opened on first use), when the card is on in story mode.
+        case "room.invite": {
+          const roomId = (args[0] as { roomId?: unknown } | undefined)?.roomId;
+          const wid = worldIdRef.current;
+          return import("@/features/story-room/invite-sheet-store").then(async ({ useInviteSheet }) => {
+            if (typeof roomId === "string" && roomId.startsWith("rules:")) {
+              const { parseTableCode } = await import("@/features/story-room/room-logic");
+              const code = parseTableCode(roomId.slice("rules:".length));
+              if (!code || !wid) return { ok: false, reason: "invalid-room" };
+              useInviteSheet.getState().open({ kind: "table", worldId: wid, code });
+              return { ok: true };
+            }
+            const sid = sessionIdRef.current;
+            const chat = useChatStore.getState();
+            if (!sid || mode !== "session" || chat.readOnly || chat.session?.id !== sid) return { ok: false, reason: "unavailable" };
+            const { storyRoomSetting } = await import("@/features/story-room/room-logic");
+            if (!storyRoomSetting(chat.session?.world ?? null)) return { ok: false, reason: "multiplayer-off" };
+            const { useRoomStore } = await import("@/features/story-room/room-store");
+            await useRoomStore.getState().openForSession(sid, { invite: true });
+            return { ok: useRoomStore.getState().room?.sessionId === sid };
+          });
+        }
+        // api.leaderboard: the card's own high-score boards (routes/leaderboards.ts).
+        case "leaderboard.submit":
+        case "leaderboard.get": {
+          const wid = worldIdRef.current;
+          const board = typeof args[0] === "string" ? args[0] : "";
+          if (!wid || !board) return Promise.resolve({ ok: false, reason: "unavailable" });
+          const path = `${apiBase}/api/leaderboards/${encodeURIComponent(wid)}/${encodeURIComponent(board)}`;
+          const reasonOf = (status: number, code?: string) => (status === 401 ? "sign-in" : code || (status === 404 ? "not-found" : "failed"));
+          if (method === "leaderboard.submit") {
+            const opts = (args[2] ?? {}) as { details?: unknown; order?: unknown };
+            return fetch(path, {
+              method: "POST",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ score: args[1], details: opts.details, order: opts.order }),
+            })
+              .then(async (r) => {
+                const body = await r.json().catch(() => null);
+                return r.ok && body?.data ? { ok: true, ...body.data } : { ok: false, reason: reasonOf(r.status, body?.code) };
+              })
+              .catch(() => ({ ok: false, reason: "network" }));
+          }
+          const opts = (args[1] ?? {}) as { range?: unknown; limit?: unknown };
+          const q = new URLSearchParams();
+          if (opts.range === "around" || opts.range === "friends") q.set("range", opts.range);
+          if (typeof opts.limit === "number") q.set("limit", String(opts.limit));
+          return fetch(`${path}${q.size ? `?${q}` : ""}`, { credentials: "include" })
+            .then(async (r) => {
+              const body = await r.json().catch(() => null);
+              return r.ok && body?.data ? { ok: true, ...body.data } : { ok: false, reason: reasonOf(r.status, body?.code) };
+            })
+            .catch(() => ({ ok: false, reason: "network" }));
+        }
+        case "room.pendingTable": {
+          const wid = worldIdRef.current;
+          if (!wid || mode !== "session") return null;
+          return import("@/features/story-room/pending-table").then(({ takePendingTable }) => takePendingTable(wid));
+        }
         case "openSupport": {
           // The play header's tip button is unreachable under a fullscreen
           // custom-UI card, so a card may open the same dialog itself. Report
@@ -823,7 +1058,7 @@ export function WorldRenderer({
             return { opened: true };
           });
         }
-        case "fetchAsset": {
+        case "fetchAsset":
           // Read an asset's raw bytes into the sandbox.
           //
           // The sandbox cannot fetch anything itself (`connect-src 'none'`), and
@@ -831,30 +1066,8 @@ export function WorldRenderer({
           // the browser gives images a privileged loading path and gives binary
           // formats none. The obvious fix is to relax connect-src; this is the
           // narrower one. The parent does the fetch (no CSP problem here) and
-          // hands the bytes over.
-          //
-          // Narrow on purpose: the argument is an ASSET ID, never a URL. A card
-          // therefore cannot reach an arbitrary host, cannot probe paths, cannot
-          // be steered by a redirect, and gains no exfiltration channel — while
-          // still being able to read its own assets, which is the actual need.
-          // `credentials: "omit"` so this can never read an authenticated body.
-          const raw = String(args[0] ?? "");
-          const m = /^(?:@asset:)?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(raw);
-          if (!m) return Promise.resolve({ ok: false, error: "bad-ref" });
-          const base = import.meta.env.VITE_API_URL || "";
-          return fetch(`${base}/cdn/${m[1]}`, { credentials: "omit" })
-            .then(async (r) => {
-              if (!r.ok) return { ok: false, error: `http-${r.status}` };
-              // Check the advertised size before buffering, so a hostile or
-              // simply enormous asset cannot balloon the tab before we notice.
-              const declared = Number(r.headers.get("content-length") || 0);
-              if (declared > MAX_FETCH_ASSET_BYTES) return { ok: false, error: "too-large" };
-              const bytes = await r.arrayBuffer();
-              if (bytes.byteLength > MAX_FETCH_ASSET_BYTES) return { ok: false, error: "too-large" };
-              return { ok: true, bytes, contentType: r.headers.get("content-type") || "" };
-            })
-            .catch((e) => ({ ok: false, error: String(e?.message ?? e).slice(0, 120) }));
-        }
+          // hands the bytes over (lib/fetch-asset-bytes: an asset id, never a URL).
+          return fetchAssetBytes(args[0], import.meta.env.VITE_API_URL || "");
         case "copyToClipboard":
           navigator.clipboard?.writeText(args[0] as string).catch(() => {});
           return;
@@ -868,11 +1081,16 @@ export function WorldRenderer({
             }
             navigateToStory(chatTarget.sessionId);
           } else {
-            // "/app/settings#prompts": the router takes the hash separately.
+            // "/app/settings#prompts", "/app/extensions?extension=…": the
+            // router takes the hash and the search separately.
             const hashAt = url.indexOf("#");
-            router.navigate(
-              (hashAt >= 0 ? { to: url.slice(0, hashAt), hash: url.slice(hashAt + 1) } : { to: url }) as any,
-            );
+            const beforeHash = hashAt >= 0 ? url.slice(0, hashAt) : url;
+            const queryAt = beforeHash.indexOf("?");
+            router.navigate({
+              to: queryAt >= 0 ? beforeHash.slice(0, queryAt) : beforeHash,
+              ...(queryAt >= 0 ? { search: Object.fromEntries(new URLSearchParams(beforeHash.slice(queryAt + 1))) } : {}),
+              ...(hashAt >= 0 ? { hash: url.slice(hashAt + 1) } : {}),
+            } as any);
           }
           return;
         }
@@ -922,7 +1140,8 @@ export function WorldRenderer({
             method: "POST",
             headers: { "Content-Type": "application/json" },
             credentials: "include",
-            body: JSON.stringify({ worldId: args[0] }),
+            // Always this card's own world, whatever id the card passes.
+            body: JSON.stringify({ worldId: worldIdRef.current }),
           })
             .then(async (response) => {
               const payload = await response.json().catch(() => null);
@@ -941,16 +1160,27 @@ export function WorldRenderer({
         case "deleteSession": {
           const sid = sessionIdRef.current;
           if (!sid) return Promise.resolve({});
-          return fetch(`${apiBase}/api/sessions/${args[0]}`, {
-            method: "DELETE",
-            credentials: "include",
-          }).then((r) => r.json());
+          // Only a save of this card. The id is checked against this world's
+          // own session list before anything is deleted.
+          const target = args[0];
+          if (typeof target !== "string" || !CARD_SUPPLIED_ID.test(target)) return Promise.resolve({});
+          return fetch(`${apiBase}/api/sessions?worldId=${encodeURIComponent(worldIdRef.current)}`, { credentials: "include" })
+            .then((r) => r.json())
+            .then((d) => {
+              const own = Array.isArray(d?.data) && d.data.some((row: { id?: unknown }) => row?.id === target);
+              if (!own) return {};
+              return fetch(`${apiBase}/api/sessions/${encodeURIComponent(target)}`, {
+                method: "DELETE",
+                credentials: "include",
+              }).then((r) => r.json());
+            });
         }
         case "listSessions": {
           const sid = sessionIdRef.current;
           if (!sid) return Promise.resolve([]);
           return fetch(
-            `${apiBase}/api/sessions?worldId=${encodeURIComponent(args[0] as string)}`,
+            // This card's saves only. An empty id used to list every chat the player has.
+            `${apiBase}/api/sessions?worldId=${encodeURIComponent(worldIdRef.current)}`,
             { credentials: "include" }
           )
             .then((r) => r.json())
@@ -960,8 +1190,10 @@ export function WorldRenderer({
         case "editMessage": {
           const sid = sessionIdRef.current;
           if (!sid || useChatStore.getState().isStreaming || useChatStore.getState().session?.id !== sid) return Promise.resolve(false);
-          const [messageId, content, editOptions] = args as [string, string, { swipeIndex?: unknown } | undefined];
-          if (isPendingMessageId(messageId)) return Promise.resolve(false);
+          const [messageId, content, editOptions] = args as [string, string, { swipeIndex?: unknown; note?: unknown } | undefined];
+          // 给 AI 的话 the player had open: the new answer below follows it.
+          const editNote = cleanNote(editOptions?.note);
+          if (isPendingMessageId(messageId) || !isOpenSessionMessageId(messageId)) return Promise.resolve(false);
           // The variant the edit box was opened on. The server refuses the
           // save if another variant became active in between, instead of
           // writing this text over it (edit-target.ts).
@@ -984,17 +1216,12 @@ export function WorldRenderer({
             if (!success) return false;
             const store = useChatStore.getState();
             if (store.session?.id !== sid) return false;
-            const msgs = store.messages;
-            const lastMsg = msgs[msgs.length - 1];
-            const secondToLast = msgs[msgs.length - 2];
             // Only a rewritten player line owes a new answer. Editing an AI
             // reply (e.g. removing its scene picture) must never re-roll the
             // reply after it.
-            if (lastMsg?.role === "assistant" && secondToLast?.id === messageId && secondToLast.role === "user") {
-              store.regenerateMessage(lastMsg.id);
-            } else if (lastMsg?.id === messageId && lastMsg.role === "user") {
-              store.continueLastMessage();
-            }
+            const reply = editReplyAction(store.messages, messageId);
+            if (reply?.kind === "regenerate") store.regenerateMessage(reply.replyId, undefined, undefined, editNote);
+            else if (reply?.kind === "continue") store.continueLastMessage(undefined, undefined, editNote);
             return true;
           }).catch(() => false);
         }
@@ -1002,7 +1229,7 @@ export function WorldRenderer({
           const sid = sessionIdRef.current;
           if (!sid || useChatStore.getState().isStreaming || useChatStore.getState().session?.id !== sid) return Promise.resolve(false);
           const [msgId] = args as [string];
-          if (isPendingMessageId(msgId)) return Promise.resolve(false);
+          if (isPendingMessageId(msgId) || !isOpenSessionMessageId(msgId)) return Promise.resolve(false);
           return withSessionHistoryMutation(sid, () => fetch(`${apiBase}/api/messages/${msgId}`, {
             method: "DELETE",
             credentials: "include",
@@ -1015,17 +1242,52 @@ export function WorldRenderer({
           }).catch(() => false));
         }
         case "illustrateMessage": {
-          const [msgId, note, fine] = args as [string, string | undefined, boolean | undefined];
+          const [msgId, second, third] = args as [string, unknown, unknown];
           if (!sessionIdRef.current || isPendingMessageId(msgId)) return Promise.resolve(false);
+          // (id, { note, fine, focus, prompt }), or the older (id, note, fine).
+          const options = second && typeof second === "object" ? second as Record<string, unknown> : { note: second, fine: third };
+          const text = (value: unknown) => (typeof value === "string" && value.trim() ? value : undefined);
+          const request = { note: text(options.note), fine: options.fine === true, focus: text(options.focus), prompt: text(options.prompt) };
           // Same path as the after-turn draw: placeholder, picture or a reason
           // show up on the message itself.
-          return import("./turn-image-drawing").then(({ drawTurnImage }) => drawTurnImage(msgId, false, typeof note === "string" && note ? note : undefined, fine === true))
+          return import("./turn-image-drawing").then(({ drawTurnImage }) => drawTurnImage(msgId, false, request))
             .then((r) => r.ok).catch(() => false);
+        }
+        case "images.generate": {
+          // A picture the card's own interface asks for. Read the click now,
+          // before any await: only a real click may open the pay dialog, and a
+          // browser that can't tell counts as no click.
+          const activation = (navigator as Navigator & { userActivation?: { isActive: boolean } }).userActivation;
+          const fromClick = activation?.isActive === true;
+          const sid = sessionIdRef.current;
+          if (!sid || mode !== "session") return Promise.resolve({ ok: false, reason: "unavailable" });
+          return import("./card-images").then(({ generateCardImage }) => generateCardImage(sid, args[0], fromClick))
+            .catch(() => ({ ok: false, reason: "unavailable" }));
+        }
+        case "images.cancel": {
+          const sid = sessionIdRef.current;
+          if (!sid) return Promise.resolve(false);
+          return import("./card-images").then(({ cancelCardImage }) => cancelCardImage(sid, args[0])).catch(() => false);
         }
         case "cancelTurnImage": {
           const [msgId] = args as [string];
           if (!sessionIdRef.current || isPendingMessageId(msgId)) return Promise.resolve(false);
           return import("./turn-image-drawing").then(({ cancelTurnImage }) => cancelTurnImage(msgId)).catch(() => false);
+        }
+        case "selectTurnImage": {
+          const [msgId, key, swipeIndex] = args as [string, string, number | undefined];
+          if (!sessionIdRef.current || isPendingMessageId(msgId) || typeof key !== "string") return Promise.resolve(false);
+          return import("./turn-image-drawing")
+            .then(({ selectTurnImage }) => selectTurnImage(msgId, key, typeof swipeIndex === "number" ? swipeIndex : undefined))
+            .catch(() => false);
+        }
+        case "publishTurnImage": {
+          // A story illustration to the gallery (生图广场): the app's own dialog
+          // asks for a title and the sensitive box; the server checks the
+          // picture is the player's own, in their own chat.
+          const [msgId, imageUrl] = args as [string, string];
+          if (!sessionIdRef.current || isPendingMessageId(msgId) || typeof imageUrl !== "string" || !/^\/cdn\/key\/[A-Za-z0-9_-]+$/.test(imageUrl)) return Promise.resolve(false);
+          return openStoryPublish(msgId, imageUrl).catch(() => false);
         }
         case "openCreditTopUp": {
           return import("@/edition/slots.state").then(({ handleStreamCreditError }) => handleStreamCreditError("NO_CREDITS"));
@@ -1047,18 +1309,50 @@ export function WorldRenderer({
             return r.ok;
           }).catch(() => false);
         }
+        case "setTurnImageStyle": {
+          const [style] = args as [string];
+          if (style !== "default" && style !== "detailed" && style !== "vivid") return Promise.resolve(false);
+          return fetch(`${apiBase}/api/users/me`, {
+            method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ preferences: { turnImageStyle: style } }),
+          }).then(async (r) => {
+            if (r.ok) (await import("./turn-image-drawing")).forgetTurnImageSettings();
+            return r.ok;
+          }).catch(() => false);
+        }
         case "regenerateMessage": {
           const sid = sessionIdRef.current;
           if (!sid) return;
           if (isPendingMessageId(args[0])) return;
-          import("@/stores/chat").then(m => m.useChatStore.getState().regenerateMessage(args[0] as string));
+          // 给 AI 的话 open in the composer replaces the one the turn was sent with.
+          const regenNote = cleanNote((args[1] as { note?: unknown } | undefined)?.note);
+          import("@/stores/chat").then(m => m.useChatStore.getState().regenerateMessage(args[0] as string, undefined, undefined, regenNote));
           return;
         }
         case "continueLastMessage": {
           const sid = sessionIdRef.current;
           if (!sid) return;
-          import("@/stores/chat").then(m => m.useChatStore.getState().continueLastMessage());
+          const note = (args[0] as { note?: unknown } | undefined)?.note;
+          import("@/stores/chat").then(m => m.useChatStore.getState().continueLastMessage(undefined, undefined,
+            typeof note === "string" && note.trim() ? note.trim().slice(0, 500) : undefined));
           return;
+        }
+        case "openComposeModelPicker":
+          setModelPickerFor("write");
+          setModelPickerOpen(true);
+          return;
+        case "searchMessages": {
+          const sid = sessionIdRef.current;
+          if (!sid) return Promise.reject(new Error("No active session"));
+          const params = new URLSearchParams({ q: typeof args[0] === "string" ? args[0].slice(0, 200) : "" });
+          const before = Number((args[1] as { before?: unknown } | undefined)?.before);
+          if (Number.isInteger(before) && before > 0) params.set("before", String(before));
+          return fetch(`${apiBase}/api/sessions/${sid}/messages/search?${params}`, { credentials: "include" })
+            .then(async (res) => {
+              const json = await res.json().catch(() => ({} as any));
+              if (!res.ok || !Array.isArray(json?.data)) throw new Error(json?.error ?? `HTTP ${res.status}`);
+              return { hits: json.data, hasMore: Boolean(json.meta?.hasMore) };
+            });
         }
         case "loadEarlierMessages": {
           const sid = sessionIdRef.current;
@@ -1116,6 +1410,7 @@ export function WorldRenderer({
         // ── Model picker ──
         case "openModelPicker":
           setModelPickerChatTrial((args[0] as {purpose?: unknown} | null)?.purpose !== "side-completion");
+          setModelPickerFor("story");
           setModelPickerOpen(true);
           return;
         case "resolveModelFallback": {
@@ -1170,9 +1465,39 @@ export function WorldRenderer({
             };
           });
         }
-        case "togglePlayerPrompt": {
+        case "togglePlayerPrompt":
+        case "resetWorldPrompts": {
           if (!sessionIdRef.current || mode !== "session") return Promise.resolve({ ok: false });
-          return handlePlayerPromptsBridgeCall(method, args) ?? Promise.resolve({ ok: false });
+          return handlePlayerPromptsBridgeCall(method, args, worldIdRef.current) ?? Promise.resolve({ ok: false });
+        }
+        case "addRegexRule": {
+          // Only plain words, from a live session view, at most a sentence long; rate-limited so a card cannot
+          // fill the player's settings. The rule is plain text, so it cannot be a runaway pattern.
+          if (!sessionIdRef.current || mode !== "session") return Promise.resolve(false);
+          const text = typeof args[0] === "string" ? args[0].trim() : "";
+          if (!text || text.length > 200) return Promise.resolve(false);
+          const now = Date.now();
+          if (now - lastRegexAddRef.current < 1500) return Promise.resolve(false);
+          lastRegexAddRef.current = now;
+          const store = useConfigStore.getState();
+          const rules = store.regexRules ?? [];
+          if (rules.length >= REGEX_RULES_MAX) return Promise.resolve(false);
+          if (!rules.some((r) => !r.isRegex && r.find.toLowerCase() === text.toLowerCase())) {
+            store.setConfig("regexRules", [...rules, { ...makeTextRule(text), flags: "i" }]);
+          }
+          return Promise.resolve(true);
+        }
+        case "getMemoryEvery":
+          return Promise.resolve(useConfigStore.getState().memoryEvery);
+        case "setMemoryEvery": {
+          // The player's own AI setting, so only from a live session view; a number outside 1 to 50 is refused.
+          if (!sessionIdRef.current || mode !== "session") return Promise.reject(new Error("No active session"));
+          const turns = args[0];
+          if (typeof turns !== "number" || !Number.isInteger(turns) || turns < 1 || turns > 50) {
+            return Promise.reject(new Error("Choose 1 to 50 turns"));
+          }
+          useConfigStore.getState().setConfig("memoryEvery", turns);
+          return Promise.resolve(turns);
         }
         case "getStateGuardSettings":
         case "setStateGuardSettings": {
@@ -1238,6 +1563,96 @@ export function WorldRenderer({
             status: 0,
             error: error instanceof Error ? error.message : "Network error",
           }));
+        }
+        // Platform one-time tips, kept on the host page so they are seen once
+        // across every card. Only known tip names; card code can at most
+        // hide one of these tips early.
+        case "hintSeen":
+        case "markHintSeen": {
+          const name = String(args[0] ?? "");
+          if (!PLATFORM_HINTS.has(name)) return method === "hintSeen" ? true : undefined;
+          const key = `yumina:hint-seen:${name}`;
+          try {
+            if (method === "markHintSeen") { localStorage.setItem(key, "1"); return undefined; }
+            return localStorage.getItem(key) === "1";
+          } catch {
+            return true;
+          }
+        }
+        // Core memory, open to every player: the overview of how far back the
+        // AI reads, and the pinned notes (no memory extension needed).
+        case "getMemoryOverview":
+        case "savePinnedNotes":
+        case "stopRecap":
+        case "recapBackfill": {
+          const sid = sessionIdRef.current;
+          if (!sid) return Promise.reject(new Error("No active session"));
+          // The value the AI settings slider shows (and a turn runs with).
+          const config = useConfigStore.getState();
+          const credits = useCreditStore.getState();
+          const storyMemory = effectiveStoryMemory({
+            storyMemory: config.storyMemory,
+            maxContext: config.maxContext,
+            memoryCap: credits.memoryCap,
+            provider: credits.provider,
+            defaultStoryMemory: useUserProfileStore.getState().profile?.defaultStoryMemory,
+          }).value;
+          // The recap size the player chose in AI settings; unchosen is left
+          // out and the server applies the default.
+          const recapShare = config.recapShare ?? undefined;
+          const query = `?storyMemory=${encodeURIComponent(String(Math.round(storyMemory)))}${recapShare ? `&recapShare=${recapShare}` : ""}`;
+          const read = (res: Response) => res.json().catch(() => ({} as any)).then((json) => {
+            if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`);
+            if (!json.data) throw new Error("Malformed memory response");
+            return json.data;
+          });
+          const overview = () => fetch(`${apiBase}/api/sessions/${sid}/memory-overview${query}`, { credentials: "include" }).then(read);
+          if (method === "getMemoryOverview") return overview();
+          if (method === "savePinnedNotes") {
+            return fetch(`${apiBase}/api/sessions/${sid}/pinned-notes${query}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({ pinned: args[0] ?? null }),
+            }).then(read);
+          }
+          if (method === "stopRecap") {
+            return fetch(`${apiBase}/api/sessions/${sid}/recap-stop`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({ storyMemory: Math.round(storyMemory), recapShare }),
+            }).then(read);
+          }
+          // recapBackfill. Card code shares this bridge with the platform's
+          // memory panel, so the paid "fold it all" is confirmed here, in the
+          // host, against the server's own estimate, never on the frame's word.
+          if (mode !== "session" || sid !== useChatStore.getState().session?.id || useChatStore.getState().readOnly) {
+            return Promise.reject(new Error("This view is read-only"));
+          }
+          const backfillMode = args[0] === "skip" ? "skip" : "all";
+          const post = (approved?: { credits: number | null; rebuild: boolean }) => fetch(`${apiBase}/api/sessions/${sid}/recap-backfill`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({
+              mode: backfillMode,
+              storyMemory: Math.round(storyMemory),
+              recapShare,
+              // The server refuses a run priced above what the player saw.
+              approvedCredits: approved?.credits,
+              approvedRebuild: approved?.rebuild,
+            }),
+          }).then(read);
+          if (backfillMode === "skip") return post();
+          return overview().then(async (current) => {
+            const backfill = current?.recap?.backfill;
+            if (!backfill) return current;
+            const copy = recapBackfillConfirmCopy(i18n.language, backfill.estimatedCredits);
+            const { confirmAction } = await import("@/components/ui/global-confirm-dialog");
+            const confirmed = await confirmAction(copy.description, { title: copy.title, confirmLabel: copy.confirm, tone: "warning" });
+            return confirmed ? post({ credits: backfill.estimatedCredits, rebuild: backfill.rebuild }) : current;
+          });
         }
         case "getSessionMemory":
         case "saveSessionMemory":
@@ -1423,6 +1838,48 @@ export function WorldRenderer({
             return json.data;
           });
         }
+        case "deleteSummaryceptionSnippet":
+        case "estimateRecapFold":
+        case "recapFold": {
+          const sid = sessionIdRef.current;
+          if (!sid) return Promise.reject(new Error("No active session"));
+          const base = `${apiBase}/api/sessions/${sid}/summaryception`;
+          const read = (res: Response) => res.json().catch(() => ({} as any)).then((json) => {
+            if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`);
+            if (!json.data) throw new Error("Malformed recap response");
+            return json.data;
+          });
+          if (method === "deleteSummaryceptionSnippet") {
+            return fetch(`${base}/snippets/${encodeURIComponent(String(args[0] ?? ""))}`, {
+              method: "DELETE",
+              credentials: "include",
+            }).then(read);
+          }
+          const count = Math.max(1, Math.floor(Number(args[0]) || 1));
+          const estimate = () => fetch(`${base}/fold-estimate?count=${count}`, { credentials: "include" }).then(read);
+          if (method === "estimateRecapFold") return estimate();
+          // recapFold. Card code shares this bridge with the memory panel, so
+          // a paid fold is confirmed here, in the host, against the server's
+          // own estimate (as recapBackfill is).
+          if (mode !== "session" || sid !== useChatStore.getState().session?.id || useChatStore.getState().readOnly) {
+            return Promise.reject(new Error("This view is read-only"));
+          }
+          return estimate().then(async (current: { messages: number; estimatedCredits: number | null }) => {
+            const copy = recapFoldConfirmCopy(i18n.language, current?.estimatedCredits ?? null, current?.messages ?? 0);
+            if (!current?.messages) throw new Error(copy.nothing);
+            if (current.estimatedCredits != null && current.estimatedCredits > RECAP_FOLD_FREE_CREDITS) {
+              const { confirmAction } = await import("@/components/ui/global-confirm-dialog");
+              const confirmed = await confirmAction(copy.description, { title: copy.title, confirmLabel: copy.confirm, tone: "warning" });
+              if (!confirmed) return null;
+            }
+            return fetch(`${base}/fold`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({ count, approvedCredits: current.estimatedCredits }),
+            }).then(read);
+          });
+        }
         // Pinning is a global user preference, not session state — no session
         // id guard here, or the pin is silently dropped and the sandbox star
         // lights for a change that never happened. Both return the resulting
@@ -1450,6 +1907,16 @@ export function WorldRenderer({
             configModule.useConfigStore.getState().unpinModel(args[0] as string, scope);
             return { pinnedModels: pinnedFor(configModule.useConfigStore.getState(), scope), accepted: true };
           });
+        }
+        // The composer's thinking / streaming menu: the same two AI settings.
+        case "setGenerationPref": {
+          const pref = (args[0] ?? {}) as { reasoningEffort?: unknown; streaming?: unknown };
+          import("@/stores/config").then(m => {
+            const { setConfig } = m.useConfigStore.getState();
+            if (typeof pref.reasoningEffort === "string" && ["none", "minimal", "low", "medium", "high"].includes(pref.reasoningEffort)) setConfig("reasoningEffort", pref.reasoningEffort);
+            if (typeof pref.streaming === "boolean") setConfig("streaming", pref.streaming);
+          }).catch(() => {});
+          return;
         }
         case "setMixMode": {
           import("@/stores/config").then(m => m.useConfigStore.getState().setConfig("mixMode", args[0] as boolean)).catch(() => {});
@@ -1523,7 +1990,8 @@ export function WorldRenderer({
           gameRoomRef.current?.destroy();
           const connection = new GameRoomConnection((frame) => sendRoomFrameRef.current?.(frame));
           gameRoomRef.current = connection;
-          return connection.join(roomId);
+          // A rules table runs this card's rules file: the ticket names the card.
+          return connection.join(roomId, roomId.startsWith("rules:") ? { worldId: worldIdRef.current } : {});
         }
         case "room.leave": {
           gameRoomRef.current?.destroy();
@@ -1693,7 +2161,10 @@ export function WorldRenderer({
                 lastLevel = q;
                 callbacks.onDelta(String(q));
               }
-            }, { requireLevels: (args[0] as { requireLevels?: boolean } | undefined)?.requireLevels === true }),
+            }, {
+              requireLevels: (args[0] as { requireLevels?: boolean } | undefined)?.requireLevels === true,
+              hint: typeof (args[0] as { hint?: unknown } | undefined)?.hint === "string" ? String((args[0] as { hint: string }).hint).slice(0, 400) : undefined,
+            }),
           )
           .then((result) => callbacks.onDone(JSON.stringify(result)))
           .catch(() => callbacks.onDone(JSON.stringify({ ok: false, reason: "error" })));
@@ -1915,6 +2386,9 @@ export function WorldRenderer({
     sendVideoEvent,
     sendStoryEvent,
     openMemoryPanel,
+    openChatSearch,
+    jumpToMessage,
+    hostIn,
   } = useSandbox({
     active: isActive,
     onApiCall: handleApiCall,
@@ -1932,6 +2406,54 @@ export function WorldRenderer({
     iframeRefCallback(el);
   }, [iframeRefCallback]);
 
+  // ── Floating window (Document Picture-in-Picture) ──
+  // A companion card can sit above every other app. The sandbox iframe is
+  // portaled into the floating window's document; that reloads it, and the
+  // bridge replays the card's state into the new document. Messages from the
+  // moved iframe land on the floating window, and posts to it must come from
+  // that window (the sandbox only trusts its parent), hence the relay script
+  // that runs there. Its close button, or dock(), brings the card back.
+  const [floatWin, setFloatWin] = useState<Window | null>(null);
+  const floatWinRef = useRef<Window | null>(null);
+  const canFloat = isActive && typeof window !== "undefined" && "documentPictureInPicture" in window;
+  floatRef.current = {
+    float: async ({ width, height }) => {
+      if (!canFloat) return { ok: false, reason: "unavailable" };
+      if (floatWinRef.current) { floatWinRef.current.focus(); return { ok: true }; }
+      const size = (v: unknown, fallback: number, max: number) =>
+        typeof v === "number" && Number.isFinite(v) ? Math.round(Math.min(max, Math.max(160, v))) : fallback;
+      let win: Window;
+      try {
+        win = await (window as unknown as { documentPictureInPicture: { requestWindow: (o: { width: number; height: number }) => Promise<Window> } })
+          .documentPictureInPicture.requestWindow({ width: size(width, 320, 900), height: size(height, 480, 1000) });
+      } catch {
+        return { ok: false, reason: "blocked" };
+      }
+      const doc = win.document;
+      doc.title = document.title;
+      doc.documentElement.style.cssText = "height:100%;color-scheme:dark";
+      doc.body.style.cssText = "margin:0;height:100%;overflow:hidden;background:var(--color-background, #121316)";
+      const relayScript = doc.createElement("script");
+      relayScript.textContent = "window.__yuminaRelay=function(t,d,o,x){t.postMessage(d,o,x||[])}";
+      doc.head.appendChild(relayScript);
+      const relay = (win as Window & { __yuminaRelay?: Parameters<typeof hostIn>[1] }).__yuminaRelay;
+      if (typeof relay !== "function") { win.close(); return { ok: false, reason: "error" }; }
+      const off = hostIn(win, relay);
+      floatWinRef.current = win;
+      win.addEventListener("pagehide", () => {
+        off();
+        if (floatWinRef.current === win) floatWinRef.current = null;
+        setFloatWin((w) => (w === win ? null : w));
+      }, { once: true });
+      setFloatWin(win);
+      return { ok: true };
+    },
+    dock: () => floatWinRef.current?.close(),
+  };
+  // Leaving the session (or switching to another) takes the card home first.
+  useEffect(() => { if (!isActive) floatWinRef.current?.close(); }, [isActive]);
+  useEffect(() => () => floatWinRef.current?.close(), []);
+
   // Play-controls-bar fallback: the fullscreen floating bar (parent chrome)
   // dispatches this when the player asks for the memory panel — worlds whose
   // custom UI has no Memory pill still need a way in. Forwarded across the
@@ -1941,6 +2463,28 @@ export function WorldRenderer({
     window.addEventListener("yumina:request-memory-panel", handler);
     return () => window.removeEventListener("yumina:request-memory-panel", handler);
   }, [openMemoryPanel]);
+
+  // Same route for the chat-history search: the bar reaches every card, the
+  // composer's menu only cards that draw the platform composer.
+  useEffect(() => {
+    const handler = () => openChatSearch();
+    window.addEventListener("yumina:request-chat-search", handler);
+    return () => window.removeEventListener("yumina:request-chat-search", handler);
+  }, [openChatSearch]);
+
+  // A save picker search hit: open this session at that message. Taken when
+  // this renderer shows the session (now or once navigation lands here); the
+  // bridge queues it until the sandbox is up, the sandbox until history is in.
+  useEffect(() => {
+    if (!isActive) return;
+    const take = () => {
+      const jump = takeMessageJump(sessionId);
+      if (jump) jumpToMessage(jump);
+    };
+    take();
+    window.addEventListener(MESSAGE_JUMP_REQUEST_EVENT, take);
+    return () => window.removeEventListener(MESSAGE_JUMP_REQUEST_EVENT, take);
+  }, [isActive, sessionId, jumpToMessage]);
 
   // Multiplayer relay: keep the frame pump pointed at the live bridge, and
   // tear the socket down when the session unmounts or changes.
@@ -2158,10 +2702,12 @@ export function WorldRenderer({
       const fileKeys = Object.keys(files);
       try {
         // Fast path: a valid pre-compiled blob (stamped at save-time) lets us
-        // skip the in-browser Sucrase/bundler compile entirely. isCompiledValid
+        // skip the in-browser Sucrase/bundler compile entirely. isCompiledUsable
         // re-checks the file hash + compiler version, so a stale or wrong-version
         // blob falls through to a fresh compile below.
-        if (isCompiledValid(precompiled, entryFile, files)) {
+        // A player's copy of a big card may come without its source at all, the
+        // server having made that same check (server lib/card-code/source.ts).
+        if (isCompiledUsable(precompiled, entryFile, files)) {
           installRoot(entryFile, files, precompiled.code, undefined, mode);
           return;
         }
@@ -2239,6 +2785,7 @@ export function WorldRenderer({
   // heavy messages-channel push below only re-runs when messages actually change,
   // not on every parent render (e.g. each streaming delta).
   const slimmedMessages = useMemo(() => slimMessages(api.messages ?? [], variableDefs), [api.messages, variableDefs]);
+  const firstMessageNumber = typeof (api as any).firstMessageNumber === "number" ? (api as any).firstMessageNumber as number : 1;
 
   // Display name → id, for names that aren't already an id. Memoized on the
   // defs so the channel payload stays reference-stable between pushes.
@@ -2268,9 +2815,9 @@ export function WorldRenderer({
   // changed), so its large JSON.stringify in pushIfChanged no longer fires on
   // every parent render during streaming.
   useEffect(() => {
-    const data: MessagesChannelData = { messages: slimmedMessages };
+    const data: MessagesChannelData = { messages: slimmedMessages, firstMessageNumber };
     pushIfChanged("messages", data);
-  }, [slimmedMessages]);
+  }, [slimmedMessages, firstMessageNumber]);
 
   // Push streaming channel
   useEffect(() => {
@@ -2316,6 +2863,8 @@ export function WorldRenderer({
           ? { idle: e.portraitVideo.idle ? absoluteImageUrl(e.portraitVideo.idle) : null,
               speaking: e.portraitVideo.speaking ? absoluteImageUrl(e.portraitVideo.speaking) : null }
           : null,
+        // A ref, not a URL: the sandbox fetches the character's pack by it.
+        portraitLive: e.role === "character" && e.portraitLive && hasLivePortrait(e) ? e.portraitLive.trim() : null,
       }));
     const data: SessionChannelData = {
       worldId,
@@ -2345,9 +2894,10 @@ export function WorldRenderer({
       worldbooks: worldbooks ?? [],
       replyRules: (replyRules ?? []).filter((rule) => !rule.hide).map(({ id, enabled, match }) => ({ id, enabled, match })),
       ...(speakerBubbles ? { speakerBubbles: true } : {}),
+      ...(composeAssistOff ? { composeAssistOff: true } : {}),
     };
     pushIfChanged("session", data);
-  }, [worldId, sessionId, mediaShareId, api.worldName, api.worldCover, api.currentUser, user, entries, loreUiBindings, worldbooks, replyRules, speakerBubbles]);
+  }, [worldId, sessionId, mediaShareId, api.worldName, api.worldCover, api.currentUser, user, entries, loreUiBindings, worldbooks, replyRules, speakerBubbles, composeAssistOff]);
 
   // Push UI channel. Intentionally left without a dependency array: it carries
   // ~15 small fields (pendingChoices, model picker, checkpoints, volumes, …),
@@ -2364,9 +2914,11 @@ export function WorldRenderer({
       checkpoints: (api as any).checkpoints ?? [],
       greetingContent: (api as any).greetingContent ?? null,
       selectedModel: (api as any).selectedModel ?? "",
+      composeModel,
       modelFallback,
       userPlan: (api as any).userPlan ?? "free",
       memorySummaryEnabled: (api as any).memorySummaryEnabled ?? false,
+      playerRegexRules: (regexRules ?? []).filter((r) => r.enabled && r.display),
       installedExtensions: (api as any).installedExtensions ?? [],
       preferredProvider: (api as any).preferredProvider ?? "official",
       localBridge: localArmed
@@ -2378,6 +2930,8 @@ export function WorldRenderer({
         : null,
       mixMode: (api as any).mixMode ?? false,
       modelPool: (api as any).modelPool ?? [],
+      reasoningEffort,
+      streaming: streamingPref,
       hasEarlierMessages: (api as any).hasEarlierMessages ?? false,
       isLoadingEarlier: (api as any).isLoadingEarlier ?? false,
       bgmVolume,
@@ -2386,6 +2940,8 @@ export function WorldRenderer({
       balance: mushieBalance,
       mode,
       capabilities,
+      messageButtonColor,
+      playColorMode,
       composerSendKey,
       uiFontScale,
       sendFailureNonce: (api as any).sendFailureNonce ?? 0,
@@ -2399,10 +2955,12 @@ export function WorldRenderer({
         enabled: ttsEnabledPref,
         voice: ttsVoicePref,
         voicePool: ttsVoicePoolKey ? ttsVoicePoolKey.split(",") : [],
+        customVoices: ttsCustomVoices,
         mode: ttsModePref,
         autoPlay: ttsAutoPlayPref,
         volume: ttsVolumePref,
         playback: voicePlayback,
+        speakers: ttsSpeakers,
       },
       voiceInput: {
         available:
@@ -2417,9 +2975,36 @@ export function WorldRenderer({
         playerMode: voiceInputModePref,
         key: voiceInputKeyPref,
       },
+      hostWindow: { canFloat, floating: floatWin !== null },
+      storyRoom: ((api as any).storyRoom ?? null) as UIChannelData["storyRoom"],
+      storyRoomOffer: (api as any).storyRoomOffer === true,
     };
     pushIfChanged("ui", data);
   });
+
+  const sandboxFrame = (
+    <iframe
+      // `key` on the attempt counter is what re-mounts the element, so a
+      // retry is a genuinely fresh document fetch rather than a no-op src set.
+      key={bootAttempt}
+      ref={combinedIframeRef}
+      src={bootUrl}
+      sandbox="allow-scripts allow-pointer-lock"
+      allow="autoplay; fullscreen; pointer-lock"
+      referrerPolicy="no-referrer"
+      title="Yumina Sandbox"
+      style={{
+        border: "none",
+        width: "100%",
+        height: "100%",
+        display: "block",
+        background: "var(--color-background, #121316)",
+        colorScheme: "dark",
+        // Keep the frame paintable while the opaque loading overlay covers it.
+        // An invisible frame can have its animation callbacks throttled by WebKit.
+      }}
+    />
+  );
 
   return (
     <div
@@ -2432,28 +3017,34 @@ export function WorldRenderer({
       }}
     >
       {imagePickerOpen && <ChatAssetPicker onSelect={asset => { void finishImagePicker(asset); }} onClose={closeImagePicker} />}
-      <iframe
-        // `key` on the attempt counter is what re-mounts the element, so a
-        // retry is a genuinely fresh document fetch rather than a no-op src set.
-        key={bootAttempt}
-        ref={combinedIframeRef}
-        src={bootUrl}
-        sandbox="allow-scripts allow-pointer-lock"
-        allow="autoplay; fullscreen; pointer-lock"
-        referrerPolicy="no-referrer"
-        title="Yumina Sandbox"
-        style={{
-          border: "none",
-          width: "100%",
-          height: "100%",
-          display: "block",
-          background: "var(--color-background, #121316)",
-          colorScheme: "dark",
-          // Keep the frame paintable while the opaque loading overlay covers it.
-          // An invisible frame can have its animation callbacks throttled by WebKit.
-        }}
-      />
-      {isActive && modelPickerOpen && (
+      {floatWin ? createPortal(sandboxFrame, floatWin.document.body) : sandboxFrame}
+      {floatWin && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center" style={{ background: "var(--color-background, #121316)" }}>
+          <p className="text-sm text-muted-foreground">{i18n.t("chat:view.floatingHere", "It's in its own window now.")}</p>
+          <button
+            type="button"
+            onClick={() => floatWin.close()}
+            className="rounded-md border border-border px-3 py-1.5 text-sm text-foreground transition-colors hover:bg-muted"
+          >
+            {i18n.t("chat:view.floatingDock", "Bring it back")}
+          </button>
+        </div>
+      )}
+      {isActive && modelPickerOpen && (modelPickerFor === "write" ? (
+        <ModelBrowser
+          open
+          selectionOnly
+          allowChatTrial={false}
+          selectedModel={composeModel}
+          onClose={() => setModelPickerOpen(false)}
+          onSelect={(modelId) => {
+            const config = useConfigStore.getState();
+            // The story model itself: keep following it if the player changes it later.
+            config.setConfig("roleModels", { ...config.roleModels, write: modelId === config.selectedModel ? FOLLOW_STORY_MODEL : modelId });
+            setModelPickerOpen(false);
+          }}
+        />
+      ) : (
         <ModelBrowser
           open
           allowChatTrial={modelPickerChatTrial}
@@ -2463,11 +3054,11 @@ export function WorldRenderer({
           onClose={() => setModelPickerOpen(false)}
           onSelect={(modelId) => useConfigStore.getState().setConfig("selectedModel", modelId)}
         />
-      )}
+      ))}
       <VoiceConsent request={realtimeVoice.consent} />
       <VoiceHostStatus key={`${sessionId}:${api.currentUser?.id ?? ''}`} event={realtimeVoice.detail} stop={realtimeVoice.stop} finish={realtimeVoice.finish} />
       {videoSlot && sessionId && videoSlot.width > 0 && videoSlot.height > 0 && (
-        <VideoSlotOverlay controller={getVideoController(sessionId)} rect={videoSlot} />
+        <VideoSlotOverlay controller={getVideoController(sessionId)} rect={videoSlot} allowed={videoAllowedRef.current} />
       )}
       {realtimeVoice.status === "connected" && !realtimeVoice.detail?.phase && (
         <button type="button" onClick={realtimeVoice.stop} className="absolute right-3 top-3 z-20 rounded-full border border-border bg-background/95 px-3 py-2 text-xs text-foreground shadow-md">
@@ -2544,7 +3135,7 @@ function videoStateEvent({ steps, currentStatus, ...state }: ReturnType<Realtime
 }
 
 /** The realtime video drawn over the rectangle a card reserved (clicks pass through to the card). */
-function VideoSlotOverlay({ controller, rect }: { controller: RealtimeVideoController; rect: { x: number; y: number; width: number; height: number; radius?: number } }) {
+function VideoSlotOverlay({ controller, rect, allowed }: { controller: RealtimeVideoController; rect: { x: number; y: number; width: number; height: number; radius?: number }; allowed: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = ref.current;
@@ -2552,13 +3143,43 @@ function VideoSlotOverlay({ controller, rect }: { controller: RealtimeVideoContr
     controller.attach(el);
     return () => controller.detach(el);
   }, [controller]);
+  // A stage counts only while this overlay is up and the card's stage is big enough to watch and
+  // wholly on screen; then the host's film window stays away and the cost and stop sit on it.
+  const stage = allowed && rect.width >= 160 && rect.height >= 90 && rect.x >= -2 && rect.y >= -2
+    && rect.x + rect.width <= window.innerWidth + 2 && rect.y + rect.height <= window.innerHeight + 2;
+  useEffect(() => {
+    controller.setCardStage(stage);
+    return () => controller.setCardStage(false);
+  }, [controller, stage]);
   return (
-    <div
-      className="pointer-events-none absolute z-10 overflow-hidden"
-      style={{ left: rect.x, top: rect.y, width: rect.width, height: rect.height, borderRadius: rect.radius ?? 0 }}
-    >
-      <div ref={ref} className="absolute inset-0" />
-      <FastForwardVeil controller={controller} />
+    <>
+      <div
+        className="pointer-events-none absolute z-10 overflow-hidden"
+        style={{ left: rect.x, top: rect.y, width: rect.width, height: rect.height, borderRadius: rect.radius ?? 0 }}
+      >
+        <div ref={ref} className="absolute inset-0" />
+        <FastForwardVeil controller={controller} />
+      </div>
+      {/* Outside the card's (clipped, rounded) box, so the card cannot cut it off. */}
+      {stage && <StageFilmChip controller={controller} right={rect.x + rect.width - 6} top={rect.y + 6} />}
+    </>
+  );
+}
+
+/** The host's own word on a card's stage while a film runs: what it has cost and a stop, which a
+ *  card cannot hide (the film window stays closed over a card's stage). */
+function StageFilmChip({ controller, right, top }: { controller: RealtimeVideoController; right: number; top: number }) {
+  const state = useSyncExternalStore((cb) => controller.subscribe(cb), () => controller.getState());
+  if (state.status !== "live" && state.status !== "starting") return null;
+  const stop = String(appI18n.t((state.engine === "shorts" ? "film.shortPause" : "film.stop") as never, { ns: "chat" } as never));
+  return (
+    <div className="absolute z-[11] flex -translate-x-full items-center gap-1 rounded-full bg-black/55 py-0.5 pl-2 pr-0.5 text-[10px] tabular-nums text-white/80 backdrop-blur-sm" style={{ left: right, top }}>
+      <span className="h-1.5 w-1.5 rounded-full bg-rose-400" />
+      {Math.round(state.credits)}
+      <button type="button" title={stop} aria-label={stop} onClick={() => controller.stop()}
+        className="flex h-5 w-5 items-center justify-center rounded-full hover:bg-white/15">
+        <span className="h-2 w-2 rounded-[1px] bg-white/80" />
+      </button>
     </div>
   );
 }

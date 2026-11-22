@@ -60,6 +60,23 @@ describe("AI audio permissions", () => {
     ]);
   });
 
+  // Regression 2026-11-02: the AI changing the music with "play" (the form the prompt teaches)
+  // left the old song looping beside the new one.
+  it("an AI play of BGM replaces the other BGM it may control, never protected or itself", () => {
+    const music: AudioTrack[] = [
+      ...tracks,
+      { id: "town", name: "Town", type: "bgm", url: "town.mp3" },
+      { id: "rain", name: "Rain", type: "ambient", url: "rain.mp3" },
+    ];
+    expect(filterAiAudioEffects(music, [{ trackId: "town", action: "play", fadeDuration: 2 }])).toEqual([
+      { trackId: "allowed", action: "stop", fadeDuration: 2 },
+      { trackId: "town", action: "play", fadeDuration: 2 },
+    ]);
+    // Sound effects and ambience still play over the music.
+    expect(filterAiAudioEffects(music, [{ trackId: "legacy", action: "play" }])).toEqual([{ trackId: "legacy", action: "play" }]);
+    expect(filterAiAudioEffects(music, [{ trackId: "rain", action: "play" }])).toEqual([{ trackId: "rain", action: "play" }]);
+  });
+
   it("applies the boundary before engine effects in send, regenerate and continue", () => {
     const source = readFileSync(new URL("../../../server/src/routes/messages.ts", import.meta.url), "utf8");
     for (const parsed of ["parseResult", "regenParseResult", "contParseResult"]) {

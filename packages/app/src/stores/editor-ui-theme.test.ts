@@ -246,3 +246,25 @@ test("keeping the leftovers only puts the offer away", () => {
   assert.equal(draft().variables.length, before);
   assert.equal(store.getState().templateLeftovers, null);
 });
+
+test("撤回 after trying layouts puts the interface back and takes the tries' variables with it", () => {
+  // A card with an interface of its own and a variable of its own.
+  store.getState().applyUiTheme({ id: "night" });
+  store.setState({ worldDraft: { ...draft(), variables: [{ id: "mine", name: "Mine", type: "number", defaultValue: 1, description: "" }] } });
+  const snapshot = { uiDoc: draft().uiDoc, rootComponent: draft().rootComponent };
+  const had = new Set(draft().variables.map(v => v.id));
+
+  store.getState().applyUiTemplate("portrait-scene", layoutStrings, names);
+  const created = draft().variables.filter(v => !had.has(v.id)).map(v => v.id);
+  assert.ok(created.length > 0, "the layout brought its variables");
+
+  store.getState().restoreInterface(snapshot, created);
+  assert.deepEqual(draft().uiDoc, snapshot.uiDoc);
+  assert.deepEqual(draft().rootComponent, snapshot.rootComponent);
+  assert.deepEqual(draft().variables.map(v => v.id), ["mine"], "the creator's own variable stays");
+  assert.equal(store.getState().templateLeftovers, null);
+
+  // The way back is itself one step: undo returns to the layout.
+  store.getState().undo();
+  assert.equal(engine.detectUiTemplate(draft().uiDoc), "portrait-scene");
+});

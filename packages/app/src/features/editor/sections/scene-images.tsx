@@ -8,7 +8,6 @@ import {
   Images,
   Plus,
   Search,
-  Sparkles,
   Trash2,
   Upload,
 } from "lucide-react";
@@ -22,7 +21,9 @@ import { uploadSceneImageFiles } from "./scene-image-upload";
 import { isSceneImageAuto, useSceneImageMode, type SceneImageMode } from "./scene-image-auto";
 import { AssetPicker } from "../asset-picker";
 import { StyledCheckbox } from "../components/styled-checkbox";
+import { DebouncedInput } from "../components/debounced-field";
 import { TwoTapDeleteButton } from "@/components/ui/two-tap-delete-button";
+import { InfoTip } from "@/components/ui/info-tip";
 import { sceneImageEmbed } from "@yumina/engine";
 
 const SCENE_MAX = 200;
@@ -62,8 +63,7 @@ function SceneImageModeChoice({ compact, autoCount, total }: { compact?: boolean
     <div className={cn("space-y-2.5 border-b border-border", compact ? "px-3 py-3" : "px-5 py-4")}>
       <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
         <h3 className="whitespace-nowrap text-xs font-bold text-foreground">{t("sceneImages.modeTitle")}</h3>
-        <span className={cn("flex items-center gap-1 whitespace-nowrap text-[11px] tabular-nums", autoCount > 0 ? "text-primary" : "text-muted-foreground/60")}>
-          <Sparkles className="h-3 w-3" />
+        <span className="flex items-center gap-1 whitespace-nowrap text-[11px] tabular-nums text-muted-foreground/60">
           {t("sceneImages.autoCount", { on: autoCount, total })}
         </span>
       </div>
@@ -81,6 +81,7 @@ function SceneImageModeChoice({ compact, autoCount, total }: { compact?: boolean
                 type="button"
                 role="radio"
                 aria-checked={on}
+                title={o.help}
                 onClick={() => setMode(o.value)}
                 className={cn(
                   "w-full rounded-xl border px-3 py-2.5 text-left transition-colors",
@@ -93,10 +94,9 @@ function SceneImageModeChoice({ compact, autoCount, total }: { compact?: boolean
                   </span>
                   <span className={cn("text-[13px] font-semibold", on ? "text-foreground" : "text-foreground/80")}>{o.title}</span>
                   {o.recommended && (
-                    <span className="rounded-full bg-primary/10 px-1.5 py-px text-[10px] font-bold text-primary">{t("sceneImages.modeRecommended")}</span>
+                    <span className="rounded-full bg-secondary px-1.5 py-px text-[10px] font-bold text-muted-foreground">{t("sceneImages.modeRecommended")}</span>
                   )}
                 </span>
-                <span className="mt-1 block pl-[22px] text-[11px] leading-relaxed text-muted-foreground">{o.help}</span>
               </button>
             );
           })}
@@ -213,10 +213,7 @@ export function SceneImagesSection({ compact, mobileListMode }: { compact?: bool
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="max-w-xl">
               <h1 className="text-[22px] font-bold tracking-tight text-foreground">{t("sceneImages.title")}</h1>
-              <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-                {t("sceneImages.description")}{" "}
-                <a href={DOCS_URLS.sceneImages} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{t("sceneImages.learnMore")}</a>
-              </p>
+              <a href={DOCS_URLS.sceneImages} target="_blank" rel="noopener noreferrer" className="mt-0.5 inline-block text-xs text-muted-foreground transition-colors hover:text-foreground">{t("sceneImages.learnMore")}</a>
             </div>
             <button
               onClick={handleAdd}
@@ -279,8 +276,7 @@ export function SceneImagesSection({ compact, mobileListMode }: { compact?: bool
               >
                 <Images className="mx-auto h-8 w-8 text-muted-foreground/20" />
                 <p className="mt-2 text-sm text-muted-foreground/40">{t("sceneImages.noImages")}</p>
-                <p className="mx-auto mt-1.5 max-w-xs text-xs text-muted-foreground/30">{t("sceneImages.noImagesDesc")}</p>
-                <span className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-primary">
+                <span className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-foreground">
                   <Upload className="h-3.5 w-3.5" />
                   {t("sceneImages.uploadFiles")}
                 </span>
@@ -310,8 +306,7 @@ export function SceneImagesSection({ compact, mobileListMode }: { compact?: bool
                     </div>
                   </div>
                   {isSceneImageAuto(img) && (
-                    <span title={t("sceneImages.autoBadgeTitle")} className="flex shrink-0 items-center gap-1 rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">
-                      <Sparkles className="h-3 w-3" />
+                    <span title={t("sceneImages.autoBadgeTitle")} className="flex shrink-0 items-center gap-1 rounded-full border border-border bg-secondary px-2 py-0.5 text-[10px] font-bold text-muted-foreground">
                       AI
                     </span>
                   )}
@@ -350,10 +345,12 @@ export function SceneImagesSection({ compact, mobileListMode }: { compact?: bool
                 <div className="flex items-center gap-4">
                   <div className="flex-1 space-y-1.5">
                     <label className="text-[13px] font-bold text-foreground">{t("sceneImages.nameLabel")}</label>
-                    <input
+                    <DebouncedInput
                       type="text"
                       value={selected.name}
-                      onChange={(e) => updateSceneImage(selected.id, { name: e.target.value })}
+                      syncKey={selected.id}
+                      onCommit={(name) => updateSceneImage(selected.id, { name })}
+                      spellCheck={false}
                       placeholder={t("sceneImages.namePlaceholder")}
                       className={cn(inputClass, "font-bold")}
                     />
@@ -411,22 +408,19 @@ export function SceneImagesSection({ compact, mobileListMode }: { compact?: bool
                   const auto = isSceneImageAuto(selected);
                   const held = selected.allowAiControl === false;
                   const hasCue = Boolean(selected.scene.trim());
+                  // Only the states that need the author to do something get a
+                  // line; on/off is already visible from the sentence itself.
                   const status = held
                     ? t("sceneImages.autoHeld")
-                    : auto
-                      ? t("sceneImages.autoOn")
-                      : hasCue
-                        ? t("sceneImages.autoNoPicture")
-                        : t("sceneImages.autoOff");
+                    : !auto && hasCue
+                      ? t("sceneImages.autoNoPicture")
+                      : null;
                   return (
-                    <div className={cn("rounded-2xl border p-6 transition-colors", auto ? "border-primary/40 bg-primary/[0.06]" : "border-border bg-card")}>
+                    <div className="rounded-2xl border border-border bg-card p-6">
                       <div className="flex items-center gap-2">
-                        <Sparkles className={cn("h-4 w-4", auto ? "text-primary" : "text-muted-foreground")} />
                         <h3 className="text-[15px] font-bold tracking-wide text-foreground">{t("sceneImages.allowAi")}</h3>
+                        <InfoTip text={t(mode === "judge" ? "sceneImages.autoHelpJudge" : "sceneImages.autoHelpNarrator")} />
                       </div>
-                      <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-                        {t(mode === "judge" ? "sceneImages.autoHelpJudge" : "sceneImages.autoHelpNarrator")}
-                      </p>
                       <label htmlFor="scene-image-scene" className="mt-4 block text-[13px] font-bold text-foreground">{t("sceneImages.sceneLabel")}</label>
                       <textarea
                         id="scene-image-scene"
@@ -438,13 +432,13 @@ export function SceneImagesSection({ compact, mobileListMode }: { compact?: bool
                         className={cn(inputClass, "mt-1.5 resize-y")}
                       />
                       <div className="mt-1 flex items-start justify-between gap-3">
-                        <p className={cn("text-xs leading-relaxed", auto ? "text-primary" : "text-muted-foreground/70")}>
+                        <p className="text-xs leading-relaxed text-muted-foreground/70">
                           {status}
                           {held && (
                             <button
                               type="button"
                               onClick={() => updateSceneImage(selected.id, { allowAiControl: undefined })}
-                              className="ml-1.5 font-semibold text-primary hover:underline"
+                              className="ml-1.5 font-semibold text-foreground hover:underline"
                             >
                               {t("sceneImages.autoReenable")}
                             </button>
@@ -462,8 +456,7 @@ export function SceneImagesSection({ compact, mobileListMode }: { compact?: bool
                 <div className="rounded-2xl border border-border bg-card p-6">
                   <div className="space-y-6">
                     <div className="space-y-1.5">
-                      <label className="text-[13px] font-bold text-foreground">{t("sceneImages.hintLabel")}</label>
-                      <p className="text-xs leading-relaxed text-muted-foreground">{t("sceneImages.hintHelp")}</p>
+                      <label className="flex items-center gap-1 text-[13px] font-bold text-foreground">{t("sceneImages.hintLabel")}<InfoTip text={t("sceneImages.hintHelp")} /></label>
                       <input
                         type="text"
                         value={selected.hint ?? ""}
@@ -478,8 +471,7 @@ export function SceneImagesSection({ compact, mobileListMode }: { compact?: bool
                     </div>
 
                     <div className="space-y-2">
-                      <h4 className="text-[13px] font-bold text-foreground">{t("sceneImages.scopeLabel")}</h4>
-                      <p className="text-xs leading-relaxed text-muted-foreground">{t("sceneImages.scopeHelp")}</p>
+                      <h4 className="flex items-center gap-1 text-[13px] font-bold text-foreground">{t("sceneImages.scopeLabel")}<InfoTip text={t("sceneImages.scopeHelp")} /></h4>
                       {greetings.length === 0 ? (
                         <p className="text-xs text-muted-foreground/60">{t("sceneImages.scopeNoGreetings")}</p>
                       ) : (
@@ -512,7 +504,7 @@ export function SceneImagesSection({ compact, mobileListMode }: { compact?: bool
 
                 {/* Id + copy code */}
                 <div className="space-y-1.5">
-                  <label htmlFor="scene-image-id" className="text-[13px] font-bold text-foreground">{t("sceneImages.idLabel")}</label>
+                  <label htmlFor="scene-image-id" className="flex items-center gap-1 text-[13px] font-bold text-foreground">{t("sceneImages.idLabel")}<InfoTip text={t("sceneImages.idHelp")} /></label>
                   <div className="flex min-w-0 items-center gap-2">
                     <input id="scene-image-id" readOnly value={selected.id} className={cn(inputClass, "min-w-0 flex-1 font-mono")} onFocus={(e) => e.target.select()} />
                     <button
@@ -538,7 +530,6 @@ export function SceneImagesSection({ compact, mobileListMode }: { compact?: bool
                       {t("sceneImages.copyCode")}
                     </button>
                   </div>
-                  <p className="text-xs text-muted-foreground">{t("sceneImages.idHelp")}</p>
                 </div>
 
                 <div className="pb-20" />
@@ -546,9 +537,11 @@ export function SceneImagesSection({ compact, mobileListMode }: { compact?: bool
             </div>
           ) : (
             <div className="flex h-full w-full items-center justify-center">
-              <p className="text-sm text-muted-foreground/40">
-                {sceneImages.length === 0 ? t("sceneImages.emptyNoImages") : t("sceneImages.emptySelect")}
-              </p>
+              {/* An empty list already says what goes here and offers the first one
+                on the left; saying it again across the empty pane said it twice. */}
+              {sceneImages.length > 0 && (
+                <p className="text-sm text-muted-foreground/40">{t("sceneImages.emptySelect")}</p>
+              )}
             </div>
           )}
         </div>

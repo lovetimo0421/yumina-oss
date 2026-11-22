@@ -7,8 +7,8 @@ import { ToolMenuRow } from "../../chat/composer-tool-menu";
 import type { ExtensionClientContext } from "../registry";
 import { LiveCanonModal } from "./live-canon-modal";
 
-const LABEL = { en: "Lore Shift", zh: "Lore Shift", "zh-Hant": "Lore Shift", ja: "Lore Shift", es: "Lore Shift" } as const;
-const SUBLABEL = { en: "Session state & lore", zh: "会话状态与设定", "zh-Hant": "工作階段狀態與設定", ja: "状態と設定を編集", es: "Estado y lore de sesión" } as const;
+const LABEL = { en: "Lore Shift", zh: "Lore Shift", "zh-Hant": "Lore Shift", ja: "Lore Shift", es: "Lore Shift", ko: "Lore Shift", id: "Lore Shift", ru: "Lore Shift" } as const;
+const SUBLABEL = { en: "Session state & lore", zh: "会话状态与设定", "zh-Hant": "工作階段狀態與設定", ja: "状態と設定を編集", es: "Estado y lore de sesión", ko: "세션 상태와 설정", id: "Status sesi & lore", ru: "Состояние сессии и лор" } as const;
 
 function liveCanonLang(language: string | undefined): keyof typeof LABEL {
   const normalized = (language ?? "en").toLowerCase();

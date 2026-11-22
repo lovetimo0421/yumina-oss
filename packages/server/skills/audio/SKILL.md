@@ -48,11 +48,16 @@ If a reply already contains an `[audio:]` directive, the judge stays out of audi
 
 ## Voice readout (TTS)
 
-Players can turn on voice readout; lines are read by fish.audio voices. Authors can pin voices:
+Players can turn on voice readout (Settings, or yes in the dialog a card's "turn on her voice" button opens; see the tsx skill's **Voice Companion** pattern); lines are read by fish.audio voices. Authors can pin voices:
 - A character's voice: `write_entry { id, voice: "<32-hex id>" }` on a `role: "character"` entry. It wins over the player's own pick.
 - The narrator: `update_settings { narratorVoice: "<id>" }` — also used for speaking characters with no voice.
 - Unset = the AI casts voices from the player's voice pool automatically, which is usually fine. Pin voices only when the creator asks.
-Pick ids from the curated catalog in `write_entry.voice`'s description (label says language/gender/tone), or use an id the creator pastes. `voiceInputMode` ("confirm"/"auto") controls hold-to-talk input: fill the box vs. send immediately.
+Where a voice id comes from:
+- The curated catalog in `write_entry.voice`'s description (label says language/gender/tone).
+- `list_voices`: the creator's own voices (designed from a description, cloned from a recording, or kept from the voice plaza) and the voices people shared on the voice plaza (声音广场), each with what it sounds like. Use it when the creator says "my voice", "the one I made", "find her a voice", or the catalog has no fit; `list_voices { query: "…" }` searches the plaza by words.
+- An id the creator pastes.
+Tell the creator which voice you chose by its name, and that the card's voice picker (right-click a character on the canvas → Voice…) plays a sample of it and of any other. A voice does not exist yet? The same picker has "Design a voice with AI"; cloning from a recording is in the workbench's voice page.
+These voices are for lines read aloud (`api.tts.speak` and voice readout). A live call (the tsx skill's **Live call** pattern) cannot use them: it has two voices of its own. `voiceInputMode` ("confirm"/"auto") controls hold-to-talk input: fill the box vs. send immediately.
 
 ## AI Audio Directives
 

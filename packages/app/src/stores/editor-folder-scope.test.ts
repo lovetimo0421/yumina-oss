@@ -139,3 +139,27 @@ test("deleting a knowledge base moves both its entries and folders to Main", () 
   assert.equal(movedEntry.worldbookId, undefined);
   assert.equal(movedEntry.folderId, folder.id);
 });
+
+test("a folder can be put before or after another folder of its section", () => {
+  const store = useEditorStore.getState();
+  const a = store.addFolder("system-presets", "A", "book-a");
+  const b = store.addFolder("system-presets", "B", "book-a");
+  const c = store.addFolder("system-presets", "C", "book-a");
+  const other = store.addFolder("post-history", "Other", "book-a");
+  const names = () => (useEditorStore.getState().worldDraft.entryFolders ?? [])
+    .filter((folder) => folder.section === "system-presets")
+    .sort((left, right) => left.order - right.order)
+    .map((folder) => folder.name);
+
+  store.reorderFolder(a, c, "after");
+  assert.deepEqual(names(), ["B", "C", "A"]);
+  store.reorderFolder(a, b, "before");
+  assert.deepEqual(names(), ["A", "B", "C"]);
+  store.undo();
+  assert.deepEqual(names(), ["B", "C", "A"]);
+
+  const before = useEditorStore.getState().worldDraft;
+  store.reorderFolder(a, other, "before");
+  store.reorderFolder(a, a, "before");
+  assert.equal(useEditorStore.getState().worldDraft, before);
+});

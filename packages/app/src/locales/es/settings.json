@@ -7,7 +7,11 @@
     "results": "Ajustes encontrados: {{count}}",
     "noResults": "No se encontraron ajustes",
     "noResultsHint": "Prueba otra palabra, como idioma o privacidad.",
-    "aiConfigDescription": "Modelos, proveedores, claves API y preferencias de generación."
+    "aiConfigDescription": "Modelos, proveedores, claves API y preferencias de generación.",
+    "byokTitle": "Conexión de API personal",
+    "byokDescription": "Usa tu propia clave API",
+    "localModelTitle": "Úsalo en tu propio ordenador",
+    "localModelDescription": "Juega gratis con un modelo en este equipo"
   },
   "nav": {
     "account": "Cuenta",
@@ -21,7 +25,8 @@
     "prompts": "Prompts"
   },
   "aiConfig": {
-    "title": "Configuración de IA"
+    "title": "Configuración de IA",
+    "ownAi": "Avanzado: usa tu propia IA"
   },
   "account": {
     "saved": "Guardado",
@@ -61,7 +66,8 @@
       "revoked": "Sesión cerrada en el dispositivo",
       "revokedOthers": "Sesión cerrada en todos los demás dispositivos",
       "revokeError": "No se pudo cerrar la sesión en ese dispositivo. Inténtalo más tarde.",
-      "propagationNote": "Un dispositivo desconectado puede tardar hasta 5 minutos en cerrar sesión. Cambiar tu contraseña cierra la sesión en todos los demás dispositivos de inmediato."
+      "propagationNote": "Un dispositivo desconectado puede tardar hasta 5 minutos en cerrar sesión. Cambiar tu contraseña cierra la sesión en todos los demás dispositivos de inmediato.",
+      "showAll": "Ver los {{n}} dispositivos"
     },
     "deleteAccount": {
       "title": "Eliminar cuenta",
@@ -198,7 +204,7 @@
     },
     "sensitive": {
       "label": "Sin límites",
-      "description": "Incluye contenido Sin límites. Si un modelo aún se contiene, instala un prompt Sin restricciones desde la Plaza de prompts."
+      "description": "Incluye contenido Sin límites."
     },
     "minorRestriction": "El modo Sin límites no está disponible para esta cuenta.",
     "audiencePreference": {
@@ -220,6 +226,13 @@
     "blurSensitive": {
       "title": "Difuminar portadas sensibles",
       "description": "Oculta las portadas sensibles tras un desenfoque hasta que decidas ver cada una. Desactiva esta opción para mostrarlas todas. Tu modo de contenido no cambia."
+    },
+    "hiddenWorlds": {
+      "title": "Mundos ocultos",
+      "subtitle": "Mundos que marcaste como «No me interesa» en Descubrir",
+      "empty": "No hay mundos ocultos.",
+      "show": "Mostrar de nuevo",
+      "failed": "No se pudo restaurar, inténtalo de nuevo"
     }
   },
   "privacy": {
@@ -296,13 +309,25 @@
     }
   },
   "display": {
+    "readingAppearance": {
+      "title": "Apariencia del juego",
+      "description": "Elige el modo oscuro o claro para la interfaz de juego predeterminada. Se guarda en este navegador.",
+      "dark": "Oscuro",
+      "light": "Claro"
+    },
     "turnImages": {
       "title": "Ilustraciones de la historia",
       "description": "Añade un botón “Dibujar esta escena” a las respuestas.",
       "auto": "Ilustrar cada respuesta",
       "free": "Te quedan {{count}} gratis, luego {{price}} mushies cada una",
       "price": "{{price}} mushies por imagen",
-      "unlimited": "Incluido en tu plan"
+      "unlimited": "Incluido en tu plan",
+      "style": {
+        "default": "Rápido",
+        "detailed": "Detallado",
+        "vivid": "Vívido"
+      },
+      "vividTag": "Una persona"
     },
     "title": "Pantalla",
     "language": {
@@ -315,6 +340,7 @@
       "default": "Predeterminado",
       "large": "Grande",
       "xLarge": "Extra grande",
+      "xxLarge": "Extra extra grande",
       "hint": "Los cambios se aplican al instante y se guardan en este dispositivo."
     },
     "autoFullscreenOnPlay": {
@@ -409,6 +435,10 @@
     "sceneVideo": {
       "title": "Vídeo de la escena (experimental)",
       "description": "Muestra Vídeo de la escena en el menú de juego y en las tarjetas con pantalla de película. Dos formas de verlo: en directo siguiendo la historia (unos 5.800 hongos por minuto) o un corto con voces por cada respuesta, listo unos minutos después (unos 100–1.400 hongos por respuesta)."
+    },
+    "halloween": {
+      "title": "Decoración de temporada",
+      "description": "Durante Halloween el mushie y el logo se disfrazan, y a veces pasa volando un murciélago. Las pantallas de cada mundo no cambian."
     }
   },
   "wallpaper": {
@@ -496,7 +526,7 @@
     "versionValue": "Yumina v1.0.0",
     "termsOfService": "Términos del servicio",
     "privacyPolicy": "Política de privacidad",
-    "licenses": "GitHub OSS",
+    "licenses": "Código abierto",
     "contactSupport": "Contactar a Yumina",
     "messageOfficial": "Enviar mensaje a {{username}}",
     "emailSupport": "Correo de soporte",

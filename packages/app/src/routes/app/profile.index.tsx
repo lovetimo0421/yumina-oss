@@ -6,6 +6,9 @@ import { ProfileRoot } from "@/edition/slots";
 // hosted renders the social profile, local renders the identity page
 // (avatar, display name, personas, shortcuts). Both slots are lazy.
 export const Route = createFileRoute("/app/profile/")({
+  // ?people=followers opens the follower list (a grouped "… and 2 others followed you" notification)
+  validateSearch: (search: Record<string, unknown>): { people?: "followers" | "following" } =>
+    search.people === "followers" || search.people === "following" ? { people: search.people } : {},
   component: () => (
     <Suspense
       fallback={

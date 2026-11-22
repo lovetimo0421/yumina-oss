@@ -84,7 +84,7 @@ export function AiCustomForm({ worldbookId, open, snippet = true }: { worldbookI
       {/* A piece holds while a variable says so: with no variable on the card
           there is nothing for it to hang on, and one added anyway was saved
           pointing at no variable at all, a condition that never holds. */}
-      <Group title={t("blueprint.aiCustom.pieces")} right={<button type="button" data-ai-piece-add="" disabled={!firstVariable} title={firstVariable ? undefined : t("blueprint.aiCustom.piecesNeedVariable")} onClick={() => firstVariable && patch({ pieces: [...pieces, { conditions: [{ variableId: firstVariable.id, operator: firstVariable.type === "number" ? "gte" : "eq", value: startValue(firstVariable) }], text: "" }] })} className="text-muted-foreground hover:text-foreground disabled:opacity-40 disabled:hover:text-muted-foreground"><Plus className="h-3.5 w-3.5" /></button>}>
+      <Group title={t("blueprint.aiCustom.pieces")} hint={t("blueprint.aiCustom.piecesHint")} right={<button type="button" data-ai-piece-add="" disabled={!firstVariable} title={firstVariable ? t("blueprint.aiCustom.piecesHint") : t("blueprint.aiCustom.piecesNeedVariable")} onClick={() => firstVariable && patch({ pieces: [...pieces, { conditions: [{ variableId: firstVariable.id, operator: firstVariable.type === "number" ? "gte" : "eq", value: startValue(firstVariable) }], text: "" }] })} className="text-muted-foreground hover:text-foreground disabled:opacity-40 disabled:hover:text-muted-foreground"><Plus className="h-3.5 w-3.5" /></button>}>
         {!firstVariable && pieces.length === 0 && <p className="text-[11px] text-muted-foreground">{t("blueprint.aiCustom.piecesNeedVariable")}</p>}
         {pieces.map((piece, i) => {
           const c = piece.conditions[0] ?? { variableId: "", operator: "gte" as const, value: "" };
@@ -124,7 +124,7 @@ export function AiCustomForm({ worldbookId, open, snippet = true }: { worldbookI
         })}
       </Group>
 
-      <Group title={t("blueprint.aiCustom.output")} right={<button type="button" data-ai-field-add="" onClick={() => patch({ output: [...output, { name: output.length ? `field${output.length + 1}` : "text", type: "text", ...(output.length ? {} : { to: { kind: "say" as const } }) }] })} className="text-muted-foreground hover:text-foreground"><Plus className="h-3.5 w-3.5" /></button>}>
+      <Group title={t("blueprint.aiCustom.output")} hint={output.length === 0 ? t(station.trigger?.on === "ui" && station.answer === "json" ? "blueprint.aiCustom.outputJson" : "blueprint.aiCustom.outputText") : undefined} right={<button type="button" data-ai-field-add="" onClick={() => patch({ output: [...output, { name: output.length ? `field${output.length + 1}` : "text", type: "text", ...(output.length ? {} : { to: { kind: "say" as const } }) }] })} className="text-muted-foreground hover:text-foreground"><Plus className="h-3.5 w-3.5" /></button>}>
         {output.length === 0 && (station.trigger?.on === "ui" ? (
           // With no fields, a UI AI answers in words or with one JSON object
           // of the shape its job describes, handed back to the interface.
@@ -142,9 +142,8 @@ export function AiCustomForm({ worldbookId, open, snippet = true }: { worldbookI
                 </button>
               ))}
             </div>
-            <p className="text-[11px] text-muted-foreground">{t(station.answer === "json" ? "blueprint.aiCustom.outputJson" : "blueprint.aiCustom.outputText")}</p>
           </div>
-        ) : <p className="text-[11px] text-muted-foreground">{t("blueprint.aiCustom.outputText")}</p>)}
+        ) : null)}
         {output.map((f, i) => {
           const to = f.to;
           const toValue = !to ? "" : to.kind === "say" ? "say" : to.kind === "event" ? "event" : `var:${to.variableId}`;

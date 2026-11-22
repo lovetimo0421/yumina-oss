@@ -39,7 +39,7 @@ test("desktop Library keeps gallery composition, creator activity, and navigatio
   );
   assert.match(
     desktopSource,
-    /library-detail-hero[^"\n]*pb-\[10rem\][\s\S]*library-detail-hero-media[^"\n]*aspect-\[16\/5\][^"\n]*min-h-\[28rem\]/,
+    /library-detail-hero-media[^\n]*aspectRatio: GALLERY_ASPECTS\.desktop/,
   );
   assert.doesNotMatch(desktopSource, /library-detail-hero[^"\n]*h-\[38rem\]/);
   assert.match(
@@ -53,7 +53,7 @@ test("desktop Library keeps gallery composition, creator activity, and navigatio
 
 test("Overview crop editor uses responsive percentage crops at the real gallery hero ratio", () => {
   assert.match(coverCropDialogSource, /from "react-image-crop"/);
-  assert.match(coverCropDialogSource, /return DISCOVER_COVER_ASPECTS\[mode\]/);
+  assert.match(coverCropDialogSource, /GALLERY_ASPECTS\[device\]/);
   assert.match(
     coverCropDialogSource,
     /<ReactCrop[\s\S]*crop=\{wholeImage \? undefined : activePercentCrop\}[\s\S]*aspect=\{activeTargetAspect\}[\s\S]*keepSelection[\s\S]*ruleOfThirds[\s\S]*onChange=/,
@@ -64,8 +64,8 @@ test("Overview crop editor uses responsive percentage crops at the real gallery 
 });
 
 test("mobile Library keeps the requested gallery, identity, activity, and bounded history layout", () => {
-  assert.match(mobileSource, /aspect-\[4\/3\][\s\S]*fetchPriority="high"/);
-  assert.doesNotMatch(mobileSource, /crop=\{selectedItemCrop\.gallery\}/);
+  assert.match(mobileSource, /aspect-video[\s\S]*fetchPriority="high"/);
+  assert.match(mobileSource, /crop=\{previewArtwork\.crop\}/);
   assert.match(
     mobileSource,
     /<h1 id="library-detail-title"[\s\S]*<SupportBadge[\s\S]*<DropdownMenu>/,
@@ -74,8 +74,8 @@ test("mobile Library keeps the requested gallery, identity, activity, and bounde
     mobileSource,
     /<LibraryDetailActivityCard[\s\S]*layout="mobile"[\s\S]*showCreatorMetrics=\{canViewCreatorAnalytics\}[\s\S]*stats=\{activityStats\}/,
   );
-  assert.match(activitySource, /<dl className="grid grid-cols-3 pt-3">/);
-  assert.doesNotMatch(activitySource, /<dl className="[^"]*(?:rounded|border|bg-)/);
+  assert.match(activitySource, /<dl\s+className=\{`library-activity-stats/);
+  assert.doesNotMatch(activitySource, /<dl\s+className=[^>]*(?:rounded|border|bg-)/);
   assert.match(mobileSource, /<WorldUpdateHistory\s+worldId=\{selectedItem\.id\}/);
   assert.match(mobileSource, /max-h-\[32rem\][^"]*overflow-y-auto/);
   const historySource = readFileSync(

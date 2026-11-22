@@ -1,3 +1,7 @@
+---
+title: "Character creation form"
+description: "Build a character sheet the player fills in before the story starts, so the AI knows their name, class and backstory from its first reply."
+---
 <div v-pre>
 
 # Character Creation Form
@@ -129,7 +133,7 @@ Turn **Edit** off in the player interface to click through the pages without usi
 
 If you want the form drawn by your own interface code, for example right under the first message, here's the code version. It uses three Text variables named `player_name`, `player_class` and `player_backstory` (all **AI read-only**, `player_name` starting at `Traveler`) and two openings: a short "who are you?" scene as the first, and the real story opening as the second.
 
-Interface code reads and writes variables by their name. **Panels → Front End Code** → open `index.tsx` and replace the default `return <Chat />`:
+Interface code reads and writes variables by their name. **Panels → Interface code** → open `index.tsx` and replace the default `return <Chat />`:
 
 ```tsx
 export default function MyWorld() {
@@ -279,7 +283,7 @@ Backstory: {{player_backstory}}
 
 Macros in lore are filled in each time the AI's prompt is built, so they always carry the current values. Macros in an opening are not: the opening is written when the game is created, so `{{player_name}}` there shows the starting value ("Traveler").
 
-The status next to the file in **Panels → Front End Code** should read a green **OK**.
+The status next to the file in **Panels → Interface code** should read a green **OK**.
 
 ### Show the character on later messages
 

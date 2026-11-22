@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import test, { after, afterEach, beforeEach } from "node:test";
 import { createServer } from "vite";
-import type { GraphLayout, UiDoc, WorldDefinition, YuminaBundle } from "@yumina/engine";
+import { applyWorldChanges, type GraphLayout, type UiDoc, type WorldDefinition, type WorldEdit, type YuminaBundle } from "@yumina/engine";
 
 const memory = new Map<string, string>();
 const originalFetch = globalThis.fetch;
@@ -63,7 +63,10 @@ async function savedSchema() {
   globalThis.fetch = async (url, options) => {
     assert.equal(url, "/api/worlds/card");
     assert.equal(options?.method, "PATCH");
-    payload = JSON.parse(String(options?.body)).schema;
+    const body = JSON.parse(String(options?.body)) as { schema?: WorldDefinition; schemaChanges?: WorldEdit[] };
+    // A save sends changes on the copy the server holds; rebuild what it stores.
+    const { avatar: _avatar, ...server } = (store.getState()._baseSchema ?? {}) as WorldDefinition;
+    payload = body.schema ?? applyWorldChanges(server as WorldDefinition, body.schemaChanges ?? []);
     return Response.json({ data: { updatedAt: "2026-09-06T11:00:00Z" } });
   };
   assert.equal(await store.getState().saveDraft(), true);

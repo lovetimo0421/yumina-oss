@@ -14,6 +14,8 @@ import { regenerateSessionMemoryForSession, retrySessionMemoryForSession } from 
 import { latestValidMemoryVersion } from "./session-memory-versions.js";
 import { runExtensionInvalidation } from "./extension-hooks.js";
 import { registerSessionMemoryExtension } from "../extensions/session-memory/hooks.js";
+// These players already allowed background AIs to charge (background-consent.ts).
+const ALLOWED = { backgroundCharges: { allowAll: true } };
 
 // Memory is saved as a version at every committed fold, so a changed turn or
 // a stopped rebuild continues from the newest version before it instead of
@@ -26,7 +28,7 @@ after(async () => { await (db as unknown as { $client: { close(): Promise<void> 
 
 async function fixture() {
   const uid = randomUUID();
-  await db.insert(user).values({ id: uid, name: "Versions", email: `${uid}@example.test` });
+  await db.insert(user).values({ id: uid, name: "Versions", email: `${uid}@example.test`, preferences: ALLOWED });
   const [wallet] = await db.insert(creditWallets).values({ userId: uid, balance: 100000, addonBalance: 0 }).returning();
   await db.insert(userExtensions).values({ userId: uid, extensionKey: SESSION_MEMORY_EXTENSION_KEY, status: "installed" });
   const [world] = await db.insert(worlds).values({ creatorId: uid, name: "Cafe", schema: { name: "Cafe", entries: [], variables: [] } }).returning();

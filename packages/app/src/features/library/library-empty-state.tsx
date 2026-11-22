@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { EmptyStateGhost } from "@/components/halloween-decor";
 
 interface LibraryEmptyStateProps {
   icon: ReactNode;
@@ -32,6 +33,7 @@ export function LibraryEmptyState({
         <div className="library-overview-surface library-overview-surface--inset relative z-10 flex h-20 w-20 items-center justify-center rounded-2xl text-[#C9A25E]">
           {icon}
         </div>
+        <EmptyStateGhost className="absolute -right-6 -top-6 z-20" />
       </div>
 
       <h3 className="mb-2 text-center text-[18px] font-bold text-white">

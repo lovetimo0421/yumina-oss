@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type { AudioTrack, AudioEffect, BGMPlaylist, ConditionalBGM, Condition } from "@yumina/engine";
-import { filterResumableAudioEffects } from "@yumina/engine";
+import { filterResumableAudioEffects, keywordMatches } from "@yumina/engine";
 // Relative (not "@/") so the store is importable under the Node test runner,
 // which resolves modules without Vite's path-alias config.
 import { resolveAssetUrl } from "../lib/asset-url";
@@ -299,13 +299,7 @@ function evaluateConditions(conditions: Condition[], logic: "all" | "any", varia
 function matchesKeywords(text: string | undefined, keywords: string[] | undefined, wholeWords?: boolean): boolean {
   if (!text || !keywords || keywords.length === 0) return false;
   const lower = text.toLowerCase();
-  return keywords.some((kw) => {
-    if (wholeWords) {
-      const pattern = new RegExp(`\\b${kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
-      return pattern.test(text);
-    }
-    return lower.includes(kw.toLowerCase());
-  });
+  return keywords.some((kw) => wholeWords ? keywordMatches(text, kw, true) : lower.includes(kw.toLowerCase()));
 }
 
 // ── Voice readout (TTS) playback ────────────────────────────────────

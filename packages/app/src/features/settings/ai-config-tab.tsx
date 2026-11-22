@@ -1,14 +1,36 @@
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronRight, Lock } from "lucide-react";
+import { AlertTriangle, ChevronRight, Lock } from "lucide-react";
 import { clampPlayerSampling, PLAYER_SAMPLING_BOUNDS } from "@yumina/shared";
 import { isKimiAntiRepetitionModel } from "@/lib/kimi-repetition";
 import { useConfigStore } from "@/stores/config";
+import { effectiveStoryMemory } from "@/lib/effective-story-memory";
 import { useUserProfileStore } from "@/stores/user-profile";
 import { useCreditStore } from "@/edition/slots.state";
 import { Select } from "@/components/ui/select";
 import { NumberInput } from "@/components/ui/number-input";
 import { ModelFallbackSettings } from "@/features/settings/model-fallback-settings";
+import { DOCS_URLS } from "@/lib/docs-urls";
+import { OtherAiSettings } from "@/features/settings/ai-role-tiles";
+import { BackgroundChargesSettings } from "@/features/settings/background-charges-settings";
+import { InfoTip } from "@/components/ui/info-tip";
+import { MemoryEverySetting, RecapShareSetting } from "@/features/settings/recap-share-setting";
+import { RegexRulesSetting } from "@/features/settings/regex-rules-setting";
+import { temperatureMayGarble } from "@/lib/temperature-warning";
+
+/** How many of the latest messages fit in story memory, counted the way the
+ *  Memory panel counts them (newest first until it is full), with the average
+ *  standing in past the messages the story has. */
+function messagesInStoryMemory(tokens: number, size: { avgMessageTokens: number; recentTokens?: number[] }): number {
+  let used = 0;
+  let n = 0;
+  for (const cost of size.recentTokens ?? []) {
+    if (n > 0 && used + cost > tokens) return n;
+    used += cost;
+    n += 1;
+  }
+  return Math.max(1, n + Math.floor((tokens - used) / size.avgMessageTokens));
+}
 
 /** The dial a player actually turns. 16,000 is the default and the advice. */
 const SUGGESTED_STORY_MEMORY = 16_000;
@@ -43,7 +65,6 @@ export function AiConfigTab() {
   useEffect(() => { fetchCredits(); }, [fetchCredits]);
   const isByok = provider === "private";
   const contextCapped = !isByok && memoryCap !== null && memoryCap > 0;
-  const contextMax = contextCapped ? memoryCap : 2000000;
 
   // If user's current maxContext exceeds their cap, clamp it down
   useEffect(() => {
@@ -80,17 +101,30 @@ export function AiConfigTab() {
   // An uncapped plan reports contextMax = 2,000,000, which no model window
   // reaches; the practical ceiling is the schema's 200,000. Without this the
   // default 200,000 reads as a self-imposed limit on a plan that has none.
-  const overallCeiling = Math.min(contextMax, 200_000);
-  const storyMemoryMax = overallCeiling;
   // New accounts inherit 16K; older accounts retain their effective window.
   // This display metadata must never become an explicit saved preference.
-  const storyMemoryValue = storyMemory ?? Math.min(maxContext, profile?.defaultStoryMemory ?? overallCeiling);
+  const { value: storyMemoryValue, ceiling: overallCeiling } = effectiveStoryMemory({
+    storyMemory, maxContext, memoryCap, provider, defaultStoryMemory: profile?.defaultStoryMemory,
+  });
+  const storyMemoryMax = overallCeiling;
   const atOverallMax = maxContext >= overallCeiling;
 
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  // Story memory is in tokens; in messages it depends on how long a story's
+  // turns run, so it is read off the story played last.
+  const [messageSize, setMessageSize] = useState<{ avgMessageTokens: number; recentTokens?: number[]; worldName: string } | null>(null);
+  useEffect(() => {
+    let live = true;
+    fetch(`${import.meta.env.VITE_API_URL || ""}/api/users/me/message-size`, { credentials: "include" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json) => { if (live && json?.data?.avgMessageTokens > 0) setMessageSize(json.data); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, []);
   const themedNumberInputClass =
     "profile-overview-input-surface rounded-xl border-gold/20 [&_button]:border-white/10 [&_button]:text-sub/80 [&_button:hover]:bg-white/[0.04] [&_button:hover]:text-main [&_input]:text-left [&_input]:font-medium [&_input]:text-main [&_input]:placeholder:text-sub/50 focus-within:border-gold/50 focus-within:ring-gold/30";
   const reasoningEffortOptions = [
+    { value: "none",    label: t("config.reasoningOptions.none"),    description: t("config.reasoningOptions.noneDesc") },
     { value: "minimal", label: t("config.reasoningOptions.minimal"), description: t("config.reasoningOptions.minimalDesc") },
     { value: "low",     label: t("config.reasoningOptions.low"),     description: t("config.reasoningOptions.lowDesc") },
     { value: "medium",  label: t("config.reasoningOptions.medium"),  description: t("config.reasoningOptions.mediumDesc") },
@@ -101,8 +135,8 @@ export function AiConfigTab() {
     <div className="max-w-3xl animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h2 className="mb-1 text-xl font-bold text-main">{t("config.title")}</h2>
-          <p className="text-xs text-sub">{t("config.subtitle")}</p>
+          {/* Explanations live behind ⓘ: the page read as a wall of fine print. */}
+          <h2 className="flex items-center gap-2 text-xl font-bold text-main">{t("config.title")}<InfoTip text={t("config.subtitle")} /></h2>
         </div>
         <button
           onClick={resetDefaults}
@@ -113,7 +147,11 @@ export function AiConfigTab() {
       </div>
 
       <div className="space-y-6">
-        <ModelFallbackSettings />
+        <div className="profile-overview-glass profile-overview-glass--soft space-y-5 rounded-2xl p-6 [&>section:last-child]:border-b-0 [&>section:last-child]:pb-0">
+          <ModelFallbackSettings />
+          <OtherAiSettings />
+          <BackgroundChargesSettings />
+        </div>
         <div className="profile-overview-glass profile-overview-glass--soft rounded-2xl p-6">
           <div className="space-y-6">
             {/* Two dials, not one (owner 2026-09-22).
@@ -128,7 +166,7 @@ export function AiConfigTab() {
                 either number. */}
             <div className="border-b border-white/5 pb-6">
               <div className="mb-3 flex items-center justify-between">
-                <label className="text-sm font-semibold text-main">{t("config.storyMemory")}</label>
+                <label className="flex items-center gap-1.5 text-sm font-semibold text-main">{t("config.storyMemory")}<InfoTip text={t("config.storyMemoryDesc")} /><a href={DOCS_URLS.storyMemory} target="_blank" rel="noopener noreferrer" className="ml-1 text-xs font-normal text-sub underline decoration-white/20 underline-offset-2 hover:text-main">{t("config.storyMemoryDocs")}</a></label>
                 <span className="text-xs text-sub tabular-nums">{storyMemoryValue.toLocaleString()} tokens</span>
               </div>
               <div className="mb-3 flex flex-wrap gap-1.5">
@@ -171,13 +209,24 @@ export function AiConfigTab() {
                 }
                 className={themedNumberInputClass}
               />
-              <p className="mt-2 text-xs text-sub">{t("config.storyMemoryDesc")}</p>
+              {messageSize && (
+                <p className="mt-2 text-xs text-sub">
+                  {t("config.storyMemoryMessages", {
+                    n: messagesInStoryMemory(storyMemoryValue, messageSize).toLocaleString(),
+                    world: messageSize.worldName,
+                  })}
+                </p>
+              )}
             </div>
+
+            <RecapShareSetting storyMemory={storyMemoryValue} />
+            <MemoryEverySetting />
+            <RegexRulesSetting />
 
             {/* Overall limit — the ceiling on one request, lorebook included. */}
             <div className="border-b border-white/5 pb-6">
               <div className="mb-3 flex items-center justify-between">
-                <label className="text-sm font-semibold text-main">{t("config.overallLimit")}</label>
+                <label className="flex items-center gap-1.5 text-sm font-semibold text-main">{t("config.overallLimit")}<InfoTip text={contextCapped ? t("config.overallLimitCapped") : t("config.overallLimitDesc")} /></label>
                 <div className="flex items-center gap-2">
                   {contextCapped && (
                     <span className="inline-flex items-center gap-1 rounded-md border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-400">
@@ -186,11 +235,12 @@ export function AiConfigTab() {
                     </span>
                   )}
                   <span className="text-xs text-sub tabular-nums">
-                    {atOverallMax ? t("config.overallUncapped") : `${maxContext.toLocaleString()} tokens`}
+                    {/* A capped plan's top rung is the cap, not "no limit": the badge beside it says why. */}
+                    {atOverallMax && !contextCapped ? t("config.overallUncapped") : `${Math.min(maxContext, overallCeiling).toLocaleString()} tokens`}
                   </span>
                 </div>
               </div>
-              <div className="mb-3 flex flex-wrap gap-1.5">
+              <div className="flex flex-wrap gap-1.5">
                 <button
                   type="button"
                   onClick={() => setConfig("maxContext", overallCeiling)}
@@ -200,7 +250,7 @@ export function AiConfigTab() {
                       : "border-white/[0.07] bg-white/[0.02] text-sub hover:bg-white/[0.05]"
                   }`}
                 >
-                  {t("config.overallUncapped")}
+                  {contextCapped ? overallCeiling.toLocaleString() : t("config.overallUncapped")}
                 </button>
                 {OVERALL_PRESETS.filter((preset) => preset < overallCeiling).map((preset) => (
                   <button
@@ -217,15 +267,12 @@ export function AiConfigTab() {
                   </button>
                 ))}
               </div>
-              <p className="text-xs text-sub">
-                {contextCapped ? t("config.overallLimitCapped") : t("config.overallLimitDesc")}
-              </p>
             </div>
 
             {/* Response Length */}
             <div className="border-b border-white/5 pb-6">
               <div className="mb-3 flex items-center justify-between">
-                <label className="text-sm font-semibold text-main">{t("config.responseLength")}</label>
+                <label className="flex items-center gap-1.5 text-sm font-semibold text-main">{t("config.responseLength")}<InfoTip text={t("config.responseLengthDesc")} /></label>
                 <span className="text-xs text-sub">{maxTokens.toLocaleString()} tokens</span>
               </div>
               <NumberInput
@@ -240,7 +287,6 @@ export function AiConfigTab() {
                 }
                 className={themedNumberInputClass}
               />
-              <p className="mt-2 text-xs text-sub">{t("config.responseLengthDesc")}</p>
             </div>
 
             {/* Temperature */}
@@ -262,12 +308,18 @@ export function AiConfigTab() {
                 <span>{t("config.precise")}</span>
                 <span>{t("config.creative")} ({tempMax.toFixed(2)})</span>
               </div>
+              {temperatureMayGarble(temperature) && (
+                <p className="mt-2 flex items-start gap-1 text-xs text-amber-400" data-temperature-garble-warn>
+                  <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                  {t("config.temperatureGarbleWarning")}
+                </p>
+              )}
             </div>
 
             {/* Reasoning Effort */}
             <div className="border-b border-white/5 pb-6">
               <div className="mb-3 flex items-center justify-between">
-                <label className="text-sm font-semibold text-main">{t("config.reasoningEffort")}</label>
+                <label className="flex items-center gap-1.5 text-sm font-semibold text-main">{t("config.reasoningEffort")}<InfoTip text={t("config.reasoningDesc")} /></label>
                 <span className="text-xs text-sub">
                   {t(`config.reasoningOptions.${reasoningEffort}` as const, {
                     defaultValue: reasoningEffort,
@@ -281,14 +333,12 @@ export function AiConfigTab() {
                 triggerClassName="profile-overview-input-surface rounded-xl border-gold/20 py-3 text-main hover:bg-white/[0.04] focus:border-gold/50 focus:ring-gold/30"
                 contentClassName="profile-overview-dropdown-surface rounded-xl border border-gold/20 p-1.5 text-main shadow-2xl shadow-black/40 backdrop-blur-xl"
               />
-              <p className="mt-2 text-xs text-sub">{t("config.reasoningDesc")}</p>
             </div>
 
             {/* Streaming */}
             <div className="flex items-center justify-between pb-2">
               <div>
-                <div className="text-sm font-semibold text-main">{t("config.streaming")}</div>
-                <div className="mt-1 text-xs text-sub">{t("config.streamingDesc")}</div>
+                <div className="flex items-center gap-1.5 text-sm font-semibold text-main">{t("config.streaming")}<InfoTip text={t("config.streamingDesc")} /></div>
               </div>
               <label className="relative inline-flex cursor-pointer items-center">
                 <input
@@ -343,21 +393,19 @@ export function AiConfigTab() {
                   {isKimiSelected && (
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
-                        <label className="text-sm font-medium text-main">{t("config.repetitionPenalty")}</label>
+                        <label className="flex items-center gap-1.5 text-sm font-medium text-main">{t("config.repetitionPenalty")}<InfoTip text={t("config.repetitionPenaltyDesc")} /></label>
                         <span className="text-xs text-sub">{repetitionPenalty.toFixed(2)}</span>
                       </div>
                       <input type="range" min={1} max={1.5} step={0.01} value={repetitionPenalty} onChange={(e) => setConfig("repetitionPenalty", Number(e.target.value))} className="w-full accent-gold" />
-                      <p className="text-[11px] text-sub/60">{t("config.repetitionPenaltyDesc")}</p>
                     </div>
                   )}
 
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                      <label className="text-sm font-medium text-main">{t("config.topK")}</label>
+                      <label className="flex items-center gap-1.5 text-sm font-medium text-main">{t("config.topK")}<InfoTip text={t("config.topKDesc")} /></label>
                       <span className="text-xs text-sub">{topK === 0 ? t("config.topKDisabled") : topK}</span>
                     </div>
                     <NumberInput min={0} max={500} step={1} value={topK} onChange={(value) => setConfig("topK", Math.max(0, Math.min(500, Number(value) || 0)))} className={themedNumberInputClass} />
-                    <p className="text-[11px] text-sub/60">{t("config.topKDesc")}</p>
                   </div>
 
                   <div className="space-y-2">

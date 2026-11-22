@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { SandboxedYuminaAPI } from "../sandbox-context";
+import { readTurnImageVersions } from "@yumina/shared";
+import { useYumina, type SandboxedYuminaAPI } from "../sandbox-context";
 import type { SandboxMessage } from "./types";
 import type { makeChatT } from "./i18n";
 import { resolveSandboxImageSrc } from "./markdown";
@@ -8,6 +9,7 @@ import { removeTurnImage, splitTurnImages } from "./turn-image-embeds";
 import { swipeIndexOf } from "./edit-target";
 import { TurnImageDrawingLabel } from "./turn-image-state";
 import { useTurnImageSettings } from "./turn-images";
+import { OwnPromptForm, turnImageCost } from "./turn-image-prompt";
 
 type T = ReturnType<typeof makeChatT>;
 
@@ -19,13 +21,22 @@ export function turnImageSrc(embed: string): string | null {
   return m ? resolveSandboxImageSrc(m[1]!) : null;
 }
 
+/** The embed's own `/cdn/key/…` path, as the server knows the picture. */
+export function turnImagePath(embed: string): string | null {
+  return SRC_RE.exec(embed)?.[1] ?? null;
+}
+
 const Icon = {
   adjust: <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z" />,
   redraw: <><path d="M21 12a9 9 0 1 1-3-6.7L21 8" /><path d="M21 3v5h-5" /></>,
   fine: <><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /><path d="M11 8v6" /><path d="M8 11h6" /></>,
   note: <><path d="M12 20h9" /><path d="M16.4 3.6a2.1 2.1 0 1 1 3 3L7 19l-4 1 1-4Z" /></>,
+  prompt: <><path d="M4 6h16" /><path d="M4 12h16" /><path d="M4 18h10" /></>,
   remove: <><path d="M3 6h18" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></>,
+  prev: <path d="m15 18-6-6 6-6" />,
+  next: <path d="m9 18 6-6-6-6" />,
   album: <><rect x="3" y="3" width="7" height="9" rx="1" /><rect x="14" y="3" width="7" height="5" rx="1" /><rect x="14" y="12" width="7" height="9" rx="1" /><rect x="3" y="16" width="7" height="5" rx="1" /></>,
+  share: <><circle cx="12" cy="12" r="9" /><path d="M3 12h18" /><path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18" /></>,
 };
 function Svg({ children, size = 16 }: { children: React.ReactNode; size?: number }) {
   return (
@@ -37,14 +48,18 @@ function Svg({ children, size = 16 }: { children: React.ReactNode; size?: number
 /**
  * A reply's picture. At rest it is only the picture; one small control in its
  * corner (shown on hover, faint but always there on touch screens) opens a
- * menu over the picture: redraw, redraw with a note, the story's album, and
- * (for the player who owns the chat) remove this picture.
- * Tapping the picture shows it large.
+ * menu over the picture: redraw, redraw with a note, redraw from the player's
+ * own prompt, the story's album, and (for the player who owns the chat)
+ * remove this picture.
+ * Tapping the picture shows it large. A reply that was redrawn keeps every
+ * picture drawn for it; a small "‹ 2/3 ›" in the other corner steps between
+ * them, and the one picked is saved as the reply's picture.
  */
 export function TurnImageCard({ embed, message, api, t }: { embed: string; message: SandboxMessage; api: SandboxedYuminaAPI; t: T }) {
   const src = turnImageSrc(embed);
   const [open, setOpen] = useState(false);
-  const [asking, setAsking] = useState(false);
+  // Which redraw form is open under the menu: a note on this picture, or the player's own prompt.
+  const [asking, setAsking] = useState<"note" | "prompt" | null>(null);
   const [note, setNote] = useState("");
   const [large, setLarge] = useState(false);
   const [album, setAlbum] = useState(false);
@@ -53,6 +68,8 @@ export function TurnImageCard({ embed, message, api, t }: { embed: string; messa
   const wrapRef = useRef<HTMLDivElement>(null);
   const noteRef = useRef<HTMLTextAreaElement>(null);
   const drawing = message.turnImage?.status === "drawing";
+  const versions = useMemo(() => readTurnImageVersions(embed), [embed]);
+  const [picking, setPicking] = useState(false);
 
   // Close the menu on a click elsewhere or Escape.
   useEffect(() => {
@@ -63,26 +80,41 @@ export function TurnImageCard({ embed, message, api, t }: { embed: string; messa
     document.addEventListener("keydown", esc);
     return () => { document.removeEventListener("mousedown", away); document.removeEventListener("keydown", esc); };
   }, [open]);
-  useEffect(() => { if (asking) noteRef.current?.focus(); }, [asking]);
+  useEffect(() => { if (asking === "note") noteRef.current?.focus(); }, [asking]);
   // A half-confirmed removal never survives the menu closing.
   useEffect(() => { if (!open) setConfirmRemove(false); }, [open]);
 
   if (!src) return null;
 
-  const cost = settings?.unlimited ? "" : settings?.freeLeft ? t("turnImageCostFree", { count: settings.freeLeft })
-    : settings?.price ? t("turnImageCostPrice", { price: settings.price }) : "";
-  const redraw = (withNote?: string, fine = false) => {
+  const cost = turnImageCost(settings, t);
+  const redraw = (withNote?: string, fine = false, prompt?: string) => {
     setOpen(false);
-    setAsking(false);
+    setAsking(null);
     setLarge(false);
     setNote("");
-    void api.illustrateMessage(message.id, withNote?.trim() || undefined, fine || undefined);
+    const ask = withNote?.trim();
+    void api.illustrateMessage(message.id, { ...(ask ? { note: ask } : {}), ...(fine ? { fine: true } : {}), ...(prompt ? { prompt } : {}) });
   };
   // Players asked to drop a picture they didn't like without losing the reply
   // (redraw was the only way out). Removing is an edit of the reply's text, so
   // it is offered only where an edit could be saved: the player's own live chat.
   const canRemove = message.role === "assistant" && api.mode === "session" && !api.readOnly
     && api.capabilities?.canUseSessionApis !== false;
+  // Stepping saves the pick as the reply's picture, so it is offered where
+  // that save can happen; elsewhere the picked one is simply shown.
+  const canPick = canRemove && !drawing && !!versions && versions.keys.length > 1;
+  const step = async (delta: -1 | 1) => {
+    const key = versions?.keys[versions.index + delta];
+    if (!key || picking) return;
+    setPicking(true);
+    try {
+      if (!(await api.selectTurnImage(message.id, key, swipeIndexOf(message)))) api.showToast(t("turnImageVersionFailed"), "error");
+    } catch {
+      api.showToast(t("turnImageVersionFailed"), "error");
+    } finally {
+      setPicking(false);
+    }
+  };
   const remove = async () => {
     // Two taps: the picture can't be brought back (redraw makes a new one).
     if (!confirmRemove) { setConfirmRemove(true); return; }
@@ -99,6 +131,15 @@ export function TurnImageCard({ embed, message, api, t }: { embed: string; messa
     }
   };
   const addChip = (chip: string) => setNote((v) => (v.trim() ? `${v.trim()}${t("turnImageNoteJoin")}${chip}` : chip));
+  // 生图广场: the player's own picture, from their own live chat.
+  const path = turnImagePath(embed);
+  const canPublish = message.role === "assistant" && api.mode === "session" && !api.readOnly
+    && api.capabilities?.canUseSessionApis !== false && !!path && !!api.publishTurnImage;
+  const publish = () => {
+    setOpen(false);
+    setLarge(false);
+    if (path) void api.publishTurnImage?.(message.id, path);
+  };
 
   return (
     <div ref={wrapRef} className="group relative my-3 w-full" style={{ maxWidth: "24rem" }}>
@@ -112,9 +153,25 @@ export function TurnImageCard({ embed, message, api, t }: { embed: string; messa
         </div>
       )}
 
+      {canPick && versions && (
+        <div className="absolute bottom-2 left-2 flex items-center rounded-full border border-white/20 bg-black/45 text-white opacity-80 backdrop-blur-md transition group-hover:opacity-100 focus-within:opacity-100">
+          <button type="button" onClick={() => void step(-1)} disabled={picking || versions.index <= 0}
+            aria-label={t("turnImagePrevVersion")} title={t("turnImagePrevVersion")}
+            className="grid h-7 w-7 place-items-center rounded-full hover:bg-white/15 disabled:pointer-events-none disabled:opacity-30">
+            <Svg size={14}>{Icon.prev}</Svg>
+          </button>
+          <span className="min-w-[28px] text-center text-[11px] tabular-nums" aria-live="polite">{versions.index + 1}/{versions.keys.length}</span>
+          <button type="button" onClick={() => void step(1)} disabled={picking || versions.index >= versions.keys.length - 1}
+            aria-label={t("turnImageNextVersion")} title={t("turnImageNextVersion")}
+            className="grid h-7 w-7 place-items-center rounded-full hover:bg-white/15 disabled:pointer-events-none disabled:opacity-30">
+            <Svg size={14}>{Icon.next}</Svg>
+          </button>
+        </div>
+      )}
+
       {!drawing && (
         <button type="button" aria-haspopup="menu" aria-expanded={open} aria-label={t("turnImageAdjust")}
-          onClick={() => { setOpen((o) => !o); setAsking(false); refresh(); }}
+          onClick={() => { setOpen((o) => !o); setAsking(null); refresh(); }}
           className={`absolute bottom-2 right-2 grid h-8 w-8 place-items-center rounded-full border backdrop-blur-md transition
             ${open ? "border-primary bg-primary text-primary-foreground opacity-100"
               : "border-white/20 bg-black/45 text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-80"}`}>
@@ -136,11 +193,11 @@ export function TurnImageCard({ embed, message, api, t }: { embed: string; messa
               <span className="grid leading-tight">{t("turnImageFine")}<span className="text-[11px] text-muted-foreground">{t("turnImageFineHint")}</span></span>
             </button>
           )}
-          <button type="button" role="menuitem" aria-expanded={asking} onClick={() => setAsking((a) => !a)}
-            className={`hover-surface grid w-full grid-cols-[20px_1fr] items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm ${asking ? "bg-accent" : ""}`}>
+          <button type="button" role="menuitem" aria-expanded={asking === "note"} onClick={() => setAsking((a) => (a === "note" ? null : "note"))}
+            className={`hover-surface grid w-full grid-cols-[20px_1fr] items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm ${asking === "note" ? "bg-accent" : ""}`}>
             <span className="text-muted-foreground"><Svg>{Icon.note}</Svg></span>{t("turnImageRedrawWithNote")}
           </button>
-          {asking && (
+          {asking === "note" && (
             <div className="grid gap-2 px-1.5 pb-2 pt-1">
               <textarea ref={noteRef} value={note} maxLength={200} rows={2} onChange={(e) => setNote(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && note.trim()) { e.preventDefault(); redraw(note); } }}
@@ -158,6 +215,11 @@ export function TurnImageCard({ embed, message, api, t }: { embed: string; messa
               </button>
             </div>
           )}
+          <button type="button" role="menuitem" aria-expanded={asking === "prompt"} onClick={() => setAsking((a) => (a === "prompt" ? null : "prompt"))}
+            className={`hover-surface grid w-full grid-cols-[20px_1fr] items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm ${asking === "prompt" ? "bg-accent" : ""}`}>
+            <span className="text-muted-foreground"><Svg>{Icon.prompt}</Svg></span>{t("turnImageOwnPrompt")}
+          </button>
+          {asking === "prompt" && <OwnPromptForm t={t} cost={cost} label={t("turnImageRedraw")} onSubmit={(prompt) => redraw(undefined, false, prompt)} />}
           <div className="mx-1.5 my-1 h-px bg-border" />
           <button type="button" role="menuitem" onClick={() => { setOpen(false); setAlbum(true); }}
             className="hover-surface grid w-full grid-cols-[20px_1fr] items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm">
@@ -170,10 +232,18 @@ export function TurnImageCard({ embed, message, api, t }: { embed: string; messa
               {confirmRemove ? t("turnImageRemoveConfirm") : t("turnImageRemove")}
             </button>
           )}
+          {canPublish && (
+            <button type="button" role="menuitem" onClick={publish}
+              className="hover-surface grid w-full grid-cols-[20px_1fr] items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm">
+              <span className="text-muted-foreground"><Svg>{Icon.share}</Svg></span>{t("turnImagePublish")}
+            </button>
+          )}
         </div>
       )}
 
-      {large && <Lightbox src={src} t={t} onClose={() => setLarge(false)} onRedraw={() => redraw()} onNote={() => { setLarge(false); setOpen(true); setAsking(true); }} onAlbum={() => { setLarge(false); setAlbum(true); }} />}
+      {large && <Lightbox src={src} t={t} onClose={() => setLarge(false)} onRedraw={() => redraw()}
+        onAsk={(kind) => { setLarge(false); setOpen(true); setAsking(kind); refresh(); }} onAlbum={() => { setLarge(false); setAlbum(true); }}
+        onPublish={canPublish ? publish : undefined} />}
       {album && <Album api={api} t={t} onClose={() => setAlbum(false)} />}
     </div>
   );
@@ -181,7 +251,8 @@ export function TurnImageCard({ embed, message, api, t }: { embed: string; messa
 
 // Overlays go to document.body: a card's own bubble often sits in a
 // transformed or overflow-hidden box, where position:fixed is clipped.
-function Lightbox({ src, t, onClose, onRedraw, onNote, onAlbum }: { src: string; t: T; onClose: () => void; onRedraw: () => void; onNote: () => void; onAlbum: () => void }) {
+function Lightbox({ src, t, onClose, onRedraw, onAsk, onAlbum, onPublish }: { src: string; t: T; onClose: () => void; onRedraw: () => void; onAsk: (kind: "note" | "prompt") => void; onAlbum: () => void; onPublish?: () => void }) {
+  const { messageButtonColor } = useYumina();
   useEffect(() => {
     const esc = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     document.addEventListener("keydown", esc);
@@ -189,15 +260,17 @@ function Lightbox({ src, t, onClose, onRedraw, onNote, onAlbum }: { src: string;
   }, [onClose]);
   const pill = "rounded-full border border-white/25 px-3 py-1 text-[13px] text-white/90 hover:border-primary hover:text-primary";
   return createPortal(
-    <div role="dialog" aria-modal="true" aria-label={t("turnImageViewLarge")} onClick={onClose}
+    <div data-message-button-color={messageButtonColor} role="dialog" aria-modal="true" aria-label={t("turnImageViewLarge")} onClick={onClose}
       className="fixed inset-0 z-[1000] grid place-items-center bg-black/85 p-4">
       <button type="button" onClick={onClose} aria-label={t("turnImageClose")} className="fixed right-4 top-3 p-2 text-2xl leading-none text-white/90">×</button>
       <figure className="m-0 grid max-w-[min(92vw,520px)] justify-items-center gap-3" onClick={(e) => e.stopPropagation()}>
         <img src={src} alt="" className="max-h-[76vh] w-auto max-w-full rounded-lg" />
         <div className="flex flex-wrap justify-center gap-1.5">
           <button type="button" className={pill} onClick={onRedraw}>{t("turnImageRedraw")}</button>
-          <button type="button" className={pill} onClick={onNote}>{t("turnImageRedrawWithNote")}</button>
+          <button type="button" className={pill} onClick={() => onAsk("note")}>{t("turnImageRedrawWithNote")}</button>
+          <button type="button" className={pill} onClick={() => onAsk("prompt")}>{t("turnImageOwnPrompt")}</button>
           <button type="button" className={pill} onClick={onAlbum}>{t("turnImageAlbum")}</button>
+          {onPublish && <button type="button" className={pill} onClick={onPublish}>{t("turnImagePublish")}</button>}
         </div>
       </figure>
     </div>,
@@ -217,7 +290,7 @@ function Album({ api, t, onClose }: { api: SandboxedYuminaAPI; t: T; onClose: ()
     return () => document.removeEventListener("keydown", esc);
   }, [onClose, shown]);
   return createPortal(
-    <div className="fixed inset-0 z-[1000]" onClick={onClose}>
+    <div data-message-button-color={api.messageButtonColor} className="fixed inset-0 z-[1000]" onClick={onClose}>
       <aside aria-label={t("turnImageAlbumTitle")} onClick={(e) => e.stopPropagation()}
         className="absolute bottom-0 right-0 top-0 grid w-[min(360px,92vw)] grid-rows-[auto_1fr] gap-3 border-l border-border bg-popover p-4 text-popover-foreground shadow-2xl">
         <div className="flex items-center justify-between">

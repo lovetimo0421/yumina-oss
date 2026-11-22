@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="760" viewBox="0 0 1600 760" font-family="Nunito Sans, Segoe UI, Helvetica, Arial, sans-serif">
+  <defs>
+    <radialGradient id="g" cx="50%" cy="-20%" r="90%">
+      <stop offset="0" stop-color="#C9A25E" stop-opacity=".18"/>
+      <stop offset="1" stop-color="#121316" stop-opacity="0"/>
+    </radialGradient>
+    <marker id="a" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0,1 L9,5 L0,9 z" fill="#C9A25E"/>
+    </marker>
+  </defs>
+  <rect width="1600" height="760" fill="#121316"/>
+  <rect width="1600" height="760" fill="url(#g)"/>
+
+  <text x="80" y="78" font-size="34" font-weight="700" fill="#FFF5D6">One turn, two models</text>
+  <text x="80" y="112" font-size="20" fill="#E8E2D2" fill-opacity=".62">The story model writes the scene. A decision model answers one question per tracked number. The engine decides whether the odds are good enough.</text>
+
+  <!-- step 1: story model -->
+  <text x="80" y="178" font-size="15" letter-spacing="3" fill="#C9A25E">1. STORY MODEL</text>
+  <rect x="80" y="196" width="340" height="150" rx="14" fill="#1C1D22" stroke="#ffffff" stroke-opacity=".1"/>
+  <text x="104" y="232" font-size="18" font-weight="700" fill="#FFF5D6">writes the reply</text>
+  <text x="104" y="262" font-size="16" fill="#E8E2D2" fill-opacity=".8">streams to the player first</text>
+  <text x="104" y="288" font-size="16" fill="#E8E2D2" fill-opacity=".8">may still write [gold: +50]</text>
+  <text x="104" y="314" font-size="16" fill="#E8E2D2" fill-opacity=".55">its line for a tracked number is dropped</text>
+
+  <!-- arrow -->
+  <path d="M420,270 L500,270" stroke="#C9A25E" stroke-width="2.5" fill="none" marker-end="url(#a)"/>
+
+  <!-- step 2: question -->
+  <text x="500" y="178" font-size="15" letter-spacing="3" fill="#C9A25E">2. ONE QUESTION PER NUMBER</text>
+  <rect x="500" y="196" width="520" height="150" rx="14" fill="#1C1D22" stroke="#ffffff" stroke-opacity=".1"/>
+  <text x="524" y="232" font-size="17" fill="#E8E2D2" fill-opacity=".9">"This turn only. By how much should health change?</text>
+  <text x="524" y="258" font-size="17" fill="#E8E2D2" fill-opacity=".9">0 means unchanged. The author's rule for it: …"</text>
+  <text x="524" y="292" font-size="16" fill="#E8E2D2" fill-opacity=".7">sent: player's line, the reply, current values, the rule</text>
+  <text x="524" y="318" font-size="16" fill="#E8E2D2" fill-opacity=".55">not sent: lorebook, system prompt</text>
+
+  <!-- arrow -->
+  <path d="M1020,270 L1100,270" stroke="#C9A25E" stroke-width="2.5" fill="none" marker-end="url(#a)"/>
+
+  <!-- step 3: decision model -->
+  <text x="1100" y="178" font-size="15" letter-spacing="3" fill="#C9A25E">3. DECISION MODEL</text>
+  <rect x="1100" y="196" width="420" height="150" rx="14" fill="#1C1D22" stroke="#ffffff" stroke-opacity=".1"/>
+  <text x="1124" y="232" font-size="18" font-weight="700" fill="#FFF5D6">answers with probabilities</text>
+  <g font-size="16" fill="#E8E2D2" fill-opacity=".85" font-family="Consolas, Menlo, monospace">
+    <text x="1124" y="264">-12: 25%   -10: 50%</text>
+    <text x="1124" y="290">-8: 20%     0: 5%</text>
+  </g>
+  <text x="1124" y="322" font-size="16" fill="#E8E2D2" fill-opacity=".55">1.5 s deadline, then the turn goes on without it</text>
+
+  <!-- arrow down -->
+  <path d="M1310,346 L1310,400" stroke="#C9A25E" stroke-width="2.5" fill="none" marker-end="url(#a)"/>
+
+  <!-- step 4: engine -->
+  <text x="80" y="428" font-size="15" letter-spacing="3" fill="#C9A25E">4. THE ENGINE DECIDES</text>
+  <rect x="80" y="446" width="1440" height="150" rx="14" fill="#1C1D22" stroke="#C9A25E" stroke-opacity=".55"/>
+  <g font-size="17" fill="#E8E2D2" fill-opacity=".9">
+    <text x="104" y="484">weighted mean of the steps: −9.6, rounds to −10</text>
+    <text x="104" y="514">probability on the "down" side: 95%, above the 80% bar</text>
+    <text x="104" y="544">health 80 → 70, written as one set effect, clamped to the author's range</text>
+  </g>
+  <g font-size="16" fill="#E8E2D2" fill-opacity=".65">
+    <text x="820" y="484">under the bar but above 50%, and the story model agrees → move by the judge's amount</text>
+    <text x="820" y="514">50/50 split → nothing moves</text>
+    <text x="820" y="544">judge timed out → the story model's own line is kept, so nothing freezes</text>
+  </g>
+
+  <!-- footer -->
+  <line x1="80" x2="1520" y1="640" y2="640" stroke="#ffffff" stroke-opacity=".08"/>
+  <text x="80" y="678" font-size="16" fill="#E8E2D2" fill-opacity=".7">Repair pass, same decision model: for every variable the story model forgot, one yes/no question. At 85% or more, a correction model writes that variable and nothing else.</text>
+  <text x="80" y="708" font-size="15" fill="#E8E2D2" fill-opacity=".5">One call per reply on the platform key, about $0.0001 per turn, never charged to the player.</text>
+</svg>

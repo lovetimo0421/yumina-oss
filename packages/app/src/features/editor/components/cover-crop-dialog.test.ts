@@ -7,7 +7,7 @@ import * as cropping from "../../../lib/cropping";
 import * as artwork from "../../../lib/world-cover-crop";
 
 test("crop tabs preserve loaded dimensions, require a loaded image, and confirm only visited artwork", async () => {
-  const env = clientDom();
+  const env = clientDom({ ResizeObserver: class { observe() {} disconnect() {} } });
   env.dom.window.scrollTo = () => {};
   const panel = ({ children }: PropsWithChildren) => createElement("div", null, children);
   const { CoverCropDialog } = loadClientModule<{ CoverCropDialog: ComponentType<Record<string, unknown>> }>(new URL("./cover-crop-dialog.tsx", import.meta.url), {

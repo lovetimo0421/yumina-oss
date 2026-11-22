@@ -1,3 +1,8 @@
+---
+title: "The Creation assistant and your own AI"
+description: "The Creation assistant inside Studio builds lore, variables, behaviors and interfaces from a sentence, plans before it builds, reads your sticky notes, and can look facts up online."
+---
+
 # The Creation Assistant and Your Own AI
 
 The canvas has a built-in **Creation assistant**, and you can also hook up the Claude, ChatGPT or Cursor you already use to edit your card.
@@ -37,6 +42,16 @@ Each part also has **Write this one for me**. One click asks the assistant to wr
 
 The assistant reads every [sticky note](/creator/canvas) on the canvas and knows what each one is stuck to. If you have too many ideas to explain at once, stick them on as notes first, then tell it "go through the sticky notes and do all of these".
 
+### Looking things up online
+
+For fan cards and cards based on an existing work, the assistant looks up the canon facts it is unsure of (names, ages, relationships, abilities, the order of events) on fan wikis, Fandom and Wikipedia, and links its sources in the reply. You can also paste an address for it to read. It does not search for things you are inventing.
+
+- Each search costs about 8 mushies from your balance (also when you use your own API key, since the search runs on Yumina); reading a page is free
+- At most 12 searches and 24 pages per request
+- Some sites refuse to show pages to servers; the assistant then uses the search excerpt or another source
+- To keep it offline: open **Plan / Build** under the input box and untick **Web search** (remembered in this browser)
+- When the card has the original book attached, the book wins; the web only fills gaps
+
 ### If it breaks something
 
 After each round of changes, a little strip called **The assistant's last turn** appears at the bottom of the canvas, saying how many things were added, changed and removed. Click **Undo this turn** to undo the whole round.
@@ -50,33 +65,8 @@ After each round of changes, a little strip called **The assistant's last turn**
 
 ## Connect your own AI
 
-If you'd rather use your own AI tools, you can let them sign in to your Yumina account directly and edit your cards. Supported: **Claude**, **ChatGPT / Codex**, **Cursor**, **Claude Code** and **Codex CLI**.
+If you would rather use the Claude, ChatGPT, Cursor or Claude Code you already have, connect it to Studio and it edits your card directly. That has its own page: [Connect your AI](/creator/connect-your-ai).
 
-Click **Connect your AI** in the top bar (a new card needs to be saved once first), pick the one you use, and follow the steps. It goes roughly like this:
+## Without a connector
 
-![Connect your AI](./images/canvas/connect-ai.webp)
-
-1. In your AI tool, add a connector / MCP server with the address `https://yumina.io/mcp`
-2. It pops up a Yumina page for you to sign in. Click **Allow**
-3. Back in the dialog, follow **Send it a message**: in Claude, for example, send "Use Yumina to open my card "Mushroom Tavern" and tell me what's in it right now". Once the dialog sees it's connected, it'll let you know (๑•̀ㅂ•́)و✧
-
-Claude Code and Codex CLI are added in the terminal. The dialog gives you a command you can copy straight in.
-
-Once connected, it can do about as much as the Creation assistant: read the card, write lore and variables, add behaviors and scenarios, change the player interface, generate pictures and playtest. Its changes show up live on the canvas you have open. It reads your sticky notes, too.
-
-A few things to know:
-
-- **It can't publish.** Publishing is always a click you make yourself
-- **It saves a checkpoint before every change to your card.** In **⋮ → Change History** you'll see "Before: (the AI's name)". You can roll back to that point
-- **Playtests and image generation still cost your mushies**, same as if you clicked them on the canvas yourself
-- There are a few limits to catch slip-ups: at most 30 playtest turns and 20 generated pictures an hour, and at most 20 new cards a day
-- **Connected AIs** in the dialog lists everything that's connected. Click **Disconnect** to take the access back
-- If signing in keeps failing, click **Can't sign in? Make a token for this card**. It makes a token that can only edit this one card and expires after 90 days. Put the address and header into your tool and you're set. The token is only shown once, so copy it right away
-
-There's no way to do this on a phone yet. You'll need to connect from a computer.
-
-## World Spec
-
-If your AI tool doesn't support connectors, you can download the **World Spec** instead: a complete technical reference written for AIs to read. Have your AI read it, describe what you want so it writes the card's JSON, then import that into Yumina.
-
-→ [Download the World Spec](/world-spec/)
+If your AI tool cannot connect, give it the [world file format](/world-spec/) instead, a reference written for AIs to read. Describe what you want, it writes the card's JSON, and you import that into Yumina.

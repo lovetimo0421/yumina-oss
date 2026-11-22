@@ -20,6 +20,7 @@ import { db } from "../../db/index.js";
 import { playSessions, sessionLoreEntries, worlds } from "../../db/schema.js";
 import { isExtensionInstalled } from "../../lib/extensions.js";
 import { resolveSessionWorldSchema } from "../../lib/pending-edit.js";
+import { redactSchemaFor } from "../../lib/sealed-entries.js";
 
 export const LIVE_CANON_DISABLED_MESSAGE =
   "The author has disabled session lore editing. You can keep playing, but Lore Shift cannot change this story's state or lore.";
@@ -73,6 +74,7 @@ export function canEditLiveCanonVariable(variable: Variable, isWorldOwner: boole
 export function canEditLiveCanonEntry(entry: WorldEntry): boolean {
   return (
     entry.sessionEditPolicy === "content"
+    && !entry.sealed
     && (entry.role === "lore" || entry.role === "plot" || entry.role === "custom")
   );
 }
@@ -115,7 +117,7 @@ export async function loadLiveCanonContext(
   ]);
   if (!world || !session) throw new LiveCanonError("LIVE_CANON_NOT_FOUND", 404, "Session or world not found");
   const schema = await resolveSessionWorldSchema(world, userId);
-  const worldDef = migrateWorldDefinition(schema as WorldDefinition);
+  const worldDef = migrateWorldDefinition(redactSchemaFor(world, schema, userId, "play") as WorldDefinition);
 
   return {
     sessionId: meta.sessionId,

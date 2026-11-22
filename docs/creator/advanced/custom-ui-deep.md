@@ -1,8 +1,12 @@
+---
+title: "Custom UI guide"
+description: "Restyle the chat, add panels or draw the whole screen in React. What interface code can do, how the assistant writes it for you, and the common patterns."
+---
 <div v-pre>
 
 # Custom UI Guide
 
-Interface code is a small React (TSX) app that draws the screen players see. It can restyle the chat, add panels around it, or replace it with something that doesn't look like a chat at all. It lives in **Panels → Front End Code**.
+Interface code is a small React (TSX) app that draws the screen players see. It can restyle the chat, add panels around it, or replace it with something that doesn't look like a chat at all. It lives in **Panels → Interface code**.
 
 Much of this no longer needs code. The [Player interface](/creator/player-view) editor builds opening pages, status panels, inventories, maps and buttons from templates, and its buttons can change variables, set off behaviors and call AIs. Reach for interface code when the templates and parts can't do what you want. Most creators still don't write it by hand: they describe the screen to the Creation assistant, which writes the code.
 
@@ -52,7 +56,7 @@ Start with the default chat. If the world needs visual atmosphere, change the me
 
 ### How it works
 
-Click **Creation assistant** in the top right of the canvas and describe the look you want in plain language. It writes the interface code into **Panels → Front End Code**, and the Player interface preview on the canvas shows the result.
+Click **Creation assistant** in the top right of the canvas and describe the look you want in plain language. It writes the interface code into **Panels → Interface code**, and the Player interface preview on the canvas shows the result.
 
 ### Good prompts
 
@@ -143,6 +147,10 @@ Your UI can play background music, sound effects, fade between tracks, and contr
 
 Two kinds of storage. `api.storage` keeps strings in this browser, per world: preferences, a remembered tab, a high score on this device. `api.sessionStorage` keeps small JSON records with the play session on the server, so they follow the player to other devices and into checkpoints.
 
+### Leaderboards
+
+`api.leaderboard` gives the card its own high-score boards: the platform keeps each player's best and ranks them, and your interface draws the board however you like. Read the top places, the places around the player, or the player and their friends. See the [Leaderboards recipe](./recipes/leaderboard.md).
+
 ### Navigate and notify
 
 Toggle immersive mode, show toast notifications, copy text to the clipboard, switch between openings, open the persona manager or the model picker.
@@ -170,7 +178,7 @@ You describe what you want, the assistant writes the code, you refine through co
 
 ### Path 2: Use your own AI (Claude, ChatGPT, Cursor)
 
-**Connect your AI** in the top bar lets Claude, ChatGPT / Codex, Cursor, Claude Code or Codex CLI sign in and edit your card directly, including the interface code. See [The Creation assistant and your own AI](/creator/studio-ai#connect-your-own-ai).
+**Connect your AI** in the ⋮ menu at the top right lets Claude, ChatGPT / Codex, Cursor, Claude Code or Codex CLI sign in and edit your card directly, including the interface code. See [Connect your AI](/creator/connect-your-ai).
 
 If you'd rather paste code in yourself, tell the AI:
 - Your code is TSX (React), running in a sandboxed iframe
@@ -183,7 +191,7 @@ If you'd rather paste code in yourself, tell the AI:
 
 ### Path 3: Hand-code (for experienced developers)
 
-Open **Panels → Front End Code** and write TSX directly. The compile badge shows **OK** or **Error** as you type.
+Open **Panels → Interface code** and write TSX directly. The compile badge shows **OK** or **Error** as you type.
 
 **When to use**: You're a developer who thinks in React, or you want precise control over every detail.
 
@@ -479,12 +487,13 @@ export default function MyWorld() {
 
 ## See also
 
-- [API Reference](/creator/advanced/08-api-reference) — the complete method-by-method reference for `useYumina()`, `callAi()`, `ai.complete()`, `injectContext()`, and every other bridge method
-- [Player interface](/creator/player-view) — templates and parts, no code
-- [Designing Game State](/creator/advanced/variables-deep) — the variables your UI reads and displays
-- [3D, Panoramas & Assets](/creator/advanced/3d-and-assets) — what the sandbox can load, and teleporting between 3D places
-- [Audio Design](/creator/advanced/audio-deep) — playing audio from your custom UI via the bridge API
-- [AI Directives & Macros](/creator/advanced/directives-macros) — how the AI updates the state your UI renders
+- [API Reference](/creator/advanced/08-api-reference): the complete method-by-method reference for `useYumina()`, `callAi()`, `ai.complete()`, `injectContext()`, and every other bridge method
+- [Player interface](/creator/player-view): templates and parts, no code
+- [Designing Game State](/creator/advanced/variables-deep): the variables your UI reads and displays
+- [Making an interface others can use](/creator/advanced/publishing-deep#shareable-interface): for an interface you'll share on the market, keep people and items in variables so whoever installs it gets their own characters
+- [3D, Panoramas & Assets](/creator/advanced/3d-and-assets): what the sandbox can load, and teleporting between 3D places
+- [Audio Design](/creator/advanced/audio-deep): playing audio from your custom UI via the bridge API
+- [AI Directives & Macros](/creator/advanced/directives-macros): how the AI updates the state your UI renders
 
 Machine-readable spec → [World Spec: Custom UI](/world-spec/custom-ui)
 

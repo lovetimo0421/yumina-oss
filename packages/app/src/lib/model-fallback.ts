@@ -1,4 +1,4 @@
-import { DEFAULT_MODEL_FALLBACK_POLICY, type ModelFallbackPolicy, type ModelFallbackReason, type ModelFallbackRecord } from "@yumina/shared";
+import { DEFAULT_MODEL_FALLBACK_POLICY, applyModelRedirect, type ModelFallbackPolicy, type ModelFallbackReason, type ModelFallbackRecord } from "@yumina/shared";
 
 export interface ModelFallbackRetry {
   requestedModel: string;
@@ -38,7 +38,8 @@ export function fallbackDecision(
   attemptedFallback: boolean,
 ) {
   const p = policy ?? DEFAULT_MODEL_FALLBACK_POLICY;
-  const candidate = provider === "official" ? p.officialModel
+  // A backup saved before its model retired is offered under the successor's name.
+  const candidate = provider === "official" ? applyModelRedirect(p.officialModel)
     : activeKeyId && activeKeyId === p.privateKeyId ? p.privateModel : "";
   const suggestedModel = candidate && candidate !== failedModel ? candidate : "";
   return {

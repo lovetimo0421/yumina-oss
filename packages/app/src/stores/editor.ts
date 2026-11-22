@@ -19,12 +19,15 @@ import type {
   Worldbook,
 } from "@yumina/engine";
 import { nextBundleColorKey } from "@/lib/entry-constants";
-import { syncMessageRulesEntry, nextBackgroundId, COVER_BACKGROUND_URL, migrateWorldDefinition, deriveSectionDefaults, deriveSectionDefaultsForEntry, officialPresetsFor, customUIToRootFiles, normalizeFolders, mergeWorldDefinition, remapReactionReferences, applyGraphEdit, compileUiDoc, buildUiTheme, getUiTemplate, getUiPageTemplate, insertPageTemplate, fitTextBox, refreshConfirmSummary, carryOpeningChain, detectUiTemplate, withPreciseTrackingDefault, suggestedContinuityDelta, USER_ROOT_PATH, COMPOSED_MARKER, BUNDLE_NS_RE, generateComposedIndex, syncGreetingActions, PromptBuilder, UNPLACED_WORLDBOOK_ID, revertTurn } from "@yumina/engine";
+import { remapBundleAssets, remapSettings, remapVariableIdsInCode, writeSettingValue, type MergeBundleOptions } from "@/lib/bundle-install";
+export type { MergeBundleOptions, VariableConflictChoice } from "@/lib/bundle-install";
+import { syncMessageRulesEntry, nextBackgroundId, COVER_BACKGROUND_URL, migrateWorldDefinition, deriveSectionDefaults, deriveSectionDefaultsForEntry, officialPresetsFor, customUIToRootFiles, normalizeFolders, mergeWorldDefinition, mergeWorldValue, diffWorld, applyWorldChanges, rebaseWorldDetailed, annotateChangeBase, writeTextField, isWorldChangeList, deepEqual, WORLD_ROW_COLLECTIONS, type WorldEdit, type WorldMergeConflict, remapReactionReferences, applyGraphEdit, compileUiDoc, buildUiTheme, getUiTemplate, getUiPageTemplate, insertPageTemplate, fitTextBox, refreshConfirmSummary, carryOpeningChain, detectUiTemplate, withPreciseTrackingDefault, suggestedContinuityDelta, USER_ROOT_PATH, COMPOSED_MARKER, BUNDLE_NS_RE, generateComposedIndex, readComposedLayout, syncGreetingActions, PromptBuilder, UNPLACED_WORLDBOOK_ID, revertTurn } from "@yumina/engine";
 import { materializeBehaviors } from "@/features/editor/lib/editable-behaviors";
 import type { OfficialPreset } from "@yumina/engine";
 import { classifyInterface, startingUiDoc } from "@/features/studio/lib/ui-doc-takeover";
-import type { WorldPendingEditSummary } from "@yumina/shared";
+import { MAX_WORLD_SAVE_BODY_BYTES, type WorldPendingEditSummary } from "@yumina/shared";
 import type { WorldTemplate } from "@/lib/world-templates";
+import { isPlaceholderCardName, untitledCardName } from "@/lib/world-templates";
 import i18n, { contentLanguage } from "@/lib/i18n";
 import { clampLanguage } from "@/lib/language-clamp";
 import { uploadAssetWithPresignedUrl } from "@/lib/asset-upload";
@@ -36,6 +39,7 @@ import { findTemplateLeftovers } from "@/features/studio/lib/template-leftovers"
 import { serializeWorldSavePayload, worldSaveErrorMessage, worldSaveValidationMessage, worldSaveExceptionMessage, type WorldSaveErrorOptions } from "@/lib/world-save-payload";
 import { EDITOR_DRAFT_KEY, writeStoredDraft } from "@/features/editor/editor-draft-recovery";
 import { flushPendingEditorFields } from "@/features/editor/components/flush-pending-edits";
+import { collaboratorsPresent, liveTextKeys, overlayLiveText } from "./live-text-registry";
 
 const apiBase = import.meta.env?.VITE_API_URL || "";
 
@@ -77,28 +81,128 @@ function normalizeLoreUiBindings(raw: unknown): LoreUiBinding[] {
     .filter((binding): binding is LoreUiBinding => binding !== null);
 }
 
-function normalizePositions(entries: WorldEntry[]): WorldEntry[] {
-  const bySection = new Map<string, WorldEntry[]>();
-  for (const entry of entries) {
-    if (!bySection.has(entry.section)) bySection.set(entry.section, []);
-    bySection.get(entry.section)!.push(entry);
-  }
-  const result: WorldEntry[] = [];
-  for (const sectionEntries of bySection.values()) {
-    sectionEntries.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
-    for (let i = 0; i < sectionEntries.length; i++) {
-      const entry = sectionEntries[i]!;
-      // Keep the object when its position already holds. Every delete and
-      // duplicate runs through here, and a fresh clone of every entry defeats
-      // the row memos and token caches keyed on entry identity.
-      result.push(entry.position === i ? entry : { ...entry, position: i });
+const PORTRAIT_ART_KEYS = ["avatar", "coverCrop", "galleryCoverCrop"] as const;
+const LANDSCAPE_ART_KEYS = ["landscapeCover", "landscapeCoverCrop"] as const;
+
+/** Replacing a card's contents from a file keeps the card's own artwork.
+ *  Creators build cards from one base file, so the file carries the base
+ *  card's banner; letting it through put the base banner on every update.
+ *  The wide banner always stays the card's own (absent included). The
+ *  portrait cover stays when the card has one; a card without one may take
+ *  the file's. Exported for tests. */
+export function keepOwnArtwork(draft: WorldDefinition, own: WorldDefinition): void {
+  const take = (keys: readonly (keyof WorldDefinition)[]) => {
+    for (const key of keys) {
+      if (own[key] === undefined) delete draft[key];
+      else (draft as unknown as Record<string, unknown>)[key] = own[key];
     }
-  }
-  // Same order, same objects → hand back the input so selectors see no change.
-  return result.length === entries.length && result.every((entry, i) => entry === entries[i]) ? entries : result;
+  };
+  take(LANDSCAPE_ART_KEYS);
+  if (own.avatar) take(PORTRAIT_ART_KEYS);
 }
 
-/** Positions as the array order has them, per section; an entry already in
+/**
+ * Give an entry without a usable position one behind the rest of its section.
+ * Positions are never renumbered here: they are per-entry, like Figma's
+ * fractional indexing (see slotPositions), and renumbering a whole section on
+ * every save or delete wrote a new position into every entry — so someone
+ * else's drag landing at the same time was put back. Sorting by position,
+ * gaps and fractions read the same as 0, 1, 2…
+ */
+function normalizePositions(entries: WorldEntry[]): WorldEntry[] {
+  if (entries.every((e) => typeof e.position === "number" && Number.isFinite(e.position))) return entries;
+  const top = new Map<string, number>();
+  for (const e of entries) {
+    if (typeof e.position === "number" && Number.isFinite(e.position)) top.set(e.section, Math.max(top.get(e.section) ?? -1, e.position));
+  }
+  return entries.map((e) => {
+    if (typeof e.position === "number" && Number.isFinite(e.position)) return e;
+    const next = Math.floor(top.get(e.section) ?? -1) + 1;
+    top.set(e.section, next);
+    return { ...e, position: next };
+  });
+}
+
+/** Positions 0, 1, 2… for one section, in position order — only when two
+ *  neighbours are too close to fit anything between them. */
+function renumberSection(entries: WorldEntry[], section: WorldEntry["section"]): WorldEntry[] {
+  const order = entries.map((e, i) => ({ e, i })).filter(({ e }) => e.section === section)
+    .sort((a, b) => (a.e.position ?? 0) - (b.e.position ?? 0) || a.i - b.i);
+  const next = new Map(order.map(({ e }, i) => [e.id, i]));
+  return entries.map((e) => (next.has(e.id) && e.position !== next.get(e.id) ? { ...e, position: next.get(e.id)! } : e));
+}
+
+/** A position just behind `after` in its section: halfway to the next one. */
+function positionAfter(entries: WorldEntry[], after: WorldEntry): number | null {
+  const at = after.position ?? 0;
+  let next: number | null = null;
+  for (const e of entries) {
+    if (e.id === after.id || e.section !== after.section) continue;
+    const p = e.position ?? 0;
+    if (p > at && (next === null || p < next)) next = p;
+  }
+  if (next === null) return at + 1;
+  return next - at > 1e-6 ? (at + next) / 2 : null;
+}
+
+/**
+ * New positions for a reorder, like Figma's fractional indexing: the entries
+ * that were dragged get a position between their new neighbours and every
+ * other entry keeps its own, so two people dragging different entries at the
+ * same time both keep their move (a reorder that renumbered every entry let
+ * the later save put everything back). Falls back to renumbering the listed
+ * entries 0..n when positions are tied or too close to split.
+ */
+export function slotPositions(all: WorldEntry[], entryIds: string[]): Map<string, number> {
+  const byId = new Map(all.map((e, i) => [e.id, { e, i }]));
+  const out = new Map<string, number>();
+  const sections = new Map<string, string[]>();
+  for (const id of entryIds) {
+    const hit = byId.get(id);
+    if (!hit) continue;
+    const list = sections.get(hit.e.section) ?? [];
+    list.push(id);
+    sections.set(hit.e.section, list);
+  }
+  for (const ids of sections.values()) {
+    const pos = (id: string) => byId.get(id)!.e.position ?? 0;
+    const current = [...ids].sort((a, b) => pos(a) - pos(b) || byId.get(a)!.i - byId.get(b)!.i);
+    const rank = new Map(current.map((id, i) => [id, i]));
+    // Longest run that kept its order stays where it is.
+    const seq = ids.map((id) => rank.get(id)!);
+    const tails: number[] = [];
+    const back: number[] = new Array(seq.length).fill(-1);
+    for (let i = 0; i < seq.length; i++) {
+      let lo = 0, hi = tails.length;
+      while (lo < hi) { const mid = (lo + hi) >> 1; if (seq[tails[mid]!]! < seq[i]!) lo = mid + 1; else hi = mid; }
+      if (lo > 0) back[i] = tails[lo - 1]!;
+      tails[lo] = i;
+    }
+    const stay = new Set<string>();
+    for (let i = tails.length ? tails[tails.length - 1]! : -1; i >= 0; i = back[i]!) stay.add(ids[i]!);
+    const next = new Map<string, number>();
+    let ok = true;
+    let prev: number | undefined;
+    for (let i = 0; i < ids.length; i++) {
+      const id = ids[i]!;
+      let p: number;
+      if (stay.has(id)) p = pos(id);
+      else {
+        let after: number | undefined;
+        for (let j = i + 1; j < ids.length; j++) if (stay.has(ids[j]!)) { after = pos(ids[j]!); break; }
+        p = prev === undefined ? (after === undefined ? 0 : after - 1) : after === undefined ? prev + 1 : (prev + after) / 2;
+      }
+      if (prev !== undefined && !(p - prev > 1e-6)) ok = false;
+      next.set(id, p);
+      prev = p;
+    }
+    if (ok) for (const [id, p] of next) out.set(id, p);
+    else ids.forEach((id, i) => out.set(id, i));
+  }
+  return out;
+}
+
+/** Positions as the array order has them, per section; an entry already in/** Positions as the array order has them, per section; an entry already in
  *  its place keeps its identity (see normalizePositions). */
 function withPositionsFromOrder(entries: WorldEntry[]): WorldEntry[] {
   const next = new Map<string, number>();
@@ -140,13 +244,28 @@ function nextCopyName(sourceName: string, entries: readonly { name: string }[], 
 }
 
 const AUTOSAVE_DELAY = 2000;
-const SERVER_AUTOSAVE_INTERVAL = 60_000; // Auto-save to server every 60s when dirty
-/** Like a Google doc: saved a moment after the creator stops, so leaving
- *  rarely finds anything unsaved. Each save sends the whole card (Paths of
- *  Ascension is 6.6MB), so never more often than every SERVER_SAVE_MIN_GAP;
- *  the 60s interval stays as the backstop. */
-const IDLE_SAVE_DELAY = 5_000;
-const SERVER_SAVE_MIN_GAP = 20_000;
+// Server autosave, Google-Docs style: save once the creator pauses, and never
+// let a continuous burst of typing go longer than the max wait unsaved. A card
+// whose last save was large waits longer — every save sends the whole world.
+// Layout-only changes (dragging, collapsing) are cheap to lose and come in
+// bursts, so they wait for a longer pause.
+const SERVER_AUTOSAVE_QUIET_MS = 2000;
+const SERVER_AUTOSAVE_MAX_WAIT_MS = 10_000;
+const SERVER_AUTOSAVE_LARGE_QUIET_MS = 5000;
+const SERVER_AUTOSAVE_LARGE_MAX_WAIT_MS = 30_000;
+const SERVER_AUTOSAVE_LAYOUT_QUIET_MS = 5000;
+// With someone else on the card, a structural edit (add, delete, move,
+// toggle, pick an option) reaches them in under a second, like Figma: a short
+// pause, and never more than two seconds of edits unsent. Text being typed
+// together travels live keystroke by keystroke (features/collab/live-text),
+// so its saves keep the normal pace; text someone else typed is saved by them,
+// and here only after a long pause, as a backstop.
+const SERVER_AUTOSAVE_COLLAB_QUIET_MS = 400;
+const SERVER_AUTOSAVE_COLLAB_MAX_WAIT_MS = 2000;
+const SERVER_AUTOSAVE_REMOTE_TEXT_QUIET_MS = 8000;
+const LARGE_SAVE_BYTES = 1_000_000;
+/** Retries after a failed autosave back off up to this. */
+const SERVER_AUTOSAVE_MAX_RETRY_MS = 60_000;
 // Snapshots share structure (every mutation spreads, never deep-clones), so a
 // deep stack costs references, not copies. 20 was nothing on the canvas, where
 // a burst of node adds burns the whole stack in seconds.
@@ -245,7 +364,7 @@ function compileEditorUiDoc(
   const baseFile = doc.base?.file;
   const baseComposes = baseFile && previous?.files[baseFile]?.startsWith(COMPOSED_MARKER);
   if (baseComposes) {
-    files[baseFile] = generateComposedIndex(folders);
+    files[baseFile] = generateComposedIndex(folders, readComposedLayout(previous?.files[baseFile]));
   } else if (
     previous?.files["index.tsx"]?.startsWith(COMPOSED_MARKER) ||
     (folders.length > 0 && previous?.files[USER_ROOT_PATH] !== undefined)
@@ -253,7 +372,7 @@ function compileEditorUiDoc(
     // Also repairs cards previously saved with an overwritten composer: their
     // bundle files and user entry survived, but index.tsx stopped mounting them.
     files[USER_ROOT_PATH] = built.files[built.entryFile]!;
-    files["index.tsx"] = generateComposedIndex(folders);
+    files["index.tsx"] = generateComposedIndex(folders, readComposedLayout(previous?.files["index.tsx"]));
   }
   const unchanged = previous?.entryFile === built.entryFile &&
     Object.keys(previous.files).length === Object.keys(files).length &&
@@ -371,7 +490,685 @@ function bundleFilesFor(slug: string | undefined, allFiles: Record<string, strin
   return out;
 }
 
-function createEmptyWorld(): WorldDefinition {
+/** Merge a bundle into a world: the pure half of `importBundle`. Everything
+ *  the bundle brings gets fresh ids, references are remapped, its interface is
+ *  composed under `_bundles/{slug}/`, and an install record is appended. Used
+ *  by the editor store and by previews that build a world without touching it.
+ *
+ *  Options (all optional, see MergeBundleOptions): install into a situation,
+ *  replace or skip the card's screen, rewrite the pack's asset references to
+ *  the card's copies, and settle same-name variables one by one. */
+export function mergeBundleIntoWorld(
+  world: WorldDefinition,
+  incoming: YuminaBundle,
+  sourceBundleId?: string,
+  options: MergeBundleOptions = {},
+): WorldDefinition {
+  const s = { worldDraft: world };
+  const bundle = remapBundleAssets(incoming, options.assetMap);
+  const intoBook = options.worldbookId && (world.worldbooks ?? []).some((b) => b.id === options.worldbookId)
+    ? options.worldbookId
+    : undefined;
+  const interfaceMode = options.interface ?? "compose";
+  const installId = options.installId ?? crypto.randomUUID();
+  const colorKey = options.colorKey ?? nextBundleColorKey(s.worldDraft.installedBundles?.length ?? 0);
+  const existingVarIds = new Set(s.worldDraft.variables.map((v) => v.id));
+  const existingVarNames = new Map(
+    s.worldDraft.variables.map((v) => [v.name.toLowerCase(), v.id])
+  );
+
+  // Build variable ID remap: old bundle var ID → new ID in this world
+  const varIdMap = new Map<string, string>();
+  const newVars: Variable[] = [];
+  const takenName = (name: string) =>
+    existingVarNames.has(name.toLowerCase()) || newVars.some((v) => v.name.toLowerCase() === name.toLowerCase());
+
+  for (const bv of bundle.variables) {
+    const linked = options.variableConflicts?.[bv.id];
+    if (existingVarIds.has(bv.id)) {
+      // Same ID already exists → skip, map to itself
+      varIdMap.set(bv.id, bv.id);
+    } else if (linked?.mode === "merge" && linked.targetId && existingVarIds.has(linked.targetId)) {
+      // Pointed at one of the card's own (a different name): one variable.
+      varIdMap.set(bv.id, linked.targetId);
+    } else if (existingVarNames.has(bv.name.toLowerCase())) {
+      const choice = options.variableConflicts?.[bv.id];
+      if (choice?.mode === "merge") {
+        // One variable: the card's. Everything of the pack's that read or
+        // wrote its own now points at it.
+        varIdMap.set(bv.id, existingVarNames.get(bv.name.toLowerCase())!);
+        continue;
+      }
+      // Both kept: the pack's under a name of its own.
+      const newId = `var_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      const wanted = choice?.mode === "keep" ? choice.name?.trim() : undefined;
+      let newName = wanted && !takenName(wanted) ? wanted : bv.name;
+      let suffix = 1;
+      while (takenName(newName)) {
+        newName = `${wanted || bv.name} (${suffix++})`;
+      }
+      varIdMap.set(bv.id, newId);
+      newVars.push({ ...bv, id: newId, name: newName });
+    } else {
+      // No conflict → keep as-is
+      varIdMap.set(bv.id, bv.id);
+      newVars.push(bv);
+    }
+  }
+
+  // Remap variableId references in a condition/effect
+  const remapVarId = (id: string) => varIdMap.get(id) ?? id;
+
+  // New worldbooks — fresh ids; remap each activation condition's variableId
+  // through the same var remap so conditional activation survives import.
+  const worldbookIdMap = new Map<string, string>();
+  const newWorldbooks = (bundle.worldbooks ?? []).map((wb) => {
+    const newId = crypto.randomUUID();
+    worldbookIdMap.set(wb.id, newId);
+    const activation =
+      wb.activation.mode === "conditions"
+        ? {
+            ...wb.activation,
+            conditions: wb.activation.conditions.map((c) => ({
+              ...c,
+              variableId: remapVarId(c.variableId),
+            })),
+          }
+        : wb.activation;
+    return { ...wb, id: newId, activation, sourceBundleId: installId };
+  });
+  // Entry membership: remap to the new worldbook id, or fall back to the
+  // situation the pack is going into (Core when none) if the bundle didn't
+  // include that worldbook.
+  const remapWorldbookId = (id: string | undefined): string | undefined =>
+    id && worldbookIdMap.has(id) ? worldbookIdMap.get(id) : intoBook;
+  // Variables stay the card's (a situation-scoped variable would hide the
+  // pack's state from the rest of the card), but one scoped to a situation
+  // the pack brought follows that situation's new id.
+  for (let i = 0; i < newVars.length; i++) {
+    const v = newVars[i]!;
+    if (v.worldbookId) newVars[i] = { ...v, worldbookId: worldbookIdMap.get(v.worldbookId) };
+  }
+
+  // New entries — always new UUIDs, build remap for toggle-entry actions.
+  // Place imported entries at the TOP of the lorebook (below the current
+  // minimum position) so freshly-imported, color-coded bundle content is
+  // immediately visible rather than buried at the bottom. Order within the
+  // bundle is preserved; positions sort first within each section.
+  const minPosition = s.worldDraft.entries.reduce((min, e) => Math.min(min, e.position ?? 0), 0);
+  const entryIdMap = new Map<string, string>();
+  const newEntries = bundle.entries.map((e, i) => {
+    const newId = crypto.randomUUID();
+    entryIdMap.set(e.id, newId);
+    return { ...e, id: newId, position: minPosition - bundle.entries.length + i };
+  });
+
+  // New rules — new UUIDs, build remap for toggle-rule actions
+  const ruleIdMap = new Map<string, string>();
+  for (const r of bundle.rules) {
+    ruleIdMap.set(r.id, crypto.randomUUID());
+  }
+  const remapEntryId = (id: string) => entryIdMap.get(id) ?? id;
+  const remapRuleId = (id: string) => ruleIdMap.get(id) ?? id;
+
+  const newRules = bundle.rules.map((r, i) => ({
+    ...r,
+    id: ruleIdMap.get(r.id)!,
+    priority: s.worldDraft.rules.length + i,
+    conditions: r.conditions.map((c) => ({
+      ...c,
+      variableId: remapVarId(c.variableId),
+    })),
+    actions: (r.actions ?? []).map((a) => {
+      if (a.type === "modify-variable") {
+        return { ...a, variableId: remapVarId(a.variableId) };
+      }
+      if (a.type === "toggle-entry") {
+        return { ...a, entryId: remapEntryId((a as unknown as { entryId: string }).entryId) };
+      }
+      if (a.type === "toggle-rule") {
+        return { ...a, ruleId: remapRuleId((a as unknown as { ruleId: string }).ruleId) };
+      }
+      return a;
+    }),
+  }));
+
+  // New reactions (behaviors) — new UUIDs, then rewrite every id-bearing
+  // reference they hold (watched variable, conditions, effect targets and
+  // operands) so they keep working against this world's ids.
+  const reactionIdMap = new Map<string, string>();
+  for (const r of bundle.reactions ?? []) {
+    reactionIdMap.set(r.id, crypto.randomUUID());
+  }
+  const newReactions: Reaction[] = (bundle.reactions ?? []).map((r, i) => {
+    const remapped = remapReactionReferences(r, {
+      variableId: remapVarId,
+      entryId: remapEntryId,
+      reactionId: (id) => reactionIdMap.get(id) ?? id,
+      worldbookId: (id) => worldbookIdMap.get(id) ?? id,
+    });
+    // Its own scope follows the situation it was in, or the one the pack is
+    // going into; an unscoped one goes with the pack.
+    const worldbookId = remapped.worldbookId ? worldbookIdMap.get(remapped.worldbookId) ?? intoBook : intoBook;
+    const { worldbookId: _scope, ...rest } = remapped;
+    return {
+      ...rest,
+      ...(worldbookId ? { worldbookId } : {}),
+      id: reactionIdMap.get(r.id)!,
+      priority: (s.worldDraft.reactions?.length ?? 0) + i,
+    } as Reaction;
+  });
+
+  // Merge custom tags (deduplicate)
+  const existingCustomTags = new Set(s.worldDraft.customTags ?? []);
+  const newCustomTags = (bundle.customTags ?? []).filter((t) => !existingCustomTags.has(t));
+
+  // Merge entry folders with new IDs and remapped book ownership. Legacy
+  // bundles may contain one shared folder referenced by several books; split
+  // it here just like the v20→v21 world migration does.
+  const bundleFolderKey = (folderId: string, worldbookId?: string) =>
+    `${folderId}\u0000${worldbookId ?? "\u0000core"}`;
+  const folderIdMap = new Map<string, string>();
+  const newFolders: EntryFolder[] = [];
+  for (const folder of bundle.entryFolders ?? []) {
+    const inferredScopes = new Set(
+      bundle.entries
+        .filter((entry) => entry.folderId === folder.id)
+        .map((entry) => entry.worldbookId),
+    );
+    const scopes = folder.worldbookId
+      ? [folder.worldbookId]
+      : inferredScopes.size > 0
+        ? [...inferredScopes]
+        : [undefined];
+    for (const sourceWorldbookId of scopes) {
+      const newId = crypto.randomUUID();
+      folderIdMap.set(bundleFolderKey(folder.id, sourceWorldbookId), newId);
+      newFolders.push({
+        ...folder,
+        id: newId,
+        worldbookId: remapWorldbookId(sourceWorldbookId),
+      });
+    }
+  }
+
+  // Remap folderId on entries + sync position/alwaysSend from section.
+  // Entry conditions get the same variableId remap as rules/worldbooks —
+  // without it, a name-conflict var rename leaves conditions pointing at
+  // an id that doesn't exist in this world.
+  const remappedEntries = newEntries.map((e) => {
+    const base = {
+      ...e,
+      folderId: e.folderId ? folderIdMap.get(bundleFolderKey(e.folderId, e.worldbookId)) : undefined,
+      // An opening is the card's: it never goes into a situation.
+      worldbookId: e.role === "greeting" && !(e.worldbookId && worldbookIdMap.has(e.worldbookId))
+        ? undefined
+        : remapWorldbookId(e.worldbookId),
+      bundleInstallId: installId,
+      conditions: (e.conditions ?? []).map((c) => ({
+        ...c,
+        variableId: remapVarId(c.variableId),
+      })),
+    };
+    // Don't override greeting entries
+    if (base.role === "greeting") return base;
+    // Sync derived fields from section — the ForEntry variant keeps
+    // alwaysSend=false on variable-bound entries (clobbering it was the
+    // "imported bundle ignores its conditions / always sends" bug).
+    if (base.section) {
+      const defaults = deriveSectionDefaultsForEntry(base, base.section);
+      return { ...base, ...defaults };
+    }
+    return base;
+  });
+
+  // Normalize the bundle's visual layer into a single rootComponent shape.
+  // Post-v3 bundles carry `rootComponent` directly. Pre-v3 shapes shipped
+  // customUI[] and/or messageRenderer/customComponents[] — we synthesize a
+  // rootComponent from those using the same v19→v20 converter the world
+  // migrator uses, so every import path converges on a single model.
+  let bundleRoot = interfaceMode === "skip" ? null : bundle.rootComponent ?? null;
+  if (!bundleRoot && interfaceMode !== "skip") {
+    const legacyCustomUI = [
+      ...((bundle.customUI ?? []) as Array<{ id?: string; name?: string; surface: "message" | "app"; tsxCode?: string; language?: "tsx" | "html" | "markdown"; visible?: boolean; order?: number }>),
+      ...(bundle.messageRenderer
+        ? [{
+            surface: "message" as const,
+            tsxCode: bundle.messageRenderer.tsxCode,
+            visible: true,
+          }]
+        : []),
+      ...((bundle.customComponents ?? []).map((c, i) => ({
+        surface: "app" as const,
+        tsxCode: c.tsxCode,
+        visible: c.visible ?? true,
+        order: c.order ?? i,
+      }))),
+    ];
+    if (legacyCustomUI.length > 0) {
+      const files = customUIToRootFiles(legacyCustomUI);
+      bundleRoot = {
+        id: `${s.worldDraft.id}:root`,
+        name: "Root",
+        entryFile: "index.tsx",
+        files,
+        updatedAt: new Date().toISOString(),
+      };
+    }
+  }
+  if (bundleRoot && Object.keys(bundleRoot.files ?? {}).length === 0) bundleRoot = null;
+
+  // Ids the card keeps under another name than the pack's: its interface
+  // reads them by id, so its own files follow.
+  const changedVarIds = new Map([...varIdMap].filter(([from, to]) => from !== to));
+
+  // Always-compose merge that preserves the runtime invariant
+  // `entryFile === "index.tsx"`. The user's own root code lives in
+  // __user-root.tsx; bundles live under _bundles/{slug}/; index.tsx is an
+  // auto-generated composer that mounts user-root + each bundle. This
+  // means importing a bundle NEVER erases the user's content — their
+  // previous index.tsx is migrated into __user-root.tsx on the first
+  // import and left untouched on subsequent imports. Replacing the screen
+  // only changes what the composer mounts: the author's root stays a file.
+  let mergedRoot = s.worldDraft.rootComponent;
+  let bundleSlug: string | undefined;
+  let previousRoot: InstalledBundle["previousRoot"];
+  if (bundleRoot) {
+    const worldRoot = s.worldDraft.rootComponent ?? {
+      id: `${s.worldDraft.id}:root`,
+      name: "Root",
+      entryFile: "index.tsx",
+      files: { "index.tsx": DEFAULT_ROOT_ENTRY_TSX },
+      updatedAt: new Date().toISOString(),
+    };
+
+    const currentIndex = worldRoot.files["index.tsx"] ?? DEFAULT_ROOT_ENTRY_TSX;
+    const alreadyComposed = currentIndex.startsWith(COMPOSED_MARKER);
+    const layout = alreadyComposed ? readComposedLayout(currentIndex) : {};
+
+    const files: Record<string, string> = { ...worldRoot.files };
+
+    // Ensure __user-root.tsx holds the user's own main UI. On first import
+    // we migrate the current index.tsx content there. On later imports the
+    // user's file is already in place — don't touch it.
+    if (!alreadyComposed && files[USER_ROOT_PATH] === undefined) {
+      files[USER_ROOT_PATH] = currentIndex;
+    }
+
+    // Pick a namespace slug for this bundle (bundle.name → kebab-slug,
+    // fallback "bundle", suffix on collision).
+    const baseSlug =
+      (bundle.name || "bundle")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 32) || "bundle";
+    const takenFolders = new Set<string>();
+    for (const fname of Object.keys(files)) {
+      const m = fname.match(/^_bundles\/([^/]+)\//);
+      if (m) takenFolders.add(m[1]);
+    }
+    let folder = baseSlug;
+    let suffix = 2;
+    while (takenFolders.has(folder)) {
+      folder = `${baseSlug}-${suffix++}`;
+    }
+    bundleSlug = folder;
+
+    // Copy bundle files into `_bundles/{folder}/`. Normalize the bundle's
+    // own entry to index.tsx inside its folder so the composed index can
+    // always import `./_bundles/{folder}/index`.
+    const bundleEntry = bundleRoot.entryFile ?? "index.tsx";
+    for (const [filename, code] of Object.entries(bundleRoot.files ?? {})) {
+      const destName =
+        filename === bundleEntry
+          ? "index.tsx"
+          : filename === "index.tsx"
+          ? "__aux-index.tsx"
+          : filename;
+      files[`_bundles/${folder}/${destName}`] = changedVarIds.size > 0 ? remapVariableIdsInCode(code, changedVarIds) : code;
+    }
+
+    // Authoritative bundle-folder list (includes any previous imports).
+    const folderSet = new Set<string>();
+    for (const fname of Object.keys(files)) {
+      const m = fname.match(BUNDLE_NS_RE);
+      if (m) folderSet.add(m[1]);
+    }
+    const folderList = [...folderSet].sort();
+
+    // Replace: this pack's screen is mounted in place of whatever was the
+    // screen, which is parked (kept, unmounted) until it comes back.
+    const nextLayout = interfaceMode === "replace"
+      ? {
+          screen: folder,
+          parked: [...(layout.parked ?? []), ...(layout.screen ? [layout.screen] : [])],
+        }
+      : layout;
+    if (interfaceMode === "replace") previousRoot = layout.screen ? { screen: layout.screen } : {};
+
+    // Regenerate the composed index.tsx. entryFile stays "index.tsx".
+    files["index.tsx"] = generateComposedIndex(folderList, nextLayout);
+
+    mergedRoot = {
+      ...worldRoot,
+      entryFile: "index.tsx",
+      files,
+      updatedAt: new Date().toISOString(),
+    };
+    if (s.worldDraft.uiDoc) mergedRoot = compileEditorUiDoc(s.worldDraft.uiDoc, mergedRoot);
+  }
+
+  const newAudioTracks = (bundle.audioTracks ?? []).map((t) => ({
+    ...t,
+    id: crypto.randomUUID(),
+  }));
+
+  // Record this import so the editor can color-code its content and offer
+  // clean removal via Manage Bundles. originalHash lets us detect later edits.
+  const settings = remapSettings(bundle.settings, remapVarId);
+  const assetMap = options.assetMap && Object.keys(options.assetMap).length > 0 ? options.assetMap : undefined;
+  const record: InstalledBundle = {
+    installId,
+    sourceBundleId,
+    name: bundle.name || "Bundle",
+    slug: bundleSlug,
+    colorKey,
+    importedAt: new Date().toISOString(),
+    originalHash: hashString(
+      projectBundleContent({
+        entries: remappedEntries,
+        variables: newVars,
+        rules: newRules,
+        reactions: newReactions,
+        audioTracks: newAudioTracks,
+        files: bundleFilesFor(bundleSlug, mergedRoot?.files ?? {}),
+      }),
+    ),
+    entryIds: remappedEntries.map((e) => e.id),
+    variableIds: newVars.map((v) => v.id),
+    ruleIds: newRules.map((r) => r.id),
+    reactionIds: newReactions.map((r) => r.id),
+    audioTrackIds: newAudioTracks.map((t) => t.id),
+    folderIds: newFolders.map((f) => f.id),
+    worldbookIds: newWorldbooks.map((w) => w.id),
+    ...(typeof bundle.version === "number" ? { version: bundle.version } : {}),
+    ...(settings ? { settings } : {}),
+    ...(assetMap ? { assetMap } : {}),
+    ...(previousRoot ? { previousRoot } : {}),
+    ...(intoBook ? { worldbookId: intoBook } : {}),
+    sourceIds: Object.fromEntries([
+      ...[...entryIdMap].map(([packId, id]) => [id, packId] as const),
+      ...[...reactionIdMap].map(([packId, id]) => [id, packId] as const),
+      ...[...ruleIdMap].map(([packId, id]) => [id, packId] as const),
+      ...[...varIdMap].filter(([, id]) => newVars.some((v) => v.id === id)).map(([packId, id]) => [id, packId] as const),
+    ]),
+  };
+
+  const draft: WorldDefinition = {
+    ...s.worldDraft,
+    entries: [...s.worldDraft.entries, ...remappedEntries],
+    variables: [...s.worldDraft.variables, ...newVars],
+    rules: [...s.worldDraft.rules, ...newRules],
+    // Stay undefined when neither side has behaviors, so importing a
+    // reaction-free bundle doesn't flip a legacy world onto the modern
+    // array (which would make the Behaviors editor stop compiling `rules`).
+    reactions:
+      newReactions.length > 0 || s.worldDraft.reactions
+        ? [...(s.worldDraft.reactions ?? []), ...newReactions]
+        : undefined,
+    rootComponent: mergedRoot,
+    customUI: s.worldDraft.customUI ?? [],
+    audioTracks: [...(s.worldDraft.audioTracks ?? []), ...newAudioTracks],
+    customTags: [...(s.worldDraft.customTags ?? []), ...newCustomTags],
+    entryFolders: [...(s.worldDraft.entryFolders ?? []), ...newFolders],
+    worldbooks: [...(s.worldDraft.worldbooks ?? []), ...newWorldbooks],
+    installedBundles: [...(s.worldDraft.installedBundles ?? []), record],
+  };
+  return draft;
+}
+
+/** The card's composed index regenerated after its pack folders changed,
+ *  keeping the screen it mounts. A pack that was the screen and is gone
+ *  hands the screen back to the one it replaced (or to the author's root). */
+function recomposeIndex(
+  files: Record<string, string>,
+  previousIndex: string | undefined,
+  removed?: { slug?: string; previousRoot?: InstalledBundle["previousRoot"] },
+): string {
+  const folderSet = new Set<string>();
+  for (const fname of Object.keys(files)) {
+    const m = fname.match(BUNDLE_NS_RE);
+    if (m) folderSet.add(m[1]);
+  }
+  const layout = readComposedLayout(previousIndex);
+  let screen = layout.screen;
+  let parked = (layout.parked ?? []).filter((f) => f !== removed?.slug);
+  if (removed?.slug && screen === removed.slug) {
+    screen = removed.previousRoot?.screen && folderSet.has(removed.previousRoot.screen) ? removed.previousRoot.screen : undefined;
+    parked = parked.filter((f) => f !== screen);
+  }
+  return generateComposedIndex([...folderSet].sort(), { ...(screen ? { screen } : {}), ...(parked.length ? { parked } : {}) });
+}
+
+/** Take an installed pack out of a world: the pure half of
+ *  `removeInstalledBundle` (and the first half of an update). The screen it
+ *  replaced, if any, is put back. */
+export function removeBundleFromWorld(world: WorldDefinition, installId: string): WorldDefinition {
+  const record = (world.installedBundles ?? []).find((b) => b.installId === installId);
+  if (!record) return world;
+
+  const entryIds = new Set(record.entryIds);
+  const variableIds = new Set(record.variableIds);
+  const ruleIds = new Set(record.ruleIds);
+  const reactionIds = new Set(record.reactionIds ?? []);
+  const audioIds = new Set(record.audioTrackIds);
+  const folderIds = new Set(record.folderIds);
+  const worldbookIds = new Set(record.worldbookIds ?? []);
+
+  // Drop the bundle's UI files (if any) and regenerate the composed index.
+  let rootComponent = world.rootComponent;
+  if (record.slug && rootComponent) {
+    const prefix = `_bundles/${record.slug}/`;
+    const files: Record<string, string> = {};
+    for (const [path, code] of Object.entries(rootComponent.files)) {
+      if (!path.startsWith(prefix)) files[path] = code;
+    }
+    files["index.tsx"] = recomposeIndex(files, rootComponent.files["index.tsx"], record);
+    rootComponent = { ...rootComponent, files, updatedAt: new Date().toISOString() };
+    if (world.uiDoc) rootComponent = compileEditorUiDoc(world.uiDoc, rootComponent);
+  }
+
+  return {
+    ...world,
+    entries: world.entries.filter((e) => e.bundleInstallId !== installId && !entryIds.has(e.id)),
+    variables: world.variables.filter((v) => !variableIds.has(v.id)),
+    rules: world.rules.filter((r) => !ruleIds.has(r.id)),
+    reactions: world.reactions?.filter((r) => !reactionIds.has(r.id)),
+    audioTracks: (world.audioTracks ?? []).filter((t) => !audioIds.has(t.id)),
+    entryFolders: (world.entryFolders ?? []).filter((f) => !folderIds.has(f.id)),
+    worldbooks: (world.worldbooks ?? []).filter((w) => !worldbookIds.has(w.id)),
+    rootComponent,
+    installedBundles: (world.installedBundles ?? []).filter((b) => b.installId !== installId),
+  };
+}
+
+/** One of the installer's own changes to a pack's object, found by an update. */
+export interface BundleUpdateEdit {
+  /** The object's id in the pack (stable across versions). */
+  packId: string;
+  kind: "entry" | "variable" | "behavior";
+  name: string;
+  /** The new version changed this object too, so keeping the installer's
+   *  edit means not getting the author's change to it. */
+  alsoChangedUpstream: boolean;
+  /** The new version no longer has this object. */
+  removedUpstream: boolean;
+}
+
+export interface BundleUpdateReport {
+  edits: BundleUpdateEdit[];
+  /** The installer edited the pack's interface files; the new version's
+   *  interface replaces them (code is not merged). */
+  interfaceEdited: boolean;
+  added: string[];
+  changed: string[];
+  removed: string[];
+}
+
+const stripIds = (value: unknown) => JSON.stringify(value, (key, v) => (key === "id" || key === "priority" || key === "position" || key === "bundleInstallId" || key === "folderId" || key === "worldbookId" ? undefined : v));
+const entryShape = (e: WorldEntry) => stripIds({ name: e.name, content: e.content, role: e.role, enabled: e.enabled !== false, keywords: e.keywords ?? [], secondaryKeywords: e.secondaryKeywords ?? [], conditions: e.conditions ?? [], section: e.section, depth: e.depth ?? null, tags: e.tags ?? [] });
+const variableShape = (v: Variable) => stripIds({ name: v.name, type: v.type, defaultValue: v.defaultValue, min: v.min ?? null, max: v.max ?? null, description: v.description ?? "", behaviorRules: v.behaviorRules ?? v.updateHints ?? "" });
+const reactionShape = (r: Reaction) => stripIds({ name: r.name, enabled: r.enabled !== false, when: r.when, conditions: r.conditions, conditionLogic: r.conditionLogic, then: r.then });
+
+/**
+ * Move an installed pack to a newer version of itself, keeping what the
+ * installer made of it.
+ *
+ * The old install comes out and the new version goes in under the same
+ * install id, colour, situation and screen choice. Then, object by object,
+ * whatever the installer had edited away from the version they installed is
+ * put back over the new version's copy, unless they chose the author's
+ * (`takeUpstream`). Values written by the pack's settings form are always
+ * kept. An edited object the new version dropped stays in the card as the
+ * installer's own. Without the old version (`previous` null) nothing can be
+ * told apart, so only the settings values carry over.
+ */
+export function updateBundleInWorld(
+  world: WorldDefinition,
+  installId: string,
+  next: YuminaBundle,
+  previous: YuminaBundle | null,
+  options: { assetMap?: Record<string, string>; takeUpstream?: ReadonlySet<string>; dryRun?: boolean } = {},
+): { world: WorldDefinition; report: BundleUpdateReport } {
+  const record = (world.installedBundles ?? []).find((b) => b.installId === installId);
+  const report: BundleUpdateReport = { edits: [], interfaceEdited: false, added: [], changed: [], removed: [] };
+  if (!record) return { world, report };
+
+  // What the author changed between the two versions, by pack id.
+  const byId = <T extends { id: string }>(list: readonly T[] | undefined) => new Map((list ?? []).map((x) => [x.id, x]));
+  const prevEntries = byId(previous?.entries), nextEntries = byId(next.entries);
+  const prevVars = byId(previous?.variables), nextVars = byId(next.variables);
+  const prevReactions = byId(previous?.reactions), nextReactions = byId(next.reactions);
+  if (previous) {
+    const diff = <T extends { id: string; name?: string }>(a: Map<string, T>, b: Map<string, T>, shape: (x: T) => string) => {
+      for (const [id, item] of b) {
+        const old = a.get(id);
+        if (!old) report.added.push(item.name ?? id);
+        else if (shape(old) !== shape(item)) report.changed.push(item.name ?? id);
+      }
+      for (const [id, item] of a) if (!b.has(id)) report.removed.push(item.name ?? id);
+    };
+    diff(prevEntries, nextEntries, entryShape);
+    diff(prevVars, nextVars, variableShape);
+    diff(prevReactions, nextReactions, reactionShape);
+  }
+
+  // What the installer changed, by pack id (only knowable with `previous`).
+  const sourceIds = record.sourceIds ?? {};
+  const packIdOf = (installedId: string, name: string | undefined, pool: Map<string, { id: string; name?: string }>) =>
+    sourceIds[installedId] ?? [...pool.values()].find((x) => x.name === name)?.id;
+  const keptEntries = new Map<string, WorldEntry>();
+  const keptVariables = new Map<string, Variable>();
+  const keptReactions = new Map<string, Reaction>();
+  if (previous) {
+    for (const id of record.entryIds) {
+      const mine = world.entries.find((e) => e.id === id);
+      if (!mine) continue;
+      const packId = packIdOf(id, mine.name, prevEntries);
+      const original = packId ? prevEntries.get(packId) : undefined;
+      if (!packId || !original || entryShape(mine) === entryShape(original)) continue;
+      const upstream = nextEntries.get(packId);
+      report.edits.push({ packId, kind: "entry", name: mine.name, alsoChangedUpstream: !!upstream && entryShape(upstream) !== entryShape(original), removedUpstream: !upstream });
+      keptEntries.set(packId, mine);
+    }
+    for (const id of record.variableIds) {
+      const mine = world.variables.find((v) => v.id === id);
+      if (!mine) continue;
+      const packId = packIdOf(id, mine.name, prevVars);
+      const original = packId ? prevVars.get(packId) : undefined;
+      if (!packId || !original || variableShape(mine) === variableShape(original)) continue;
+      const upstream = nextVars.get(packId);
+      report.edits.push({ packId, kind: "variable", name: mine.name, alsoChangedUpstream: !!upstream && variableShape(upstream) !== variableShape(original), removedUpstream: !upstream });
+      keptVariables.set(packId, mine);
+    }
+    for (const id of record.reactionIds ?? []) {
+      const mine = (world.reactions ?? []).find((r) => r.id === id);
+      if (!mine) continue;
+      const packId = packIdOf(id, mine.name, prevReactions);
+      const original = packId ? prevReactions.get(packId) : undefined;
+      if (!packId || !original || reactionShape(mine) === reactionShape(original)) continue;
+      const upstream = nextReactions.get(packId);
+      report.edits.push({ packId, kind: "behavior", name: mine.name, alsoChangedUpstream: !!upstream && reactionShape(upstream) !== reactionShape(original), removedUpstream: !upstream });
+      keptReactions.set(packId, mine);
+    }
+    if (record.slug && previous.rootComponent) {
+      const installed = bundleFilesFor(record.slug, world.rootComponent?.files ?? {});
+      const entry = previous.rootComponent.entryFile ?? "index.tsx";
+      const original: Record<string, string> = {};
+      for (const [name, code] of Object.entries(previous.rootComponent.files ?? {})) {
+        original[name === entry ? "index.tsx" : name === "index.tsx" ? "__aux-index.tsx" : name] = code;
+      }
+      report.interfaceEdited = Object.keys(installed).length !== Object.keys(original).length
+        || Object.entries(installed).some(([name, code]) => original[name] !== code);
+    }
+  }
+  if (options.dryRun) return { world, report };
+
+  // Settings values live in variable defaults: carry them whatever the author did.
+  const settingValues = new Map<string, unknown>();
+  for (const field of record.settings ?? []) {
+    const v = world.variables.find((x) => x.id === field.variableId);
+    const packId = v ? packIdOf(v.id, v.name, prevVars.size ? prevVars : nextVars) : undefined;
+    if (v && packId) settingValues.set(packId, v.defaultValue);
+  }
+
+  const take = options.takeUpstream ?? new Set<string>();
+  let out = removeBundleFromWorld(world, installId);
+  out = mergeBundleIntoWorld(out, next, record.sourceBundleId, {
+    installId,
+    colorKey: record.colorKey,
+    ...(record.worldbookId ? { worldbookId: record.worldbookId } : {}),
+    interface: record.previousRoot ? "replace" : record.slug ? "compose" : "skip",
+    ...(options.assetMap ? { assetMap: options.assetMap } : {}),
+  });
+  const fresh = (out.installedBundles ?? []).find((b) => b.installId === installId);
+  if (!fresh) return { world: out, report };
+  const installedIdOf = (packId: string) => Object.entries(fresh.sourceIds ?? {}).find(([, p]) => p === packId)?.[0];
+
+  // Put the installer's edits back over the new version's copies.
+  const entries = [...out.entries];
+  for (const [packId, mine] of keptEntries) {
+    if (take.has(packId)) continue;
+    const id = installedIdOf(packId);
+    const at = id ? entries.findIndex((e) => e.id === id) : -1;
+    if (at >= 0) entries[at] = { ...mine, id: entries[at]!.id, bundleInstallId: installId };
+    else entries.push({ ...mine, bundleInstallId: undefined });
+  }
+  const variables = out.variables.map((v) => {
+    const packId = fresh.sourceIds?.[v.id];
+    if (!packId) return v;
+    const mine = keptVariables.get(packId);
+    if (mine && !take.has(packId)) return { ...mine, id: v.id };
+    if (settingValues.has(packId)) return { ...v, defaultValue: settingValues.get(packId) as Variable["defaultValue"] };
+    return v;
+  });
+  for (const [packId, mine] of keptVariables) {
+    if (!take.has(packId) && !installedIdOf(packId) && !variables.some((v) => v.id === mine.id)) variables.push(mine);
+  }
+  let reactions = out.reactions ? [...out.reactions] : out.reactions;
+  for (const [packId, mine] of keptReactions) {
+    if (take.has(packId)) continue;
+    const id = installedIdOf(packId);
+    reactions = reactions ?? [];
+    const at = id ? reactions.findIndex((r) => r.id === id) : -1;
+    if (at >= 0) reactions[at] = { ...mine, id: reactions[at]!.id };
+    else reactions.push(mine);
+  }
+  return { world: { ...out, entries, variables, reactions }, report };
+}
+
+export function createEmptyWorld(): WorldDefinition {
   return {
     id: crypto.randomUUID(),
     version: "21.0.0",
@@ -435,6 +1232,10 @@ interface EditorState {
   /** Creator of the card loadWorld fetched. A published card loads for anyone,
    *  so the editor routes compare this with the signed-in user before editing. */
   serverCreatorId: string | null;
+  /** What this person may do with the open card: its creator ("owner"), or
+   *  someone the creator invited ("editor" / "viewer"). Null for a new card. */
+  access: { role: "owner" | "editor" | "viewer"; canPublish: boolean } | null;
+  setAccess: (access: { role: "owner" | "editor" | "viewer"; canPublish: boolean } | null) => void;
   isDirty: boolean;
   /** Canvas positions changed and want persisting. Deliberately separate from
    *  `isDirty`: laying blocks out is a view action, and `isDirty` is what says
@@ -446,7 +1247,8 @@ interface EditorState {
   loadingWorld: boolean;
   /** Why the last loadWorld failed — the studio route renders a dead end
    *  instead of spinning forever. Null while loading or on success. */
-  loadError: "notFound" | "failed" | null;
+  /** "removed": the card was shared with this person and no longer is. */
+  loadError: "notFound" | "failed" | "removed" | null;
 
   /** When true, a server refresh was deferred because the editor had unsaved changes. Consumed after next saveDraft(). */
   _pendingServerRefresh: boolean;
@@ -566,7 +1368,17 @@ interface EditorState {
    * 3-way merges (server + local) instead of bailing — that bail was the bug
    * where the agent's changes didn't show until a reload. (`force` is vestigial.)
    */
-  refreshWorldSchema: (force?: boolean, options?: { source: "cover-upload"; target?: "portrait" | "landscape" }) => Promise<void>;
+  refreshWorldSchema: (force?: boolean, options?: { source: "cover-upload"; target?: "portrait" | "landscape" } | { source: "remote-save" }) => Promise<void>;
+  /**
+   * Another tab, device or person saved this world (the live stream's
+   * "saved" event). Applies their change set on top of what this editor has,
+   * keeping its unsaved edits, or pulls and merges the server copy.
+   */
+  applyRemoteSave: (event: RemoteSaveEvent) => void;
+  /** A text field's shared text (features/collab/live-text) written into the
+   *  draft: `key` is an engine textFieldKey; "remote" when someone else typed
+   *  it. Kept out of the undo history. */
+  applyLiveText: (key: string, value: string, origin: "local" | "remote") => void;
   /** Submit a held material edit (published world) to the moderation queue. */
   submitPendingEdit: () => Promise<boolean>;
   /** Pull a submitted held edit back out of the queue so it can be edited. */
@@ -606,6 +1418,8 @@ interface EditorState {
   removeFolder: (folderId: string) => void;
   renameFolder: (folderId: string, name: string) => void;
   moveFolder: (folderId: string, newSection: NonNullable<WorldEntry["section"]>) => void;
+  /** Put a folder right before or after another folder of the same section. */
+  reorderFolder: (folderId: string, targetFolderId: string, place: "before" | "after") => void;
 
   // Tag management
   addCustomTag: (tagName: string) => void;
@@ -712,6 +1526,13 @@ interface EditorState {
      *  reads "清晨" or "Morning", never a value the engine could have held. */
     variableDefaults?: Record<string, string>,
   ) => void;
+  /** Put the interface back as it was before a run of 「换界面」 previews: the
+   *  document and the compiled screen from then, without the variables the
+   *  previews made. One commit, so the way back is itself one undo step. */
+  restoreInterface: (
+    snapshot: Pick<WorldDefinition, "uiDoc" | "rootComponent">,
+    dropVariableIds: readonly string[],
+  ) => void;
   /**
    * Add a ready-made FUNCTION as a new page — ask the player's name, pick an
    * opening, a title screen — spliced into the card's opening sequence, with
@@ -771,7 +1592,9 @@ interface EditorState {
    */
   loadWorldDefinition: (
     def: WorldDefinition,
-    options?: { preserveServerState?: boolean }
+    /** `ephemeral`: a card only looked at (a pack preview), never saved: the
+     *  page's crash-recovery copy of the real draft is left alone. */
+    options?: { preserveServerState?: boolean; ephemeral?: boolean }
   ) => void;
   /**
    * Upload `blob` as the current world's cover. Used after importing a PNG
@@ -780,9 +1603,17 @@ interface EditorState {
    * owned world. Updates `avatar` for immediate display.
    */
   applyImportedCover: (blob: Blob) => Promise<void>;
-  importBundle: (bundle: YuminaBundle, sourceBundleId?: string) => void;
+  importBundle: (bundle: YuminaBundle, sourceBundleId?: string, options?: MergeBundleOptions) => string | undefined;
+  /** Keep a pack's content as the author's own: drop its install record and
+   *  the tags that tie its entries to it. Nothing in the card changes. */
+  detachInstalledBundle: (installId: string) => void;
+  /** One settings field of an installed pack written: the variable's
+   *  defaultValue at `path`. Several writes from one action are one undo. */
+  setBundleSettingValues: (writes: Array<{ variableId: string; path?: string; value: unknown }>) => void;
   /** Remove a previously-imported bundle and all the content it added. */
   removeInstalledBundle: (installId: string) => void;
+  /** Move an installed pack to a newer version, keeping the installer's edits (see updateBundleInWorld). One undo step. */
+  updateInstalledBundle: (installId: string, next: YuminaBundle, previous: YuminaBundle | null, options?: { assetMap?: Record<string, string>; takeUpstream?: ReadonlySet<string> }) => BundleUpdateReport | null;
   /** True if the user has edited any of the bundle's content since import. */
   isInstalledBundleModified: (installId: string) => boolean;
 
@@ -898,7 +1729,107 @@ let persistenceDetached = false;
 /** Bumped each time the editor is left: a first save still in flight then
  *  must not start the server autosave for an editor nobody has open. */
 let autosaveVisit = 0;
-let serverAutosaveTimer: ReturnType<typeof setInterval> | null = null;
+let serverAutosaveTimer: ReturnType<typeof setTimeout> | null = null;
+/** When the oldest unsaved edit was made — bounds the debounce (max wait). */
+let serverAutosaveDirtySince: number | null = null;
+let serverAutosaveFailures = 0;
+/** Size of the last save body; large cards autosave on a slower cadence. */
+let lastSaveBytes = 0;
+/** This tab, as the live stream names it: a save's echo comes back with it. */
+export const editorClientId: string =
+  typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `tab-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+/** The rootComponent the server holds as of the last change-set save — with
+ *  the compiled output the draft never carries — so the next save sends only
+ *  what moved. Reset whenever the base is replaced wholesale. */
+let lastSentRoot: { epoch: number; token: string | null; root: unknown } | null = null;
+/**
+ * The _baseSchema object known to equal the server's stored copy exactly.
+ * A card is loaded (and refreshed) through migration, which fills in
+ * defaults the stored copy may not have; a change set computed against that
+ * would land on a server copy missing the very rows or files it edits. So the
+ * first save after any load or refresh sends the whole world, and change sets
+ * only follow from a base the server provably holds. Compared by identity:
+ * replacing _baseSchema any other way drops back to a whole save.
+ */
+let serverSyncedBase: WorldDefinition | null = null;
+/** Other people's saves that arrived while a save of ours was out. */
+let remoteQueue: RemoteSaveEvent[] = [];
+/** Tests only: drop saves a previous test queued, so they are not replayed into the next one. */
+export function __clearRemoteSaveQueueForTests(): void {
+  remoteQueue = [];
+}
+
+export interface RemoteSaveEvent {
+  updatedAt: string;
+  previousUpdatedAt: string | null;
+  clientId: string | null;
+  actorUserId?: string;
+  changes?: unknown[];
+  /** Card fields kept beside the schema that the save set. */
+  meta?: Record<string, unknown>;
+}
+
+/**
+ * Card fields kept beside the schema (tags, gallery, notice…), as the server
+ * last held them for this card. A change-set save sends only the ones that
+ * differ from it, so one person's autosave never puts back another's old
+ * tags; someone else's save replaces the ones not edited here since.
+ */
+const CARD_META_KEYS = ["tags", "galleryImages", "announcement", "approxTime", "variantLabel", "language"] as const;
+type CardMetaKey = (typeof CARD_META_KEYS)[number];
+type CardMeta = Record<CardMetaKey, unknown>;
+let serverMeta: { worldId: string; meta: CardMeta } | null = null;
+
+type CardMetaFields = Pick<EditorState, "tags" | "galleryImages" | "announcement" | "approxTime" | "variantLabel" | "language">;
+
+/** The fields as a save sends them. */
+function cardMetaOf(s: CardMetaFields): CardMeta {
+  return {
+    tags: s.tags, galleryImages: s.galleryImages,
+    announcement: s.announcement || null, approxTime: s.approxTime || null,
+    variantLabel: s.variantLabel || null, language: s.language || null,
+  };
+}
+
+function cardMetaFromData(data: Record<string, unknown>): CardMeta {
+  return cardMetaOf({
+    tags: Array.isArray(data.tags) ? data.tags : [],
+    galleryImages: Array.isArray(data.galleryImages) ? data.galleryImages : [],
+    announcement: (data.announcement as string | null) ?? "",
+    approxTime: (data.approxTime as string | null) ?? "",
+    variantLabel: (data.variantLabel as string | null) ?? null,
+    language: (data.language as string | null) ?? null,
+  });
+}
+
+function knownServerMeta(worldId: string | null): CardMeta | null {
+  return serverMeta && worldId && serverMeta.worldId === worldId ? serverMeta.meta : null;
+}
+
+/** Store updates for card fields someone else saved, leaving any this editor
+ *  changed and has not saved yet: those go out with its next save. */
+function adoptRemoteMeta(s: EditorState, remote: Partial<CardMeta>): Partial<EditorState> {
+  if (!s.serverWorldId) return {};
+  const known = knownServerMeta(s.serverWorldId);
+  const local = cardMetaOf(s);
+  const next: CardMeta = { ...(known ?? local) };
+  const out: Partial<EditorState> = {};
+  for (const key of CARD_META_KEYS) {
+    if (!(key in remote)) continue;
+    const value = remote[key];
+    next[key] = value;
+    if (known && !deepEqual(local[key], known[key])) continue;
+    if (key === "tags" || key === "galleryImages") out[key] = Array.isArray(value) ? (value as string[]) : [];
+    else if (key === "announcement" || key === "approxTime") out[key] = typeof value === "string" ? value : "";
+    else out[key] = typeof value === "string" ? value : null;
+  }
+  serverMeta = { worldId: s.serverWorldId, meta: next };
+  return out;
+}
+
+const tokenTime = (token: string | null | undefined) => (token ? Date.parse(token) : NaN);
 /** A STALE_WORLD save that merged cleanly retries itself once; this is the
  *  once. Module-level rather than store state: it is a re-entrancy guard for
  *  one call chain, not something the UI should ever read. */
@@ -968,44 +1899,289 @@ function validServerToken(value: unknown): string | null {
   return typeof value === "string" && Number.isFinite(Date.parse(value)) ? value : null;
 }
 
-/** Start the periodic server auto-save (every 60s if dirty). */
-function startServerAutosave() {
-  stopServerAutosave();
-  serverAutosaveTimer = setInterval(() => {
-    const state = useEditorStore.getState();
-    if ((state.isDirty || state.layoutDirty) && !state.saving && state.serverWorldId) {
-      // No confirmation: saveDraft stamps lastSavedAt and the header derives
-      // its own "Saved" state from it. Autosave never mints a version.
-      void state.saveDraft().then((ok) => {
-        if (ok) captureHubEvent("studio_blueprint_saved", { world_id: state.serverWorldId!, trigger: "autosave" });
-      });
-    }
-  }, SERVER_AUTOSAVE_INTERVAL);
+/**
+ * Arm the server autosave after an edit: it runs once the creator pauses
+ * (debounced), but no later than the max wait after the oldest unsaved edit.
+ * Safe to call on every edit.
+ */
+function startServerAutosave({ layoutOnly = false, text }: { layoutOnly?: boolean; text?: "local" | "remote" } = {}) {
+  if (persistenceDetached || saveBlockedByReview) return;
+  const now = Date.now();
+  const large = lastSaveBytes > LARGE_SAVE_BYTES;
+  // Someone else's typing: their own save carries it. Wait long enough for
+  // that to arrive, and don't move up a save already due.
+  if (text === "remote") {
+    if (serverAutosaveTimer) return;
+    armServerAutosave(SERVER_AUTOSAVE_REMOTE_TEXT_QUIET_MS);
+    return;
+  }
+  serverAutosaveDirtySince ??= now;
+  const together = !layoutOnly && !text && !large && collaboratorsPresent();
+  const quiet = layoutOnly ? SERVER_AUTOSAVE_LAYOUT_QUIET_MS : large ? SERVER_AUTOSAVE_LARGE_QUIET_MS : together ? SERVER_AUTOSAVE_COLLAB_QUIET_MS : SERVER_AUTOSAVE_QUIET_MS;
+  const maxWait = large ? SERVER_AUTOSAVE_LARGE_MAX_WAIT_MS : together ? SERVER_AUTOSAVE_COLLAB_MAX_WAIT_MS : SERVER_AUTOSAVE_MAX_WAIT_MS;
+  // After failures, wait out the backoff instead of hammering a server that
+  // just said no (or a connection that is down).
+  const backoff = serverAutosaveFailures > 0
+    ? Math.min(SERVER_AUTOSAVE_MAX_RETRY_MS, 5000 * 2 ** (serverAutosaveFailures - 1))
+    : 0;
+  const due = Math.max(now + backoff, Math.min(now + quiet, serverAutosaveDirtySince + maxWait));
+  armServerAutosave(due - now);
 }
+
+function measureWorldSize(draft: WorldDefinition) {
+  lastSaveBytes = 0;
+  const schedule = typeof requestIdleCallback === "function" ? requestIdleCallback : (cb: () => void) => setTimeout(cb, 500);
+  schedule(() => {
+    try { lastSaveBytes = JSON.stringify(draft).length; } catch { /* keep the fast cadence */ }
+  });
+}
+
+/** Set while read-only came from opening a card as its viewer (not from the
+ *  admin inspect route), so the next card gives it back. */
+let readOnlyFromViewer = false;
+/** A viewer reads the card; nothing they touch is saved. */
+function readOnlyForAccess(access: { role?: string } | null | undefined, current: boolean): boolean {
+  if (access?.role === "viewer") { readOnlyFromViewer = true; return true; }
+  if (readOnlyFromViewer) { readOnlyFromViewer = false; return false; }
+  return current;
+}
+
+/**
+ * Replay saves in the server's order (each one's previousUpdatedAt is the
+ * token before it), starting from `base` at `token`. Returns the resulting
+ * copy and token, plus the other people's changes, or null when a link is
+ * missing or a save came without its change set.
+ */
+function chainSaves(
+  base: WorldDefinition,
+  token: string,
+  queued: RemoteSaveEvent[],
+  mine: { updatedAt: string; previousUpdatedAt: string; changes: WorldEdit[] },
+): { base: WorldDefinition; token: string; theirs: WorldEdit[] } | null {
+  const steps = [
+    ...queued.map((e) => ({ updatedAt: e.updatedAt, previousUpdatedAt: e.previousUpdatedAt, changes: e.changes, mine: false })),
+    { ...mine, mine: true },
+  ].sort((a, b) => tokenTime(a.updatedAt) - tokenTime(b.updatedAt));
+  let current = base;
+  let at = token;
+  const theirs: WorldEdit[] = [];
+  for (const step of steps) {
+    if (tokenTime(step.updatedAt) <= tokenTime(at)) continue; // already in the base
+    if (!step.previousUpdatedAt || tokenTime(step.previousUpdatedAt) !== tokenTime(at)) return null;
+    if (!Array.isArray(step.changes) || !isWorldChangeList(step.changes)) return null;
+    current = applyWorldChanges(current, step.changes);
+    at = step.updatedAt;
+    if (!step.mine) theirs.push(...step.changes);
+  }
+  return { base: current, token: at, theirs };
+}
+
+/** Collections whose rows people edit one at a time (an entry, a variable…). */
+const EDIT_TRACKED_ROWS = ["entries", "variables", "rules", "reactions", "worldbooks", "customUI", "audioTracks", "sceneImages", "backgrounds", "scenes", "characters"] as const;
+
+export interface EditTarget { target: string; label: string }
+
+/** The row this edit changed, by reference (unchanged rows keep theirs). */
+function editedRow(prev: WorldDefinition, next: WorldDefinition): EditTarget | null {
+  const a = prev as unknown as Record<string, unknown>;
+  const b = next as unknown as Record<string, unknown>;
+  for (const key of EDIT_TRACKED_ROWS) {
+    const before = a[key];
+    const after = b[key];
+    if (before === after || !Array.isArray(after)) continue;
+    const old = new Map((Array.isArray(before) ? before : []).map((r) => [(r as { id?: unknown })?.id, r]));
+    for (const row of after as Array<Record<string, unknown>>) {
+      if (!row || typeof row.id !== "string") continue;
+      if (old.get(row.id) === row) continue;
+      const label = typeof row.name === "string" && row.name ? row.name : typeof row.title === "string" && row.title ? row.title : row.id;
+      return { target: `${key}:${row.id}`, label };
+    }
+  }
+  return null;
+}
+
+/**
+ * Tell the collaboration layer what this person just edited, so others see
+ * "X is editing Y" and both sides get a heads-up when they touch the same
+ * thing. A DOM event keeps the store free of collaboration code.
+ */
+function announceLocalEdit(prev: WorldDefinition, next: WorldDefinition) {
+  if (typeof window === "undefined") return;
+  const edited = editedRow(prev, next);
+  if (edited) window.dispatchEvent(new window.CustomEvent<EditTarget>("yumina:local-edit", { detail: edited }));
+}
+
+/** The rows a change set from someone else touched. */
+function announceRemoteEdit(actorUserId: string | undefined, changes: WorldEdit[]) {
+  if (typeof window === "undefined" || !actorUserId) return;
+  const targets = changes
+    .filter((c): c is Extract<WorldEdit, { key: string; id: string }> => c.op === "row" || c.op === "rowFields" || c.op === "delete")
+    .map((c) => `${c.key}:${c.id}`);
+  if (targets.length > 0) window.dispatchEvent(new window.CustomEvent("yumina:remote-edit", { detail: { actorUserId, targets } }));
+}
+
+/**
+ * The undo history carried through a new server copy: what changed between
+ * the old copy and the new one lands in every step, so undo steps back
+ * through this editor's own edits without reverting what arrived.
+ */
+function historyThrough(
+  s: Pick<EditorState, "_past" | "_future">,
+  oldBase: WorldDefinition | null,
+  newBase: WorldDefinition,
+): Pick<EditorState, "_past" | "_future" | "canUndo" | "canRedo"> {
+  if (!oldBase || (s._past.length === 0 && s._future.length === 0)) return { _past: [], _future: [], canUndo: false, canRedo: false };
+  const theirs = diffWorld(oldBase, newBase);
+  const _past = s._past.map((w) => applyWorldChanges(w, theirs));
+  const _future = s._future.map((w) => applyWorldChanges(w, theirs));
+  return { _past, _future, canUndo: _past.length > 0, canRedo: _future.length > 0 };
+}
+
+/** Rows someone deleted while this editor had unsaved edits in them: they
+ *  stay (an edit beats a delete) and the creator is told. */
+function announceRestoredRows(restored: Array<{ key: string; id: string }>, draft: WorldDefinition, actorUserId?: string) {
+  const w = draft as unknown as Record<string, unknown>;
+  for (const { key, id } of restored.slice(0, 3)) {
+    const row = Array.isArray(w[key]) ? (w[key] as Array<Record<string, unknown>>).find((r) => r?.id === id) : undefined;
+    const label = typeof row?.name === "string" && row.name ? row.name : typeof row?.title === "string" && row.title ? row.title : id;
+    feedback.notice(tr("editor:collab.liveRestoredDeleted", "Someone deleted “{{label}}” while you were editing it — your edits were kept", { label }));
+  }
+  if (typeof window !== "undefined" && actorUserId) {
+    window.dispatchEvent(new window.CustomEvent("yumina:remote-edit", { detail: { actorUserId, targets: restored.map((r) => `${r.key}:${r.id}`) } }));
+  }
+}
+
+/**
+ * A change-set save the server refused because someone else changed the same
+ * thing (or deleted what it edited). The merge kept this editor's version;
+ * say what clashed, and offer theirs back for the edited ones.
+ */
+function announceSaveClash(
+  clash: { missing?: Array<{ key: string; id: string }>; conflicts?: Array<{ key: string; id: string; fields?: string[] }> },
+  merged: WorldMergeConflict[],
+  draft: WorldDefinition,
+  theirs: WorldDefinition,
+) {
+  const label = (world: WorldDefinition, key: string, id: string) => {
+    const rows = (world as unknown as Record<string, unknown>)[key];
+    const row = Array.isArray(rows) ? (rows as Array<Record<string, unknown>>).find((r) => r?.id === id) : undefined;
+    return typeof row?.name === "string" && row.name ? row.name : typeof row?.title === "string" && row.title ? row.title : id;
+  };
+  for (const m of (clash.missing ?? []).slice(0, 2)) {
+    feedback.notice(tr("editor:collab.liveRestoredDeleted", "Someone deleted “{{label}}” while you were editing it — your edits were kept", { label: label(draft, m.key, m.id) }));
+  }
+  const edited = (clash.conflicts ?? []).slice(0, 5);
+  if (edited.length === 0) return;
+  const names = edited.map((c) => (c.key === "field" || c.key === "rootComponent" ? c.id.split(".")[0]! : c.key === "rootComponent.files" ? c.id : label(draft, c.key, c.id)));
+  feedback.persistent(
+    tr("editor:collab.liveKeptYours", "{{names}} was also changed by someone else just now — your version was kept", { names: [...new Set(names)].join(", ") }),
+    {
+      label: tr("editor:collab.liveUseTheirs", "Use theirs"),
+      onClick: () => takeTheirs(edited, merged, theirs),
+    },
+    { id: "editor-save-clash" },
+  );
+}
+
+/** Put the other side's version of what clashed back in the draft. */
+function takeTheirs(clashes: Array<{ key: string; id: string; fields?: string[] }>, merged: WorldMergeConflict[], theirs: WorldDefinition) {
+  const s = useEditorStore.getState();
+  let w = s.worldDraft as unknown as Record<string, unknown>;
+  const t = theirs as unknown as Record<string, unknown>;
+  for (const c of clashes) {
+    if (c.key === "field") {
+      const top = c.id.split(".")[0]!;
+      w = { ...w, [top]: structuredClone(t[top]) };
+    } else if (c.key === "rootComponent.files") {
+      const files = { ...((w.rootComponent as { files?: Record<string, string> } | undefined)?.files ?? {}) };
+      const theirFiles = (t.rootComponent as { files?: Record<string, string> } | undefined)?.files ?? {};
+      if (c.id in theirFiles) files[c.id] = theirFiles[c.id]!; else delete files[c.id];
+      w = { ...w, rootComponent: { ...(w.rootComponent as Record<string, unknown>), files } };
+    } else if (c.key === "rootComponent") {
+      w = { ...w, rootComponent: { ...(w.rootComponent as Record<string, unknown>), [c.id]: (t.rootComponent as Record<string, unknown> | undefined)?.[c.id] } };
+    } else if (Array.isArray(w[c.key])) {
+      const theirRow = Array.isArray(t[c.key]) ? (t[c.key] as Array<Record<string, unknown>>).find((r) => r?.id === c.id) : undefined;
+      if (!theirRow) continue;
+      w = { ...w, [c.key]: (w[c.key] as Array<Record<string, unknown>>).map((r) => {
+        if (r?.id !== c.id) return r;
+        if (!c.fields?.length) return structuredClone(theirRow);
+        const next = { ...r };
+        for (const f of c.fields) { if (theirRow[f] === undefined) delete next[f]; else next[f] = structuredClone(theirRow[f]); }
+        return next;
+      }) };
+    }
+  }
+  void merged;
+  useEditorStore.setState(commitDraft(s, w as unknown as WorldDefinition));
+}
+
+/** Whether a server autosave is waiting to run (tests). */
+export function isServerAutosaveArmed(): boolean {
+  return serverAutosaveTimer !== null;
+}
+
+function armServerAutosave(delay: number) {
+  if (serverAutosaveTimer) clearTimeout(serverAutosaveTimer);
+  serverAutosaveTimer = setTimeout(runServerAutosave, Math.max(0, delay));
+}
+
+function runServerAutosave() {
+  serverAutosaveTimer = null;
+  const state = useEditorStore.getState();
+  if (!(state.isDirty || state.layoutDirty || remoteTextUnsaved) || !state.serverWorldId || state.readOnlyInspect || state.guestMode) {
+    serverAutosaveDirtySince = null;
+    return;
+  }
+  // A save is already running (manual, or another caller): look again once
+  // it is likely done rather than queueing behind it.
+  if (state.saving || state.loadingWorld) {
+    armServerAutosave(1000);
+    return;
+  }
+  const visit = autosaveVisit;
+  const worldId = state.serverWorldId;
+  // No confirmation: saveDraft stamps lastSavedAt and the header derives
+  // its own "Saved" state from it. Autosave never mints a version.
+  void state.saveDraft().then((ok) => {
+    if (visit !== autosaveVisit) return;
+    if (ok) {
+      serverAutosaveFailures = 0;
+      serverAutosaveDirtySince = null;
+      captureHubEvent("studio_blueprint_saved", { world_id: worldId, trigger: "autosave" });
+    } else {
+      serverAutosaveFailures++;
+    }
+    // Edits made while the request was in flight, or a failed save, still
+    // need to reach the server.
+    const latest = useEditorStore.getState();
+    if ((latest.isDirty || latest.layoutDirty) && latest.serverWorldId === worldId) startServerAutosave();
+  });
+}
+
+/**
+ * The tab is being hidden or closed: send what is waiting now instead of
+ * after the autosave pause. A small change set goes as a keepalive request,
+ * which the browser finishes even if the page is torn down meanwhile; the
+ * local backup still covers anything that can't make it.
+ */
+export function saveBeforeLeaving(): void {
+  const state = useEditorStore.getState();
+  if (!(state.isDirty || state.layoutDirty) || !state.serverWorldId || state.readOnlyInspect || state.guestMode) return;
+  if (state.saving || state.loadingWorld) return;
+  if (serverAutosaveTimer) { clearTimeout(serverAutosaveTimer); serverAutosaveTimer = null; }
+  leavingSave = true;
+  runServerAutosave();
+}
+
+/** The next save is the one sent as the page goes away. */
+let leavingSave = false;
+/** Browsers cap what keepalive requests may carry: 64 KiB, across all of them. */
+const KEEPALIVE_BODY_LIMIT = 48_000;
 
 function stopServerAutosave() {
-  if (serverAutosaveTimer) { clearInterval(serverAutosaveTimer); serverAutosaveTimer = null; }
-  if (idleSaveTimer) { clearTimeout(idleSaveTimer); idleSaveTimer = null; }
-}
-
-let idleSaveTimer: ReturnType<typeof setTimeout> | null = null;
-let lastServerSaveAt = 0;
-
-/** The save a few seconds after the last edit, held back to one per
- *  SERVER_SAVE_MIN_GAP. Every edit pushes it further out. */
-function scheduleIdleServerSave() {
-  if (idleSaveTimer) clearTimeout(idleSaveTimer);
-  const wait = Math.max(IDLE_SAVE_DELAY, lastServerSaveAt + SERVER_SAVE_MIN_GAP - Date.now());
-  idleSaveTimer = setTimeout(() => {
-    idleSaveTimer = null;
-    const state = useEditorStore.getState();
-    if (!state.serverWorldId || !(state.isDirty || state.layoutDirty)) return;
-    if (state.saving) { scheduleIdleServerSave(); return; }
-    lastServerSaveAt = Date.now();
-    void state.saveDraft().then((ok) => {
-      if (ok) captureHubEvent("studio_blueprint_saved", { world_id: state.serverWorldId!, trigger: "autosave" });
-    });
-  }, wait);
+  if (serverAutosaveTimer) { clearTimeout(serverAutosaveTimer); serverAutosaveTimer = null; }
+  serverAutosaveDirtySince = null;
+  serverAutosaveFailures = 0;
 }
 
 let newWorldSaveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1217,6 +2393,21 @@ function withLayoutOf(snapshot: WorldDefinition, current: WorldDefinition): Worl
   return rest as WorldDefinition;
 }
 
+/** Set while the live text layer writes a field's shared text into the
+ *  draft: "remote" for someone else's typing, "local" for our own. */
+let liveTextCommit: "local" | "remote" | null = null;
+/**
+ * The creator's update of this published card is in review, and this
+ * collaborator may not publish: the server refuses saves (UPDATE_IN_REVIEW)
+ * until it is decided. Edits stay here, unsaved; autosave waits for the next
+ * edit or someone else's save instead of asking again every few seconds.
+ */
+let saveBlockedByReview = false;
+/** The in-review notice was shown; again only after a save goes through. */
+let reviewNoticeShown = false;
+/** Someone else's typing is in the draft and no save has carried it yet. */
+let remoteTextUnsaved = false;
+
 function commitDraft(
   s: EditorState,
   newDraft: WorldDefinition
@@ -1231,8 +2422,30 @@ function commitDraft(
   if (s.guestMode) {
     return {};
   }
+  // Text typed together keeps its own history (each person undoes their own
+  // typing, see features/collab/live-text), so it never enters the card's
+  // undo stack — where undoing would take back other people's words too.
+  // Viewers watch it arrive. Someone else's typing is saved by them: it
+  // doesn't make this editor "unsaved", only arms a late backstop save.
+  if (liveTextCommit) {
+    if (s.readOnlyInspect || s.access?.role === "viewer") return { worldDraft: newDraft };
+    if (liveTextCommit === "remote") {
+      remoteTextUnsaved = true;
+      scheduleEditPersistence(s, newDraft, { text: "remote" });
+      return { worldDraft: newDraft };
+    }
+    scheduleEditPersistence(s, newDraft, { text: "local" });
+    announceLocalEdit(s.worldDraft, newDraft);
+    return { worldDraft: newDraft, isDirty: true };
+  }
+  // A viewer of someone's card reads it; nothing they touch changes it — not
+  // even locally, where it used to mark the card unsaved and hold them at
+  // the leave dialog for edits that could never be saved.
+  if (s.access?.role === "viewer") {
+    return {};
+  }
   // Admin inspect mode: skip both the localStorage recovery scheduler and
-  // the 60s server autosave. Admin can mutate the local store to explore
+  // the server autosave. Admin can mutate the local store to explore
   // ("what does this look like with this entry expanded?"), but nothing
   // should escape the tab.
   if (s.readOnlyInspect) {
@@ -1241,7 +2454,9 @@ function commitDraft(
     }
     return { worldDraft: newDraft, isDirty: true };
   }
+  saveBlockedByReview = false;
   scheduleEditPersistence(s, newDraft);
+  announceLocalEdit(s.worldDraft, newDraft);
   if (s._batchDepth > 0) {
     // During batch: apply draft but don't push to undo stack
     return { worldDraft: newDraft, isDirty: true };
@@ -1344,21 +2559,20 @@ function restoreRecoveredDraft(recovered: RecoveredDraft) {
 function scheduleEditPersistence(
   s: Pick<EditorState, "guestMode" | "readOnlyInspect" | "isDirty" | "serverWorldId">,
   draft: WorldDefinition,
-  { localDraft = true }: { localDraft?: boolean } = {},
+  { localDraft = true, text }: { localDraft?: boolean; text?: "local" | "remote" } = {},
 ) {
   if (s.guestMode || s.readOnlyInspect || persistenceDetached) return;
   if (localDraft) scheduleDraftSave(draft, s.serverWorldId);
   else if (!s.serverWorldId) scheduleNewWorldSave();
-  // First edit on a saved world → kick off the periodic server autosave.
-  // For new worlds (no serverWorldId yet), the new-world save handles the
-  // initial save itself and starts the timer on success.
-  if (!s.isDirty && s.serverWorldId) startServerAutosave();
-  if (s.serverWorldId) scheduleIdleServerSave();
+  // Every edit on a saved world re-arms the debounced server autosave. For
+  // new worlds (no serverWorldId yet), the new-world save handles the initial
+  // save itself.
+  if (s.serverWorldId) startServerAutosave({ text });
 }
 
 /** A metadata setter's update: dirty, and persisted like any other edit. */
 function metadataUpdate(s: EditorState, update: Partial<EditorState>): Partial<EditorState> {
-  if (s.guestMode) return {};
+  if (s.guestMode || s.access?.role === "viewer") return {};
   scheduleEditPersistence(s, s.worldDraft, { localDraft: false });
   return { ...update, isDirty: true };
 }
@@ -1371,7 +2585,7 @@ function metadataUpdate(s: EditorState, update: Partial<EditorState>): Partial<E
  * _baseSchema the editor already holds (the merge's common-ancestor invariant).
  * loadWorld, refreshWorldSchema and loadWorldFromData all build through it.
  */
-function buildServerDraftFromData(data: any): WorldDefinition {
+export function buildServerDraftFromData(data: any): WorldDefinition {
   const schema = (data.schema ?? {}) as WorldDefinition;
   const rawSchema = data.schema as Record<string, unknown> | undefined;
   // Everything in the schema blob rides through by default. A field list that
@@ -1415,7 +2629,7 @@ function buildServerDraftFromData(data: any): WorldDefinition {
       lorebookRecursionDepth: schema.settings?.lorebookRecursionDepth ?? 0,
     },
   } as WorldDefinition;
-  const draft = migrateWorldDefinition(rawDraft);
+  const draft = withHealedRowIds(migrateWorldDefinition(rawDraft));
   draft.entries = normalizePositions(draft.entries);
   // Heal dangling entry→folder refs so orphaned entries render (don't vanish).
   draft.entries = normalizeFolders(draft).world.entries;
@@ -1429,6 +2643,56 @@ function buildServerDraftFromData(data: any): WorldDefinition {
  * the editor's draft, the raw copy differs in all of that, and every such
  * difference would pass for an edit.
  */
+/**
+ * Rows of an id-keyed collection with a missing or repeated id, given one —
+ * the same one on every editor that opens the card (it is derived from the
+ * row's place), so they all agree. Without this a single bad row made every
+ * save of that collection replace it whole, over anyone else's edits to it.
+ */
+function withHealedRowIds(draft: WorldDefinition): WorldDefinition {
+  const w = draft as unknown as Record<string, unknown>;
+  let out: Record<string, unknown> | null = null;
+  for (const key of WORLD_ROW_COLLECTIONS) {
+    if (key === "variables") continue; // normalizeVariableIds owns these
+    const rows = w[key];
+    if (!Array.isArray(rows)) continue;
+    const seen = new Set<string>();
+    let changed = false;
+    const healed = rows.map((row, i) => {
+      if (!row || typeof row !== "object") return row;
+      const r = row as Record<string, unknown>;
+      let id = typeof r.id === "string" && r.id ? r.id : `${key}-${i}`;
+      for (let n = 2; seen.has(id); n++) id = `${typeof r.id === "string" && r.id ? r.id : `${key}-${i}`}~${n}`;
+      seen.add(id);
+      if (id === r.id) return row;
+      changed = true;
+      return { ...r, id };
+    });
+    if (changed) (out ??= { ...w })[key] = healed;
+  }
+  return (out ?? w) as unknown as WorldDefinition;
+}
+
+/**
+ * Whether the draft built from a server copy holds that copy's rows and
+ * frontend files exactly — then edits to it can be sent as change sets
+ * against it. A load that had to give rows ids, or migration that rebuilt the
+ * frontend, makes the first save a whole one, which writes the repair back.
+ */
+function matchesStoredCopy(raw: unknown, draft: WorldDefinition): boolean {
+  if (!raw || typeof raw !== "object") return false;
+  const r = raw as Record<string, unknown>;
+  const d = draft as unknown as Record<string, unknown>;
+  for (const key of WORLD_ROW_COLLECTIONS) {
+    const a = Array.isArray(r[key]) ? (r[key] as Array<{ id?: unknown }>) : [];
+    const b = Array.isArray(d[key]) ? (d[key] as Array<{ id?: unknown }>) : [];
+    if (a.length !== b.length || a.some((row, i) => row?.id !== b[i]?.id)) return false;
+  }
+  const rf = (r.rootComponent as { files?: unknown } | undefined)?.files;
+  const df = (d.rootComponent as { files?: unknown } | undefined)?.files;
+  return deepEqual(rf ?? null, df ?? null);
+}
+
 export function draftFromStoredSchema(schema: Record<string, unknown>, worldId: string): WorldDefinition {
   return buildServerDraftFromData({ id: worldId, name: schema.name, schema });
 }
@@ -1437,6 +2701,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   worldDraft: createEmptyWorld(),
   serverWorldId: null,
   serverCreatorId: null,
+  access: null,
+  setAccess: (access) => set((s) => ({ access, readOnlyInspect: readOnlyForAccess(access, s.readOnlyInspect) })),
   isDirty: false,
   layoutDirty: false,
   templateLeftovers: null,
@@ -1525,7 +2791,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       // out of history on purpose — see setGraphLayout — so stepping back
       // through the card's edits must not carry an old layout with it: an
       // undo used to move frames back and drop a note written since.
-      const previous = withLayoutOf(s._past[s._past.length - 1]!, s.worldDraft);
+      const previous = overlayLiveText(withLayoutOf(s._past[s._past.length - 1]!, s.worldDraft));
       const newPast = s._past.slice(0, -1);
       const newFuture = [s.worldDraft, ...s._future];
       scheduleDraftSave(previous, s.serverWorldId);
@@ -1549,7 +2815,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set((s) => {
       if (s.guestMode) return {};
       if (s._future.length === 0) return s;
-      const next = withLayoutOf(s._future[0]!, s.worldDraft);
+      const next = overlayLiveText(withLayoutOf(s._future[0]!, s.worldDraft));
       const newFuture = s._future.slice(1);
       const newPast = [...s._past, s.worldDraft];
       scheduleDraftSave(next, s.serverWorldId);
@@ -1601,7 +2867,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set({
       worldDraft: draft,
       serverWorldId: null,
-      serverCreatorId: null,
+      serverCreatorId: null, access: null,
       saving: false,
       loadingWorld: false,
       isDirty: false,
@@ -1692,6 +2958,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         worldDraft: draft,
         serverWorldId: data.id,
         serverCreatorId: typeof data.creatorId === "string" ? data.creatorId : null,
+        access: data.access && typeof data.access === "object" ? data.access : null,
+        readOnlyInspect: readOnlyForAccess(data.access, get().readOnlyInspect),
         isDirty: false,
         layoutDirty: false,
         activeSection: "entries",
@@ -1718,13 +2986,24 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         baseUpdatedAt: typeof data.updatedAt === "string" ? data.updatedAt : null,
         _baseSchema: structuredClone(draft),
       });
+      // The first save can already be a change set when this is exactly the
+      // stored copy (a whole-world save of a multi-MB card for one edit was
+      // the rule before).
+      serverSyncedBase = matchesStoredCopy(data.schema, draft) ? get()._baseSchema : null;
+      remoteTextUnsaved = false;
+      serverMeta = { worldId: data.id, meta: cardMetaFromData(data) };
       // The saved interface was built by the compiler of its last save. Build
       // it again so the board shows what the card's document makes today; a
       // run or a publish saves the new build (see generatedInterfaceUnsaved).
       if (draft.uiDoc) scheduleUiDocRecompile();
+      // The server rewrites the whole stored world on every save, so the
+      // autosave cadence follows the card's size (change sets don't show it).
+      measureWorldSize(draft);
 
-      // Clear localStorage draft only after successful load
-      clearStoredDraft();
+      // Clear localStorage draft only after successful load — unless it is
+      // the one being offered back below: a reload before clicking Recover
+      // must not lose it. The next save that lands clears it.
+      if (!recoveryDraft) clearStoredDraft();
 
       // Offer crash recovery if we found a matching unsaved draft. It stays
       // until acted on (dropping it silently would lose the recovered work),
@@ -1775,6 +3054,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   refreshWorldSchema: async (_force = false, options) => {
     const afterCoverUpload = options?.source === "cover-upload";
+    const coverTarget = options?.source === "cover-upload" ? options.target : undefined;
+    // Someone else's save landing: merge it in without a notice per keystroke.
+    const quietMerge = options?.source === "remote-save";
     const syncFailed = () => new Error(tr("editor:save.coverRefreshFailed", "Cover uploaded, but the editor could not refresh. Reopen the world before adjusting the crop."));
     const started = get();
     const { serverWorldId } = started;
@@ -1811,7 +3093,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           // Uploads commit artwork separately. Keep the latest server image
           // paired with its crop, even if another tab replaced this upload.
           // The old image's unsaved crop must not survive onto the new image.
-          if (options?.target === "landscape") {
+          if (coverTarget === "landscape") {
             merged.landscapeCover = draft.landscapeCover;
             merged.landscapeCoverCrop = draft.landscapeCoverCrop;
           } else {
@@ -1820,29 +3102,30 @@ export const useEditorStore = create<EditorState>((set, get) => ({
             merged.galleryCoverCrop = draft.galleryCoverCrop;
           }
         }
-        // Layout (including authored notes) is editor-owned and is not one of
-        // the engine merger's content fields. Keep its pending local write.
-        if (get().layoutDirty) merged.graphLayout = get().worldDraft.graphLayout;
+        // The layout (positions, sticky notes) merged node by node and note
+        // by note above, like the content.
         merged.entries = normalizeFolders(merged).world.entries;
+        const nextBase = structuredClone(draft);
         set({
-          worldDraft: merged,
+          ...adoptRemoteMeta(get(), cardMetaFromData(data)),
+          worldDraft: overlayLiveText(merged),
           // stays dirty — merged still carries the user's unsaved edits vs server
-          _past: [],
-          _future: [],
-          canUndo: false,
-          canRedo: false,
+          // Undo keeps stepping back through this editor's own edits, with
+          // what arrived carried into each step (it used to be wiped).
+          ...historyThrough(get(), get()._baseSchema, nextBase),
           pendingEdit,
           worldStatus,
           submittedForReviewAt,
           baseUpdatedAt: serverToken,
-          _baseSchema: structuredClone(draft),
+          _baseSchema: nextBase,
         });
+        serverSyncedBase = matchesStoredCopy(data.schema, draft) ? nextBase : null;
         // Nothing failed here — the agent rewrote the draft under the creator
         // while they were looking at something else. That is news they could
         // not watch happen, so it gets the neutral notice pill, never the red
         // error one. (The STALE_WORLD save path below DID fail and keeps
         // feedback.error.)
-        if (!afterCoverUpload || conflicts.length > 0) feedback.notice(
+        if ((!afterCoverUpload && !quietMerge) || conflicts.length > 0) feedback.notice(
           conflicts.length > 0
             ? tr("editor:save.agentMergedConflictsNotice", "Merged — your version kept")
             : tr("editor:save.agentMergedNotice", "Merged with agent changes"),
@@ -1851,22 +3134,26 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       }
 
       // Content is clean, but an unsaved arrangement or note still belongs to
-      // the creator. Adopt server content without losing that separate write.
+      // the creator. Adopt server content and merge that separate write into
+      // the server's layout, so a note someone else just added stays too.
       const layoutDirty = get().layoutDirty;
+      const graphLayout = layoutDirty
+        ? mergeWorldValue("graphLayout", get()._baseSchema?.graphLayout, get().worldDraft.graphLayout, draft.graphLayout).value as WorldDefinition["graphLayout"]
+        : undefined;
+      const nextBase = structuredClone(draft);
       set({
-        worldDraft: layoutDirty ? { ...draft, graphLayout: get().worldDraft.graphLayout } : draft,
+        ...adoptRemoteMeta(get(), cardMetaFromData(data)),
+        worldDraft: overlayLiveText(layoutDirty ? { ...draft, graphLayout } : draft),
         isDirty: false,
         layoutDirty,
-        _past: [],
-        _future: [],
-        canUndo: false,
-        canRedo: false,
+        ...historyThrough(get(), get()._baseSchema, nextBase),
         pendingEdit,
         worldStatus,
         submittedForReviewAt,
         baseUpdatedAt: serverToken,
-        _baseSchema: structuredClone(draft),
+        _baseSchema: nextBase,
       });
+      serverSyncedBase = matchesStoredCopy(data.schema, draft) ? nextBase : null;
       if (draft.uiDoc) scheduleUiDocRecompile();
     } catch {
       // Crop saving depends on this fresh baseline. Unlike a background
@@ -1874,6 +3161,85 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       if (afterCoverUpload) throw syncFailed();
       // Silent — this is a best-effort background refresh
     }
+  },
+
+  applyRemoteSave: (event) => {
+    const s = get();
+    if (saveBlockedByReview && (s.isDirty || s.layoutDirty)) {
+      // Someone saved: the review may be over. Try once more.
+      saveBlockedByReview = false;
+      startServerAutosave();
+    }
+    if (event.clientId && event.clientId === editorClientId) return; // our own echo
+    // Viewers watch the card change; admin inspect and guests don't follow it.
+    if (!s.serverWorldId || s.guestMode || (s.readOnlyInspect && s.access?.role !== "viewer")) return;
+    const incoming = tokenTime(event.updatedAt);
+    if (!Number.isFinite(incoming)) return;
+    // Already have it (a refresh or our own save got there first).
+    if (Number.isFinite(tokenTime(s.baseUpdatedAt)) && incoming <= tokenTime(s.baseUpdatedAt)) return;
+    // A save of ours is out: its response says whether something landed under
+    // it, and the save path merges then. Never splice into a request in flight.
+    if (s.saving || s.loadingWorld) {
+      if (s.saving) remoteQueue.push(event);
+      set({ _pendingServerRefresh: true });
+      return;
+    }
+    if (event.meta && typeof event.meta === "object") set(adoptRemoteMeta(s, event.meta as Partial<CardMeta>));
+    const changes = Array.isArray(event.changes) && isWorldChangeList(event.changes) ? event.changes : null;
+    const base = s._baseSchema;
+    if (changes && base && event.previousUpdatedAt && tokenTime(event.previousUpdatedAt) === tokenTime(s.baseUpdatedAt)) {
+      // Their change set applies to exactly the copy we hold. Apply it to the
+      // base, carry our unsaved edits over it, and run the undo history
+      // through it too — so undo steps back through OUR edits without
+      // reverting theirs.
+      const nextBase = applyWorldChanges(base, changes);
+      const dirty = s.isDirty || s.layoutDirty;
+      const rebased = dirty ? rebaseWorldDetailed(base, s.worldDraft, nextBase) : null;
+      const nextDraft = overlayLiveText(rebased ? rebased.world : nextBase);
+      if (rebased?.restored.length) announceRestoredRows(rebased.restored, nextDraft, event.actorUserId);
+      if (lastSentRoot && lastSentRoot.token === s.baseUpdatedAt) {
+        const root = applyWorldChanges({ rootComponent: lastSentRoot.root } as unknown as WorldDefinition, changes) as unknown as { rootComponent?: unknown };
+        lastSentRoot = { ...lastSentRoot, token: event.updatedAt, root: root.rootComponent };
+      }
+      if (base === serverSyncedBase) serverSyncedBase = nextBase;
+      set({
+        _baseSchema: nextBase,
+        baseUpdatedAt: event.updatedAt,
+        worldDraft: nextDraft,
+        _past: s._past.map((w) => applyWorldChanges(w, changes)),
+        _future: s._future.map((w) => applyWorldChanges(w, changes)),
+      });
+      if (changes.some((c) => (c.op === "field" && c.key === "uiDoc") || ("path" in c && c.path[0] === "uiDoc"))) scheduleUiDocRecompile();
+      announceRemoteEdit(event.actorUserId, changes);
+      return;
+    }
+    // A save we can't apply directly (an assistant or outside-AI write, a big
+    // change set, or one we missed): pull the server copy and merge. The
+    // event can arrive before its writer's transaction commits, so look again
+    // until the copy we hold is at least that new.
+    void (async () => {
+      for (let attempt = 0; attempt < 4; attempt++) {
+        if (attempt > 0) await new Promise((r) => setTimeout(r, 750 * attempt));
+        const now = get();
+        if (now.serverWorldId !== s.serverWorldId) return;
+        if (Number.isFinite(tokenTime(now.baseUpdatedAt)) && tokenTime(now.baseUpdatedAt) >= incoming) return;
+        if (now.saving) { set({ _pendingServerRefresh: true }); return; }
+        await get().refreshWorldSchema(false, { source: "remote-save" }).catch(() => {});
+      }
+    })();
+  },
+
+  applyLiveText: (key, value, origin) => {
+    set((s) => {
+      const next = writeTextField(s.worldDraft, key, value);
+      if (next === s.worldDraft) return {};
+      liveTextCommit = origin;
+      try {
+        return commitDraft(s, next);
+      } finally {
+        liveTextCommit = null;
+      }
+    });
   },
 
   refreshWorldStatus: async () => {
@@ -1981,7 +3347,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set({
       worldDraft: draft,
       serverWorldId: data.id,
-      serverCreatorId: null,
+      serverCreatorId: null, access: null,
       saving: false,
       isDirty: false,
       layoutDirty: false,
@@ -2010,6 +3376,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   pendingFocus: null,
   clearPendingFocus: () => set({ pendingFocus: null }),
   focusObject: (kind, id, worldbookId) => {
+    // Kept by the original author: there is no page to open it on.
+    if (kind === "entry" && get().worldDraft.entries.find((e) => e.id === id)?.sealed) return;
     const section: EditorSection =
       kind === "entry" ? "entries" : kind === "greeting" ? "first-message" : kind === "variable" ? "variables" : kind === "reaction" ? "rules" : kind === "audio" ? "audio" : kind === "sceneImage" ? "scene-images" : "modules";
     set({
@@ -2140,17 +3508,18 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       //  bundleInstallId — else removeInstalledBundle() would delete the user's
       //                    own copy along with the bundle it was cloned from
       const { presetId: _preset, pairId: _pair, bundleInstallId: _bundle, ...rest } = src;
+      // Directly under its source (halfway to the next entry), not at the end
+      // of a 76-entry list — without renumbering anyone else's entries.
+      const slot = positionAfter(s.worldDraft.entries, src);
       const copy: WorldEntry = {
         ...structuredClone(rest),
         id: newId,
         name: nextCopyName(src.name, s.worldDraft.entries, copySuffix),
-        // +0.5 lands the copy directly under its source instead of at the end
-        // of a 76-entry list; normalizePositions renumbers back to dense ints.
-        position: (src.position ?? 0) + 0.5,
+        position: slot ?? (src.position ?? 0) + 0.5,
       };
       const entries = [...s.worldDraft.entries];
       entries.splice(index + 1, 0, copy);
-      const draft = { ...s.worldDraft, entries: normalizePositions(entries) };
+      const draft = { ...s.worldDraft, entries: slot === null ? renumberSection(entries, src.section) : entries };
       return commitDraft(s, draft);
     });
     return newId;
@@ -2164,7 +3533,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       );
       const draft = {
         ...s.worldDraft,
-        entries: normalizePositions(filtered),
+        entries: filtered,
         loreUiBindings,
       };
       return commitDraft(s, draft);
@@ -2248,21 +3617,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   reorderEntries: (entryIds) => {
     set((s) => {
-      // Assign per-section positions ONLY to the passed ids (dense 0..n in the
-      // given order). Entries NOT listed keep their current position — a drag
-      // inside one filtered view (a single book, a tag filter, the greeting
-      // tabs) must never renumber entries outside that view. Callers pass the
-      // complete intended order for whatever slice they own.
-      const entryMap = new Map(s.worldDraft.entries.map((e) => [e.id, e]));
-      const newPos = new Map<string, number>();
-      const counters: Record<string, number> = {};
-      for (const id of entryIds) {
-        const entry = entryMap.get(id);
-        if (!entry) continue;
-        const pos = counters[entry.section] ?? 0;
-        counters[entry.section] = pos + 1;
-        newPos.set(id, pos);
-      }
+      // Only the passed ids move; entries NOT listed keep their position — a
+      // drag inside one filtered view (a single book, a tag filter, the
+      // greeting tabs) must never renumber entries outside that view. Callers
+      // pass the complete intended order for whatever slice they own.
+      const newPos = slotPositions(s.worldDraft.entries, entryIds);
       const entries = s.worldDraft.entries.map((entry) => {
         const pos = newPos.get(entry.id);
         return pos === undefined || pos === entry.position ? entry : { ...entry, position: pos };
@@ -2315,6 +3674,31 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         entryFolders: (s.worldDraft.entryFolders ?? []).map((f) =>
           f.id === folderId ? { ...f, name } : f
         ),
+      };
+      return commitDraft(s, draft);
+    });
+  },
+
+  reorderFolder: (folderId, targetFolderId, place) => {
+    set((s) => {
+      const folders = s.worldDraft.entryFolders ?? [];
+      const folder = folders.find((f) => f.id === folderId);
+      const target = folders.find((f) => f.id === targetFolderId);
+      if (!folder || !target || folder.id === target.id || folder.section !== target.section) return s;
+      // Renumber the whole section, every book included: the all-books view
+      // shows them in one list, so their relative order has to survive.
+      const ids = folders
+        .filter((f) => f.section === folder.section && f.id !== folderId)
+        .sort((a, b) => a.order - b.order)
+        .map((f) => f.id);
+      ids.splice(ids.indexOf(targetFolderId) + (place === "after" ? 1 : 0), 0, folderId);
+      const order = new Map(ids.map((id, index) => [id, index]));
+      const draft = {
+        ...s.worldDraft,
+        entryFolders: folders.map((f) => {
+          const next = order.get(f.id);
+          return next === undefined || next === f.order ? f : { ...f, order: next };
+        }),
       };
       return commitDraft(s, draft);
     });
@@ -2853,7 +4237,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       // keep it in the draft, but do not start timers for an editor that left.
       if (persistenceDetached) return { worldDraft: newDraft, layoutDirty: true };
       scheduleDraftSave(newDraft, s.serverWorldId);
-      if (!s.isDirty && s.serverWorldId) startServerAutosave();
+      if (s.serverWorldId) startServerAutosave({ layoutOnly: !s.isDirty });
       return { worldDraft: newDraft, layoutDirty: true };
     }),
 
@@ -3331,6 +4715,19 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       return { ...commitDraft(s, nextDraft), templateLeftovers: leftoversAfter(nextDraft) };
     }),
 
+  restoreInterface: (snapshot, dropVariableIds) =>
+    set((s) => {
+      if (s.readOnlyInspect || s.guestMode) return {};
+      const drop = new Set(dropVariableIds);
+      const nextDraft: WorldDefinition = {
+        ...s.worldDraft,
+        uiDoc: snapshot.uiDoc,
+        rootComponent: snapshot.rootComponent,
+        variables: drop.size ? s.worldDraft.variables.filter((v) => !drop.has(v.id)) : s.worldDraft.variables,
+      };
+      return { ...commitDraft(s, nextDraft), templateLeftovers: null };
+    }),
+
   discardTemplateLeftovers: () =>
     set((s) => {
       const ids = new Set(s.templateLeftovers?.variableIds ?? []);
@@ -3551,7 +4948,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set({
       worldDraft: draft,
       serverWorldId: null,
-      serverCreatorId: null,
+      serverCreatorId: null, access: null,
       saving: false,
       loadingWorld: false,
       baseUpdatedAt: null,
@@ -3615,6 +5012,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       },
     };
     const draft = migrateWorldDefinition(rawDraft);
+    if (preserveServerState) keepOwnArtwork(draft, prev.worldDraft);
     draft.entries = normalizePositions(draft.entries);
     // Heal dangling entry→folder refs so orphaned entries render (don't vanish).
     draft.entries = normalizeFolders(draft).world.entries;
@@ -3649,6 +5047,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       variants: preserveServerState ? prev.variants : [],
       variantsLoading: false,
     });
+    if (options?.ephemeral) return;
     clearStoredDraft();
     // An import is an unsaved edit like any other: arm the recovery write and
     // the autosave. Judged against a clean state so a replaced document that
@@ -3688,415 +5087,66 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }
   },
 
-  importBundle: (bundle, sourceBundleId) => {
+  importBundle: (bundle, sourceBundleId, options) => {
+    let installId: string | undefined;
     set((s) => {
-      const installId = crypto.randomUUID();
-      const colorKey = nextBundleColorKey(s.worldDraft.installedBundles?.length ?? 0);
-      const existingVarIds = new Set(s.worldDraft.variables.map((v) => v.id));
-      const existingVarNames = new Map(
-        s.worldDraft.variables.map((v) => [v.name.toLowerCase(), v.id])
-      );
-
-      // Build variable ID remap: old bundle var ID → new ID in this world
-      const varIdMap = new Map<string, string>();
-      const newVars: Variable[] = [];
-
-      for (const bv of bundle.variables) {
-        if (existingVarIds.has(bv.id)) {
-          // Same ID already exists → skip, map to itself
-          varIdMap.set(bv.id, bv.id);
-        } else if (existingVarNames.has(bv.name.toLowerCase())) {
-          // Name conflict → create with new ID and rename
-          const newId = `var_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-          let newName = bv.name;
-          let suffix = 1;
-          while (existingVarNames.has(newName.toLowerCase()) ||
-            newVars.some((v) => v.name.toLowerCase() === newName.toLowerCase())) {
-            newName = `${bv.name} (${suffix++})`;
-          }
-          varIdMap.set(bv.id, newId);
-          newVars.push({ ...bv, id: newId, name: newName });
-        } else {
-          // No conflict → keep as-is
-          varIdMap.set(bv.id, bv.id);
-          newVars.push(bv);
-        }
-      }
-
-      // Remap variableId references in a condition/effect
-      const remapVarId = (id: string) => varIdMap.get(id) ?? id;
-
-      // New worldbooks — fresh ids; remap each activation condition's variableId
-      // through the same var remap so conditional activation survives import.
-      const worldbookIdMap = new Map<string, string>();
-      const newWorldbooks = (bundle.worldbooks ?? []).map((wb) => {
-        const newId = crypto.randomUUID();
-        worldbookIdMap.set(wb.id, newId);
-        const activation =
-          wb.activation.mode === "conditions"
-            ? {
-                ...wb.activation,
-                conditions: wb.activation.conditions.map((c) => ({
-                  ...c,
-                  variableId: remapVarId(c.variableId),
-                })),
-              }
-            : wb.activation;
-        return { ...wb, id: newId, activation, sourceBundleId: installId };
-      });
-      // Entry membership: remap to the new worldbook id, or fall back to Core
-      // (undefined) if the bundle didn't include that worldbook.
-      const remapWorldbookId = (id: string | undefined): string | undefined =>
-        id && worldbookIdMap.has(id) ? worldbookIdMap.get(id) : undefined;
-
-      // New entries — always new UUIDs, build remap for toggle-entry actions.
-      // Place imported entries at the TOP of the lorebook (below the current
-      // minimum position) so freshly-imported, color-coded bundle content is
-      // immediately visible rather than buried at the bottom. Order within the
-      // bundle is preserved; positions sort first within each section.
-      const minPosition = s.worldDraft.entries.reduce((min, e) => Math.min(min, e.position ?? 0), 0);
-      const entryIdMap = new Map<string, string>();
-      const newEntries = bundle.entries.map((e, i) => {
-        const newId = crypto.randomUUID();
-        entryIdMap.set(e.id, newId);
-        return { ...e, id: newId, position: minPosition - bundle.entries.length + i };
-      });
-
-      // New rules — new UUIDs, build remap for toggle-rule actions
-      const ruleIdMap = new Map<string, string>();
-      for (const r of bundle.rules) {
-        ruleIdMap.set(r.id, crypto.randomUUID());
-      }
-      const remapEntryId = (id: string) => entryIdMap.get(id) ?? id;
-      const remapRuleId = (id: string) => ruleIdMap.get(id) ?? id;
-
-      const newRules = bundle.rules.map((r, i) => ({
-        ...r,
-        id: ruleIdMap.get(r.id)!,
-        priority: s.worldDraft.rules.length + i,
-        conditions: r.conditions.map((c) => ({
-          ...c,
-          variableId: remapVarId(c.variableId),
-        })),
-        actions: (r.actions ?? []).map((a) => {
-          if (a.type === "modify-variable") {
-            return { ...a, variableId: remapVarId(a.variableId) };
-          }
-          if (a.type === "toggle-entry") {
-            return { ...a, entryId: remapEntryId((a as unknown as { entryId: string }).entryId) };
-          }
-          if (a.type === "toggle-rule") {
-            return { ...a, ruleId: remapRuleId((a as unknown as { ruleId: string }).ruleId) };
-          }
-          return a;
-        }),
-      }));
-
-      // New reactions (behaviors) — new UUIDs, then rewrite every id-bearing
-      // reference they hold (watched variable, conditions, effect targets and
-      // operands) so they keep working against this world's ids.
-      const reactionIdMap = new Map<string, string>();
-      for (const r of bundle.reactions ?? []) {
-        reactionIdMap.set(r.id, crypto.randomUUID());
-      }
-      const newReactions: Reaction[] = (bundle.reactions ?? []).map((r, i) => ({
-        ...remapReactionReferences(r, {
-          variableId: remapVarId,
-          entryId: remapEntryId,
-          reactionId: (id) => reactionIdMap.get(id) ?? id,
-          worldbookId: (id) => worldbookIdMap.get(id) ?? id,
-        }),
-        id: reactionIdMap.get(r.id)!,
-        priority: (s.worldDraft.reactions?.length ?? 0) + i,
-      }));
-
-      // Merge custom tags (deduplicate)
-      const existingCustomTags = new Set(s.worldDraft.customTags ?? []);
-      const newCustomTags = (bundle.customTags ?? []).filter((t) => !existingCustomTags.has(t));
-
-      // Merge entry folders with new IDs and remapped book ownership. Legacy
-      // bundles may contain one shared folder referenced by several books; split
-      // it here just like the v20→v21 world migration does.
-      const bundleFolderKey = (folderId: string, worldbookId?: string) =>
-        `${folderId}\u0000${worldbookId ?? "\u0000core"}`;
-      const folderIdMap = new Map<string, string>();
-      const newFolders: EntryFolder[] = [];
-      for (const folder of bundle.entryFolders ?? []) {
-        const inferredScopes = new Set(
-          bundle.entries
-            .filter((entry) => entry.folderId === folder.id)
-            .map((entry) => entry.worldbookId),
-        );
-        const scopes = folder.worldbookId
-          ? [folder.worldbookId]
-          : inferredScopes.size > 0
-            ? [...inferredScopes]
-            : [undefined];
-        for (const sourceWorldbookId of scopes) {
-          const newId = crypto.randomUUID();
-          folderIdMap.set(bundleFolderKey(folder.id, sourceWorldbookId), newId);
-          newFolders.push({
-            ...folder,
-            id: newId,
-            worldbookId: remapWorldbookId(sourceWorldbookId),
-          });
-        }
-      }
-
-      // Remap folderId on entries + sync position/alwaysSend from section.
-      // Entry conditions get the same variableId remap as rules/worldbooks —
-      // without it, a name-conflict var rename leaves conditions pointing at
-      // an id that doesn't exist in this world.
-      const remappedEntries = newEntries.map((e) => {
-        const base = {
-          ...e,
-          folderId: e.folderId ? folderIdMap.get(bundleFolderKey(e.folderId, e.worldbookId)) : undefined,
-          worldbookId: remapWorldbookId(e.worldbookId),
-          bundleInstallId: installId,
-          conditions: (e.conditions ?? []).map((c) => ({
-            ...c,
-            variableId: remapVarId(c.variableId),
-          })),
-        };
-        // Don't override greeting entries
-        if (base.role === "greeting") return base;
-        // Sync derived fields from section — the ForEntry variant keeps
-        // alwaysSend=false on variable-bound entries (clobbering it was the
-        // "imported bundle ignores its conditions / always sends" bug).
-        if (base.section) {
-          const defaults = deriveSectionDefaultsForEntry(base, base.section);
-          return { ...base, ...defaults };
-        }
-        return base;
-      });
-
-      // Normalize the bundle's visual layer into a single rootComponent shape.
-      // Post-v3 bundles carry `rootComponent` directly. Pre-v3 shapes shipped
-      // customUI[] and/or messageRenderer/customComponents[] — we synthesize a
-      // rootComponent from those using the same v19→v20 converter the world
-      // migrator uses, so every import path converges on a single model.
-      let bundleRoot = bundle.rootComponent ?? null;
-      if (!bundleRoot) {
-        const legacyCustomUI = [
-          ...((bundle.customUI ?? []) as Array<{ id?: string; name?: string; surface: "message" | "app"; tsxCode?: string; language?: "tsx" | "html" | "markdown"; visible?: boolean; order?: number }>),
-          ...(bundle.messageRenderer
-            ? [{
-                surface: "message" as const,
-                tsxCode: bundle.messageRenderer.tsxCode,
-                visible: true,
-              }]
-            : []),
-          ...((bundle.customComponents ?? []).map((c, i) => ({
-            surface: "app" as const,
-            tsxCode: c.tsxCode,
-            visible: c.visible ?? true,
-            order: c.order ?? i,
-          }))),
-        ];
-        if (legacyCustomUI.length > 0) {
-          const files = customUIToRootFiles(legacyCustomUI);
-          bundleRoot = {
-            id: `${s.worldDraft.id}:root`,
-            name: "Root",
-            entryFile: "index.tsx",
-            files,
-            updatedAt: new Date().toISOString(),
-          };
-        }
-      }
-
-      // Always-compose merge that preserves the runtime invariant
-      // `entryFile === "index.tsx"`. The user's own root code lives in
-      // __user-root.tsx; bundles live under _bundles/{slug}/; index.tsx is an
-      // auto-generated composer that mounts user-root + each bundle. This
-      // means importing a bundle NEVER erases the user's content — their
-      // previous index.tsx is migrated into __user-root.tsx on the first
-      // import and left untouched on subsequent imports.
-      let mergedRoot = s.worldDraft.rootComponent;
-      let bundleSlug: string | undefined;
-      if (bundleRoot) {
-        const worldRoot = s.worldDraft.rootComponent ?? {
-          id: `${s.worldDraft.id}:root`,
-          name: "Root",
-          entryFile: "index.tsx",
-          files: { "index.tsx": DEFAULT_ROOT_ENTRY_TSX },
-          updatedAt: new Date().toISOString(),
-        };
-
-        const currentIndex = worldRoot.files["index.tsx"] ?? DEFAULT_ROOT_ENTRY_TSX;
-        const alreadyComposed = currentIndex.startsWith(COMPOSED_MARKER);
-
-        const files: Record<string, string> = { ...worldRoot.files };
-
-        // Ensure __user-root.tsx holds the user's own main UI. On first import
-        // we migrate the current index.tsx content there. On later imports the
-        // user's file is already in place — don't touch it.
-        if (!alreadyComposed && files[USER_ROOT_PATH] === undefined) {
-          files[USER_ROOT_PATH] = currentIndex;
-        }
-
-        // Pick a namespace slug for this bundle (bundle.name → kebab-slug,
-        // fallback "bundle", suffix on collision).
-        const baseSlug =
-          (bundle.name || "bundle")
-            .toLowerCase()
-            .replace(/[^a-z0-9]+/g, "-")
-            .replace(/^-+|-+$/g, "")
-            .slice(0, 32) || "bundle";
-        const takenFolders = new Set<string>();
-        for (const fname of Object.keys(files)) {
-          const m = fname.match(/^_bundles\/([^/]+)\//);
-          if (m) takenFolders.add(m[1]);
-        }
-        let folder = baseSlug;
-        let suffix = 2;
-        while (takenFolders.has(folder)) {
-          folder = `${baseSlug}-${suffix++}`;
-        }
-        bundleSlug = folder;
-
-        // Copy bundle files into `_bundles/{folder}/`. Normalize the bundle's
-        // own entry to index.tsx inside its folder so the composed index can
-        // always import `./_bundles/{folder}/index`.
-        const bundleEntry = bundleRoot.entryFile ?? "index.tsx";
-        for (const [filename, code] of Object.entries(bundleRoot.files ?? {})) {
-          const destName =
-            filename === bundleEntry
-              ? "index.tsx"
-              : filename === "index.tsx"
-              ? "__aux-index.tsx"
-              : filename;
-          files[`_bundles/${folder}/${destName}`] = code;
-        }
-
-        // Authoritative bundle-folder list (includes any previous imports).
-        const folderSet = new Set<string>();
-        for (const fname of Object.keys(files)) {
-          const m = fname.match(BUNDLE_NS_RE);
-          if (m) folderSet.add(m[1]);
-        }
-        const folderList = [...folderSet].sort();
-
-        // Regenerate the composed index.tsx. entryFile stays "index.tsx".
-        files["index.tsx"] = generateComposedIndex(folderList);
-
-        mergedRoot = {
-          ...worldRoot,
-          entryFile: "index.tsx",
-          files,
-          updatedAt: new Date().toISOString(),
-        };
-        if (s.worldDraft.uiDoc) mergedRoot = compileEditorUiDoc(s.worldDraft.uiDoc, mergedRoot);
-      }
-
-      const newAudioTracks = (bundle.audioTracks ?? []).map((t) => ({
-        ...t,
-        id: crypto.randomUUID(),
-      }));
-
-      // Record this import so the editor can color-code its content and offer
-      // clean removal via Manage Bundles. originalHash lets us detect later edits.
-      const record: InstalledBundle = {
-        installId,
-        sourceBundleId,
-        name: bundle.name || "Bundle",
-        slug: bundleSlug,
-        colorKey,
-        importedAt: new Date().toISOString(),
-        originalHash: hashString(
-          projectBundleContent({
-            entries: remappedEntries,
-            variables: newVars,
-            rules: newRules,
-            reactions: newReactions,
-            audioTracks: newAudioTracks,
-            files: bundleFilesFor(bundleSlug, mergedRoot?.files ?? {}),
-          }),
-        ),
-        entryIds: remappedEntries.map((e) => e.id),
-        variableIds: newVars.map((v) => v.id),
-        ruleIds: newRules.map((r) => r.id),
-        reactionIds: newReactions.map((r) => r.id),
-        audioTrackIds: newAudioTracks.map((t) => t.id),
-        folderIds: newFolders.map((f) => f.id),
-        worldbookIds: newWorldbooks.map((w) => w.id),
-      };
-
-      const draft: WorldDefinition = {
-        ...s.worldDraft,
-        entries: [...s.worldDraft.entries, ...remappedEntries],
-        variables: [...s.worldDraft.variables, ...newVars],
-        rules: [...s.worldDraft.rules, ...newRules],
-        // Stay undefined when neither side has behaviors, so importing a
-        // reaction-free bundle doesn't flip a legacy world onto the modern
-        // array (which would make the Behaviors editor stop compiling `rules`).
-        reactions:
-          newReactions.length > 0 || s.worldDraft.reactions
-            ? [...(s.worldDraft.reactions ?? []), ...newReactions]
-            : undefined,
-        rootComponent: mergedRoot,
-        customUI: s.worldDraft.customUI ?? [],
-        audioTracks: [...(s.worldDraft.audioTracks ?? []), ...newAudioTracks],
-        customTags: [...(s.worldDraft.customTags ?? []), ...newCustomTags],
-        entryFolders: [...(s.worldDraft.entryFolders ?? []), ...newFolders],
-        worldbooks: [...(s.worldDraft.worldbooks ?? []), ...newWorldbooks],
-        installedBundles: [...(s.worldDraft.installedBundles ?? []), record],
-      };
-
+      const draft = mergeBundleIntoWorld(s.worldDraft, bundle, sourceBundleId, options);
+      installId = draft.installedBundles?.[draft.installedBundles.length - 1]?.installId;
       return commitDraft(s, draft);
+    });
+    return installId;
+  },
+
+  detachInstalledBundle: (installId) => {
+    set((s) => {
+      const records = s.worldDraft.installedBundles ?? [];
+      if (!records.some((b) => b.installId === installId)) return s;
+      return commitDraft(s, {
+        ...s.worldDraft,
+        entries: s.worldDraft.entries.map((e) => {
+          if (e.bundleInstallId !== installId) return e;
+          const { bundleInstallId: _tag, ...own } = e;
+          return own as WorldEntry;
+        }),
+        worldbooks: s.worldDraft.worldbooks?.map((w) => {
+          if (w.sourceBundleId !== installId) return w;
+          const { sourceBundleId: _src, ...own } = w;
+          return own as Worldbook;
+        }),
+        installedBundles: records.filter((b) => b.installId !== installId),
+      });
+    });
+  },
+
+  setBundleSettingValues: (writes) => {
+    if (writes.length === 0) return;
+    set((s) => {
+      const variables = s.worldDraft.variables.map((v) => {
+        const mine = writes.filter((w) => w.variableId === v.id);
+        if (mine.length === 0) return v;
+        let value: unknown = v.defaultValue;
+        for (const w of mine) value = writeSettingValue(value, w.path, w.value);
+        return { ...v, defaultValue: value as Variable["defaultValue"] };
+      });
+      return commitDraft(s, { ...s.worldDraft, variables });
     });
   },
 
   removeInstalledBundle: (installId) => {
     set((s) => {
-      const record = (s.worldDraft.installedBundles ?? []).find((b) => b.installId === installId);
-      if (!record) return s;
-
-      const entryIds = new Set(record.entryIds);
-      const variableIds = new Set(record.variableIds);
-      const ruleIds = new Set(record.ruleIds);
-      const reactionIds = new Set(record.reactionIds ?? []);
-      const audioIds = new Set(record.audioTrackIds);
-      const folderIds = new Set(record.folderIds);
-      const worldbookIds = new Set(record.worldbookIds ?? []);
-
-      // Drop the bundle's UI files (if any) and regenerate the composed index.
-      let rootComponent = s.worldDraft.rootComponent;
-      if (record.slug && rootComponent) {
-        const prefix = `_bundles/${record.slug}/`;
-        const files: Record<string, string> = {};
-        for (const [path, code] of Object.entries(rootComponent.files)) {
-          if (!path.startsWith(prefix)) files[path] = code;
-        }
-        const folderSet = new Set<string>();
-        for (const fname of Object.keys(files)) {
-          const m = fname.match(BUNDLE_NS_RE);
-          if (m) folderSet.add(m[1]);
-        }
-        files["index.tsx"] = generateComposedIndex([...folderSet].sort());
-        rootComponent = { ...rootComponent, files, updatedAt: new Date().toISOString() };
-        if (s.worldDraft.uiDoc) rootComponent = compileEditorUiDoc(s.worldDraft.uiDoc, rootComponent);
-      }
-
-      const draft: WorldDefinition = {
-        ...s.worldDraft,
-        entries: s.worldDraft.entries.filter(
-          (e) => e.bundleInstallId !== installId && !entryIds.has(e.id),
-        ),
-        variables: s.worldDraft.variables.filter((v) => !variableIds.has(v.id)),
-        rules: s.worldDraft.rules.filter((r) => !ruleIds.has(r.id)),
-        reactions: s.worldDraft.reactions?.filter((r) => !reactionIds.has(r.id)),
-        audioTracks: (s.worldDraft.audioTracks ?? []).filter((t) => !audioIds.has(t.id)),
-        entryFolders: (s.worldDraft.entryFolders ?? []).filter((f) => !folderIds.has(f.id)),
-        worldbooks: (s.worldDraft.worldbooks ?? []).filter((w) => !worldbookIds.has(w.id)),
-        rootComponent,
-        installedBundles: (s.worldDraft.installedBundles ?? []).filter(
-          (b) => b.installId !== installId,
-        ),
-      };
-
-      return commitDraft(s, draft);
+      if (!(s.worldDraft.installedBundles ?? []).some((b) => b.installId === installId)) return s;
+      return commitDraft(s, removeBundleFromWorld(s.worldDraft, installId));
     });
+  },
+
+  updateInstalledBundle: (installId, next, previous, options) => {
+    let report: BundleUpdateReport | null = null;
+    set((s) => {
+      const result = updateBundleInWorld(s.worldDraft, installId, next, previous, options);
+      report = result.report;
+      return result.world === s.worldDraft ? s : commitDraft(s, result.world);
+    });
+    return report;
   },
 
   isInstalledBundleModified: (installId) => {
@@ -4233,9 +5283,14 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         latest.galleryImages === galleryImages && latest.announcement === announcement && latest.approxTime === approxTime && latest.tags === tags;
     };
     set({ saving: true });
+    // Someone else's typing in the draft goes out with this save.
+    const remoteTextAtSave = remoteTextUnsaved;
+    remoteTextUnsaved = false;
+    let saved = false;
 
     try {
-      // Normalize positions before save — guarantees clean 0,1,2... per section
+      // Only entries that have no position get one; positions are never
+      // renumbered on save (see normalizePositions).
       const cleanEntries = normalizePositions(worldDraft.entries);
       const cleanDraft = { ...worldDraft, entries: cleanEntries };
 
@@ -4291,6 +5346,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         announcement: announcement || null,
         approxTime: approxTime || null,
       };
+      // A card being made without a name of its own is numbered by the
+      // server after the creator's other untitled ones ("Untitled World 2").
+      if (!serverWorldId && isPlaceholderCardName(cleanDraft.name)) {
+        payload.name = untitledCardName();
+        payload.numberUntitled = true;
+      }
       const errorOptions = { ...saveErrorOptions, payload };
       const validationError = worldSaveValidationMessage(payload, Boolean(serverWorldId), errorOptions);
       if (validationError) {
@@ -4300,28 +5361,24 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
       // Phase 3: stamp the rootComponent with pre-compiled JS so play-time can
       // skip the in-browser recompile. Cached per session by file hash; on
-      // compile failure — or when the source carries inline data: URIs, which
-      // the server's anti-bloat scanner would double-count and reject — we omit
-      // `compiled` and play-time falls back to the live client compile. Never
-      // blocks the save.
+      // compile failure we omit `compiled` and play-time falls back to the live
+      // client compile (and the server stamps it later if it can). Never blocks
+      // the save. Only a real embedded file (the server's own test: 200+
+      // base64 chars) skips it, so the stamp does not double that bloat; the
+      // old test skipped any "data:x/" text, a 1-pixel placeholder included,
+      // which left a fifth of the heavy cards compiling on every play.
       const rootForCompile = schemaWithoutAvatar.rootComponent;
       if (rootForCompile && Object.keys(rootForCompile.files ?? {}).length > 0) {
         const rcEntry = rootForCompile.entryFile || "index.tsx";
         const rcFiles = rootForCompile.files;
-        const hasInlineDataUri = /data:[a-z]+\//i.test(JSON.stringify(rcFiles));
+        const hasInlineDataUri = /data:(?:image|audio|video|font)\/[^;,]+;base64,[A-Za-z0-9+/=]{200,}/.test(JSON.stringify(rcFiles));
         if (!hasInlineDataUri) {
           const filesHash = hashRootFiles(rcEntry, rcFiles);
           let code = rootCompileCache.get(filesHash);
           if (code === undefined) {
             try {
-              const keys = Object.keys(rcFiles);
-              if (keys.length <= 1) {
-                const { transformTSX } = await import("@/lib/tsx/tsx-compiler");
-                code = transformTSX(rcFiles[rcEntry] ?? rcFiles[keys[0] ?? ""] ?? "").code || "";
-              } else {
-                const { bundleTSX } = await import("@/lib/tsx/tsx-bundler");
-                code = bundleTSX({ files: rcFiles, entryFile: rcEntry }).code || "";
-              }
+              const { compileRootComponent } = await import("@yumina/shared/card-code");
+              code = compileRootComponent(rcEntry, rcFiles)?.code ?? "";
               if (code) rootCompileCache.set(filesHash, code);
             } catch {
               code = "";
@@ -4336,19 +5393,115 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         }
       }
 
+      // A saved world sends what changed since the copy the server has, not
+      // the whole world: small requests at autosave cadence, and the server
+      // applies them on top of anyone else's saves instead of rejecting this
+      // one as stale. Without a base (new world, legacy token) it still sends
+      // the whole world.
+      const changeBase = serverWorldId && baseUpdatedAt && started._baseSchema && started._baseSchema === serverSyncedBase
+        ? started._baseSchema
+        : null;
+      let changeBody: string | null = null;
+      let sentChanges: WorldEdit[] | null = null;
+      let rootCompiled: unknown = null;
+      let emptySave = false;
+      let sentMeta: Record<string, unknown> = payload;
+      const sentRoot = schemaWithoutAvatar.rootComponent;
+      if (changeBase) {
+        const { avatar: _baseAvatar, rootComponent: baseRoot, ...baseRest } = changeBase;
+        const { rootComponent: _nextRoot, ...nextRest } = schemaWithoutAvatar;
+        const knownRoot = lastSentRoot && lastSentRoot.epoch === documentAtSave && lastSentRoot.token === baseUpdatedAt
+          ? lastSentRoot.root
+          : baseRoot;
+        // Text typed together is the same on every screen, so whichever save
+        // lands last is right: it is never checked for conflicts, and the
+        // server leaves its live copy alone. Every other edit says what it
+        // started from, so the server can refuse to write over someone else's
+        // change to the same thing instead of silently losing it.
+        const live = liveTextKeys();
+        const liveSet = new Set(live);
+        const knownBase = { ...changeBase, rootComponent: knownRoot } as WorldDefinition;
+        sentChanges = annotateChangeBase(knownBase, [
+          ...diffWorld(baseRest as WorldDefinition, nextRest as WorldDefinition),
+          ...diffWorld({ rootComponent: knownRoot } as unknown as WorldDefinition, { rootComponent: sentRoot } as unknown as WorldDefinition),
+        ], (key) => liveSet.has(key));
+        const { schema: _wholeSchema, ...metadata } = payload;
+        // Only the card fields this editor changed: sending the rest would put
+        // back whatever it last saw over someone else's newer save.
+        const known = knownServerMeta(serverWorldId);
+        if (known) for (const key of CARD_META_KEYS) if (deepEqual(metadata[key], known[key])) delete metadata[key];
+        if (cleanDraft.name === changeBase.name) delete metadata.name;
+        if (cleanDraft.description === changeBase.description) delete metadata.description;
+        sentMeta = metadata;
+        // The compiled frontend goes beside the change set when it changed,
+        // never inside it (others are sent the change set).
+        const knownCompiled = (knownRoot as { compiled?: { filesHash?: string } } | undefined)?.compiled;
+        const nextCompiled = (sentRoot as { compiled?: { filesHash?: string } } | undefined)?.compiled;
+        rootCompiled = nextCompiled && nextCompiled.filesHash !== knownCompiled?.filesHash ? nextCompiled : null;
+        const metaKeys = Object.keys(metadata).filter((key) => key !== "baseUpdatedAt");
+        if (sentChanges.length === 0 && metaKeys.length === 0 && !rootCompiled) {
+          // Nothing the server doesn't already have (someone else's save
+          // carried it): done, without a write.
+          emptySave = true;
+        }
+        changeBody = JSON.stringify({ ...metadata, schemaChanges: sentChanges, clientId: editorClientId, ...(live.length ? { textSynced: live } : {}), ...(rootCompiled ? { rootCompiled } : {}) });
+        // An enormous change set (a first save that rewrites a big frontend)
+        // goes as a whole world, where an oversized compile cache can be dropped.
+        if (changeBody.length > MAX_WORLD_SAVE_BODY_BYTES / 2) {
+          changeBody = null;
+          sentChanges = null;
+          sentMeta = payload;
+        }
+      }
       // Precompiled JS is optional. If it doubles a large imported world past
       // the API body limit, save its complete source and compile on play instead.
-      const saveBody = serializeWorldSavePayload(payload);
+      const saveBody = changeBody ?? serializeWorldSavePayload(payload);
+      if (!changeBody) lastSaveBytes = saveBody.length;
       if (!isCurrentSession()) return false;
 
       if (!isCurrentCard()) return false;
+      if (serverWorldId && emptySave) {
+        leavingSave = false;
+        if (hasNoDrift()) {
+          set({ isDirty: false, layoutDirty: false, lastSavedAt: Date.now() });
+          settleStoredDraftAfterSave(draftSeqAtSave, true);
+        }
+        saved = true;
+        return true;
+      }
       if (serverWorldId) {
-        const res = await fetch(`${apiBase}/api/worlds/${serverWorldId}`, {
+        // The save sent as the page goes away outlives it (see
+        // saveBeforeLeaving) when it is small enough for the browser to keep —
+        // without the compiled frontend, which play rebuilds when it's stale.
+        const leanBody = leavingSave && changeBody && rootCompiled
+          ? JSON.stringify({ ...JSON.parse(changeBody), rootCompiled: undefined })
+          : changeBody;
+        const keepalive = leavingSave && !!leanBody && new TextEncoder().encode(leanBody).length < KEEPALIVE_BODY_LIMIT;
+        const sendBody = keepalive ? leanBody! : saveBody;
+        leavingSave = false;
+        const send = (withKeepalive: boolean) => fetch(`${apiBase}/api/worlds/${serverWorldId}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: saveBody,
+          body: withKeepalive ? sendBody : saveBody,
+          ...(withKeepalive ? { keepalive: true } : {}),
         });
+        // Other keepalive requests in flight can fill the browser's quota.
+        const patch = () => (keepalive ? send(true).catch((error) => {
+          if (error instanceof TypeError) return send(false);
+          throw error;
+        }) : send(false));
+        let res = await patch();
+        // Someone saved between the server's read and its lock: the change
+        // set still applies, so send it again. (A 409 body read here is
+        // handed to the conflict handling below.)
+        let conflictBody: unknown;
+        for (let attempt = 0; changeBody && res.status === 409 && attempt < 3; attempt++) {
+          conflictBody = await res.json().catch(() => ({}));
+          if ((conflictBody as { code?: string } | null)?.code !== "CHANGES_RETRY" || !isCurrentSession()) break;
+          conflictBody = undefined;
+          res = await patch();
+        }
         if (!isCurrentSession()) {
           if (res.ok) useWorldsStore.getState().invalidate();
           return false;
@@ -4358,7 +5511,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           // The server tells us whether a material change to this published
           // world was held back from the live card for re-review.
           const body = await res.json().catch(() => ({ data: {} }));
-          const updated = (body as { data?: { pendingEdit?: WorldPendingEditSummary | null; heldForReview?: string[]; supersededReview?: boolean; updatedAt?: string } })?.data ?? {};
+          const updated = (body as { data?: { pendingEdit?: WorldPendingEditSummary | null; heldForReview?: string[]; supersededReview?: boolean; updatedAt?: string; previousUpdatedAt?: string | null } })?.data ?? {};
           if (!isCurrentSession() || !canApplyServerSnapshot(updated.updatedAt, started, get())) return false;
           dismissSaveError?.();
           const noDriftDuringSave = hasNoDrift();
@@ -4369,8 +5522,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           // and a published PATCH may return the old live schema, not the saved
           // working draft. A stale ancestor misclassifies already-saved UI files
           // as new local edits and lets them overwrite later agent changes.
+          const savedBase = structuredClone(cleanDraft);
           set({
-            _baseSchema: structuredClone(cleanDraft),
+            _baseSchema: savedBase,
             ...(noDriftDuringSave ? { isDirty: false, layoutDirty: false } : {}),
           });
           // Re-sync the concurrency token to the just-written server updatedAt so
@@ -4380,6 +5534,60 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           const savedToken = validServerToken(updated.updatedAt);
           if (savedToken) {
             set({ baseUpdatedAt: savedToken });
+          }
+          // The server now holds what we sent (a whole world passed the
+          // STALE guard; a change set applied to the copy we held).
+          serverSyncedBase = savedBase;
+          lastSentRoot = { epoch: documentAtSave, token: savedToken, root: sentRoot };
+          const queued = remoteQueue;
+          remoteQueue = [];
+          // The server now holds the card fields this save sent; saves of
+          // others that landed after it override them, earlier ones don't.
+          if (currentServerId) {
+            const sent: Partial<CardMeta> = {};
+            for (const key of CARD_META_KEYS) if (key in sentMeta) sent[key] = sentMeta[key];
+            serverMeta = { worldId: currentServerId, meta: { ...(knownServerMeta(currentServerId) ?? cardMetaOf(started)), ...sent } };
+            for (const event of [...queued].sort((a, b) => tokenTime(a.updatedAt) - tokenTime(b.updatedAt))) {
+              if (!event.meta || typeof event.meta !== "object") continue;
+              const theirs = { ...(event.meta as Partial<CardMeta>) };
+              if (savedToken && tokenTime(event.updatedAt) < tokenTime(savedToken)) for (const key of Object.keys(sent)) delete theirs[key as CardMetaKey];
+              set(adoptRemoteMeta(get(), theirs));
+            }
+          }
+          if (sentChanges) {
+            const previous = validServerToken(updated.previousUpdatedAt);
+            const landedOnOurs = !previous || !baseUpdatedAt || tokenTime(previous) === tokenTime(baseUpdatedAt);
+            if (!landedOnOurs || queued.length > 0) {
+              // Others saved around this one. Replay their change sets and
+              // ours in the server's order on the copy we started from; if
+              // the chain is unbroken we stay in step with the server.
+              const chained = started._baseSchema && savedToken && baseUpdatedAt
+                ? chainSaves(started._baseSchema, baseUpdatedAt, queued, { updatedAt: savedToken, previousUpdatedAt: previous ?? baseUpdatedAt, changes: sentChanges })
+                : null;
+              if (chained) {
+                const now = get();
+                const theirs = chained.theirs;
+                set({
+                  _baseSchema: chained.base,
+                  baseUpdatedAt: chained.token,
+                  worldDraft: overlayLiveText(applyWorldChanges(chained.base, diffWorld(cleanDraft, now.worldDraft))),
+                  _past: now._past.map((w) => applyWorldChanges(w, theirs)),
+                  _future: now._future.map((w) => applyWorldChanges(w, theirs)),
+                  _pendingServerRefresh: false,
+                });
+                serverSyncedBase = chained.base;
+                lastSentRoot = null;
+              } else {
+                // A gap that cannot be replayed: pull the server copy and merge.
+                serverSyncedBase = null;
+                set({ _pendingServerRefresh: true });
+              }
+            } else {
+              set({ _pendingServerRefresh: false });
+            }
+          } else if (queued.length > 0) {
+            serverSyncedBase = null;
+            set({ _pendingServerRefresh: true });
           }
           if (updated.pendingEdit !== undefined) {
             set({ pendingEdit: updated.pendingEdit });
@@ -4391,17 +5599,30 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           // material changes back (heldForReview) — and its panel spells out
           // that they need submitting, which a 3-second toast never could.
           set({ lastSavedAt: Date.now() });
-          // If Studio made changes while we had unsaved edits, refresh now that we've saved
-          if (noDriftDuringSave && get()._pendingServerRefresh) {
+          saved = true;
+          reviewNoticeShown = false;
+          // Saves from elsewhere that arrived while this one was out: merge
+          // them in now (unsaved edits made meanwhile survive the merge).
+          if (get()._pendingServerRefresh) {
             set({ _pendingServerRefresh: false });
-            get().refreshWorldSchema().catch(() => {});
+            get().refreshWorldSchema(false, { source: "remote-save" }).catch(() => {});
           }
           return true;
         } else if (res.status === 409) {
           // Locked while in review — say why the edits are not sticking.
-          const body = await res.json().catch(() => ({}));
+          const body = conflictBody !== undefined ? conflictBody : await res.json().catch(() => ({}));
           if (!isCurrentSession()) return false;
           const code = (body as { code?: string })?.code;
+          if (code === "UPDATE_IN_REVIEW") {
+            // Kept here, unsaved, and said once — not on every autosave.
+            if (!reviewNoticeShown) {
+              reviewNoticeShown = true;
+              feedback.notice(tr("editor:collab.liveUpdateInReview", "The creator's update is in review — your changes will save once the review is done"));
+            }
+            saveBlockedByReview = true;
+            if (serverAutosaveTimer) { clearTimeout(serverAutosaveTimer); serverAutosaveTimer = null; }
+            return false;
+          }
           if (code === "WORLD_IN_REVIEW") {
             // The server just told us authoritatively that this card is in
             // review — sync the chip so it offers "withdraw" instead of a
@@ -4410,7 +5631,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
             feedback.error(tr("editor:review.lockedToast", "In review — withdraw it to edit"));
             return false;
           }
-          if (code === "STALE_WORLD") {
+          const clash = code === "CHANGES_CONFLICT" ? body as { missing?: Array<{ key: string; id: string }>; conflicts?: Array<{ key: string; id: string; fields?: string[] }> } : null;
+          if (code === "STALE_WORLD" || clash) {
             // The Studio agent (or another tab) changed this world after we
             // loaded it. Don't clobber its work AND don't discard the user's
             // edits — 3-way merge them against the last-synced ancestor
@@ -4425,8 +5647,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
               const { data: sdata } = await sres.json();
               if (!isCurrentSession() || !sdata || sdata.id !== serverWorldId || !canApplyServerSnapshot(sdata.updatedAt, started, get())) return false;
               const serverDraft = buildServerDraftFromData(sdata);
-              const { merged, conflicts } = mergeWorldDefinition(get()._baseSchema, get().worldDraft, serverDraft);
-              if (get().layoutDirty) merged.graphLayout = get().worldDraft.graphLayout;
+              const { merged: mergedRaw, conflicts } = mergeWorldDefinition(get()._baseSchema, get().worldDraft, serverDraft);
+              const merged = overlayLiveText(mergedRaw);
               merged.entries = normalizeFolders(merged).world.entries;
               if (conflicts.length > 0) {
                 // Both sides edited the same item(s): the merge kept the user's
@@ -4438,16 +5660,32 @@ export const useEditorStore = create<EditorState>((set, get) => ({
                   );
                 } catch { /* storage unavailable — best effort */ }
               }
+              const mergedBase = structuredClone(serverDraft);
               set({
+                ...adoptRemoteMeta(get(), cardMetaFromData(sdata)),
                 worldDraft: merged,
-                _baseSchema: structuredClone(serverDraft),
+                ...historyThrough(get(), get()._baseSchema, mergedBase),
+                _baseSchema: mergedBase,
                 baseUpdatedAt: validServerToken(sdata.updatedAt) ?? get().baseUpdatedAt,
                 isDirty: true,
-                _past: [],
-                _future: [],
-                canUndo: false,
-                canRedo: false,
               });
+              serverSyncedBase = matchesStoredCopy(sdata.schema, serverDraft) ? mergedBase : null;
+              if (clash) {
+                // Someone else changed what this save changed: our version is
+                // kept and saved now — and the creator hears exactly what
+                // clashed, with a way to take theirs instead.
+                announceSaveClash(clash, conflicts, merged, serverDraft);
+                if (!staleMergeRetryInFlight) {
+                  staleMergeRetryInFlight = true;
+                  try {
+                    set({ saving: false });
+                    return await get().saveDraft();
+                  } finally {
+                    staleMergeRetryInFlight = false;
+                  }
+                }
+                return false;
+              }
               // A clean merge is saved right away — the creator pressed Save,
               // and "it merged, now press it again" is an errand, not an
               // outcome. Once only: a second STALE on the retry means the
@@ -4523,7 +5761,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           // Only clear dirty if no changes were made during the save
           const updates: Partial<EditorState> = {
             serverWorldId: data.id,
-            serverCreatorId: null,
+            // Whoever made the card owns it: with access set, sharing, the
+            // live stream and presence work from its first save on.
+            serverCreatorId: typeof data.creatorId === "string" ? data.creatorId : null,
+            access: { role: "owner", canPublish: true },
             _baseSchema: structuredClone(cleanDraft),
           };
           const savedToken = validServerToken(data.updatedAt);
@@ -4535,6 +5776,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
             updates.isDirty = false;
             updates.layoutDirty = false;
           }
+          // The number the server gave an untitled card is its name now, here
+          // too, and not an edit of the creator's.
+          if (typeof data.name === "string" && data.name && data.name !== cleanDraft.name && isPlaceholderCardName(get().worldDraft.name)) {
+            updates.worldDraft = { ...get().worldDraft, name: data.name };
+            updates._baseSchema = { ...structuredClone(cleanDraft), name: data.name };
+          }
           currentServerId = data.id;
           set(updates);
           settleStoredDraftAfterSave(draftSeqAtSave, noDriftDuringSave);
@@ -4543,10 +5790,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           // A saved language change makes the server demote/reconcile 主/副; refresh
           // the variant bar so its stars match the server (no stale/duplicate 主).
           if (get().languageGroupId) get().loadVariants();
-          // If Studio made changes while we had unsaved edits, refresh now that we've saved
+          // Someone else's save (a collaborator, another tab) landed around
+          // ours: pull it in now, quietly — it is announced where it lands.
           if (noDriftDuringSave && get()._pendingServerRefresh) {
             set({ _pendingServerRefresh: false });
-            get().refreshWorldSchema().catch(() => {});
+            get().refreshWorldSchema(false, { source: "remote-save" }).catch(() => {});
           }
           return true;
         } else {
@@ -4564,6 +5812,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       // Release our lock even after navigation, without clearing a newer save.
       if (activeSaveToken === saveToken) activeSaveToken = null;
       if (isCurrentSession()) set({ saving: false });
+      if (!saved && remoteTextAtSave && isCurrentSession()) remoteTextUnsaved = true;
     }
   }),
 
@@ -4612,7 +5861,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     discardedWorldId = null;
     // Still the discarded edits in memory: without this an in-app return to
     // the card showed them again, now looking saved.
-    if (get().serverWorldId === worldId) set({ serverWorldId: null, serverCreatorId: null, isDirty: false, layoutDirty: false });
+    if (get().serverWorldId === worldId) set({ serverWorldId: null, serverCreatorId: null, access: null, isDirty: false, layoutDirty: false });
   },
 
   stopAutosave: () => {
@@ -4622,7 +5871,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     //
     // The route's cleanup runs before its children's. A field still holding
     // typed text commits it as it unmounts, and that commit used to restart
-    // the 60s server autosave and queue a recovery write AFTER this had
+    // the server autosave and queue a recovery write AFTER this had
     // stopped them — a timer saving a card nobody had open, and a "recover?"
     // offer for a card that was just left. So: commit the fields now, while
     // the editor is still here, and ignore persistence for anything that

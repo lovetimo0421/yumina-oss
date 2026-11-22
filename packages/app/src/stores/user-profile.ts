@@ -28,6 +28,7 @@ interface UserProfile {
   role: string;
   /** Display hint only; publishing endpoints enforce current permissions. */
   skipReview?: boolean;
+  limitedContentOnly?: boolean;
   isBanned?: boolean;
   /**
    * Promotion partner. Used ONLY to decide whether the top-bar shortcut is
@@ -46,6 +47,8 @@ interface UserProfile {
   turnImagesOffered?: boolean;
   /** The server offers scene video (experimental; the player and its Settings switch show only then). */
   filmOffered?: boolean;
+  /** Authors and players may bind Anima LoRAs to story illustrations. */
+  turnImageLorasOffered?: boolean;
   /** The fal live stream engine is available too. */
   filmFalOffered?: boolean;
 }
@@ -82,6 +85,7 @@ function mapProfileResponse(data: Record<string, unknown>): UserProfile {
     preferences: (data.preferences as Record<string, unknown>) ?? {},
     role: (data.role as string) ?? "user",
     skipReview: data.skipReview === true,
+    limitedContentOnly: data.limitedContentOnly === true,
     isBanned: data.isBanned === true,
     isPartner: data.isPartner === true,
     createdAt: typeof data.createdAt === "string" ? data.createdAt : null,
@@ -89,6 +93,7 @@ function mapProfileResponse(data: Record<string, unknown>): UserProfile {
       ? data.defaultStoryMemory : null,
     turnImagesOffered: data.turnImagesOffered === true,
     filmOffered: data.filmOffered === true,
+    turnImageLorasOffered: data.turnImageLorasOffered === true,
     filmFalOffered: data.filmFalOffered === true,
   };
 }

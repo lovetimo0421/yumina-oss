@@ -1,0 +1,244 @@
+{
+  "name": "Tanpa Batasan",
+  "switchLabel": "Sakelar Tanpa Batasan",
+  "loading": "Memuat…",
+  "cancel": "Batal",
+  "tokensApprox": "~{{n}} token",
+  "status": {
+    "off": "Mati",
+    "on": "Aktif · {{variant}} · kekuatan {{strength}}",
+    "autoVariant": "Otomatis ({{variant}})"
+  },
+  "variants": {
+    "gemini": "Edisi Gemini",
+    "claude": "Edisi Claude",
+    "deepseek": "Edisi DeepSeek",
+    "general": "Edisi Umum"
+  },
+  "strength": {
+    "title": "Kekuatan",
+    "light": "Ringan",
+    "standard": "Standar",
+    "strong": "Kuat",
+    "hint": {
+      "light": "Hanya kerangka cerita — paling kecil pengaruhnya ke gaya tulisan.",
+      "standard": "Kerangka plus panduan yang biasa dipakai. Cukup untuk kebanyakan kasus.",
+      "strong": "Menambah pengingat cek ulang sebelum setiap balasan. Token sedikit lebih banyak."
+    }
+  },
+  "card": {
+    "adjust": "Atur"
+  },
+  "age": {
+    "title": "Konfirmasi usiamu dulu",
+    "body": "Konfirmasi tahun lahirmu untuk mengaktifkannya.",
+    "placeholder": "Tahun lahir, mis. 1998",
+    "confirm": "Konfirmasi",
+    "invalid": "Masukkan tahun empat digit.",
+    "under18": "Kamu harus berusia 18 tahun atau lebih untuk memakai prompt Tanpa Batasan."
+  },
+  "errors": {
+    "notEligible": "Akun ini belum bisa memakai prompt Tanpa Batasan saat ini",
+    "saveFailed": "Gagal menyimpan — coba lagi",
+    "copyFailed": "Gagal membuat salinan — coba lagi"
+  },
+  "prompts": {
+    "title": "Prompt",
+    "newFolder": "Folder baru",
+    "mine": "Prompt saya",
+    "mineCount": "· total {{total}}, {{on}} aktif",
+    "mineCountLong": "Total {{total}}, {{on}} aktif",
+    "new": "Baru",
+    "none": "Belum ada prompt.",
+    "hubRow": "Cari lebih banyak di Plaza Prompt",
+    "manageInSettings": "Kelola di Pengaturan › Prompt",
+    "pos": "urutan {{n}}",
+    "section": {
+      "system": "Awal",
+      "inChat": "Dalam chat",
+      "final": "Akhir"
+    },
+    "sectionFull": {
+      "system": "Awal",
+      "inChat": "Dalam chat",
+      "final": "Akhir"
+    },
+    "compose": {
+      "title": "Tulis prompt sendiri",
+      "explain": "Apa pun yang kamu tulis di sini dikirim ke AI bersama setiap pesanmu, di semua kartu. Untuk menghentikannya, matikan di Prompt.",
+      "name": "Nama",
+      "namePlaceholder": "Nama (opsional)",
+      "content": "Prompt",
+      "contentPlaceholder": "mis. Gambarkan sekitar dan suara-suara sedikit lebih detail di setiap balasan.",
+      "save": "Simpan",
+      "saved": "Tersimpan. Berlaku mulai pesan berikutnya.",
+      "failed": "Gagal menyimpan. Coba lagi.",
+      "more": "Pengaturan lainnya"
+    },
+    "sectionHint": {
+      "system": "Dibaca AI lebih dulu, bersama pengaturan karakter. Cocok untuk aturan yang selalu berlaku, seperti gaya atau sudut pandang.",
+      "inChat": "Ditempatkan di dalam riwayat chat. Angka di bawah dihitung mundur dari pesan terbaru.",
+      "final": "Hal terakhir yang dibaca AI sebelum membalas, jadi pengaruhnya paling besar. Cocok untuk aturan yang wajib diikuti."
+    }
+  },
+  "conflict": {
+    "paused": "“{{name}}” dan versi resminya sama-sama aktif, jadi punyamu dijeda dulu.",
+    "pausedLong": "“{{name}}” buatanmu dan preset resminya sama-sama aktif, jadi punyamu dijeda otomatis.",
+    "undo": "Urungkan",
+    "restored": "“{{name}}” aktif lagi. Keduanya kini berlaku dan bisa saling bertentangan.",
+    "repause": "Jeda lagi"
+  },
+  "chips": {
+    "officialCopy": "Salinan resmi",
+    "fromHub": "Dari Plaza",
+    "paused": "Dijeda"
+  },
+  "page": {
+    "breadcrumb": "Breadcrumb",
+    "crumbSettings": "Pengaturan"
+  },
+  "gone": {
+    "title": "Halaman ini tidak ada",
+    "body": "Tautan ini tidak bisa dibuka di akun ini.",
+    "cta": "Ke Pengaturan › Prompt"
+  },
+  "master": {
+    "currentModel": "Model saat ini",
+    "noModel": "belum dipilih",
+    "autoUses": "otomatis memakai “{{variant}}”",
+    "manualUses": "memakai “{{variant}}” (pilihanmu)",
+    "off": "Mati"
+  },
+  "variantsCard": {
+    "title": "Preset resmi",
+    "auto": "Otomatis",
+    "autoPicked": "Dipilih otomatis",
+    "verified": "Terakhir dicek {{date}}"
+  },
+  "what": {
+    "title": "Fungsinya",
+    "one": "Secara default ditaruh sebelum semua prompt lain dan dikirim di setiap pesan. Kamu bisa mengubah posisi dan isinya di bawah.",
+    "two": "Menjeda sementara prompt buatanmu yang sejenis agar keduanya tidak bentrok. Akan aktif lagi saat ini dimatikan."
+  },
+  "honest": "Sebagian konten diblokir langsung oleh penyedia modelnya — tidak ada prompt yang bisa mengubahnya. Dalam kasus ini, ganti model biasanya lebih membantu.",
+  "adjust": {
+    "title": "pengaturanmu",
+    "autoPicked": "(dipilih otomatis)",
+    "copyLocked": "Edit langsung teks salinannya"
+  },
+  "join": {
+    "title": "Cara menambahkan",
+    "follow": "Ikuti versi resmi",
+    "default": "Default",
+    "followHint": "Diperbarui otomatis saat kami menyempurnakannya. Opsi di bawah tetap berlaku.",
+    "copy": "Buat salinan sendiri",
+    "copyHint": "Disimpan ke “Prompt saya” agar bebas diedit. Tidak lagi diperbarui otomatis.",
+    "copyNote": "Disimpan ke Prompt saya",
+    "backTitle": "Kembali mengikuti versi resmi?",
+    "backBody": "Teksnya kembali ke versi resmi dan diperbarui otomatis. “{{variant}} (salinanku)” akan dihapus dari “Prompt saya”.",
+    "backOk": "Ikuti versi resmi"
+  },
+  "update": {
+    "banner": "Versi resmi sudah diperbarui",
+    "compare": "Bandingkan",
+    "title": "“{{variant}}” resmi versi baru",
+    "subtitle": "Kamu memakai salinan sendiri, jadi kami tanya dulu",
+    "legend": "Yang berubah (sorotan = ditambah, dicoret = dihapus):",
+    "note": "“Pakai versi baru” akan membuat salinan baru dari teks resmi terbaru. Editanmu akan tergantikan.",
+    "keepMine": "Pertahankan punyaku",
+    "useNew": "Pakai versi baru"
+  },
+  "position": {
+    "title": "Posisinya",
+    "first": {
+      "label": "Awal (disarankan)",
+      "hint": "Dibaca model paling awal. Paling andal."
+    },
+    "after-char": {
+      "label": "Setelah karakter",
+      "hint": "Pengaturan kartu dibaca lebih dulu. Cocok untuk kartu dengan pengaturan yang sangat panjang."
+    },
+    "last": {
+      "label": "Akhir chat",
+      "hint": "Paling dekat dengan balasan — efeknya paling kuat, tapi bisa memengaruhi gaya tulisan."
+    }
+  },
+  "modules": {
+    "title": "Apa saja yang disertakan",
+    "coreLocked": "Inti, tidak bisa dimatikan",
+    "core": {
+      "name": "Kerangka cerita",
+      "desc": "Membingkai chat sebagai fiksi. Semua yang lain dibangun di atasnya."
+    },
+    "antiApology": {
+      "name": "Tanpa permintaan maaf",
+      "desc": "Setelah menolak, ubah kalimatnya dan lanjut menulis"
+    },
+    "antiEmpty": {
+      "name": "Tanpa balasan kosong",
+      "desc": "Hindari balasan satu baris atau kosong"
+    },
+    "noLecture": {
+      "name": "Tanpa menggurui",
+      "desc": "Tanpa catatan keamanan atau peringatan di akhir"
+    },
+    "adultWriting": {
+      "name": "Gaya konten dewasa",
+      "desc": "Seberapa eksplisit konten dewasa ditulis"
+    },
+    "strongReminder": {
+      "name": "Cek mandiri sebelum membalas"
+    }
+  },
+  "explicitness": {
+    "subtle": "Halus",
+    "normal": "Normal",
+    "explicit": "Eksplisit"
+  },
+  "fullText": {
+    "open": "Lihat / edit teks lengkap",
+    "title": "{{variant}} · teks lengkap",
+    "followHint": "Mengikuti versi resmi — teks hanya bisa dibaca. Ketuk teks atau “Edit” untuk mengubahnya.",
+    "copyHint": "Ini salinanmu — ubah sesukamu.",
+    "strengthChip": "Kekuatan: {{value}}",
+    "positionChip": "Posisi: {{value}}",
+    "copyMissing": "Salinanmu masih kosong.",
+    "restore": "Kembalikan ke versi resmi",
+    "edit": "Edit",
+    "done": "Selesai",
+    "saveDone": "Simpan",
+    "confirmTitle": "Edit teks lengkap",
+    "confirmBody": "Setelah diedit, ini menjadi salinanmu sendiri dan tidak lagi diperbarui otomatis. Salinan akan muncul di “Prompt saya”, dan kamu akan diberi tahu kalau ada versi resmi yang baru.",
+    "confirmOk": "Lanjut edit"
+  },
+  "scope": {
+    "title": "Dipakai di kartu mana",
+    "all": "Semua kartu",
+    "some": "Hanya kartu ini",
+    "none": "Belum ada kartu yang dipilih — untuk saat ini tidak akan dipakai di mana pun.",
+    "unknownWorld": "(kartu tidak ada di pustakamu)",
+    "remove": "Hapus",
+    "add": "Tambah kartu",
+    "pickTitle": "Pilih kartu",
+    "search": "Cari kartu",
+    "empty": "Pustakamu masih kosong.",
+    "pickSave": "Selesai ({{n}})"
+  },
+  "footer": {
+    "withCost": "Total ~{{n}} token · sekitar {{cost}} mushies ekstra per giliran",
+    "tokensOnly": "Total ~{{n}} token"
+  },
+  "community": {
+    "title": "Prompt dari pemain lain",
+    "myUploads": "Uploadanku",
+    "toHub": "Ke Plaza Prompt"
+  },
+  "bindings": {
+    "title": "Aktif otomatis per model",
+    "hint": "Pilih prompt milikmu yang otomatis dipakai untuk tiap keluarga model.",
+    "none": "Mati",
+    "families": {
+      "other": "Lainnya"
+    }
+  }
+}

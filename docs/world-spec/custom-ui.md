@@ -1,3 +1,8 @@
+---
+title: "Custom UI (rootComponent)"
+description: "The rootComponent of a world file: a set of React files that run in a sandbox and draw the interface, with the api they can call and the events they receive."
+---
+
 # Custom UI (rootComponent)
 
 The `rootComponent` is a virtual filesystem of React/TSX files that run in a sandboxed iframe. It provides the world's visual layer and has full access to game state, chat control, session management, AI completions, and audio.
@@ -235,6 +240,19 @@ storage.get(key: string): Promise<string | null>;
 storage.set(key: string, value: string): Promise<void>;
 storage.remove(key: string): Promise<void>;
 ```
+
+### Leaderboards (Card-Scoped, Shared)
+
+```typescript
+leaderboard.submit(board: string, score: number, opts?: { details?: unknown; order?: "desc" | "asc" }):
+  Promise<{ ok: true; best: number; rank: number; total: number; improved: boolean; order: "desc" | "asc" } | { ok: false; reason: string }>;
+leaderboard.get(board: string, opts?: { range?: "top" | "around" | "friends"; limit?: number }):
+  Promise<{ ok: true; order: "desc" | "asc"; total: number;
+            entries: { rank: number; name: string; image: string | null; score: number; details: unknown; me: boolean }[];
+            me: { rank: number; score: number } | null } | { ok: false; reason: string }>;
+```
+
+The platform keeps each signed-in player's best score per board and ranks it; the card draws the board in its own style. All language versions of a card share boards. `order` is fixed by a board's first score. Guests get `reason: "sign-in"`. Limits: board name 1–40 chars, 20 boards per card, 30 submits/min per player, `details` ≤ 500 chars of JSON, `limit` ≤ 50.
 
 ### UI Controls
 

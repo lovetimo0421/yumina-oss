@@ -58,6 +58,9 @@ export interface GenerateParams {
   model: string;
   messages: ChatMessage[];
   maxTokens?: number;
+  /** Input-token budget the prompt was trimmed to (clamped maxContext). Local
+   *  runtimes size their window (`num_ctx`) from it; hosted providers ignore it. */
+  contextBudget?: number;
   temperature?: number;
   topP?: number;
   frequencyPenalty?: number;
@@ -172,6 +175,6 @@ export interface LLMProvider {
   generateStream(params: GenerateParams): AsyncIterable<StreamChunk>;
   listModels(): Promise<Model[]>;
   /** Account/endpoint context cap, which may be lower than the model's advertised window. */
-  getContextWindow?(): Promise<number | undefined>;
+  getContextWindow?(modelId?: string): Promise<number | undefined>;
   verify?(): Promise<boolean>;
 }

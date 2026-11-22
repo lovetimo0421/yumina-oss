@@ -65,6 +65,22 @@ export interface FrontendAiCall {
    *  calling one of the card's AIs did not answer (1984's referee), not an
    *  AI of its own. */
   fallbackOfCallAi?: boolean;
+  /** What the code calls this AI in its own words, read off a message next
+   *  to the call ("The referee timed out." gives "referee"). */
+  label?: string;
+  /** What it is asked to do: the first sentence of the instructions the call
+   *  sends, when they are written out in the code ("You read one answer in an
+   *  interrogation…"). */
+  purpose?: string;
+  /** The instruction text itself, as written (holes shown as …). */
+  instructions?: string;
+  /** What the code hands the function that builds the messages
+   *  (`transcript`, `facts`, `ledger`…). */
+  inputs?: string[];
+  /** Entry tags the code picks the lore it sends by (`actor:referee`). */
+  tags?: string[];
+  /** The fields its JSON answer must have. */
+  returns?: string[];
 }
 
 /** How far before a call its arguments are looked for when they are built
@@ -310,13 +326,44 @@ function scanFiles(files: Record<string, string>): FrontendAiCall[] {
     const { comments, literals } = lexSpans(source);
     // `text` keeps the strings (the ids are read out of it); `code` blanks
     // them too, and is where calls, brackets and keys are looked for.
-    const text = blank(source, comments);
-    const code = blank(source, [...comments, ...literals].sort((a, b) => a[0] - b[0]));
+    const lexed = scanSource(file, source, blank(source, comments), blank(source, [...comments, ...literals].sort((a, b) => a[0] - b[0])));
+    // The lexer is not a parser: in a minified bundle a shader in a template,
+    // or a regex full of quotes, can make it take a long run of real code for
+    // a string, and every call inside that run vanishes (1984: all five of
+    // its AIs; the canvas showed none of them). The raw source is read again
+    // for calls on an alias pulled out of `.ai` (`Pt=r?.ai` … `Pt.complete(`),
+    // which text in a string rarely is; one in a comment still does not count.
+    const have = new Set(lexed.map((c) => `${c.line}:${c.column}`));
+    const inComment = (call: FrontendAiCall) => comments.some(([a, b]) => {
+      const at = offsetOf(source, call.line, call.column);
+      return a <= at && at < b;
+    });
+    const missed = scanSource(file, source, source, source, true).filter((c) => !have.has(`${c.line}:${c.column}`) && !inComment(c));
+    calls.push(...[...lexed, ...missed].sort((x, y) => x.line - y.line || x.column - y.column));
+  }
+  return calls;
+}
+
+/** Character offset of a 1-based line and column. */
+function offsetOf(source: string, line: number, column: number): number {
+  let at = 0;
+  for (let l = 1; l < line; l++) {
+    const next = source.indexOf("\n", at);
+    if (next < 0) break;
+    at = next + 1;
+  }
+  return at + column - 1;
+}
+
+/** `aliasOnly`: only calls on a name pulled out of `.ai`, for the raw read. */
+function scanSource(file: string, source: string, text: string, code: string, aliasOnly = false): FrontendAiCall[] {
+  const calls: FrontendAiCall[] = [];
+  {
 
     const found: Array<{ index: number; open: number; kind: FrontendAiCallKind }> = [];
     let m: RegExpExecArray | null;
     CALL.lastIndex = 0;
-    while ((m = CALL.exec(code)) !== null) {
+    while (!aliasOnly && (m = CALL.exec(code)) !== null) {
       const root = m[1]!;
       // `this.ai.complete` inside a class, or a type annotation `ai: {...}`,
       // are not calls on the sandbox API. Everything else is accepted: cards
@@ -403,8 +450,231 @@ function scanFiles(files: Record<string, string>): FrontendAiCall[] {
         if (num) call[key] = Number(num[1]);
         else call.dynamicSampling = true;
       }
+      const label = labelOf(source, found[n]!.index);
+      if (label) call.label = label;
+      Object.assign(call, describeCallAt(source, found[n]!.index));
+      // Fields it must answer with: a JSON answer, though the format is set in
+      // the builder rather than in the call's own argument.
+      if (call.returns?.length) call.json = true;
       calls.push(call);
     });
   }
   return calls;
+}
+
+/** A message the code shows when this AI fails ("The referee timed out.",
+ *  "unperson ministry judge failed"): its subject is what the code calls it.
+ *  The one just after the call is its own; failing that, the nearest before. */
+const LABEL = /["'`](?:the\s+)?([a-z][a-z ]{2,30}?)\s+(?:timed out|failed)\b/gi;
+function labelOf(source: string, at: number): string | undefined {
+  LABEL.lastIndex = 0;
+  const next = LABEL.exec(source.slice(at, at + 700));
+  if (next) return next[1]!.trim();
+  let last: string | undefined;
+  const before = source.slice(Math.max(0, at - 400), at);
+  LABEL.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = LABEL.exec(before)) !== null) last = m[1]!.trim();
+  return last;
+}
+
+/** An instruction telling a model who it is or what to do. */
+const INSTRUCTION = /["'`}]\s*((?:You |Your job|Write |Reply |Return |你是|你要|请你)[^"'`$]{30,}?[.。!?！？])/;
+/** The whole instruction text, up to the end of its literal. */
+const INSTRUCTION_TEXT = /["'`}]\s*((?:You |Your job|Write |Reply |Return |你是|你要|请你)[^"'`]{30,})/;
+/** A function that builds what is sent to a model, not just text for it. */
+const BUILDS_MESSAGES = /\bmessages\s*:|role\s*:\s*["']system["']|\binstructions\s*:/;
+const CALLED = /(?<![\w$.])([A-Za-z_$][\w$]{0,40})\s*\(/g;
+const NOT_A_BUILDER = /^(?:if|for|while|switch|catch|function|return|typeof|await|new|Promise|String|Number|Math|JSON|setTimeout|clearTimeout|Object|Array|Error|Boolean|Date|Set|Map|race|then|slice|map|filter|join|replace|trim|push|find|some|every|includes|split|concat|parseInt|parseFloat|requestAnimationFrame)$/;
+/** A tag the code picks entries by (`(e.tags ?? []).includes("actor:referee")`). */
+const TAG = /\.includes\(\s*["']([a-z][\w-]*:[\w-]+)["']\s*\)/g;
+/** The fields a JSON answer must have. */
+const REQUIRED = /\brequired\s*:\s*\[([^\]]{1,400})\]/;
+const escapeId = (name: string) => name.replace(/\$/g, "\\$");
+
+/** Where `function NAME(` is defined, and its first few thousand characters. */
+function bodyOf(source: string, name: string): { at: number; body: string } | null {
+  const def = new RegExp(String.raw`function\s+${escapeId(name)}\s*\(`).exec(source);
+  return def ? { at: def.index, body: functionText(source, def.index) } : null;
+}
+
+/** A function's own text, from `function` to its closing brace: two builders
+ *  written side by side must not lend each other their answers. Brackets are
+ *  counted without regard to strings, so a brace inside one can end it early;
+ *  never longer than 8000 characters. */
+function functionText(source: string, at: number): string {
+  const limit = Math.min(source.length, at + 8000);
+  let i = source.indexOf("(", at);
+  if (i < 0) return source.slice(at, limit);
+  let depth = 0;
+  for (; i < limit; i++) {
+    const ch = source[i];
+    if (ch === "(") depth++;
+    else if (ch === ")" && --depth === 0) break;
+  }
+  const open = source.indexOf("{", i);
+  if (open < 0 || open >= limit) return source.slice(at, limit);
+  depth = 0;
+  for (let j = open; j < limit; j++) {
+    const ch = source[j];
+    if (ch === "{") depth++;
+    else if (ch === "}" && --depth === 0) return source.slice(at, j + 1);
+  }
+  return source.slice(at, limit);
+}
+
+/** The fields a JSON answer must have: the schema written in the builder, or
+ *  the one it names (`json_schema: dT`) and defines elsewhere. */
+function requiredFields(source: string, body: string): string[] | undefined {
+  const read = (text: string) => {
+    const r = REQUIRED.exec(text);
+    return r ? [...r[1]!.matchAll(/["']([^"']+)["']/g)].map((x) => x[1]!) : undefined;
+  };
+  const named = /\bjson_schema\s*:\s*([A-Za-z_$][\w$]*)|\bresponseFormat\s*:\s*([A-Za-z_$][\w$]*)/.exec(body);
+  const name = named?.[1] ?? named?.[2];
+  if (name) {
+    const def = new RegExp(String.raw`(?<![\w$.])${escapeId(name)}\s*=`).exec(source);
+    if (def) return read(source.slice(def.index, def.index + 2500));
+  }
+  return /responseFormat|json_schema/.test(body) ? read(body) : undefined;
+}
+
+/** The functions a stretch of code calls, nearest the end first. */
+function calledIn(text: string): string[] {
+  const names: string[] = [];
+  let m: RegExpExecArray | null;
+  CALLED.lastIndex = 0;
+  while ((m = CALLED.exec(text)) !== null) if (!NOT_A_BUILDER.test(m[1]!)) names.push(m[1]!);
+  return [...new Set(names.reverse())];
+}
+
+/** The keys of the first object a function takes (`function mb({persona, world, …})`,
+ *  `function M5(r, {manner, transcript, facts} = {})`): what it is handed to build from. */
+function paramKeys(body: string): string[] {
+  const open = body.indexOf("(");
+  const brace = body.indexOf("{", open);
+  const close = body.indexOf(")", open);
+  if (open < 0 || brace < 0 || (close >= 0 && close < brace)) return [];
+  const keys: string[] = [];
+  let depth = 0;
+  let part = "";
+  for (let i = brace + 1; i < body.length && i < brace + 2000; i++) {
+    const ch = body[i]!;
+    if (ch === "{" || ch === "[" || ch === "(") depth++;
+    else if (ch === "}" || ch === "]" || ch === ")") {
+      if (depth === 0) { keys.push(part); break; }
+      depth--;
+    }
+    if (ch === "," && depth === 0) { keys.push(part); part = ""; continue; }
+    part += ch;
+  }
+  return keys.map((p) => /^\s*([A-Za-z_$][\w$]*)/.exec(p)?.[1]).filter((k): k is string => !!k && k.length > 1);
+}
+
+export interface CallDescription {
+  purpose?: string;
+  instructions?: string;
+  inputs?: string[];
+  tags?: string[];
+  returns?: string[];
+}
+
+/**
+ * What a model call is asked, read off the code around it: the function that
+ * builds its messages is usually called just before it (1984 builds each AI's
+ * messages in a function of its own), and the entries it reads are picked by
+ * tag in a function that one calls. The nearest builder is this call's.
+ */
+export function describeCallAt(source: string, at: number): CallDescription {
+  const lead = source.slice(Math.max(0, at - LEAD), at);
+  const out: CallDescription = {};
+  const tags = new Set<string>();
+  const addTags = (text: string) => {
+    let m: RegExpExecArray | null;
+    TAG.lastIndex = 0;
+    while ((m = TAG.exec(text)) !== null) tags.add(m[1]!);
+  };
+  addTags(lead);
+  let builder: { name: string; body: string } | null = null;
+  const names = calledIn(lead).slice(0, 16);
+  for (const name of names) {
+    const found = bodyOf(source, name);
+    if (found && BUILDS_MESSAGES.test(found.body.slice(0, 3000))) { builder = { name, body: found.body }; break; }
+  }
+  // The functions called alongside the builder, and those they call: where
+  // the entries handed over are picked (1984's referee: `world: Fb(api.entries)`).
+  for (const name of names) {
+    const found = bodyOf(source, name);
+    if (!found) continue;
+    addTags(found.body.slice(0, 1500));
+    for (const inner of calledIn(found.body.slice(0, 1500)).slice(0, 8)) {
+      const deeper = bodyOf(source, inner);
+      if (deeper) addTags(deeper.body.slice(0, 1200));
+    }
+  }
+  if (builder) {
+    const text = INSTRUCTION_TEXT.exec(builder.body)?.[1];
+    const sentence = INSTRUCTION.exec(builder.body)?.[1];
+    if (sentence) out.purpose = tidy(sentence);
+    if (text) out.instructions = tidyText(text);
+    const keys = paramKeys(builder.body);
+    if (keys.length) out.inputs = keys;
+    const fields = requiredFields(source, builder.body);
+    if (fields?.length) out.returns = fields;
+  } else {
+    const near = source.slice(Math.max(0, at - 300), at + 300);
+    const sentence = INSTRUCTION.exec(near)?.[1];
+    if (sentence) out.purpose = tidy(sentence);
+  }
+  if (tags.size) out.tags = [...tags];
+  return out;
+}
+
+function decode(s: string): string {
+  return s.replace(/\\u([0-9a-fA-F]{4})/g, (_, hex: string) => String.fromCharCode(parseInt(hex, 16)));
+}
+
+function tidy(sentence: string): string {
+  const one = decode(sentence).replace(/\s+/g, " ").trim();
+  return one.length > 160 ? `${one.slice(0, 157)}…` : one;
+}
+
+function tidyText(text: string): string {
+  const one = decode(text).replace(/\$\{[^}]*\}/g, "…").replace(/\$\{[^}]*$/, "…").replace(/[ \t]+/g, " ").trim();
+  return one.length > 1500 ? `${one.slice(0, 1497)}…` : one;
+}
+
+export interface LiveVoiceCall extends CallDescription {
+  file: string;
+  line: number;
+}
+
+/** A live voice conversation the screen opens (`api.realtimeVoice.start({ instructions, … })`):
+ *  where it starts, and what it is told, read the same way as a model call. */
+export function liveVoiceCalls(files: Record<string, string>): LiveVoiceCall[] {
+  const out: LiveVoiceCall[] = [];
+  for (const [file, source] of Object.entries(files)) {
+    if (typeof source !== "string" || !/\brealtimeVoice\b/.test(source)) continue;
+    const start = /\.start\s*\(\s*\{[^}]{0,200}?\binstructions\s*:/g;
+    let m: RegExpExecArray | null;
+    while ((m = start.exec(source)) !== null) {
+      const line = source.slice(0, m.index).split("\n").length;
+      const described = describeCallAt(source, m.index);
+      // `instructions: Y` where `Y = Zm({ personnel, entries, recent… })` a little
+      // up: Zm is what the conversation is told, its keys what it is handed.
+      const variable = /\binstructions\s*:\s*([A-Za-z_$][\w$]*)/.exec(source.slice(m.index, m.index + 400))?.[1];
+      const built = variable
+        ? new RegExp(String.raw`(?<![\w$.])${escapeId(variable)}\s*=\s*([A-Za-z_$][\w$]*)\s*\(`).exec(source.slice(Math.max(0, m.index - LEAD), m.index))
+        : null;
+      const builder = built ? bodyOf(source, built[1]!) : null;
+      if (builder) {
+        const keys = paramKeys(builder.body);
+        if (keys.length) described.inputs = keys;
+        const sentence = INSTRUCTION.exec(builder.body)?.[1];
+        if (sentence && !described.purpose) described.purpose = tidy(sentence);
+      }
+      out.push({ file, line, ...described });
+    }
+  }
+  return out;
 }

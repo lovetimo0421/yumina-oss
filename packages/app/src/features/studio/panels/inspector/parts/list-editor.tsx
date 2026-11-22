@@ -128,8 +128,6 @@ export function ListEditor({
             { value: "variable", label: t("studio.parts.list.sourceVariable") },
           ]}
         />
-        {/* Which variable is the panel's own 读取变量 row, right under this. */}
-        {!isStatic && !isEntries && <p className="mt-1.5 text-[10px] leading-relaxed text-muted-foreground/70">{t("studio.parts.list.variableHint")}</p>}
         {isEntries && (
           <div className="mt-2 flex flex-col gap-1.5" data-list-entries="">
             <select

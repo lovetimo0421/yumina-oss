@@ -10,11 +10,12 @@ export function TurnContextCard({ view, onClose }: { view: TurnContextView; onCl
   return (
     <div className="studio-pill w-[290px] overflow-hidden rounded-xl border">
       <div className="flex items-center gap-2 border-b border-white/[0.07] px-3 py-2">
-        <MessageSquare className="h-3.5 w-3.5 shrink-0 text-amber-400" />
-        <span className="min-w-0 flex-1 truncate text-[11px] font-bold text-foreground">
+        <MessageSquare className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 flex-1 truncate text-[11px] font-bold text-foreground" title={t("blueprint.turnCtx.estimateExplanation")}>
           {t("blueprint.turnCtx.estimateTitle", { defaultValue: "上下文估计" })}
         </span>
         <span
+          title={view.live ? undefined : t("blueprint.turnCtx.beforeOpening")}
           className={cn(
             "shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold",
             view.live ? "bg-emerald-500/20 text-emerald-300" : "bg-zinc-700/50 text-zinc-400",
@@ -35,11 +36,8 @@ export function TurnContextCard({ view, onClose }: { view: TurnContextView; onCl
       </div>
 
       <div className="max-h-[52vh] space-y-2.5 overflow-y-auto px-3 py-2.5">
-        <p className="text-[10px] leading-relaxed text-muted-foreground">
-          {!view.live && t("blueprint.turnCtx.beforeOpening", { defaultValue: "初始配置尚未应用具体开场。" })}
-        </p>
         <div className="flex items-start gap-2">
-          <Activity className="mt-0.5 h-3 w-3 shrink-0 text-amber-400" />
+          <Activity className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground" />
           <span className="text-[11px] leading-snug text-foreground/90">
             {view.narrator
               ? t("blueprint.turnCtx.narrator", { name: view.narrator.name })
@@ -70,7 +68,7 @@ export function TurnContextCard({ view, onClose }: { view: TurnContextView; onCl
           ))}
           {view.standby > 0 && (
             <p className="text-[10px] leading-relaxed text-muted-foreground">
-              {t("blueprint.turnCtx.conditionalCount", { count: view.standby, defaultValue: "{{count}} 条设定由关键词、条件或前端触发，未计入此估计。" })}
+              {t("blueprint.turnCtx.conditionalCount", { count: view.standby })}
             </p>
           )}
         </div>
@@ -118,7 +116,7 @@ export function TurnContextCard({ view, onClose }: { view: TurnContextView; onCl
             <Layers className="h-3 w-3" />
             {t("blueprint.turnCtx.baselineEstimate", { defaultValue: "常驻内容估计" })}
           </span>
-          <span className="shrink-0 text-[11px] font-bold tabular-nums text-amber-400/90">
+          <span className="shrink-0 text-[11px] font-bold tabular-nums text-foreground">
             ~{formatTokens(view.total)}
           </span>
         </div>
@@ -166,7 +164,7 @@ function BudgetBar({ view }: { view: TurnContextView }) {
         ))}
       </div>
       {view.heaviest && view.heaviest.tokens > 120 && (
-        <p className="mt-1.5 text-[9.5px] leading-relaxed text-amber-400/80">
+        <p className="mt-1.5 text-[9.5px] leading-relaxed text-muted-foreground">
           {t("blueprint.turnCtx.heaviest", {
             defaultValue: "{{name}} alone is {{tokens}}",
             name: view.heaviest.name,

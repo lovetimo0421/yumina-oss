@@ -77,7 +77,11 @@ export function getEnabledGenerationTemplate(id: string): GenerationTemplateInfo
 /** Jobs in "queued"/"running" per user — the real concurrency throttle. */
 export const MAX_ACTIVE_GENERATION_JOBS = 2;
 
-export const MAX_GENERATION_PROMPT_LENGTH = 2000;
+/** A picture's description. Raised from 2000 on 2026-11-19: about 1% of prod pictures hit the old cap, and
+ *  none of the long ones that failed was refused for length (all were moderation). */
+export const MAX_GENERATION_PROMPT_LENGTH = 5000;
+/** A clip's description stays at 2000: Kling's API caps a prompt at 2500, Runway at 1000. */
+export const MAX_VIDEO_PROMPT_LENGTH = 2000;
 
 /** The model a creator gets without choosing one, and what the Studio assistant
  *  falls back to. Seedream Lite is the cheapest by a wide margin and holds up
@@ -86,6 +90,12 @@ export const MAX_GENERATION_PROMPT_LENGTH = 2000;
  *  a creator who wants a 512px icon is told which way to go instead of never
  *  learning the option exists. */
 export const SMART_IMAGE_MODEL = "bytedance-seed/seedream-5-0-lite";
+
+/** The model a picture edited from a reference (立绘差分: her outfit, face, what she holds, where she
+ *  stands) opens on, where the creator has not picked one. In a four-step chained edit of our own portraits
+ *  (2026-11-20) Seedream 5.5 kept the face, the line art and every untouched pixel best of six models;
+ *  Seedream 5.0 Lite, the text-to-image default, redrew the face and oversaturated a little more each step. */
+export const SMART_IMAGE_EDIT_MODEL = "bytedance-seed/seedream-5-5";
 
 /** Every aspect ratio any of our models accepts. The UI shows the intersection
  *  with the selected model's own list, never this union, because a provider
@@ -119,6 +129,11 @@ export type SmartImageResolution = typeof SMART_IMAGE_RESOLUTIONS[number];
  *  the OpenRouter ones against that endpoint. */
 export const SMART_IMAGE_4K_COST_FACTOR = 1.5;
 
+/** A picture costs the creator the provider's price × this, like a clip (VIDEO_PARTNER_MARKUP) and a tool
+ *  (MEDIA_TOOL_MARKUP). Set here, not read from model_prices: the image rows there are inactive (they are not chat
+ *  models), so their 1.2 never applied and pictures were sold at cost until 2026-11-18. */
+export const SMART_IMAGE_MARKUP = 1.2;
+
 export const SMART_IMAGE_MODELS = [
   // ── Seedream (ByteDance) ──
   { id: "bytedance-seed/seedream-5-0-flash", key: "seedreamFlash", family: "seedream", name: "Seedream 5.0 Flash", estimatedCostUsd: 0.018, resolution: "2K", quality: undefined, supportsSeed: true, supportsReference: true,
@@ -126,6 +141,12 @@ export const SMART_IMAGE_MODELS = [
     aspectRatios: ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16", "4:5", "5:4", "21:9", "9:21", "2:1", "1:2"] },
   { id: SMART_IMAGE_MODEL, key: "seedreamLite", family: "seedream", name: "Seedream 5.0 Lite", estimatedCostUsd: 0.035, resolution: "2K", quality: undefined, supportsSeed: true, supportsReference: true,
     resolutions: ["2K", "4K"],
+    aspectRatios: ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16", "4:5", "5:4", "21:9", "9:21", "2:1", "1:2"] },
+  // 5.5 (2026-10-28) goes to OpenRouter first ($0.035 at 2K plus $0.008 an input picture, 2026-11-20), with
+  // Comfy Router as the fallback ($0.05-0.06 there). It draws a real alpha channel when the prompt asks for a
+  // transparent background (PNG out).
+  { id: "bytedance-seed/seedream-5-5", key: "seedream55", family: "seedream", name: "Seedream 5.5", estimatedCostUsd: 0.05, resolution: "2K", quality: undefined, supportsSeed: true, supportsReference: true,
+    resolutions: ["1K", "2K"],
     aspectRatios: ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16", "4:5", "5:4", "21:9", "9:21", "2:1", "1:2"] },
   { id: "bytedance-seed/seedream-5-0-pro", key: "seedreamPro", family: "seedream", name: "Seedream 5.0 Pro", estimatedCostUsd: 0.093, resolution: "2K", quality: undefined, supportsSeed: true, supportsReference: true,
     resolutions: ["1K", "2K"],
@@ -172,9 +193,6 @@ export const SMART_IMAGE_MODELS = [
   { id: "xai/grok-imagine-image", key: "grokImagine", family: "grokImagine", name: "Grok Imagine", estimatedCostUsd: 0.02, resolution: "2K", quality: undefined, supportsSeed: false, supportsReference: false,
     resolutions: ["1K", "2K"],
     aspectRatios: ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16", "2:1", "1:2"] },
-  { id: "x-ai/grok-imagine-image-quality", key: "grokImagineQuality", family: "grokImagine", name: "Grok Imagine Quality", estimatedCostUsd: 0.07, resolution: "2K", quality: undefined, supportsSeed: false, supportsReference: true,
-    resolutions: ["1K", "2K"],
-    aspectRatios: ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16", "2:1", "1:2"] },
   { id: "x-ai/grok-imagine-image-2.0", key: "grokImagine2", family: "grokImagine", name: "Grok Imagine 2.0", estimatedCostUsd: 0.08, resolution: "2K", quality: "medium", supportsSeed: false, supportsReference: true,
     resolutions: ["1K", "2K"],
     aspectRatios: ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16", "2:1", "1:2"] },
@@ -188,7 +206,8 @@ export const SMART_IMAGE_MODELS = [
   { id: "luma_2/uni-1-max", key: "lumaUni1Max", family: "luma", name: "Luma Uni-1 Max", estimatedCostUsd: 0.103, resolution: undefined, quality: undefined, supportsSeed: false, supportsReference: true,
     resolutions: [],
     aspectRatios: ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16", "21:9", "2:1", "1:2"] },
-  { id: "ideogram/ideogram-4-5", key: "ideogram45", family: "ideogram", name: "Ideogram 4.5", estimatedCostUsd: 0.086, resolution: undefined, quality: undefined, supportsSeed: true, supportsReference: true,
+  // 4.6 (2026-11-18) replaced 4.5: same body and the same 18.1 credits on Router, a true local edit from a reference.
+  { id: "ideogram/ideogram-4-6", key: "ideogram46", family: "ideogram", name: "Ideogram 4.6", estimatedCostUsd: 0.086, resolution: undefined, quality: undefined, supportsSeed: true, supportsReference: true,
     resolutions: [],
     aspectRatios: ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16", "4:5", "5:4", "2:1", "1:2"] },
   { id: "wan/wan2.5-t2i-preview", key: "wan25", family: "wan", name: "Wan 2.5", estimatedCostUsd: 0.03, resolution: undefined, quality: undefined, supportsSeed: true, supportsReference: false,
@@ -210,17 +229,72 @@ export const SMART_IMAGE_MODELS = [
   { id: "microsoft/mai-image-2.6", key: "maiImage26", family: "mai", name: "MAI-Image 2.6", estimatedCostUsd: 0.035, resolution: undefined, quality: undefined, supportsSeed: false, supportsReference: true,
     resolutions: [],
     aspectRatios: ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16"] },
+  // ── MiniMax. H3 Image (2026-11-03) via OpenRouter: the fastest and the cheapest 4K here, measured
+  //    2026-11-10 at $0.022 (2K) / $0.035 (4K), 12–20 s. 1K costs the same as 2K, so it is not offered. ──
+  { id: "minimax/minimax-h3-image", key: "minimaxH3Image", family: "minimax", name: "MiniMax H3 Image", estimatedCostUsd: 0.03, resolution: "2K", quality: undefined, supportsSeed: false, supportsReference: true,
+    resolutions: ["2K", "4K"],
+    aspectRatios: ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16", "4:5", "5:4", "21:9", "9:21", "2:1", "1:2"] },
   { id: "tencent/hy-image-v3.5-preview", key: "hunyuan35", family: "hunyuan", name: "HunyuanImage 3.5", estimatedCostUsd: 0.025, resolution: "2K", quality: undefined, supportsSeed: true, supportsReference: true,
     resolutions: ["1K", "2K"],
     aspectRatios: ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16", "4:5", "5:4", "2:1", "1:2", "4:1", "1:4"] },
 ] as const;
 export type SmartImageFamily = typeof SMART_IMAGE_MODELS[number]["family"];
 /** Families in picker order; each family's versions follow in SMART_IMAGE_MODELS order, cheapest first. */
+/** Brand names are not translated: a creator looks for "FLUX", not a gloss of it.
+ *  The image page's family cards and the public Atelier pages both read this. */
+export const SMART_IMAGE_FAMILY_INFO: Record<SmartImageFamily, { name: string; maker: string }> = {
+  seedream: { name: "Seedream", maker: "ByteDance" },
+  nanoBanana: { name: "Nano Banana", maker: "Google" },
+  gptImage: { name: "GPT Image", maker: "OpenAI" },
+  flux: { name: "FLUX", maker: "Black Forest Labs" },
+  qwenImage: { name: "Qwen Image", maker: "Alibaba" },
+  grokImagine: { name: "Grok Imagine", maker: "xAI" },
+  kling: { name: "Kling", maker: "Kuaishou" },
+  luma: { name: "Luma", maker: "Luma AI" },
+  ideogram: { name: "Ideogram", maker: "Ideogram" },
+  wan: { name: "Wan", maker: "Alibaba" },
+  recraft: { name: "Recraft", maker: "Recraft" },
+  krea: { name: "Krea", maker: "Krea" },
+  mai: { name: "MAI-Image", maker: "Microsoft" },
+  hunyuan: { name: "HunyuanImage", maker: "Tencent" },
+  minimax: { name: "MiniMax", maker: "MiniMax" },
+};
+
 export const SMART_IMAGE_FAMILIES = [...new Set(SMART_IMAGE_MODELS.map(model => model.family))] as SmartImageFamily[];
 export type SmartImageModelId = typeof SMART_IMAGE_MODELS[number]["id"];
 export const SMART_IMAGE_MODEL_IDS = SMART_IMAGE_MODELS.map(model => model.id) as [SmartImageModelId, ...SmartImageModelId[]];
+/** Ids of models a newer version replaced: a saved draft, a history item's "again", an older recipe or an
+ *  outside AI may still name them, and each is read as its replacement. */
+export const SMART_IMAGE_MODEL_ALIASES: Readonly<Record<string, SmartImageModelId>> = {
+  "ideogram/ideogram-4-5": "ideogram/ideogram-4-6",
+};
+/** The id as it is listed today (a replaced model's id becomes its replacement's); anything else unchanged. */
+export function canonicalSmartImageModelId<T extends string | undefined>(id: T): T | SmartImageModelId {
+  return id !== undefined && id in SMART_IMAGE_MODEL_ALIASES ? SMART_IMAGE_MODEL_ALIASES[id]! : id;
+}
 export function getSmartImageModel(id: string = SMART_IMAGE_MODEL) {
-  return SMART_IMAGE_MODELS.find(model => model.id === id);
+  const wanted = canonicalSmartImageModelId(id);
+  return SMART_IMAGE_MODELS.find(model => model.id === wanted);
+}
+
+/** Reference pictures a model is sent at most, where more than one: OpenRouter's image API takes a list
+ *  (`input_references`), and these families keep a face across several (a character's portrait plus her
+ *  outfits and expressions). Every other model that takes a reference takes one; Comfy Router, which serves some
+ *  models only and catches some of OpenRouter's refusals, is sent the first. */
+const SMART_IMAGE_MULTI_REFERENCES: Partial<Record<string, number>> = {
+  "bytedance-seed/seedream-5-0-flash": 4, "bytedance-seed/seedream-5-0-lite": 4, "bytedance-seed/seedream-5-0-pro": 4,
+  "bytedance-seed/seedream-5-5": 4,
+  "google/gemini-nano-banana-2.1": 4, "google/gemini-3.1-flash-image": 4, "google/gemini-3-pro-image": 4,
+  "openai/gpt-image-2.5-flare": 4, "openai/gpt-image-2.5-sunburst": 4, "openai/gpt-image-2": 4,
+  "black-forest-labs/flux.2-pro": 4, "black-forest-labs/flux.2-max": 4,
+  "minimax/minimax-h3-image": 4,
+};
+
+/** How many reference pictures this model takes: 0 when none, 1 for most, up to 4 for the families above. */
+export function smartImageMaxReferences(id: string): number {
+  const model = getSmartImageModel(id);
+  if (!model?.supportsReference) return 0;
+  return SMART_IMAGE_MULTI_REFERENCES[model.id] ?? 1;
 }
 
 /** The ratios/sizes this model really accepts, in SMART_IMAGE_ASPECTS display
@@ -628,11 +702,17 @@ export const GENERATION_ERROR_CODES = [
   "PRICING_UPDATED",
   "GENERATION_BUSY",
   "GENERATION_BUDGET",
+  /** One creator's own share of a lane's daily provider budget is used up (the lane still runs for others). */
+  "GENERATION_USER_BUDGET",
   "REFERENCE_NOT_FOUND",
   "REFERENCE_FORMAT",
   "REFERENCE_TOO_LARGE",
   "REFERENCE_DIMENSIONS",
   "REFERENCE_UNAVAILABLE",
+  /** A reference video we cannot read as video (or any picture at all). */
+  "REFERENCE_VIDEO_FORMAT",
+  /** A reference video shorter than the 2 s a model can follow. */
+  "REFERENCE_VIDEO_LENGTH",
   /** The output would exceed the user's asset storage allowance. */
   "STORAGE_LIMIT",
   /** Job succeeded but its outputs could no longer be retrieved. */

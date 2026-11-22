@@ -6,7 +6,7 @@
 
 import { and, eq, gt, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import { estimateTokens } from "@yumina/engine";
-import { SESSION_MEMORY_EXTENSION_KEY } from "@yumina/shared";
+import { isRecapShare, recapBudgetTokens, resolveMemoryEvery, SESSION_MEMORY_EXTENSION_KEY, type RecapShare } from "@yumina/shared";
 import { db } from "../../db/index.js";
 import { playSessions, messages } from "../../db/schema.js";
 import {
@@ -24,6 +24,7 @@ import {
 import { hasUncertainMemoryCoverage } from "../../lib/session-memory-core.js";
 import { dropMemoryVersions, dropMemoryVersionsFrom } from "../../lib/session-memory-versions.js";
 import {
+  DEFAULT_STORY_SUMMARY_MODEL,
   discardQueuedStoryCompactions,
   formatStorySummaryForPrompt,
   recompactStorySummaryAfterRevert,
@@ -33,14 +34,17 @@ import { isExtensionInstalled } from "../../lib/extensions.js";
 import { env } from "../../lib/env.js";
 import {
   clearSummaryceptionData,
-  getSummaryceptionPromptBlock,
+  loadRecapPromptBlock,
+  markRecapChangedMessage,
   resetSummaryceptionSessionFields,
   scheduleSummaryceptionCompaction,
+  trimRecapAfterRewind,
 } from "../../lib/summaryception.js";
 import {
   registerExtensionHooks,
   type ExtensionInvalidation,
   type InvalidateContext,
+  type TurnRecapInputs,
 } from "../../lib/extension-hooks.js";
 
 /** Room left for the next turn before a default summary folds. Two turns of a
@@ -48,6 +52,42 @@ import {
  *  the 75th percentile, prod 2026-10): a fold started now has finished well
  *  before the next send (median 36 s against a median 140 s between turns). */
 const FOLD_AHEAD_TOKENS = 2_000;
+
+type RecapRunArgs = Parameters<typeof scheduleSummaryceptionCompaction>[0];
+/**
+ * Recap runs a prompt asked for, held until its reply is saved. They used to
+ * start while the prompt was built, before the model answered, so a send that
+ * failed still ran the recap: 27 and 14 calls on one player's own relay for
+ * two sends that got no reply (2026-11-08). A send that never completes
+ * leaves its entry for the next one; a stale entry is dropped.
+ */
+const pendingRecapRuns = new Map<string, { args: RecapRunArgs; at: number }>();
+const PENDING_RECAP_TTL_MS = 30 * 60_000;
+
+function holdRecapRun(args: RecapRunArgs, replace: boolean): void {
+  if (!replace && pendingRecapRuns.has(args.sessionId)) return;
+  pendingRecapRuns.set(args.sessionId, { args, at: Date.now() });
+}
+
+function takeRecapRun(sessionId: string): RecapRunArgs | null {
+  const now = Date.now();
+  for (const [id, entry] of pendingRecapRuns) if (now - entry.at > PENDING_RECAP_TTL_MS) pendingRecapRuns.delete(id);
+  const entry = pendingRecapRuns.get(sessionId);
+  pendingRecapRuns.delete(sessionId);
+  return entry?.args ?? null;
+}
+
+/** The recap share a turn runs with once the recap is active for it: the
+ *  player's choice, else standard (shared/src/recap.ts resolveRecapShare). */
+function turnRecapShare(recap: TurnRecapInputs | undefined): RecapShare {
+  return isRecapShare(recap?.chosenShare) ? recap.chosenShare : "standard";
+}
+
+/** Largest the recap may grow this turn; null when story memory is unknown. */
+function turnRecapBudget(recap: TurnRecapInputs | undefined): number | null {
+  if (!recap?.storyMemory) return null;
+  return recapBudgetTokens(recap.storyMemory, turnRecapShare(recap)) || null;
+}
 
 const STORY_SUMMARY_RESET_FIELDS = {
   summary: null,
@@ -154,7 +194,6 @@ function invalidateForChangedMessage(ctx: InvalidateContext): ExtensionInvalidat
   return {
     sessionFields: {
       ...(invalidateStory ? STORY_SUMMARY_RESET_FIELDS : {}),
-      ...(invalidateSummaryception ? resetSummaryceptionSessionFields() : {}),
     },
     runAfter: async () => {
       // Saved memory versions that cover the changed turn describe text that
@@ -185,8 +224,19 @@ function invalidateForChangedMessage(ctx: InvalidateContext): ExtensionInvalidat
       if (invalidateStory || rawCoverageReset.length > 0) {
         await db.update(messages).set({ compacted: false }).where(eq(messages.sessionId, ctx.sessionId));
       }
+      // The recap keeps every chapter but the one covering this message,
+      // which is revised on the recap's next run (one call).
       if (invalidateSummaryception) {
-        await clearSummaryceptionData(ctx.sessionId);
+        if (flags.id) {
+          await markRecapChangedMessage(ctx.sessionId, {
+            id: flags.id,
+            createdAt: flags.createdAt,
+            deleted: ctx.reason === "message-deleted",
+          });
+        } else {
+          await db.update(playSessions).set(resetSummaryceptionSessionFields()).where(eq(playSessions.id, ctx.sessionId));
+          await clearSummaryceptionData(ctx.sessionId);
+        }
       }
       // The content changed while a background job may be mid-flight over the
       // OLD content (jobs snapshot their input when they start). Abort any
@@ -409,11 +459,11 @@ function invalidateForRevert(ctx: InvalidateContext): ExtensionInvalidation {
     !removedIds.has(coversUntil) &&
     !removed.some((m) => m.compacted === true);
 
-  // Layered Summary (summaryception): keep-when-valid on its own flag.
-  const keepLayered =
-    canDecide &&
-    s.summaryceptionStatus !== "updating" &&
-    !removed.some((m) => m.summaryceptionCompacted === true);
+  // The recap: chapters that cover no deleted message are kept; only those
+  // that did are dropped (trimRecapAfterRewind). Without the deleted-tail
+  // flags it cannot tell, and clears like before.
+  const trimLayered = canDecide && removed.some((m) => m.summaryceptionCompacted === true);
+  const keepLayered = canDecide;
 
   // Session memory: rolling latest-state — valid iff the turn it last
   // processed still survives. Wiping it on almost every rewind destroyed the
@@ -443,7 +493,8 @@ function invalidateForRevert(ctx: InvalidateContext): ExtensionInvalidation {
   return {
     sessionFields: {
       ...(keepStorySummary ? STORY_JOB_ABORT_FIELDS : STORY_SUMMARY_RESET_FIELDS),
-      ...(keepLayered ? {} : resetSummaryceptionSessionFields()),
+      // Kept or trimmed, an in-flight recap run read the deleted messages.
+      ...(keepLayered ? { summaryceptionStatus: "idle" as const, summaryceptionSourceHash: null } : resetSummaryceptionSessionFields()),
       ...(keepSessionMemory ? {} : SESSION_MEMORY_RESET_FIELDS),
     },
     runAfter: async () => {
@@ -458,6 +509,8 @@ function invalidateForRevert(ctx: InvalidateContext): ExtensionInvalidation {
       if (!keepLayered) {
         // Deletes snippets AND unmarks summaryceptionCompacted on every message.
         await clearSummaryceptionData(ctx.sessionId);
+      } else if (trimLayered) {
+        await trimRecapAfterRewind(ctx.sessionId);
       }
       // Re-derive only the tiers that were dropped, from the surviving
       // transcript now. The story summary's re-derivation is a threshold-mode
@@ -469,7 +522,9 @@ function invalidateForRevert(ctx: InvalidateContext): ExtensionInvalidation {
           userId: ctx.userId,
           session: ctx.session as SessionMemorySystemRow,
           keptSessionMemory: keepSessionMemory,
-          regenerateStorySummary: !keepStorySummary,
+          // The rolling story summary is no longer read by any turn (the
+          // layered recap replaced it), so a rewind never pays to rebuild it.
+          regenerateStorySummary: false,
         });
       }
     },
@@ -543,19 +598,27 @@ function invalidate(ctx: InvalidateContext): ExtensionInvalidation {
 
 export function registerSessionMemoryExtension(): void {
   registerExtensionHooks(SESSION_MEMORY_EXTENSION_KEY, {
-    // Context → 摘要 + 最新 N 条: the card asks for the story summary on behalf
-    // of everyone who plays it, or the platform does (STORY_SUMMARY_DEFAULT_ON).
-    // The player's explicit uninstall still wins (the runner checks it), and
-    // such a run is the summary alone — the facts list and summaryception stay
-    // the player's own choice.
-    activeByDefault: ({ world }) => env.STORY_SUMMARY_DEFAULT_ON || world?.settings?.storySummary?.enabled === true,
-    resolveCapabilities: ({ session, defaultActivated }) => {
-      if (defaultActivated) return ["story-summary"];
+    // The recap is on for everyone who never installed this extension
+    // (owner 2026-10-30), unless they chose "off" in AI settings. A size
+    // chosen there ("chosen") outranks an old uninstall; unchosen, the
+    // uninstall still opts out. Such a run is the recap alone — the facts
+    // list stays the player's own choice.
+    activeByDefault: ({ recap }) => {
+      if (isRecapShare(recap?.chosenShare)) return recap.chosenShare === "off" ? false : "chosen";
+      return true;
+    },
+    // One recap: the layered one. The rolling story summary scored 8% against
+    // the layered recap's 51% on the same questions (2026-10-30), so a session
+    // that had either switched on now gets the layered recap, and an old
+    // rolling summary is carried over as its first chapter (seedLegacyRecap).
+    // "off" in the player's AI settings switches it off everywhere.
+    resolveCapabilities: ({ session, defaultActivated, recap }) => {
+      const recapOff = turnRecapShare(recap) === "off";
+      if (defaultActivated) return recapOff ? [] : ["summaryception"];
       const settings = getMemorySystemSettings(session as SessionMemorySystemRow);
       const caps: string[] = [];
       if (settings.sessionMemoryIncluded) caps.push("session-memory");
-      if (settings.localdevSummaryIncluded) caps.push("story-summary");
-      if (settings.summaryceptionIncluded) caps.push("summaryception");
+      if (!recapOff && (settings.localdevSummaryIncluded || settings.summaryceptionIncluded)) caps.push("summaryception");
       return caps;
     },
 
@@ -574,23 +637,32 @@ export function registerSessionMemoryExtension(): void {
         priority: 20,
         content: ctx.freshStart || !ctx.capabilities.has("summaryception")
           ? null
-          : await getSummaryceptionPromptBlock(ctx.sessionId),
+          : await (async () => {
+            const recap = await loadRecapPromptBlock(ctx.sessionId, ctx.session);
+            // An edited chapter is revised after this reply, not at the next fold.
+            if (recap.needsRevision) {
+              holdRecapRun({
+                sessionId: ctx.sessionId,
+                userId: ctx.ownerUserId,
+                fallbackModel: DEFAULT_STORY_SUMMARY_MODEL,
+                finalPromptRawTokenLimit: Number.MAX_SAFE_INTEGER,
+              }, false);
+            }
+            return recap.content;
+          })(),
       },
       {
         // Durable per-session facts — deliberately NOT freshStart-suppressed,
-        // matching the original inline behavior exactly. Player-pinned notes
-        // ride along whenever present, even with the auto memory switched off:
-        // they are the player's own standing instructions, not derived state.
+        // matching the original inline behavior exactly. The player's pinned
+        // notes are no longer part of this block: they are a core block of
+        // their own (lib/turn-memory.ts), sent with or without this extension.
         id: "session-memory",
         priority: 30,
         content: await (async () => {
-          const autoMemoryOn = ctx.capabilities.has("session-memory");
-          const pinned = typeof ctx.session.sessionMemoryPinned === "string" ? ctx.session.sessionMemoryPinned : null;
-          if (!autoMemoryOn && !pinned) return null;
-          return formatSessionMemoryForPrompt(autoMemoryOn ? ctx.session.sessionMemory : null, {
-            staleSinceEdit: autoMemoryOn && (ctx.session.sessionMemoryStaleAt != null
-              || await hasIneligibleSessionMemorySource(ctx.sessionId, ctx.session)),
-            pinned,
+          if (!ctx.capabilities.has("session-memory")) return null;
+          return formatSessionMemoryForPrompt(ctx.session.sessionMemory, {
+            staleSinceEdit: ctx.session.sessionMemoryStaleAt != null
+              || await hasIneligibleSessionMemorySource(ctx.sessionId, ctx.session),
           });
         })(),
       },
@@ -611,15 +683,19 @@ export function registerSessionMemoryExtension(): void {
       // (the 2026-07-11 524 incident). This turn's prompt simply trims
       // (buildMessageHistory); the scheduled job repairs the summary for the
       // NEXT turn, reusing the background chain's dedupe and
-      // consecutive-failure budget.
+      // consecutive-failure budget. It starts once this turn's reply is saved
+      // (onTurnComplete), never for a send that fails.
       if (ctx.capabilities.has("summaryception")) {
-        scheduleSummaryceptionCompaction({
+        holdRecapRun({
           sessionId: ctx.sessionId,
           userId: ctx.userId,
           fallbackModel: ctx.model,
           contextTokenLimit: ctx.maxContext,
           finalPromptRawTokenLimit: ctx.finalPromptRawTokenLimit,
-        });
+          foldAll: true,
+          recapBudgetTokens: turnRecapBudget(ctx.recap),
+          storyMemoryTokens: ctx.recap?.storyMemory ?? null,
+        }, true);
       }
       if (ctx.capabilities.has("story-summary")) {
         scheduleStoryCompaction({
@@ -629,12 +705,42 @@ export function registerSessionMemoryExtension(): void {
           contextTokenLimit: ctx.maxContext,
           finalPromptRawTokenLimit: ctx.finalPromptRawTokenLimit,
           authorRequired: ctx.defaultActivated === true,
-          recapWithinTokens: ctx.defaultActivated === true && env.STORY_SUMMARY_DEFAULT_ON ? ctx.maxContext : null,
+          // Every automatic first summary recaps only what a prompt could
+          // carry — installed or default-on alike. A cleared summary on a
+          // 400-message branch otherwise re-summarised all of it in the
+          // background (23 calls, a free player's whole balance, 2026-10-30);
+          // a full rebuild stays one deliberate press away (force).
+          recapWithinTokens: ctx.maxContext,
         });
       }
     },
 
     onTurnComplete: (ctx) => {
+      // The recap folds ahead, like the default summary below: once the next
+      // turn would overflow story memory, it folds the older half now, so
+      // the shorter history and the new chapters reach the next prompt
+      // together and the prompt cache breaks once per fold, not every turn.
+      // A run this turn's prompt asked for (overflow, an edited chapter)
+      // starts now that the reply is saved. A fold-ahead covers it: it folds
+      // further back and revises edited chapters first.
+      const held = takeRecapRun(ctx.sessionId);
+      if (ctx.capabilities.has("summaryception")) {
+        const raw = ctx.rawHistory;
+        if (raw && raw.tokens + estimateTokens(ctx.assistantMessage, ctx.fallbackModel) + FOLD_AHEAD_TOKENS > raw.budget) {
+          scheduleSummaryceptionCompaction({
+            sessionId: ctx.sessionId,
+            userId: ctx.userId,
+            fallbackModel: ctx.fallbackModel,
+            contextTokenLimit: ctx.contextTokenLimit,
+            finalPromptRawTokenLimit: Math.max(1, Math.floor(raw.budget / 2)),
+            foldAll: true,
+            recapBudgetTokens: turnRecapBudget(ctx.recap),
+            storyMemoryTokens: ctx.recap?.storyMemory ?? null,
+          });
+        } else if (held) {
+          scheduleSummaryceptionCompaction(held);
+        }
+      }
       if (ctx.capabilities.has("session-memory")) {
         scheduleSessionMemoryIncrementalUpdate({
           sessionId: ctx.sessionId,
@@ -644,6 +750,7 @@ export function registerSessionMemoryExtension(): void {
           state: ctx.state,
           fallbackModel: ctx.fallbackModel,
           assistantMessageId: ctx.assistantMessageId,
+          memoryEvery: resolveMemoryEvery(ctx.recap?.memoryEvery),
         });
       }
       // A summary nobody installed folds against the story memory, not the
@@ -675,6 +782,7 @@ export function registerSessionMemoryExtension(): void {
           fallbackModel: ctx.fallbackModel,
           contextTokenLimit: ctx.contextTokenLimit,
           authorRequired: ctx.defaultActivated === true,
+          recapWithinTokens: ctx.contextTokenLimit,
         });
       }
     },

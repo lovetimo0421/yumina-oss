@@ -1,0 +1,137 @@
+{
+  "title": "Ekstensi",
+  "subtitle": "Fitur resmi yang bisa kamu aktifkan di akunmu",
+  "viewMore": "Lihat Selengkapnya",
+  "getMore": "Dapatkan Lebih Banyak",
+  "manage": "Kelola",
+  "discover": "Jelajahi",
+  "installed": "Terpasang",
+  "previouslyInstalled": "Pernah Terpasang",
+  "installedBadge": "Terpasang",
+  "install": "Pasang",
+  "uninstall": "Copot",
+  "reinstall": "Pasang Ulang",
+  "empty": "Belum ada ekstensi",
+  "emptyHint": "Buka Jelajahi di bawah untuk menambahkan ekstensi pertamamu.",
+  "search": "Cari ekstensi",
+  "noResults": "Tidak ada ekstensi yang cocok dengan pencarianmu.",
+  "sort": {
+    "recommended": "Direkomendasikan",
+    "popular": "Populer",
+    "newest": "Terbaru"
+  },
+  "category": {
+    "all": "Semua",
+    "memory": "Memori",
+    "narrative": "Narasi",
+    "tools": "Alat",
+    "social": "Sosial"
+  },
+  "detail": {
+    "byAuthor": "oleh {{author}}",
+    "about": "Tentang",
+    "whatItDoes": "Fungsinya",
+    "reviewsWithCount": "Ulasan ({{count}})"
+  },
+  "reviews": {
+    "write": "Tulis Ulasan",
+    "submit": "Kirim Ulasan",
+    "placeholder": "Ceritakan pengalamanmu… (opsional)",
+    "none": "Belum ada ulasan",
+    "noComment": "Tanpa komentar",
+    "hidden": "Disembunyikan",
+    "raterCount": "{{count}} penilaian",
+    "raterCount_one": "{{count}} penilaian",
+    "yourRating": "Penilaianmu",
+    "confirmDelete": "Hapus komentar ini?",
+    "deleted": "Komentar dihapus",
+    "deleteFailed": "Gagal menghapus komentar",
+    "deleteTitle": "Hapus komentar"
+  },
+  "toast": {
+    "installed": "Ekstensi terpasang",
+    "uninstalled": "Ekstensi dicopot",
+    "reinstalled": "Ekstensi dipasang ulang",
+    "installFailed": "Gagal memasang",
+    "uninstallFailed": "Gagal mencopot",
+    "reviewSubmitted": "Ulasan terkirim",
+    "reviewFailed": "Gagal mengirim ulasan",
+    "memoryCostNotice": "Pembaruan memori butuh biaya kecil. Kamu bisa beralih ke model gratis kapan saja di chat."
+  },
+  "catalog": {
+    "state-update-guard": {
+      "name": "Penjaga Pembaruan Status (Beta)",
+      "shortDescription": "Memeriksa pembaruan dari AI sebelum balasan disimpan. Kalau formatnya hilang atau rusak, ia mencoba memperbaikinya satu kali.",
+      "longDescription": "Membantu menjaga nilai-nilai cerita tetap terbarui saat AI mengembalikan format yang salah. Bisa dipakai dengan kartu yang sudah ada. Setiap balasan harus menyertakan pembaruan yang valid atau menyatakan dengan jelas bahwa tidak ada pembaruan. Kalau pemeriksaan atau perbaikan gagal, statusmu sebelumnya tetap dipertahankan dan balasan itu tidak dikenai biaya. Ia memeriksa format, bukan benar tidaknya fakta cerita.\n\nPemeriksaan gratis. Hanya perbaikan yang tersimpan dengan model berbayar Yumina yang memakai mushies. Defaultnya Gemini 2.5 Flash Lite, sama seperti Memori. Pilih Pakai model gratis di panel untuk perbaikan gratis. Kalau kamu memakai API key sendiri, Yumina tidak memotong mushies, tapi penyedia layananmu mungkin menarik biaya.\n\nBuka panel dari toolbar chat untuk mengaktifkan atau menonaktifkannya, memilih model perbaikan, atau melihat apa yang berubah. Kalau dinonaktifkan, pembaruan kartu kembali normal. Mencopot ekstensi tidak menghapus status dan riwayat yang tersimpan. Perubahan pemasangan bisa butuh sampai 60 detik agar berlaku.",
+      "tags": {
+        "state": "status",
+        "reliability": "keandalan",
+        "beta": "beta"
+      },
+      "explanations": [
+        {
+          "title": "Cocok dengan kartu yang sudah ada",
+          "body": "Memakai variabel dan perintah yang sudah ada di kartu. Tidak perlu menulis ulang prompt atau tampilannya."
+        },
+        {
+          "title": "Hasil yang jelas",
+          "body": "Lihat apakah balasan perlu diperbaiki dan nilai mana yang berubah. Kalau tidak ada pembaruan, itu harus dikonfirmasi secara eksplisit. Aturan game otomatis tetap berjalan."
+        },
+        {
+          "title": "Hanya memperbaiki saat perlu",
+          "body": "Balasan yang valid tidak butuh panggilan model tambahan. Balasan yang tidak valid diperbaiki satu kali dengan model koreksimu. Koreksi berbayar Yumina yang berhasil disimpan memakai mushies; model gratis dan API milikmu sendiri tidak. Penyedia API-mu mungkin menarik biaya."
+        }
+      ]
+    },
+    "session-memory-summary": {
+      "name": "Memori Sesi & Ringkasan Cerita (Beta)",
+      "shortDescription": "AI menyimpan daftar fakta pentingnya sendiri, dan kamu bisa membaca serta mengedit setiap bab ringkasan cerita. Beta.",
+      "longDescription": "Ringkasan cerita dan catatan yang disematkan kini tersedia untuk semua orang, tanpa ekstensi. Ekstensi ini menambahkan dua hal:\n\nAI menyimpan daftar fakta pentingnya sendiri (hubungan, item, janji, tujuan), yang dikirim bersama setiap balasan.\nKamu bisa membaca dan mengedit setiap bab ringkasan cerita.\n\nMenulis catatan butuh biaya kecil, biasanya jauh di bawah 1 mushie per pembaruan, dan sekali ketuk bisa beralih ke model gratis. Beta: sesekali ada detail yang salah, dan kamu bisa memperbaikinya.\n\nBuka lewat Memori di menu + pada kotak chat.",
+      "tags": {
+        "memory": "memori",
+        "context": "konteks",
+        "long-play": "main-panjang",
+        "summary": "ringkasan"
+      },
+      "explanations": [
+        {
+          "title": "AI mengingat fakta penting",
+          "body": "Hubungan, item, janji, dan tujuan dicatat dalam daftar dan dikirim bersama setiap balasan."
+        },
+        {
+          "title": "Bisa kamu baca dan ubah",
+          "body": "Di Memori pada menu +: edit catatan, serta baca dan edit setiap bab ringkasan cerita."
+        },
+        {
+          "title": "Catatanmu tetap tersimpan saat dicopot",
+          "body": "Kalau dimatikan, semua yang sudah tertulis tetap utuh. Pasang lagi nanti dan catatan yang sama akan dipakai kembali."
+        }
+      ]
+    },
+    "live-canon": {
+      "name": "Lore Shift (Beta)",
+      "shortDescription": "Perbarui status cerita dan lore yang disetujui kreator saat kamu bermain. Perubahan hanya berlaku di sesi ini.",
+      "longDescription": "Lore Shift memberi cerita yang sedang berjalan sebuah lapisan editing kecil yang dikendalikan kreator. Pakai Status Cerita untuk fakta seperti usia, lokasi, penghitung, atau flag agar aturan yang sudah ada di kartu bisa bereaksi. Pakai Lore Sesi untuk fakta berbentuk teks dan koreksi lore yang disetujui kreator.\n\nSetiap perubahan hanya berlaku di sesi bermain saat ini. Kartu asli milik kreator dan cerita pemain lain tidak pernah berubah. Kalau kreator menutup akses edit, Lore Shift menampilkan penjelasan, bukan editor atau datanya.",
+      "tags": {
+        "lore": "lore",
+        "state": "status",
+        "session": "sesi",
+        "author-controlled": "dikendalikan-kreator"
+      },
+      "explanations": [
+        {
+          "title": "Status Cerita",
+          "body": "Ubah fakta bertipe yang disetujui, seperti usia atau lokasi, supaya aturan yang ada bisa bereaksi."
+        },
+        {
+          "title": "Lore Sesi",
+          "body": "Koreksi lore yang disetujui atau tambahkan fakta baru tanpa mengubah kartu aslinya."
+        },
+        {
+          "title": "Dikendalikan kreator",
+          "body": "Kartu yang dikunci menampilkan peringatan dan tidak membuka editor ataupun data Lore Shift."
+        }
+      ]
+    }
+  }
+}

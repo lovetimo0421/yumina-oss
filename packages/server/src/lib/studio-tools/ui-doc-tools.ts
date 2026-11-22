@@ -13,7 +13,7 @@
  */
 
 import type { RootComponent, UiDoc, UiElement, UiPage, WorldDefinition, Variable } from "@yumina/engine";
-import { compileUiDoc, uiDocDrawsChat, uiDocSchema, validateUiDoc, buildUiTheme, getUiThemePreset, UI_THEMES, UI_CHAT_STARTED, PromptBuilder, syncMessageRulesEntry, UI_RULES_ENTRY_ID, UI_LOOKS, applyUiLook, currentUiLook, getUiLook, uiLookPartOf, fitTextBox, pushBelowGrown, textStyleAffectsHeight, readableThemeTokens, USER_ROOT_PATH, COMPOSED_MARKER, BUNDLE_NS_RE, generateComposedIndex, syncGreetingActions } from "@yumina/engine";
+import { compileUiDoc, uiDocDrawsChat, uiDocSchema, validateUiDoc, buildUiTheme, getUiThemePreset, UI_THEMES, UI_CHAT_STARTED, PromptBuilder, syncMessageRulesEntry, UI_RULES_ENTRY_ID, UI_LOOKS, applyUiLook, currentUiLook, getUiLook, uiLookPartOf, fitTextBox, pushBelowGrown, textStyleAffectsHeight, readableThemeTokens, USER_ROOT_PATH, COMPOSED_MARKER, BUNDLE_NS_RE, generateComposedIndex, readComposedLayout, syncGreetingActions } from "@yumina/engine";
 import crypto from "crypto";
 import { validateTsx, formatTsxIssue } from "./tsx-validate.js";
 import { assertNoInlineDataUris } from "../asset-validation.js";
@@ -33,13 +33,13 @@ export function compileUiDocInto(doc: UiDoc, previous: RootComponent | undefined
   const baseFile = doc.base?.file;
   const baseComposes = baseFile && previous?.files[baseFile]?.startsWith(COMPOSED_MARKER);
   if (baseComposes) {
-    files[baseFile] = generateComposedIndex(folders);
+    files[baseFile] = generateComposedIndex(folders, readComposedLayout(previous?.files[baseFile]));
   } else if (
     previous?.files["index.tsx"]?.startsWith(COMPOSED_MARKER) ||
     (folders.length > 0 && previous?.files[USER_ROOT_PATH] !== undefined)
   ) {
     files[USER_ROOT_PATH] = built.files[built.entryFile]!;
-    files["index.tsx"] = generateComposedIndex(folders);
+    files["index.tsx"] = generateComposedIndex(folders, readComposedLayout(previous?.files["index.tsx"]));
   }
   const unchanged = previous?.entryFile === built.entryFile &&
     previous.generatedFrom === "uiDoc" &&
@@ -851,7 +851,7 @@ export function executeReadUiDoc(world: WorldDefinition, args: { page?: unknown;
   });
   lines.push(`BUTTON BEHAVIORS (run-behavior actionId): ${buttonBehaviors.length ? buttonBehaviors.join(", ") : "(none: write a behavior with when action:fired + match.actionId first)"}`);
   lines.push(`THEME PRESETS: ${UI_THEMES.map((t) => `${t.id} (accents ${t.accents.join(" ")})`).join("; ")}`);
-  lines.push(`LOOKS (apply_look): ${(["choice", "field", "popup", "list", "button"] as const).map((part) => `${part}: ${UI_LOOKS.filter((l) => l.part === part).map((l) => `${l.id} "${l.name.zh}"`).join(", ")}`).join(" | ")}`);
+  lines.push(`LOOKS (apply_look): ${(["choice", "field", "popup", "list", "button"] as const).map((part) => `${part}: ${UI_LOOKS.filter((l) => l.part === part).map((l) => `${l.id} "${l.name.en} / ${l.name.zh}"`).join(", ")}`).join(" | ")}`);
 
   const result: Record<string, unknown> = { summary: lines.join("\n") };
   if (Array.isArray(args.parts) && args.parts.length && doc) {

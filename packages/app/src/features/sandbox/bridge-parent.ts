@@ -76,6 +76,14 @@ export class SandboxBridge {
   private voiceMode: SandboxMode = "session";
   private mediaSuspended = false;
   private pendingVoiceFrame: number | null = null;
+  // What a freshly loaded document needs to show the same card again: the
+  // last theme, root install, media flag and the latest of each channel.
+  // Moving the iframe to another document (the floating window) reloads it.
+  private replay: { theme?: ParentMessage; install?: ParentMessage; suspend?: ParentMessage; channels: Map<string, ParentMessage> } = { channels: new Map() };
+  // Set while the iframe lives in another window's document: posts must come
+  // from that window, which is the iframe's parent and all the sandbox accepts.
+  private relay: ((target: Window, data: unknown, origin: string, transfer?: Transferable[]) => void) | null = null;
+  private extraListeners: Array<() => void> = [];
 
   constructor(opts: {
     onApiCall: ApiHandler;
@@ -108,11 +116,47 @@ export class SandboxBridge {
 
   /** Attach an already-created iframe to this bridge */
   attach(iframe: HTMLIFrameElement): void {
+    const reboot = this.ready && this.iframe !== null && this.iframe !== iframe;
     this.iframe = iframe;
+    if (!reboot) return;
+    // A new element is a new document: wait for its handshake, then hand it
+    // the state the old one had before anything sent since.
+    this.ready = false;
+    this.pendingVoiceFrame = null;
+    const { theme, install, suspend, channels } = this.replay;
+    this.messageQueue = [
+      ...(theme ? [theme] : []),
+      ...(install ? [install] : []),
+      ...channels.values(),
+      ...(suspend ? [suspend] : []),
+      ...this.messageQueue,
+    ];
+  }
+
+  /** Also take sandbox messages that arrive at `win` (the iframe was moved
+   *  into that window's document), and send through `relay`, a function that
+   *  runs in that window so the sandbox sees its own parent as the sender. */
+  hostIn(win: Window, relay: (target: Window, data: unknown, origin: string, transfer?: Transferable[]) => void): () => void {
+    win.addEventListener("message", this.boundListener);
+    this.relay = relay;
+    const off = () => {
+      try { win.removeEventListener("message", this.boundListener); } catch { /* window already gone */ }
+      if (this.relay === relay) this.relay = null;
+      this.extraListeners = this.extraListeners.filter((f) => f !== off);
+    };
+    this.extraListeners.push(off);
+    return off;
+  }
+
+  private target(win: Window): Window {
+    const relay = this.relay;
+    if (!relay) return win;
+    return { postMessage: (data: unknown, origin: string, transfer?: Transferable[]) => relay(win, data, origin, transfer) } as unknown as Window;
   }
 
   /** Send a message to the sandbox, queuing if not ready */
   send(msg: ParentMessage): void {
+    this.remember(msg);
     if (!this.ready || !this.iframe?.contentWindow) {
       this.messageQueue.push(msg);
       return;
@@ -122,7 +166,14 @@ export class SandboxBridge {
     // ever match it and anything stricter silently drops every message.
     // Safety in this direction comes from addressing the exact contentWindow;
     // inbound messages are what get origin-validated (handleMessage).
-    safePostMessage(this.iframe.contentWindow, wrapMessage(msg), "*");
+    safePostMessage(this.target(this.iframe.contentWindow), wrapMessage(msg), "*");
+  }
+
+  private remember(msg: ParentMessage): void {
+    if (msg.type === "theme") this.replay.theme = msg;
+    else if (msg.type === "install-root") this.replay.install = msg;
+    else if (msg.type === "suspend-media") this.replay.suspend = msg;
+    else if (msg.type === "channel") this.replay.channels.set(msg.channel, msg);
   }
 
   /** Wait for the sandbox to signal readiness */
@@ -224,7 +275,7 @@ export class SandboxBridge {
       this.pendingVoiceFrame = event.id;
       try {
         // Transfer ownership directly. Frames must never enter the JSON fallback or ready queue.
-        this.iframe.contentWindow.postMessage(wrapMessage({ type: "voice-event", event, sessionId: this.voiceSessionId }), "*", [event.frame]);
+        this.target(this.iframe.contentWindow).postMessage(wrapMessage({ type: "voice-event", event, sessionId: this.voiceSessionId }), "*", [event.frame]);
       } catch {
         this.pendingVoiceFrame = null;
         discard();
@@ -246,10 +297,22 @@ export class SandboxBridge {
     this.send({ type: "open-memory-panel" });
   }
 
+  /** Ask the sandbox to open the chat-history search (play-controls bar). */
+  openChatSearch(): void {
+    this.send({ type: "open-chat-search" });
+  }
+
+  /** Open the session at one message (the save picker's search). */
+  jumpToMessage(jump: { sessionId: string; messageId: string; position: number; query?: string }): void {
+    this.send({ type: "jump-to-message", ...jump });
+  }
+
   /** Cleanup */
   destroy(): void {
     window.removeEventListener("message", this.boundListener);
+    for (const off of [...this.extraListeners]) off();
     this.iframe = null;
+    this.replay = { channels: new Map() };
     this.ready = false;
     this.messageQueue = [];
     this.pendingVoiceFrame = null;

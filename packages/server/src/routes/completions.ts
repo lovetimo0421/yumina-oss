@@ -3,7 +3,7 @@ import { bodyLimit } from "hono/body-limit";
 import { decisionRoutes } from "./decisions.js";
 import { normalizeImageCompletion, imagePromptChars } from "../lib/chat-images.js";
 import { assertImageModel } from "../lib/llm/image-capability.js";
-import { turnNeedsVision } from "../lib/llm/fallback-models.js";
+import { isZeroCostPlayModel, isZeroCostRates, turnNeedsVision } from "../lib/llm/fallback-models.js";
 import type { ImageCompletionMessage } from "@yumina/shared";
 import { recordWallHit } from "../lib/wall-events.js";
 import { usageObservation } from "../lib/usage-observation.js";
@@ -24,7 +24,8 @@ import { streamSSE } from "hono/streaming";
 import { eq, and } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { playSessions, worlds, worldPendingEdits } from "../db/schema.js";
-import { viewerSeesWorkingCopy } from "../lib/working-copy.js";
+import { draftAccessEnded, viewerCanEditSql, viewerSeesWorkingCopy } from "../lib/working-copy.js";
+import { activeWorldTesterSql } from "../lib/world-testers.js";
 import { recordUsageLog } from "../lib/usage-log.js";
 import { bumpWorldMessageCount } from "../lib/world-message-counter.js";
 import { registerStream } from "../lib/stream-registry.js";
@@ -63,7 +64,7 @@ import {
   type WorldDefinition,
   type WorldEntry,
 } from "@yumina/engine";
-import { DEFAULT_MODEL } from "@yumina/shared";
+import { applyModelRedirect } from "../lib/llm/model-redirects.js";
 import { actorContextRoutes } from "./actor-context.js";
 
 const completionRoutes = new Hono<AppEnv>();
@@ -73,9 +74,17 @@ completionRoutes.route("/", decisionRoutes);
 completionRoutes.route("/", actorContextRoutes);
 
 const MAX_MESSAGES = 50;
+const REASONING_EFFORTS = new Set(["none", "minimal", "low", "medium", "high"]);
 const MAX_CONTENT_CHARS = 50_000;
 const DEFAULT_MAX_TOKENS = 2048;
 const MAX_MAX_TOKENS = 8192;
+
+/** The model for a side call that names none: the player's story model, else
+ *  the cheap background default (the one a card's own AIs fall back to). */
+async function unnamedSideCallModel(userId: string): Promise<string> {
+  const selected = (await loadPlayerAiConfig(userId)).selectedModel?.trim();
+  return applyModelRedirect(selected || DEFAULT_STORY_SUMMARY_MODEL);
+}
 
 /**
  * `includeLorebook` modes — controls how the world's lorebook is injected as a
@@ -108,6 +117,9 @@ completionRoutes.post("/sessions/:sessionId/completions", bodyLimit({ maxSize: 2
     /** "card": the card's code named this model (the parent tells it apart
      *  from the player's own pick). Only then does a plan miss fall back. */
     modelSource?: "card";
+    /** The card's own reasoning level for this call. When it asks for one,
+     *  the model's reasoning streams back as `reasoning` frames before `done`. */
+    reasoningEffort?: string;
   }>();
 
   // ── Validate input ──
@@ -121,6 +133,11 @@ completionRoutes.post("/sessions/:sessionId/completions", bodyLimit({ maxSize: 2
   if (sessionSettings && !sessionSettings.success) {
     return c.json({ error: 'Invalid session completion settings', details: sessionSettings.error.flatten() }, 400);
   }
+  if (body.reasoningEffort !== undefined && !REASONING_EFFORTS.has(body.reasoningEffort)) {
+    return c.json({ error: 'reasoningEffort must be one of none, minimal, low, medium, high' }, 400);
+  }
+  const reasoningEffort = body.reasoningEffort;
+  const streamReasoning = !!reasoningEffort && reasoningEffort !== "none";
   let responseFormat: CompletionResponseFormat | undefined;
   try { responseFormat = parseCompletionResponseFormat(body.responseFormat); }
   catch (error) { return c.json({ error: error instanceof Error ? error.message : "Invalid responseFormat" }, 400); }
@@ -162,14 +179,26 @@ completionRoutes.post("/sessions/:sessionId/completions", bodyLimit({ maxSize: 2
 
   // ── Resolve provider + API key ──
   // Protected worlds (allowCustomApi=false) must use official keys to prevent
-  // prompt leaking via BYOK logging proxy — same enforcement as messages.ts
+  // prompt leaking via BYOK logging proxy — same enforcement as messages.ts.
+  // Its creator and editor collaborators can read the source anyway, so they
+  // are exempt (the editor check rides in this query, no extra round trip).
   const [worldRow] = await db
-    .select({ allowCustomApi: worlds.allowCustomApi, creatorId: worlds.creatorId })
+    .select({ allowCustomApi: worlds.allowCustomApi, creatorId: worlds.creatorId, sealedContent: worlds.sealedContent, status: worlds.status, viewerCanEdit: viewerCanEditSql(currentUser.id), viewerIsTester: activeWorldTesterSql(currentUser.id) })
     .from(worlds)
     .where(eq(worlds.id, session.worldId));
-  const isProtectedWorld = worldRow?.allowCustomApi === false && worldRow.creatorId !== currentUser.id;
+  // A never-published card stops serving someone no longer working on it
+  // (creator, editor collaborators and its active testers keep it).
+  if (worldRow && draftAccessEnded(worldRow, currentUser, worldRow.viewerCanEdit === true || worldRow.viewerIsTester === true)) {
+    return c.json({ error: "You no longer have access to this card.", code: "WORLD_ACCESS_ENDED" }, 403);
+  }
+  // A sealed card stays official-only even for its team.
+  const isProtectedWorld = !!worldRow?.sealedContent || (worldRow?.allowCustomApi === false && worldRow.creatorId !== currentUser.id && worldRow.viewerCanEdit !== true);
 
-  let model = body.model ?? DEFAULT_MODEL;
+  // A call that names no model runs on the player's own story model, then on
+  // the cheap background default. It used to fall to Sonnet (hardcoded in
+  // e186b76ac), billing a card's unnamed side calls at premium rates.
+  const namedModel = typeof body.model === "string" && body.model.trim() ? body.model.trim() : null;
+  let model = namedModel ?? await unnamedSideCallModel(currentUser.id);
   const resolved = await resolveProviderForModel(currentUser.id, model, { forceOfficial: isProtectedWorld, allowRetiredForAccessCheck: true });
   if (!resolved) {
     if (isProtectedWorld) {
@@ -203,13 +232,15 @@ completionRoutes.post("/sessions/:sessionId/completions", bodyLimit({ maxSize: 2
   if (!resolved.isByok) {
     const walletCheck = await checkBalance(currentUser.id);
     memoryCap = walletCheck.wallet.memoryCap;
-    if (!walletCheck.ok) {
+    // An empty wallet stops paid models only: Yumina Free costs no mushies.
+    if (!walletCheck.ok && !isZeroCostPlayModel(model)) {
       return c.json({ error: "Insufficient credits", code: "INSUFFICIENT_CREDITS" }, 402);
     }
     const modelAccess = await validateModelAccess(walletCheck.wallet.plan, model);
     if (!modelAccess.allowed) {
       // The player's own pick is refused, like the chat; a card's pick falls back.
-      const fallback = body.modelSource === "card" ? await planFallbackModel(
+      // Nobody named the model: a plan miss falls back as a card's pick does.
+      const fallback = body.modelSource === "card" || !namedModel ? await planFallbackModel(
         walletCheck.wallet.plan, (await loadPlayerAiConfig(currentUser.id)).selectedModel, DEFAULT_STORY_SUMMARY_MODEL,
       ) : null;
       if (!fallback) return c.json({ error: modelAccess.reason, code: "MODEL_NOT_ALLOWED" }, 403);
@@ -272,12 +303,13 @@ completionRoutes.post("/sessions/:sessionId/completions", bodyLimit({ maxSize: 2
   // ── Preflight cost gate (mirrors the main chat's pre-flight affordability gate) ──
   // checkBalance above only asserts balance > 0 and credits are deducted
   // post-stream, so a tiny positive balance would otherwise admit an arbitrarily
-  // expensive prompt at platform expense. Prompt-only estimate, same semantics
-  // as messages.ts / MidStreamTracker.exceedsAtStart().
+  // expensive prompt at platform expense. Prompt-only estimate. Unlike the story
+  // turn gate (messages.ts), this stays uncalibrated: a side call's prompt is
+  // its own shape, so the story turn's cache-aware rate says little about it.
   if (walletBalance !== Infinity) {
     const promptChars = imagePromptChars(providerMessages) + responseFormatChars;
     const rates = await getModelCostRates(model, estimateTokensFromChars(promptChars));
-    if (estimateCreditsFromChars(rates, promptChars, 0) >= walletBalance) {
+    if (!isZeroCostRates(rates) && estimateCreditsFromChars(rates, promptChars, 0) >= walletBalance) {
       recordWallHit({ userId: currentUser.id, balance: walletBalance, model, endpoint: "side-completion", stage: "prompt_too_long" });
       return c.json({
         error: "Not enough mushies for this call — the prompt is too long for your remaining balance.",
@@ -336,10 +368,17 @@ completionRoutes.post("/sessions/:sessionId/completions", bodyLimit({ maxSize: 2
         maxTokens,
         temperature,
         ...generationSettings,
+        ...(reasoningEffort && { reasoningEffort }),
         responseFormat,
         signal: abortController.signal,
       })) {
         if (chunk.type === "error") throw new Error(chunk.content || "Generation failed");
+        if (chunk.type === "reasoning" && streamReasoning && chunk.content) {
+          await stream.writeSSE({
+            event: "reasoning",
+            data: JSON.stringify({ content: chunk.content }),
+          });
+        }
         if (chunk.type === "text") {
           fullContent += chunk.content;
           await stream.writeSSE({
@@ -461,10 +500,10 @@ function cacheSideWorld(key: string, row: { schema: Record<string, unknown>; upd
 }
 
 async function loadWorldDef(worldId: string, viewerId: string): Promise<WorldDefinition | null> {
-  const [meta] = await db.select({ updatedAt: worlds.updatedAt, status: worlds.status, creatorId: worlds.creatorId })
+  const [meta] = await db.select({ updatedAt: worlds.updatedAt, status: worlds.status, creatorId: worlds.creatorId, viewerCanEdit: viewerCanEditSql(viewerId) })
     .from(worlds).where(eq(worlds.id, worldId)).limit(1);
   if (!meta) return null;
-  if (viewerSeesWorkingCopy(meta.status, meta.creatorId, viewerId)) {
+  if (viewerSeesWorkingCopy(meta.status, meta.creatorId, viewerId, meta.viewerCanEdit === true)) {
     const key = `working:${worldId}`;
     const [pending] = await db.select({ updatedAt: worldPendingEdits.updatedAt })
       .from(worldPendingEdits).where(eq(worldPendingEdits.worldId, worldId)).limit(1);

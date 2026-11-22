@@ -1,3 +1,8 @@
+---
+title: "Full spec download"
+description: "The whole world file format as one Markdown file, ready to hand to Claude, Cursor or ChatGPT so it can write a valid Yumina world."
+---
+
 # Full Spec Download
 
 Download the complete World Spec as a single markdown file to feed to your AI coding tool.

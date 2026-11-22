@@ -46,12 +46,12 @@
  * counted from play_sessions → messages, which is complete, and aggregated
  * ACROSS a world's sessions — reopening a save must not reset progress.
  */
-import { and, eq, gt, gte, lt, sql } from "drizzle-orm";
+import { and, eq, gt, gte, lt, ne, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { getCheckInWindow } from "./check-ins.js";
 import {
-  analyticsActivity, creditTransactions, creditWallets, favorites, messages, playSessions, posts, questClaims, questCommunityVisits,
-  referralQualifications, threadLikes, threads, usageLogs,
+  analyticsActivity, creditTransactions, creditWallets, favorites, messages, playSessions, questClaims, questCommunityVisits,
+  referralQualifications, usageLogs,
 } from "../db/schema.js";
 import { planMeetsMinimum, type PlanId } from "./plan-config.js";
 import { FORGE_RUNGS, INVITE_QUEST_PAYOUT, PLANS_V2, questMultiplierV2, type QuestPayoutTable } from "./plan-config-v2.js";
@@ -87,7 +87,7 @@ export type QuestPeriod = "day" | "week" | "cycle";
 export type DailyQuestKey =
   | "play_3"        // send three turns
   | "favorite"      // favourite any world
-  | "community"     // post, reply or like
+  | "community"     // open a community post (or browse it for a minute)
   | "world_depth"   // ten turns inside one world
   | "new_world"     // open a world never played before
   | "two_models";   // finish turns on two different models
@@ -375,22 +375,18 @@ export async function questProgress(
         const visits = await first(database.select({ n: sql<number>`COUNT(*)` }).from(questCommunityVisits)
           .where(and(eq(questCommunityVisits.userId, userId), gte(questCommunityVisits.visitedAt, windowStart), lt(questCommunityVisits.visitedAt, windowEnd))));
         if (visits > 0) return finish(visits);
-        // Keep previously qualifying activity: about a minute of real activity on
-        // the community pages writes one 'browse-engaged-60s' row per five-minute
-        // bucket (routes/browse-engagement.ts). Posting, replying or liking still
-        // count too, so an active poster never has to go and scroll as well.
-        const [v, t, p, l] = await Promise.all([
-          first(database.select({ n: sql<number>`COUNT(*)` }).from(analyticsActivity)
-            .where(and(eq(analyticsActivity.userId, userId), eq(analyticsActivity.surface, "community"),
-              gte(analyticsActivity.occurredAt, windowStart), lt(analyticsActivity.occurredAt, windowEnd)))),
-          first(database.select({ n: sql<number>`COUNT(*)` }).from(threads)
-            .where(and(eq(threads.authorId, userId), gte(threads.createdAt, windowStart), lt(threads.createdAt, windowEnd)))),
-          first(database.select({ n: sql<number>`COUNT(*)` }).from(posts)
-            .where(and(eq(posts.authorId, userId), gte(posts.createdAt, windowStart), lt(posts.createdAt, windowEnd)))),
-          first(database.select({ n: sql<number>`COUNT(*)` }).from(threadLikes)
-            .where(and(eq(threadLikes.userId, userId), gte(threadLikes.createdAt, windowStart), lt(threadLikes.createdAt, windowEnd)))),
-        ]);
-        return finish(v + t + p + l);
+        // About a minute of real activity on the community pages also counts:
+        // it writes one 'browse-engaged-60s' row per five-minute bucket
+        // (routes/browse-engagement.ts). Posting, replying and liking no longer
+        // count on their own (11/05, Jason): "reply here to finish your daily
+        // quest" threads turned the quest into reply spam, and reading is the
+        // point. Anyone who posts has opened the community anyway.
+        // The target is one, so an existence probe is enough: counting every
+        // analytics row of the day read ~1B blocks in prod.
+        const browsed = await first(database.select({ n: sql<number>`1` }).from(analyticsActivity)
+          .where(and(eq(analyticsActivity.userId, userId), eq(analyticsActivity.surface, "community"),
+            gte(analyticsActivity.occurredAt, windowStart), lt(analyticsActivity.occurredAt, windowEnd))).limit(1));
+        return finish(browsed);
       }
 
       // Daily depth keeps the best single world. From the October 5 reward
@@ -482,6 +478,8 @@ export async function questBonusUsedThisCycle(userId: string, periodStart: Date,
     .where(and(
       eq(questClaims.userId, userId),
       gte(questClaims.claimedAt, periodStart),
+      // Event rewards (Halloween pumpkins) share the table but never the budget.
+      ne(questClaims.periodKind, "event"),
       sql`${questClaims.questKey} NOT IN (${sql.join(FIXED_QUEST_KEYS.map((k) => sql`${k}`), sql`, `)})`,
     ));
   return Number(r?.total ?? 0);
@@ -493,6 +491,7 @@ export async function fixedBonusThisCycle(userId: string, periodStart: Date, dat
     .where(and(
       eq(questClaims.userId, userId),
       gte(questClaims.claimedAt, periodStart),
+      ne(questClaims.periodKind, "event"),
       sql`${questClaims.questKey} IN (${sql.join(FIXED_QUEST_KEYS.map((k) => sql`${k}`), sql`, `)})`,
     ));
   return Number(r?.total ?? 0);

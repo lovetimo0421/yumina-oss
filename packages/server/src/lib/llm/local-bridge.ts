@@ -16,6 +16,7 @@
 
 import type { LLMProvider, GenerateParams, StreamChunk, Model, MessageContent } from "./types.js";
 import { toWireContent } from "./wire-content.js";
+import { estimateTokens } from "@yumina/engine";
 import {
   dispatchJob,
   getAdvertisedModels,
@@ -25,7 +26,7 @@ import {
 } from "../local-bridge/registry.js";
 
 /**
- * Context window we ask the local runtime for when we can't learn its real one.
+ * Upper bound on the context window we ask the local runtime for.
  *
  * Deliberately NOT the model's advertised maximum. A 27B at 4-bit fills a 24GB
  * card at ~18GB, and the KV cache for the remaining headroom is what decides
@@ -52,6 +53,67 @@ export const LOCAL_MAX_OUTPUT_TOKENS = 2048;
 export function clampLocalMaxTokens(maxTokens: number | undefined): number {
   if (maxTokens === undefined) return LOCAL_MAX_OUTPUT_TOKENS;
   return Math.min(maxTokens, LOCAL_MAX_OUTPUT_TOKENS);
+}
+
+/** Never ask a local runtime for less than this — a card's system prompt alone can fill 4K. */
+export const MIN_LOCAL_CONTEXT = 4096;
+
+/**
+ * `num_ctx` for one local turn: what this request needs, not the 32K ceiling.
+ *
+ * Ollama allocates the KV cache for the whole `num_ctx` up front, and a
+ * per-request `options.num_ctx` overrides the player's OLLAMA_CONTEXT_LENGTH
+ * and Modelfile. Sending 32K on every turn meant a player who set story context
+ * to 12K on a small card still loaded a 32K window their machine couldn't hold,
+ * and it hung, with no setting on their side that could fix it.
+ *
+ * `contextBudget` is the input budget the prompt was trimmed to
+ * (`clampMaxContextToModel`'s result). We size the window as the exact inverse
+ * of that clamp — `budget / 0.85 + output` — so the drift headroom the trimmer
+ * assumed is really there and the runtime never cuts the front of the prompt.
+ * The prompt's own estimate is a floor in case a turn outgrew its budget, and
+ * the result rounds up to 512 so it stays identical turn to turn (a different
+ * `num_ctx` makes Ollama reload the model).
+ */
+export function localNumCtx(input: {
+  contextBudget?: number;
+  promptTokens: number;
+  outputTokens: number;
+  windowCap?: number;
+  /** Runtime + model this window is for; lets a budget-less call reuse the story's window. */
+  stickyKey?: string;
+}): number {
+  const budget = input.contextBudget !== undefined && Number.isFinite(input.contextBudget) && input.contextBudget > 0
+    ? input.contextBudget : 0;
+  const needed = Math.ceil(Math.max(budget, input.promptTokens) / 0.85) + Math.max(0, input.outputTokens);
+  const rounded = Math.ceil(needed / 512) * 512;
+  const cap = input.windowCap !== undefined && Number.isFinite(input.windowCap) && input.windowCap > 0
+    ? Math.min(DEFAULT_LOCAL_CONTEXT, input.windowCap) : DEFAULT_LOCAL_CONTEXT;
+  const numCtx = Math.min(cap, Math.max(MIN_LOCAL_CONTEXT, rounded));
+  if (!input.stickyKey) return numCtx;
+  // Background calls (memory, continuity, repair) carry no budget and would
+  // size to their own prompt; a different num_ctx between them and the story
+  // turn makes Ollama reload the model every turn. Reuse the story's window
+  // when it already fits.
+  if (budget > 0) {
+    lastStoryNumCtx.delete(input.stickyKey);
+    lastStoryNumCtx.set(input.stickyKey, numCtx);
+    if (lastStoryNumCtx.size > 1000) lastStoryNumCtx.delete(lastStoryNumCtx.keys().next().value!);
+    return numCtx;
+  }
+  const story = lastStoryNumCtx.get(input.stickyKey);
+  return story !== undefined && story >= numCtx && story <= cap ? story : numCtx;
+}
+
+/** Last story-turn num_ctx per runtime + model (insertion-ordered, oldest evicted). */
+const lastStoryNumCtx = new Map<string, number>();
+
+/** Rough prompt size for `localNumCtx`'s floor — same estimator the trimmer uses. */
+export function estimateLocalPromptTokens(messages: GenerateParams["messages"], modelId: string): number {
+  return messages.reduce(
+    (total, m) => total + 6 + estimateTokens(flattenText(("content" in m ? m.content : "") as MessageContent), modelId),
+    0,
+  );
 }
 
 /** Strip our routing prefix — the local runtime knows the model by its own name. */
@@ -129,14 +191,26 @@ export class LocalBridgeProvider implements LLMProvider {
     if (params.responseFormat?.type === "json_schema") {
       throw new Error("This provider does not support JSON Schema side completions.");
     }
+    const runtimeModel = toRuntimeModelId(params.model);
+    const maxTokens = clampLocalMaxTokens(params.maxTokens);
+    // What the player's runtime reported for this model, if anything — a
+    // window smaller than 32K is the one we must not ask past.
+    const advertisedWindow = (await getAdvertisedModels(this.userId))
+      .find((m) => m.id === runtimeModel)?.contextLength;
     const payload: BridgeJobPayload = {
-      model: toRuntimeModelId(params.model),
+      model: runtimeModel,
       messages: foldTrailingSystemIntoUser(params.messages).map((m) => ({
         role: m.role,
         content: toWireContent("content" in m ? (m.content as MessageContent) : ""),
       })),
-      num_ctx: DEFAULT_LOCAL_CONTEXT,
-      max_tokens: clampLocalMaxTokens(params.maxTokens),
+      num_ctx: localNumCtx({
+        contextBudget: params.contextBudget,
+        promptTokens: estimateLocalPromptTokens(params.messages, params.model),
+        outputTokens: maxTokens,
+        windowCap: advertisedWindow,
+        stickyKey: `bridge:${this.userId}:${runtimeModel}`,
+      }),
+      max_tokens: maxTokens,
       ...(params.responseFormat && { response_format: params.responseFormat }),
       // Write, don't think. Qwen 3.5 (the 4b/9b we recommend) reasons first and,
       // on a roleplay turn, keeps going: measured on a 24 GB card it spent the
@@ -203,6 +277,20 @@ export class LocalBridgeProvider implements LLMProvider {
       pricing: { prompt: 0, completion: 0 },
       provider: "local",
     }));
+  }
+
+  /**
+   * The window the player's runtime actually runs this model at, when it told
+   * us. LM Studio loads a model at whatever context the player chose — 8K is
+   * its default — and packing a 32K prompt into that fails the turn, so the
+   * budget has to come down to it. Unknown means DEFAULT_LOCAL_CONTEXT, which
+   * getModelContextWindow already applies to every local model.
+   */
+  async getContextWindow(modelId?: string): Promise<number | undefined> {
+    if (!modelId) return undefined;
+    const id = toRuntimeModelId(modelId);
+    const advertised = await getAdvertisedModels(this.userId);
+    return advertised.find((m) => m.id === id)?.contextLength;
   }
 
   async verify(): Promise<boolean> {

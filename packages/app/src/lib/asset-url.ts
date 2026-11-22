@@ -9,6 +9,26 @@ export function getAssetCdnUrl(assetId: string): string {
   return `${base}/cdn/${assetId}`;
 }
 
+/**
+ * Root-relative path to an asset's exact uploaded bytes. Cloudflare Polish
+ * works on the plain `/cdn/{id}` path: once the edge has a polished copy, a
+ * browser that accepts WebP gets a lossy WebP in place of a PNG, which smears
+ * pixel art and sprite sheets (2026-11-21: a 96px, 6-colour path tile came
+ * back as a 1,719-colour VP8 file). `/cdn/{id}/original` is sent with
+ * `Cache-Control: no-transform`, so the edge passes it through untouched.
+ * Card code (custom UI, canvases, sprite atlases) draws what its creator
+ * uploaded, so its `@asset:` refs resolve here. Non-UUID ids keep the plain path.
+ */
+export function assetOriginalPath(assetId: string): string {
+  return UUID_RE.test(assetId) ? `/cdn/${assetId}/original` : `/cdn/${assetId}`;
+}
+
+/** Absolute form of `assetOriginalPath`. */
+export function getAssetOriginalUrl(assetId: string): string {
+  const base = apiBase || (typeof window !== "undefined" ? window.location.origin : "");
+  return `${base}${assetOriginalPath(assetId)}`;
+}
+
 function cdnBase(): string {
   return apiBase || (typeof window !== "undefined" ? window.location.origin : "");
 }
@@ -201,9 +221,10 @@ export function fallbackToOriginalOnError(event: {
  * Resolve an asset reference to a usable URL.
  * - `http://...` or `https://...` → returned as-is
  * - `@asset:{uuid}` → resolved to permanent CDN URL `/cdn/{uuid}`
+ *   (`/cdn/{uuid}/original` with `original: true`, see `assetOriginalPath`)
  * - Anything else → returned as-is
  */
-export async function resolveAssetUrl(ref: string): Promise<string> {
+export async function resolveAssetUrl(ref: string, opts: { original?: boolean } = {}): Promise<string> {
   if (!ref) return ref;
 
   // Already a full URL
@@ -212,7 +233,7 @@ export async function resolveAssetUrl(ref: string): Promise<string> {
   // Asset reference: @asset:{id} → permanent CDN URL (no API round-trip needed)
   if (ref.startsWith("@asset:")) {
     const assetId = ref.slice(7);
-    return getAssetCdnUrl(assetId);
+    return opts.original ? getAssetOriginalUrl(assetId) : getAssetCdnUrl(assetId);
   }
 
   return ref;
@@ -222,7 +243,7 @@ export async function resolveAssetUrl(ref: string): Promise<string> {
  * Resolve all `@asset:{id}` references in a string to presigned URLs.
  * Used for display transform replacements.
  */
-export async function resolveAssetRefs(text: string): Promise<string> {
+export async function resolveAssetRefs(text: string, opts: { original?: boolean } = {}): Promise<string> {
   const pattern = /@asset:([a-f0-9-]+)/g;
   const matches = [...text.matchAll(pattern)];
   if (matches.length === 0) return text;
@@ -230,7 +251,7 @@ export async function resolveAssetRefs(text: string): Promise<string> {
   let result = text;
   for (const match of matches) {
     const ref = match[0]; // @asset:{id}
-    const resolved = await resolveAssetUrl(ref);
+    const resolved = await resolveAssetUrl(ref, opts);
     result = result.replace(ref, resolved);
   }
   return result;

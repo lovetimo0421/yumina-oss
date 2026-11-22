@@ -1,9 +1,11 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { feedback } from "@/lib/feedback";
 import { useTranslation } from "react-i18next";
 import { History, X, RotateCcw, Trash2, Loader2, ChevronDown, AlertTriangle } from "lucide-react";
 import { FieldError } from "@/components/ui/field-error";
 import type { WorldChange, WorldDiff } from "@yumina/engine";
 import { useEditorStore } from "@/stores/editor";
+import { useSession } from "@/lib/auth-client";
 import { formatTimeAgo } from "@/lib/format-time";
 import { cn } from "@/lib/utils";
 import { buildReviewDiffTokens } from "./lib/review-diff";
@@ -15,7 +17,9 @@ const apiBase = import.meta.env.VITE_API_URL || "";
  *  to go back through the menu. Lazy: it is a screen of its own. */
 const VersionHistoryDialog = lazy(() => import("@/features/editor/version-history-dialog").then((m) => ({ default: m.VersionHistoryDialog })));
 
-type SnapshotRow = { id: string; label: string; createdAt: string; agentRunId?: string | null; summary?: WorldChange[] };
+/** `actorId`/`actorName`: who asked the assistant for this step, on a card
+ *  several people work on (sent by the server when it knows). */
+type SnapshotRow = { id: string; label: string; createdAt: string; agentRunId?: string | null; summary?: WorldChange[]; actorId?: string | null; actorName?: string | null };
 
 const TONE_CLS: Record<ChangeTone, string> = {
   added: "bg-emerald-500/10 text-emerald-400 border-emerald-500/30",
@@ -57,6 +61,12 @@ interface Props {
 
 export function ChangeHistoryDialog({ worldId, onClose }: Props) {
   const { t, i18n } = useTranslation(["editor", "common"]);
+  const { data: session } = useSession();
+  const myId = session?.user?.id;
+  // On a shared card an editor may delete only their own restore points (the
+  // creator any, and only the creator clears them all).
+  const ownsCard = useEditorStore((s) => !s.access || s.access.role === "owner");
+  const canDelete = (row: SnapshotRow) => ownsCard || !row.actorId || row.actorId === myId;
   const [rows, setRows] = useState<SnapshotRow[] | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [expandedDiff, setExpandedDiff] = useState<WorldDiff | null>(null);
@@ -133,7 +143,15 @@ export function ChangeHistoryDialog({ worldId, onClose }: Props) {
       }
       const res = await fetch(`${apiBase}/api/studio/${worldId}/rollback/${row.id}`, { method: "POST", credentials: "include" });
       if (!res.ok) { setActionError(t("versionHistory.restoreFailed")); return; }
+      const outcome = await res.json().catch(() => ({})) as { mode?: string; kept?: unknown[] };
       await useEditorStore.getState().loadWorld(worldId);
+      // Only the assistant's steps were undone; say what stayed.
+      if (outcome.mode === "selective") {
+        const kept = Array.isArray(outcome.kept) ? outcome.kept.length : 0;
+        feedback.notice(kept > 0
+          ? t("studio.changeLog.rolledBackKept", { count: kept })
+          : t("studio.changeLog.rolledBackSelective"));
+      }
       onClose();
     } catch {
       // Offline / dropped request: the click used to do nothing at all.
@@ -147,7 +165,11 @@ export function ChangeHistoryDialog({ worldId, onClose }: Props) {
     setActionError(null);
     try {
       const res = await fetch(`${apiBase}/api/studio/${worldId}/snapshots/${row.id}`, { method: "DELETE", credentials: "include" });
-      if (!res.ok) { setActionError(t("studio.changeLog.deleteFailed")); return; }
+      if (!res.ok) {
+        const code = res.status === 403 ? ((await res.json().catch(() => ({}))) as { code?: string }).code : undefined;
+        setActionError(code === "NOT_YOURS" ? t("collab.notYourSnapshot") : t("studio.changeLog.deleteFailed"));
+        return;
+      }
       setConfirm({ kind: "idle" });
       await refresh();
     } catch {
@@ -188,12 +210,12 @@ export function ChangeHistoryDialog({ worldId, onClose }: Props) {
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border/60 px-5 py-4">
           <div className="flex items-center gap-2">
-            <History className="h-5 w-5 text-primary" />
+            <History className="h-5 w-5 text-muted-foreground" />
             <h3 className="text-base font-semibold">{t("studio.changeLog.title")}</h3>
             <span className="text-xs text-muted-foreground">{t("studio.changeLog.restorePointCount", { count })}</span>
           </div>
           <div className="flex items-center gap-1">
-            {count > 0 && (
+            {count > 0 && ownsCard && (
               <button onClick={() => { setActionError(null); setConfirm({ kind: "clearAll" }); }} className="rounded-lg px-2 py-1 text-xs text-destructive transition-colors hover:bg-destructive/10">
                 {t("studio.changeLog.clearAll")}
               </button>
@@ -252,7 +274,7 @@ export function ChangeHistoryDialog({ worldId, onClose }: Props) {
                           <button onClick={() => openRestore(row)} className="rounded-lg border border-border/60 px-2 py-0.5 text-[11px] font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground">
                             {t("studio.changeLog.restore")}
                           </button>
-                          <button onClick={() => { setActionError(null); setConfirm({ kind: "delete", row }); }} className="rounded-lg p-1 text-muted-foreground/70 transition-colors hover:bg-destructive/15 hover:text-destructive" title={t("studio.changeLog.delete")}><Trash2 className="h-3 w-3" /></button>
+                          {canDelete(row) && <button onClick={() => { setActionError(null); setConfirm({ kind: "delete", row }); }} className="rounded-lg p-1 text-muted-foreground/70 transition-colors hover:bg-destructive/15 hover:text-destructive" title={t("studio.changeLog.delete")}><Trash2 className="h-3 w-3" /></button>}
                         </div>
                       </li>
                     );
@@ -264,6 +286,10 @@ export function ChangeHistoryDialog({ worldId, onClose }: Props) {
                           <div className="flex items-center gap-1.5">
                             <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform", expandedId === row.id && "rotate-180")} />
                             <span className="text-xs text-muted-foreground">{formatTimeAgo(String(row.createdAt), i18n.language)}</span>
+                            {/* Someone else's step: say whose. Your own need no label. */}
+                            {row.actorName && row.actorId !== myId && (
+                              <span className="truncate text-xs text-muted-foreground">· {t("collab.askedBy", { name: row.actorName })}</span>
+                            )}
                           </div>
                           {row.summary && <ChangeChips changes={row.summary} />}
                         </button>
@@ -271,7 +297,7 @@ export function ChangeHistoryDialog({ worldId, onClose }: Props) {
                           <button onClick={() => openRestore(row)} className="flex items-center gap-1 rounded-lg bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground transition-colors hover:bg-primary-hover">
                             <RotateCcw className="h-3 w-3" />{t("studio.changeLog.restore")}
                           </button>
-                          <button onClick={() => { setActionError(null); setConfirm({ kind: "delete", row }); }} className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-destructive/15 hover:text-destructive" title={t("studio.changeLog.delete")}><Trash2 className="h-3.5 w-3.5" /></button>
+                          {canDelete(row) && <button onClick={() => { setActionError(null); setConfirm({ kind: "delete", row }); }} className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-destructive/15 hover:text-destructive" title={t("studio.changeLog.delete")}><Trash2 className="h-3.5 w-3.5" /></button>}
                         </div>
                       </div>
                       {expandedId === row.id && (
@@ -302,7 +328,13 @@ export function ChangeHistoryDialog({ worldId, onClose }: Props) {
           </p>
           {confirm.diff === null ? <Loader2 className="mt-2 h-4 w-4 animate-spin text-muted-foreground/60" /> : <ChangeChips changes={confirm.diff.changes} />}
           {isDirty && <p className="mt-3 flex items-center gap-1.5 text-[11px] text-amber-400"><AlertTriangle className="h-3 w-3" />{t("studio.changeLog.unsavedWarning")}</p>}
-          <p className="mt-3 rounded-lg border border-border/60 bg-background/50 px-2.5 py-2 text-[11px] text-muted-foreground">✓ {t("studio.changeLog.autoBackupNote")}</p>
+          {(confirm.diff as { selective?: boolean } | null)?.selective && (
+            <p className="mt-3 text-[11px] text-muted-foreground">
+              {t("studio.changeLog.selectiveNote")}
+              {((confirm.diff as { kept?: number }).kept ?? 0) > 0 && ` ${t("studio.changeLog.selectiveKept", { count: (confirm.diff as { kept?: number }).kept })}`}
+            </p>
+          )}
+          <p className="mt-3 rounded-lg border border-border/60 bg-background/50 px-2.5 py-2 text-[11px] text-muted-foreground">{t("studio.changeLog.autoBackupNote")}</p>
           <FieldError message={actionError} />
         </ConfirmCard>
       )}

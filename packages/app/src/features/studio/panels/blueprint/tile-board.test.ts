@@ -36,14 +36,15 @@ const flat = (heights: Record<string, number>) => (b: Block) => heights[b.id] ??
 /** Sections as ids, so a test reads the way the tile does. */
 const shape = (sections: TileSection[]) => sections.map((s) => s.blocks.map((b) => b.id));
 
-test("the player's screen leads, alone; then the opening, the lists, the memory", () => {
-  assert.deepEqual(shape(tileSections(card())), [
+test("the player's screen leads; then what the AI knows, then what it can do", () => {
+  const sections = tileSections(card());
+  assert.deepEqual(shape(sections), [
     ["block:frontend"],
     ["block:opening:a"],
     ["block:lore:always"],
+    ["block:context"],
     ["block:state"],
     ["block:behavior"],
-    ["block:context"],
   ]);
 });
 
@@ -98,7 +99,7 @@ test("the interface takes the whole width at the top, and nothing stands beside 
   assert.equal(screen.y, FRAME_HEADER_H, "first in the tile");
   assert.equal(screen.w, 720, "full width");
   assert.equal(screen.h, 250, "its own height, not stretched to match any writing");
-  assert.equal(opening.y, screen.y! + screen.h! + TILE_GAP, "the opening is under it");
+  assert.equal(opening.y, screen.y! + screen.h! + TILE_GAP, "the opening is right under it");
   assert.equal(opening.w, 720);
 });
 
@@ -112,8 +113,8 @@ test("variables and behaviours each take a full row, variables first", () => {
   assert.equal(state.x, 0, "the stack starts at the tile edge, with no gutter");
   assert.equal(behavior.y, state.y! + 120 + TILE_GAP, "behaviours stand under the variables");
   assert.equal(behavior.h, 80, "a full row keeps its own height");
-  // interface 250, opening 100, lore 100, variables 120, behaviours 80, memory 100.
-  assert.equal(tile.height, FRAME_HEADER_H + (250 + 100 + 100 + 120 + 80 + 100) + TILE_GAP * 5 + FRAME_RAIL_H);
+  // interface 250, opening 100, lore 100, memory 100, variables 120, behaviours 80.
+  assert.equal(tile.height, FRAME_HEADER_H + (250 + 100 + 100 + 100 + 120 + 80) + TILE_GAP * 5 + FRAME_RAIL_H);
 });
 
 test("half-width blocks share a row, one bottom edge, and reach the tile's edges", () => {
@@ -202,12 +203,12 @@ test("shut frames are small squares and sit in the row beside the open ones", ()
   assert.equal(shut.x, byId.get("module:a")!.x + byId.get("module:a")!.width + FRAME_GAP);
 });
 
-test("audio and scene images share a row above the memory; either one alone keeps the full width", () => {
+test("audio and scene images share a row among what the AI can do; either one alone keeps the full width", () => {
   const both = shape(tileSections([...card(), block("block:audio", "audio", 2), block("block:image", "image", 3)]));
-  assert.deepEqual(both[5], ["block:audio", "block:image"]);
-  assert.deepEqual(both[6], ["block:context"], "the memory is the setting under everything the card is made of");
+  assert.deepEqual(both[6], ["block:audio", "block:image"]);
+  assert.deepEqual(both[3], ["block:context"], "the memory is among what it knows");
   const alone = shape(tileSections([...card(), block("block:image", "image", 3)]));
-  assert.deepEqual(alone[5], ["block:image"]);
+  assert.deepEqual(alone[6], ["block:image"]);
 });
 
 test("a module with no interface stacks its writing full width", () => {
@@ -217,14 +218,14 @@ test("a module with no interface stacks its writing full width", () => {
   assert.equal(tile.blocks["block:m:lore"]!.w, BLOCK_W);
 });
 
-test("Context closes what is there on its own row; the tray of unused slots sits under it, the AIs last", () => {
+test("the opening leads what it knows, the tray closes what it can do, the AI's own row is last", () => {
   assert.deepEqual(shape(tileSections([...card(), block("block:tray", "tray", 0), block("block:ais", "ais", 0)])), [
     ["block:frontend"],
     ["block:opening:a"],
     ["block:lore:always"],
+    ["block:context"],
     ["block:state"],
     ["block:behavior"],
-    ["block:context"],
     ["block:tray"],
     ["block:ais"],
   ]);

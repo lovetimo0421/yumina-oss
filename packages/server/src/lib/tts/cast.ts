@@ -8,9 +8,13 @@
  * session has already heard, names that turn up in the text) along with the
  * emotion cue, and each run is read in that speaker's voice:
  *
- *   the author's voice for that character  >  the voice this session already
- *   gave them  >  a voice Jev picks from the card-language pool the first time
- *   they speak (unused voices first, matched on gender/age/manner).
+ *   the voice the player picked for them in this chat  >  the author's voice
+ *   for that character  >  the voice this session already gave them  >  a
+ *   voice Jev picks from the card-language pool the first time they speak
+ *   (unused voices first, matched on gender/age/manner).
+ *
+ * The player's picks (owner 2026-10-25: the player chooses every AI they
+ * hear) also cover the narrator, under the key "narrator".
  *
  * The pool is the player's own voice pool (Settings › Display, stored
  * server-side as preferences.ttsVoicePool) narrowed to the card language;
@@ -250,6 +254,8 @@ export async function planReadout(opts: {
   /** The player's voice pool, from their stored preferences (never the request). */
   playerPool?: readonly string[];
   cast: Record<string, string>;
+  /** Voices the player picked for speakers in this chat; "narrator" for narration. */
+  picks?: Record<string, string>;
   emotion: boolean;
   /** The player's own OpenRouter key (BYOK readouts); falls back to the platform's. */
   playerKey?: PlayerSideKey | null;
@@ -259,9 +265,14 @@ export async function planReadout(opts: {
   const selection = opts.playerPool ?? [];
   // The player's own voice for this card: their first pool voice in its language.
   const playerOwn = ttsPoolForLang(selection, cardLang(opts.world.language, scene))[0] ?? opts.playerVoice;
-  const narratorVoice = validVoice(opts.world.narratorVoice) ?? playerOwn;
+  const picks = new Map<string, string>();
+  for (const [k, v] of Object.entries(opts.picks ?? {}).slice(0, MAX_CAST)) { const id = validVoice(v); if (id && k.trim()) picks.set(k.trim(), id); }
+  const narratorVoice = picks.get(NARRATOR) ?? validVoice(opts.world.narratorVoice) ?? playerOwn;
   const characters = opts.world.entries.filter((e) => e.role === "character" && e.enabled !== false && e.name.trim());
+  // A picked voice counts as the character's own: it beats the author's and
+  // keeps Jev from casting them.
   const entryVoice = new Map(characters.map((e) => [e.name.trim(), validVoice(e.voice)]));
+  for (const [name, voice] of picks) if (name !== NARRATOR) entryVoice.set(name, voice);
   const cast: Record<string, string> = {};
   for (const [k, v] of Object.entries(opts.cast)) { const id = validVoice(v); if (id && k.trim()) cast[k.trim()] = id; }
 

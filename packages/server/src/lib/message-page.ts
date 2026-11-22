@@ -74,3 +74,18 @@ export async function loadMessagePage(
     hasMore: selection.rows[0]!.candidate_count > rows.length,
   };
 }
+
+/** How many of the session's messages are older than `first` — so a client
+ *  holding a page can number its rows by their place in the whole session. */
+export async function countMessagesBefore(
+  reader: Pick<DrizzleDB, "select">,
+  sessionId: string,
+  first: { id: string; createdAt: string | null },
+): Promise<number> {
+  if (!first.createdAt) return 0;
+  const [row] = await reader
+    .select({ value: sql<number>`count(*)::int` })
+    .from(messages)
+    .where(and(eq(messages.sessionId, sessionId), messagePageCursor(sessionId, first.createdAt, first.id)));
+  return Number(row?.value ?? 0);
+}

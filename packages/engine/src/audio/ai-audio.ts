@@ -37,6 +37,19 @@ export function filterAiAudioEffects(tracks: AudioTrack[], effects: AudioEffect[
 
     const safe = { ...effect };
     if (safe.chainTo && !ids.has(safe.chainTo)) delete safe.chainTo;
+    if (safe.action === "play" && allowed.find((track) => track.id === safe.trackId)?.type === "bgm") {
+      // One piece of music at a time. The prompt teaches "[audio: battle_bgm play]", and a play
+      // starts a track beside whatever already sounds, so the AI changing the music layered two
+      // songs (2026-11-02, DanMachi). The other BGM it may control steps aside; the track itself
+      // is not stopped first, so naming the music already playing does not restart it twice.
+      const fadeDuration = safe.fadeDuration ?? 1;
+      return [
+        ...allowed.filter((track) => track.type === "bgm" && track.id !== safe.trackId).map((track): AudioEffect => ({
+          trackId: track.id, action: "stop", fadeDuration,
+        })),
+        safe,
+      ];
+    }
     if (safe.action !== "crossfade") return [safe];
 
     // The player's crossfade stops ALL BGM. Expand AI crossfades into scoped

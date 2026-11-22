@@ -1,3 +1,4 @@
+import { DOCS_URLS } from "@/lib/docs-urls";
 import { savePreferredProvider } from "@/lib/provider-switch";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
@@ -741,7 +742,8 @@ function OfficialView({
   const deepSeekPricingCopy = useDeepSeekPricingCopy();
   const isMixActive = !!onMixMode && mixMode && modelPool.length >= 2;
   const [query, setQuery] = useState("");
-  const [sort, setSort] = useState<OfficialModelSort>("popular");
+  // cheapest first, always (Jason, 2026-11-16); the other orders are there when a player picks one
+  const [sort, setSort] = useState<OfficialModelSort>("costAsc");
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [pinLimitNonce, setPinLimitNonce] = useState(0);
   const pinLimitHit = useTransientFlag(pinLimitNonce, 2500);
@@ -817,7 +819,7 @@ function OfficialView({
           onValueChange={setSort}
           label={t("modelBrowser.sortLabel")}
           className="min-w-[90px] max-w-[42%]"
-          options={(["popular", "costAsc", "costDesc", "newest", "recent", "name"] as const).map(value => ({ value, label: t(`modelBrowser.sort.${value}`) }))}
+          options={(["costAsc", "costDesc", "popular", "newest", "recent", "name"] as const).map(value => ({ value, label: t(`modelBrowser.sort.${value}`) }))}
         />
       </div>
       <div className="flex shrink-0 items-center gap-1.5 px-[17px] pb-1 max-[390px]:px-3">
@@ -1039,7 +1041,7 @@ function PrivateView({
 
       <div className="flex items-center gap-2 border-y border-white/[0.06] px-5 py-2">
         <p className="flex-1 text-[11px] leading-snug text-white/45">
-          {usageNote}
+          {usageNote}{" "}<a href={DOCS_URLS.models} target="_blank" rel="noopener noreferrer" className="underline decoration-white/20 underline-offset-2 hover:text-white/70">{t("modelBrowser.docsLink")}</a>
         </p>
         {onMixMode && <MixPill onClick={onMixMode} />}
       </div>
@@ -1185,7 +1187,7 @@ function StudioView({
       {providerSwitch}
 
       <p className="border-y border-white/[0.06] px-5 py-2 text-[11px] leading-snug text-white/45">
-        {usageNote}
+        {usageNote}{" "}<a href={DOCS_URLS.models} target="_blank" rel="noopener noreferrer" className="underline decoration-white/20 underline-offset-2 hover:text-white/70">{t("modelBrowser.docsLink")}</a>
       </p>
 
       <div className="flex-1 overflow-y-auto px-4 py-2">

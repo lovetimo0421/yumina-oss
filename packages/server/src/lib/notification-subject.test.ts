@@ -50,6 +50,12 @@ describe("notification subject mutes", () => {
     );
   });
 
+  it("mutes discussion activity while preserving admin move and rating-request notices", () => {
+    assert.deepEqual(notificationSubjectFor("world_feedback", { worldId: "w", action: "reply" }), { type: "world", id: "w" });
+    assert.equal(notificationSubjectFor("world_feedback", { worldId: "w", action: "moved" }), null);
+    assert.equal(notificationSubjectFor("world_feedback", { worldId: "w", action: "rating_requested" }), null);
+  });
+
   it("reads only valid stored subject keys and matches the full type/id pair", () => {
     const preferences = {
       mutedNotificationSubjects: ["thread:thread-1", 123, "world:world-1"],

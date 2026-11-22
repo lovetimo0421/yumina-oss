@@ -5,7 +5,7 @@ import { drizzle } from "drizzle-orm/pglite";
 import { getTableConfig } from "drizzle-orm/pg-core";
 import { eq } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { checkpoints, messages, playSessions, sessionLoreEntries, sessionStorageEntries, summaryceptionSnippets, user, userLibrary, userPersonas, userWorldPersonas, worldMemories, worlds } from "../db/schema.js";
+import { checkpoints, messages, playSessions, sessionLoreEntries, sessionStorageEntries, summaryceptionSnippets, user, userLibrary, userPersonas, userWorldPersonas, worldCollaborators, worldMemories, worlds, worldTesters, follows } from "../db/schema.js";
 import { branchSession, revertSession, sessionRoutes } from "./sessions.js";
 import { promptHistory, type RunMemories } from "../lib/run-scopes.js";
 import { GameStateManager, type WorldDefinition } from "@yumina/engine";
@@ -23,7 +23,11 @@ test("blueprint memory follows session creation, rewind, restart, branches and c
     // `user` because branch and revert both read the account row to stamp
     // persona metadata onto restored state — added to those paths after this
     // fixture was written, which is why both subtests died on a missing table.
-    for (const table of [playSessions, messages, worlds, checkpoints, user, userPersonas, userWorldPersonas, userLibrary, worldMemories, summaryceptionSnippets, sessionLoreEntries, sessionStorageEntries]) {
+    // `world_testers` and `follows` because the play paths ask whether the player
+    // holds a tester seat or follows a followers-only card's creator;
+    // `world_collaborators` because they also ask whether the player is an
+    // editor on the card (folded into their world reads).
+    for (const table of [playSessions, messages, worlds, checkpoints, user, userPersonas, userWorldPersonas, userLibrary, worldMemories, summaryceptionSnippets, sessionLoreEntries, sessionStorageEntries, worldTesters, follows, worldCollaborators]) {
       const config = getTableConfig(table);
       const columns = config.columns.map((column) => {
         const type = column.getSQLType().startsWith("vector") ? "text" : column.getSQLType();

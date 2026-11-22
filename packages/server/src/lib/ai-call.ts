@@ -23,7 +23,8 @@ import { messages, playSessions } from "../db/schema.js";
 import { normalizeGameState } from "./game-state.js";
 import type { ChatMessage } from "./llm/types.js";
 import { applyModelRedirect } from "./llm/model-redirects.js";
-import { DEFAULT_STORY_SUMMARY_MODEL, generateStorySummaryText } from "./session-compaction.js";
+import { generateStorySummaryText } from "./session-compaction.js";
+import { worldAiModel } from "./role-model.js";
 import { thinSnapshotForStorage } from "./snapshot.js";
 import { SESSION_NOT_FOUND, withSessionRowLock } from "./session-lock.js";
 import { liveSceneMessage, type LiveScene } from "./live-scene.js";
@@ -282,7 +283,7 @@ export async function runAiCall(args: {
   }).catch(() => false);
   if (claimed !== true) return { ok: false, reason: "busy" };
 
-  const model = applyModelRedirect((full.model || session.summaryModel || DEFAULT_STORY_SUMMARY_MODEL).trim());
+  const model = applyModelRedirect(await worldAiModel(userId, full.model, session.summaryModel));
   const fields = full.output ?? [];
   const prompt = buildAiCallPrompt({ world, state, book, station: full, input, history, thread, scene: args.scene ?? null });
   const timeoutMs = (full.onError?.timeoutSec ?? 25) * 1000;

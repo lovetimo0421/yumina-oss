@@ -231,41 +231,34 @@ test('memory integrity adversarial audit', async t => {
         assert.equal(calls,0);
       } finally {await db.delete(user).where(eq(user.id,f.uid));}
     });
-    for (const editPartial of [false,true]) await t.test(`layered partial retry preserves authored preview=${editPartial} and compacts source`, async st=>{
+    await t.test('a cut-off layered snippet is retried on a shorter passage and kept, never pausing the recap', async st=>{
       const f=await fixture(true);
       try{
-        let partial=true;
-        st.mock.method(OpenRouterProvider.prototype,'generateStream',async function*():AsyncIterable<StreamChunk>{yield{type:'text',content:'The visitor waits for tea.'};yield{type:'done',content:'',stopReason:partial?'max_tokens':'stop'};});
+        // Medium messages, so one chunk holds several and can be split.
+        for (const [i,row] of f.rows.entries()) await db.update(messages).set({content:`Scene ${i}. The visitor waits for tea. `+'The barista warms the pot. '.repeat(150)}).where(eq(messages.id,row.id));
+        const passages:number[]=[];
+        st.mock.method(OpenRouterProvider.prototype,'generateStream',async function*(p:GenerateParams):AsyncIterable<StreamChunk>{
+          passages.push((JSON.stringify(p.messages).match(/\[\d+\] (USER|ASSISTANT) \(/g)??[]).length);
+          yield{type:'text',content:'The visitor waits for tea.'};
+          yield{type:'done',content:'',stopReason:'max_tokens',usage:{promptTokens:1000,completionTokens:100,totalTokens:1100}};
+        });
         const args={sessionId:f.sid,userId:f.uid,fallbackModel:model,contextTokenLimit:8192,force:true};
-        const preview = await compactSummaryceptionForSession(args);
-        assert.equal(preview.compactedCount,0);
-        assert.deepEqual(preview.compactedMessageIds,[]);
-        assert.equal(preview.compactedFromMessageId,null);
-        assert.equal(preview.compactedToMessageId,null);
-        assert.equal(preview.compactedFromOrdinal,null);
-        assert.equal(preview.compactedToOrdinal,null);
-        assert.equal(preview.compactedTokenEstimate,0);
-        assert.ok(preview.retainedCount>0);
-        assert.ok(preview.retainedTokenEstimate>0);
-        let snippets=await db.select().from(summaryceptionSnippets).where(eq(summaryceptionSnippets.sessionId,f.sid));
-        assert.equal(snippets.length,1);assert.equal(snippets[0]!.sourceEndMessageId,null);
-        const paused=await compactSummaryceptionForSession({...args,force:false});
-        assert.equal(paused.compactedCount,0);assert.ok(paused.noOpReason?.includes("Partial summary"));
-        if(editPartial) {
-          await updateSummaryceptionSnippet({sessionId:f.sid,userId:f.uid,snippetId:snippets[0]!.id,text:'My authored correction: the visitor ordered green tea.'});
-          await updateSummaryceptionSnippet({sessionId:f.sid,userId:f.uid,snippetId:snippets[0]!.id,text:'My authored correction: the visitor ordered jasmine tea.'});
-        }
-        partial=false;const completed=await compactSummaryceptionForSession({...args,force:false,retryPartial:true});
-        assert.equal(preview.retainedCount,completed.retainedCount+completed.compactedCount,'the incomplete chunk remains raw alongside the retained tail');
-        assert.equal(preview.retainedTokenEstimate,completed.retainedTokenEstimate+completed.compactedTokenEstimate);
-        snippets=await db.select().from(summaryceptionSnippets).where(eq(summaryceptionSnippets.sessionId,f.sid));
-        assert.equal(snippets.length,editPartial?2:1);
-        assert.equal(snippets.filter(s=>s.sourceEndMessageId).length,1);
-        if(editPartial) {
-          const authored=snippets.find(s=>s.sourceHash?.startsWith('manual:partial:'))!;
-          assert.ok(authored.text.includes('jasmine tea'));assert.equal(authored.sourceEndMessageId,null);
-          assert.ok((await getSummaryceptionPromptBlock(f.sid))?.includes('jasmine tea'));
-        } else assert.ok(!snippets[0]!.text.includes('Partial summary'));
+        const result=await compactSummaryceptionForSession(args);
+        assert.ok(passages.length>=2,'the cut-off passage is retried');
+        assert.ok(passages.at(-1)!<passages[0]!,'on a shorter passage');
+        assert.equal(result.compactedCount,passages.at(-1)!,'only the passage that was summarized is folded');
+        const snippets=await db.select().from(summaryceptionSnippets).where(eq(summaryceptionSnippets.sessionId,f.sid));
+        assert.equal(snippets.length,1);
+        assert.ok(snippets[0]!.sourceEndMessageId,'the kept snippet is complete coverage of its shorter passage');
+        assert.ok(!snippets[0]!.sourceHash?.startsWith('partial:'));
+        const [saved]=await db.select().from(playSessions).where(eq(playSessions.id,f.sid));
+        assert.equal(saved!.summaryceptionError,null);
+        const [wallet]=await db.select().from(creditWallets).where(eq(creditWallets.userId,f.uid));
+        assert.ok(Math.abs(200-Number(wallet!.balance)-Number(wallet!.addonBalance)-2.4)<0.0001,'only the kept attempt is charged');
+        // The next run continues from where it stopped: no pause, no retry button.
+        const next=await compactSummaryceptionForSession({...args,force:false});
+        assert.ok(next.compactedCount>0||next.noOpReasonCode==='fits-within-raw-tail','the next run folds on');
+        assert.ok(!next.noOpReason?.includes('Partial summary'));
       }finally{await db.delete(user).where(eq(user.id,f.uid));}
     });
 
@@ -383,28 +376,51 @@ test('memory integrity adversarial audit', async t => {
         assert.equal((await db.select().from(summaryceptionSnippets).where(eq(summaryceptionSnippets.sessionId,f.sid))).length,0);
       }finally{await db.delete(user).where(eq(user.id,f.uid));}
     });
-    await t.test('a truncated promotion preserves lower-layer evidence and charges only the accepted initial snippet',async st=>{
+    // One call per merge (2026-11-08): the retry on two snippets was a second paid call.
+    await t.test('a truncated merge is kept in one call, ended at its last full sentence',async st=>{
       const f=await fixture(true);
       try{
         const older=await db.insert(messages).values(Array.from({length:11},(_,i)=>({sessionId:f.sid,role:'assistant' as const,content:`Earlier scene ${i}.`,summaryceptionCompacted:true,createdAt:new Date(Date.UTC(2026,8,30,0,0,i))}))).returning();
-        const original=await db.insert(summaryceptionSnippets).values([
+        await db.insert(summaryceptionSnippets).values([
           ...Array.from({length:10},(_,i)=>({sessionId:f.sid,layerIndex:0,snippetOrder:i,sourceStartMessageId:older[i+1]!.id,sourceEndMessageId:older[i+1]!.id,text:`Old lower fact ${i}.`})),
           {sessionId:f.sid,layerIndex:1,snippetOrder:0,sourceStartMessageId:older[0]!.id,sourceEndMessageId:older[0]!.id,text:'Old upper fact.'},
-        ]).returning();
+        ]);
         let calls=0;
         st.mock.method(OpenRouterProvider.prototype,'generateStream',async function*(p:GenerateParams):AsyncIterable<StreamChunk>{
-          calls++;if(calls===2)assert.ok(JSON.stringify(p.messages).includes('Old lower fact'));
-          yield{type:'text',content:calls===1?'The visitor waits for tea.':'The visitor must deliver the letter before'};
-          yield{type:'done',content:'',stopReason:calls===2?'max_tokens':'stop',usage:{promptTokens:1000,completionTokens:100,totalTokens:1100}};
+          calls++;
+          const text=JSON.stringify(p.messages);
+          if(calls===2){assert.ok(text.includes('Old lower fact 2'),'merges three');}
+          yield{type:'text',content:calls===1?'The visitor waits for tea.':'Merged old facts zero to two. Cut of'};
+          yield{type:'done',content:'',stopReason:calls===1?'stop':'max_tokens',usage:{promptTokens:1000,completionTokens:100,totalTokens:1100}};
         });
-        await assert.rejects(compactSummaryceptionForSession({sessionId:f.sid,userId:f.uid,fallbackModel:model,contextTokenLimit:8192,force:true}),/Partial summary/);
+        await compactSummaryceptionForSession({sessionId:f.sid,userId:f.uid,fallbackModel:model,contextTokenLimit:8192,force:true});
         assert.equal(calls,2);
         const saved=await db.select().from(summaryceptionSnippets).where(eq(summaryceptionSnippets.sessionId,f.sid));
-        assert.equal(saved.length,original.length+1);
-        for(const source of original)assert.deepEqual(saved.find(s=>s.id===source.id),source,'unaccepted promotion must not replace or renumber existing evidence');
-        assert.ok(saved.every(s=>!s.text.includes('deliver the letter before')));
+        assert.equal(saved.filter(s=>s.layerIndex===0).length,8);
+        const upper=saved.filter(s=>s.layerIndex===1).sort((a,b)=>a.snippetOrder-b.snippetOrder);
+        assert.deepEqual(upper.map(s=>s.text),['Old upper fact.','Merged old facts zero to two.'],'story order kept: the older chapter stays first');
+        assert.equal(upper[1]!.mergedCount,3);
+        assert.ok(!saved.some(s=>/^Old lower fact [012]\.$/.test(s.text)));
         const [wallet]=await db.select().from(creditWallets).where(eq(creditWallets.userId,f.uid));
-        assert.ok(Math.abs(200-Number(wallet!.balance)-Number(wallet!.addonBalance)-2.4)<0.0001,'only the committed initial snippet is charged');
+        assert.ok(Math.abs(200-Number(wallet!.balance)-Number(wallet!.addonBalance)-4.8)<0.0001,'both calls charged once');
+      }finally{await db.delete(user).where(eq(user.id,f.uid));}
+    });
+    await t.test('the top layer merges its own oldest snippets instead of growing without end',async st=>{
+      const f=await fixture(true);
+      try{
+        const older=await db.insert(messages).values(Array.from({length:11},(_,i)=>({sessionId:f.sid,role:'assistant' as const,content:`Ancient scene ${i}.`,summaryceptionCompacted:true,createdAt:new Date(Date.UTC(2026,8,29,0,0,i))}))).returning();
+        await db.insert(summaryceptionSnippets).values(Array.from({length:11},(_,i)=>({sessionId:f.sid,layerIndex:4,snippetOrder:i,sourceStartMessageId:older[i]!.id,sourceEndMessageId:older[i]!.id,text:`Top fact ${i}.`})));
+        let calls=0;
+        st.mock.method(OpenRouterProvider.prototype,'generateStream',async function*():AsyncIterable<StreamChunk>{
+          calls++;
+          yield{type:'text',content:calls===1?'The visitor waits for tea.':'Top facts zero to two.'};
+          yield{type:'done',content:'',stopReason:'stop'};
+        });
+        // Budget forces the shrink pass; the top layer is the only one with two snippets.
+        await compactSummaryceptionForSession({sessionId:f.sid,userId:f.uid,fallbackModel:model,contextTokenLimit:8192,force:true,recapBudgetTokens:1});
+        const top=(await db.select().from(summaryceptionSnippets).where(eq(summaryceptionSnippets.sessionId,f.sid))).filter(s=>s.layerIndex===4).sort((a,b)=>a.snippetOrder-b.snippetOrder);
+        assert.ok(top.length<11,'the top layer shrank');
+        assert.equal(top[0]!.text,'Top facts zero to two.','the merged oldest chapters stay first');
       }finally{await db.delete(user).where(eq(user.id,f.uid));}
     });
     for(const correction of ['accepted','empty','failed'] as const)await t.test(`layered language correction bills only the accepted candidate: ${correction}`,async st=>{
@@ -461,7 +477,12 @@ test('memory integrity adversarial audit', async t => {
         console.log('AUDIT',JSON.stringify({case:'layered-output',candidate,rejected:!!failure,snippets:snippets.length,hiddenSources:rows.filter(m=>m.summaryceptionCompacted).length,reasoningInjected:block?.includes('<think>'),charged,visibleError:saved!.summaryceptionError}));
         if(candidate==='reasoning')assert.ok(!block?.includes('<think>'),'private reasoning must not become story evidence');
         else if(candidate==='empty')assert.equal(charged,0,'a failed empty summary must not debit the player');
-        else if(candidate==='truncated')assert.ok(!snippets.length||!!saved!.summaryceptionError||rows.every(m=>!m.summaryceptionCompacted),'partial output must not silently certify and replace complete source coverage');
+        else if(candidate==='truncated'){
+          // A single long message cannot be split further: its cut-off
+          // snippet is kept, so the recap keeps going instead of pausing.
+          assert.equal(snippets.length,1);assert.equal(saved!.summaryceptionError,null);
+          assert.ok(rows.some(m=>m.summaryceptionCompacted));
+        }
         else assert.equal(snippets.length,0,'unusable output must not be saved as a complete snippet');
       }finally{await db.delete(user).where(eq(user.id,f.uid));}
     });

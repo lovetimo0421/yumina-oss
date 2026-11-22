@@ -81,17 +81,32 @@ export class GoogleProvider implements LLMProvider {
     let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
     try {
       const action = streaming ? "streamGenerateContent?alt=sse" : "generateContent";
-      const response = await fetch(`${GOOGLE_BASE}/models/${encodeURIComponent(toGoogleModelId(params.model))}:${action}`, {
+      const send = (request: GenerateParams) => fetch(`${GOOGLE_BASE}/models/${encodeURIComponent(toGoogleModelId(params.model))}:${action}`, {
         method: "POST",
         headers: { "x-goog-api-key": this.apiKey, "Content-Type": "application/json" },
         signal,
-        body: JSON.stringify(buildGoogleRequest(params)),
+        body: JSON.stringify(buildGoogleRequest(request)),
       });
-      if (streaming) clearTimeout(timer);
+      let response = await send(params);
       if (!response.ok) {
-        yield { type: "error", content: summarizeGoogleError(response.status, await response.text()) };
-        return;
+        const text = await response.text();
+        // Gemini 3.x answers a frequency/presence penalty with a 400 ("Penalty
+        // is not enabled for this model"), so a player's penalty setting broke
+        // every reply on their own key (2026-11-18). Retry once without it.
+        if (response.status === 400 && /penalty is not enabled/i.test(text) && hasPenalty(params)) {
+          response = await send({ ...params, frequencyPenalty: undefined, presencePenalty: undefined });
+          if (!response.ok) {
+            if (streaming) clearTimeout(timer);
+            yield { type: "error", content: summarizeGoogleError(response.status, await response.text()) };
+            return;
+          }
+        } else {
+          if (streaming) clearTimeout(timer);
+          yield { type: "error", content: summarizeGoogleError(response.status, text) };
+          return;
+        }
       }
+      if (streaming) clearTimeout(timer);
 
       let usage: GoogleResponse["usageMetadata"];
       let finishReason: string | undefined;
@@ -238,11 +253,19 @@ export function toGoogleModelId(modelId: string): string {
   return modelId.replace(/^google\//, "").replace(/^models\//, "");
 }
 
+/**
+ * Google still lists these on /models, but answers every call from a key made
+ * after their cutoff with a 404 ("no longer available to new users"), so a new
+ * player picked them and every reply failed (2026-11-19).
+ */
+const GOOGLE_RETIRED_FOR_NEW_KEYS = new Set(["gemini-2.5-flash", "gemini-2.5-pro"]);
+
 /** Preserve the existing Google model picker behavior. */
 export function parseGoogleModels(data?: Array<{ id: string }>): Model[] {
   return (data ?? [])
     .map((m) => m.id.replace(/^models\//, ""))
     .filter((id) => id.startsWith("gemini-") && !id.includes("-image-") && !id.includes("-live-") && !id.includes("-embedding"))
+    .filter((id) => !GOOGLE_RETIRED_FOR_NEW_KEYS.has(id))
     .map((id) => ({
       id: `google/${id}`,
       supportsImages: IMAGE_MODEL_CAPABILITIES[`google/${id}`],
@@ -260,6 +283,10 @@ function messageParts(content: Exclude<ChatMessage, { role: "tool" }>["content"]
     if (inline) return { inlineData: { mimeType: inline[1]!, data: inline[2]! } };
     return { fileData: { fileUri: url } };
   });
+}
+
+function hasPenalty(params: GenerateParams): boolean {
+  return !!params.frequencyPenalty || !!params.presencePenalty;
 }
 
 function buildGoogleRequest(params: GenerateParams): Record<string, unknown> {

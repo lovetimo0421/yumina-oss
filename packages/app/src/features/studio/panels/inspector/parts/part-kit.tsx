@@ -21,27 +21,29 @@ import { idsToNames, namesToIds } from "./variable-text";
 export const fieldCls = "w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs outline-none focus:border-primary";
 export const smallCls = "w-full rounded border border-border bg-background px-1.5 py-1 text-[11px] outline-none focus:border-primary";
 
+/** `hint` is the sentence behind the heading, read on hover: the panel shows
+ *  names and controls, not paragraphs about them. */
 export function Section({ label, hint, children, testId }: { label: string; hint?: string; children: ReactNode; testId?: string }) {
   return (
     <div className="border-b border-border/50 px-3 py-2.5" data-testid={testId}>
-      <span className="mb-1.5 block text-[11px] font-medium text-muted-foreground">{label}</span>
+      <span className={cn("mb-1.5 block text-[11px] font-medium text-muted-foreground", hint && "cursor-help")} title={hint}>{label}</span>
       {children}
-      {hint && <p className="mt-1.5 text-[10px] leading-relaxed text-muted-foreground/70">{hint}</p>}
     </div>
   );
 }
 
 /** A row of mutually exclusive choices — 网格 / 整屏横滑 / 竖排列表. */
 export function Segmented<T extends string | number>({
-  value, options, onChange, label,
+  value, options, onChange, label, title,
 }: {
   value: T;
   options: Array<{ value: T; label: string }>;
   onChange: (value: T) => void;
   label: string;
+  title?: string;
 }) {
   return (
-    <div role="radiogroup" aria-label={label} className="flex rounded-md border border-border bg-background p-0.5">
+    <div role="radiogroup" aria-label={label} title={title} className="flex rounded-md border border-border bg-background p-0.5">
       {options.map((o) => (
         <button
           key={String(o.value)}
@@ -61,9 +63,9 @@ export function Segmented<T extends string | number>({
   );
 }
 
-export function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (next: boolean) => void; label: string }) {
+export function Toggle({ checked, onChange, label, title }: { checked: boolean; onChange: (next: boolean) => void; label: string; title?: string }) {
   return (
-    <label className="flex cursor-pointer items-center justify-between gap-2 text-xs">
+    <label className="flex cursor-pointer items-center justify-between gap-2 text-xs" title={title}>
       <span className="text-foreground">{label}</span>
       <button
         type="button"

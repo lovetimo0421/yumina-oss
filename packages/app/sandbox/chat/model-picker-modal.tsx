@@ -16,6 +16,7 @@ import {
 } from "@/components/provider-switch-confirm-dialog";
 
 import { formatBalance, formatBalanceCompact } from "./balance-format";
+import { pluralVariant } from "./i18n";
 
 /** Small mushroom glyph for the mushie currency. Language-agnostic, so the
  * balance pill needs no translated unit word. Inherits color via currentColor. */
@@ -35,7 +36,7 @@ function MushroomIcon({ className }: { className?: string }) {
 // language code via the UI channel (see UIChannelData.language); we pick zh
 // when it starts with "zh", otherwise fall back to en. Keep keys in sync if
 // you add UI text — there's no static checking across this boundary.
-type Lang = "en" | "zh" | "ja" | "es";
+type Lang = "en" | "zh" | "ja" | "es" | "ko" | "id" | "ru";
 const STRINGS: Record<Lang, Record<string, string>> = {
   en: {
     chooseModel: "Choose Model",
@@ -222,6 +223,158 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     localReconnect: "Reconectar",
     localFree: "Gratis",
   },
+  ko: {
+    chooseModel: "모델 선택",
+    yuminaApi: "Yumina API",
+    privateApiKey: "개인 API 키",
+    searchModels: "모델 검색...",
+    pinned: "고정됨",
+    recent: "최근 사용",
+    allModels: "전체 모델",
+    resultsOne: "결과 {{count}}개",
+    resultsMany: "결과 {{count}}개",
+    noModelsMatch: "\"{{query}}\"와(과) 일치하는 모델이 없어요",
+    noModelsAvailable: "사용할 수 있는 모델이 없어요 — AI 제공자 설정에서 키를 연결해 주세요",
+    upgradeForMore: "플랜을 업그레이드하면 더 많은 모델을 사용할 수 있어요",
+    currentPlan: "현재 플랜: {{plan}}",
+    higherCost: "크레딧이 더 많이 들며, 컨텍스트가 길어질수록 더 늘어나요",
+    usageNote: "토큰 사용량은 컨텍스트 길이와 답변 횟수에 따라 늘어나요.",
+    avgCost: "답변당 ~{{cost}} 버섯코인",
+    avgCostByPeriod: "피크 시간 ~{{peak}} · 비피크 시간 ~{{offPeak}} 버섯코인/답변",
+    mushieBalance: "버섯코인 잔액",
+    free: "무료",
+    mixModels: "모델 믹스",
+    mixDescription: "답변마다 아래 확률에 따라 무작위로 모델을 사용해요.",
+    addModel: "모델 추가...",
+    activate: "모델 믹스 켜기",
+    deactivate: "모델 믹스 끄기",
+    needTwo: "모델을 2개 이상 추가해야 활성화할 수 있어요",
+    lockWeight: "이 비율 고정",
+    unlockWeight: "이 비율 고정 해제",
+    switchToYumina: "Yumina API로 전환할까요?",
+    switchToPrivate: "개인 키로 전환할까요?",
+    yuminaSwitchDesc: "답변에 Yumina 모델을 사용하며 버섯코인이 차감돼요.",
+    privateSwitchDesc: "답변에 내 API 키를 사용해요. 요금은 제공자가 직접 청구해요.",
+    confirmSwitch: "전환 확인",
+    cancel: "취소",
+    switchFailed: "제공자를 전환하지 못했어요. 다시 시도해 주세요.",
+    pinLimit: "모델은 최대 {{max}}개까지 고정할 수 있어요. 먼저 하나를 고정 해제해 주세요.",
+    deepSeekPricingTrigger: "DeepSeek 요금 안내 보기",
+    deepSeekPricingTitle: "DeepSeek 요금",
+    deepSeekPricingBody: "Yumina는 이제 DeepSeek의 최신 요금제를 적용해요. 해당 모델은 새 요금으로 자동 정산돼요.",
+    thisComputer: "이 컴퓨터",
+    localReady: "준비됨",
+    localRunning: "여기서 생성 중",
+    localConnecting: "다시 연결 중…",
+    localOffline: "모델에 연결할 수 없어요",
+    localOfflineHint: "Ollama(또는 사용 중인 모델 앱)를 연 다음 다시 연결해 주세요.",
+    localReconnect: "다시 연결",
+    localFree: "무료",
+  },
+  id: {
+    chooseModel: "Pilih Model",
+    yuminaApi: "Yumina API",
+    privateApiKey: "API Key Pribadi",
+    searchModels: "Cari model...",
+    pinned: "Disematkan",
+    recent: "Terbaru",
+    allModels: "Semua Model",
+    resultsOne: "{{count}} hasil",
+    resultsMany: "{{count}} hasil",
+    noModelsMatch: "Tidak ada model yang cocok dengan \"{{query}}\"",
+    noModelsAvailable: "Tidak ada model tersedia — hubungkan key di pengaturan AI Provider",
+    upgradeForMore: "Upgrade paketmu untuk membuka lebih banyak model",
+    currentPlan: "Paket saat ini: {{plan}}",
+    higherCost: "Butuh lebih banyak kredit, terutama saat konteks makin panjang",
+    usageNote: "Penggunaan token bertambah seiring panjang konteks dan jumlah balasan.",
+    avgCost: "~{{cost}} mushies/balasan",
+    avgCostByPeriod: "Jam sibuk ~{{peak}} · Jam sepi ~{{offPeak}} mushies/balasan",
+    mushieBalance: "Saldo mushies",
+    free: "Gratis",
+    mixModels: "Campur Model",
+    mixDescription: "Setiap balasan memakai model acak, dengan peluang seperti yang ditampilkan di bawah.",
+    addModel: "Tambah model...",
+    activate: "Aktifkan campuran model",
+    deactivate: "Matikan campuran model",
+    needTwo: "Tambahkan minimal 2 model untuk mengaktifkan",
+    lockWeight: "Kunci rasio ini",
+    unlockWeight: "Buka kunci rasio ini",
+    switchToYumina: "Beralih ke Yumina API?",
+    switchToPrivate: "Beralih ke Private Key?",
+    yuminaSwitchDesc: "Balasan akan memakai model Yumina dan menggunakan mushies.",
+    privateSwitchDesc: "Balasan akan memakai API key milikmu. Penyedia layananmu menagih langsung ke kamu.",
+    confirmSwitch: "Konfirmasi peralihan",
+    cancel: "Batal",
+    switchFailed: "Tidak dapat mengganti provider. Coba lagi.",
+    pinLimit: "Kamu bisa menyematkan hingga {{max}} model. Lepas sematan satu model terlebih dahulu.",
+    deepSeekPricingTrigger: "Lihat pemberitahuan harga DeepSeek",
+    deepSeekPricingTitle: "Harga DeepSeek",
+    deepSeekPricingBody: "Yumina kini memakai tarif harga terbaru DeepSeek. Model-model ini otomatis dihitung dengan tarif baru.",
+    thisComputer: "Komputer ini",
+    localReady: "Siap",
+    localRunning: "Membuat balasan di sini",
+    localConnecting: "Menyambungkan ulang…",
+    localOffline: "Tidak dapat terhubung ke modelmu",
+    localOfflineHint: "Buka Ollama (atau aplikasi model yang kamu pakai), lalu sambungkan ulang.",
+    localReconnect: "Sambungkan ulang",
+    localFree: "Gratis",
+  },
+  ru: {
+    chooseModel: "Выбор модели",
+    yuminaApi: "Yumina API",
+    privateApiKey: "Личный API-ключ",
+    searchModels: "Поиск моделей...",
+    pinned: "Закреплённые",
+    recent: "Недавние",
+    allModels: "Все модели",
+    resultsOne: "{{count}} результатов",
+    resultsMany: "{{count}} результатов",
+    noModelsMatch: "Нет моделей по запросу «{{query}}»",
+    noModelsAvailable: "Нет доступных моделей — подключи ключ в настройках AI-провайдера",
+    upgradeForMore: "Улучшь тариф, чтобы открыть больше моделей",
+    currentPlan: "Текущий тариф: {{plan}}",
+    higherCost: "Тратит больше кредитов, особенно при росте контекста",
+    usageNote: "Расход токенов растёт с длиной контекста и числом ответов.",
+    avgCost: "~{{cost}} mushies за ответ",
+    avgCostByPeriod: "Пик ~{{peak}} · Вне пика ~{{offPeak}} mushies за ответ",
+    mushieBalance: "Баланс mushies",
+    free: "Бесплатно",
+    mixModels: "Микс моделей",
+    mixDescription: "Для каждого ответа случайно выбирается модель с шансами, указанными ниже.",
+    addModel: "Добавить модель...",
+    activate: "Включить микс моделей",
+    deactivate: "Выключить микс моделей",
+    needTwo: "Добавь минимум 2 модели, чтобы включить",
+    lockWeight: "Зафиксировать долю",
+    unlockWeight: "Снять фиксацию доли",
+    switchToYumina: "Переключиться на Yumina API?",
+    switchToPrivate: "Переключиться на личный ключ?",
+    yuminaSwitchDesc: "Ответы будут генерироваться моделями Yumina за mushies.",
+    privateSwitchDesc: "Ответы будут генерироваться через твой API-ключ. Оплата идёт напрямую твоему провайдеру.",
+    confirmSwitch: "Подтвердить",
+    cancel: "Отмена",
+    switchFailed: "Не удалось переключить провайдера. Попробуй ещё раз.",
+    pinLimit: "Можно закрепить не более {{max}} моделей. Сначала открепи одну.",
+    deepSeekPricingTrigger: "Посмотреть уведомление о ценах DeepSeek",
+    deepSeekPricingTitle: "Цены DeepSeek",
+    deepSeekPricingBody: "Yumina теперь использует новые тарифы DeepSeek. Расчёт за эти модели автоматически идёт по новым ставкам.",
+    thisComputer: "Этот компьютер",
+    localReady: "Готово",
+    localRunning: "Генерация здесь",
+    localConnecting: "Переподключение…",
+    localOffline: "Не удаётся связаться с моделями",
+    localOfflineHint: "Открой Ollama (или другое приложение с моделями) и подключись снова.",
+    localReconnect: "Переподключить",
+    localFree: "Бесплатно",
+    resultsOne_one: "{{count}} результат",
+    resultsOne_few: "{{count}} результата",
+    resultsOne_many: "{{count}} результатов",
+    resultsOne_other: "{{count}} результата",
+    resultsMany_one: "{{count}} результат",
+    resultsMany_few: "{{count}} результата",
+    resultsMany_many: "{{count}} результатов",
+    resultsMany_other: "{{count}} результата",
+  },
 } as const;
 
 Object.assign(STRINGS.zh, {
@@ -261,6 +414,9 @@ const MODEL_DESCRIPTION_BY_LANG = {
     "anthropic/claude-opus-5": "Newest Opus — maximum intelligence",
     "z-ai/glm-5.3-flash": "Cheapest strong Chinese — thinks first",
     "tencent/hy3": "Great value, picks up subtle setups",
+    "tencent/hy4": "Natural Chinese voice, sharp memory",
+    "tencent/hy4-flash": "Cheapest Hunyuan, natural Chinese",
+    "thinkingmachines/inkling-2-small": "Cheap, fast, keeps to the format",
     "openai/gpt-5.6-luna": "Cheap, clean English — no explicit scenes",
     "meituan/longcat-2.0": "Natural prose, Limitless-friendly",
     "google/gemini-3.5-flash-lite": "Fastest replies, cheap",
@@ -276,6 +432,7 @@ const MODEL_DESCRIPTION_BY_LANG = {
     "openai/gpt-6.1-sol": "Newest Sol — no explicit scenes",
     "anthropic/claude-sonnet-5.5": "Newest Sonnet — adjustable reasoning",
     "google/gemini-4-argon": "Newest Gemini — strong writing; explicit needs Unrestricted",
+    "google/gemini-4-carbon": "Argon's sibling, deeper thinking; explicit needs Unrestricted",
     "google/gemini-2.5-flash-lite": "Ultra lightweight",
   },
   zh: {
@@ -304,6 +461,9 @@ const MODEL_DESCRIPTION_BY_LANG = {
     "anthropic/claude-opus-5": "最新 Opus，最高智能",
     "z-ai/glm-5.3-flash": "中文最强的省钱档，先想后写",
     "tencent/hy3": "超值，接得住伏笔",
+    "tencent/hy4": "中文地道，细节记得准",
+    "tencent/hy4-flash": "最便宜的混元，中文自然",
+    "thinkingmachines/inkling-2-small": "便宜快，守格式",
     "openai/gpt-5.6-luna": "便宜干净的英文，不写露骨场面",
     "meituan/longcat-2.0": "文风自然，不回避",
     "google/gemini-3.5-flash-lite": "回复最快，便宜",
@@ -319,6 +479,7 @@ const MODEL_DESCRIPTION_BY_LANG = {
     "openai/gpt-6.1-sol": "最新 Sol，不写露骨场面",
     "anthropic/claude-sonnet-5.5": "最新 Sonnet，可调思考深度",
     "google/gemini-4-argon": "最新 Gemini，文笔好；露骨内容要开「解除限制」",
+    "google/gemini-4-carbon": "Argon 的同门，思考更深；露骨内容要开「解除限制」",
     "google/gemini-2.5-flash-lite": "超轻量",
   },
   ja: {
@@ -347,6 +508,9 @@ const MODEL_DESCRIPTION_BY_LANG = {
     "anthropic/claude-opus-5": "最新Opus、最高の知能",
     "z-ai/glm-5.3-flash": "中国語が最も強い格安枠・熟考型",
     "tencent/hy3": "コスパ最強・伏線を拾う",
+    "tencent/hy4": "自然な中国語・記憶が正確",
+    "tencent/hy4-flash": "最安の混元・自然な中国語",
+    "thinkingmachines/inkling-2-small": "安くて速い・形式を守る",
     "openai/gpt-5.6-luna": "安価で綺麗な英語・露骨描写なし",
     "meituan/longcat-2.0": "自然な文体・制限なし向き",
     "google/gemini-3.5-flash-lite": "応答最速・低価格",
@@ -362,6 +526,7 @@ const MODEL_DESCRIPTION_BY_LANG = {
     "openai/gpt-6.1-sol": "最新Sol・露骨描写なし",
     "anthropic/claude-sonnet-5.5": "最新Sonnet・思考の深さを調整可",
     "google/gemini-4-argon": "最新Gemini・文章力高め。露骨な描写は「制限解除」が必要",
+    "google/gemini-4-carbon": "Argonの兄弟機・思考が深い。露骨な描写は「制限解除」が必要",
     "google/gemini-2.5-flash-lite": "超軽量",
   },
   es: {
@@ -390,6 +555,9 @@ const MODEL_DESCRIPTION_BY_LANG = {
     "anthropic/claude-opus-5": "El Opus más nuevo: inteligencia máxima",
     "z-ai/glm-5.3-flash": "Chino potente y barato, piensa antes",
     "tencent/hy3": "Gran valor, capta las pistas sutiles",
+    "tencent/hy4": "Chino natural, memoria precisa",
+    "tencent/hy4-flash": "El Hunyuan más barato, chino natural",
+    "thinkingmachines/inkling-2-small": "Barato, rápido, respeta el formato",
     "openai/gpt-5.6-luna": "Inglés limpio y barato, sin escenas explícitas",
     "meituan/longcat-2.0": "Prosa natural, apto para Limitless",
     "google/gemini-3.5-flash-lite": "Las respuestas más rápidas, barato",
@@ -405,7 +573,149 @@ const MODEL_DESCRIPTION_BY_LANG = {
     "openai/gpt-6.1-sol": "El Sol más nuevo, sin escenas explícitas",
     "anthropic/claude-sonnet-5.5": "El Sonnet más nuevo, razonamiento ajustable",
     "google/gemini-4-argon": "El Gemini más nuevo, buena prosa; lo explícito requiere Sin restricciones",
+    "google/gemini-4-carbon": "Hermano de Argon, razona más a fondo; lo explícito requiere Sin restricciones",
     "google/gemini-2.5-flash-lite": "Ultraligero",
+  },
+  ko: {
+    "openrouter/free": "OpenRouter에서 제공해요. 요청 제한이 걸리거나 품질이 낮을 수 있어요",
+    "deepseek/deepseek-v4-flash": "저렴하지만 줄거리에서 벗어날 수 있어요",
+    "deepseek/deepseek-v3.2": "낮은 검열",
+    "mistralai/mistral-nemo": "가장 저렴해요 — 짧고 경쾌한 답변",
+    "mistralai/mistral-small-3.2-24b-instruct": "빠르고 저렴하며 답변이 간결해요",
+    "nousresearch/hermes-4-70b": "낮은 검열, 자연스럽게 간결해요",
+    "qwen/qwen3-vl-235b-a22b-instruct": "뛰어난 가성비, 기본 모델",
+    "anthropic/claude-3-haiku": "똑똑하고 제한이 없어요",
+    "moonshotai/kimi-k2-0905": "Pro급 품질, 생각은 더 느려요",
+    "z-ai/glm-4.6": "200K 컨텍스트, 추론 지원",
+    "google/gemini-3.1-flash-lite": "가볍고 저렴해요",
+    "google/gemini-3.5-flash": "Google의 최신 모델",
+    "google/gemini-2.5-pro": "믿을 수 있는 클래식",
+    "google/gemini-3-flash-preview": "빠르고 다재다능해요",
+    "deepseek/deepseek-v4-pro": "지시를 잘 따라요",
+    "anthropic/claude-haiku-4.5": "똑똑하고 빨라요",
+    "x-ai/grok-4.3": "최신 Grok — 높은 품질, Limitless에 적합",
+    "x-ai/grok-4.20": "높은 품질, Limitless에 적합",
+    "google/gemini-3.1-pro-preview": "종합 최고, 방대한 지식",
+    "anthropic/claude-sonnet-4.6": "최고 품질과 개성",
+    "anthropic/claude-sonnet-5": "최신 Sonnet — 최고 품질과 개성",
+    "anthropic/claude-opus-4.7": "최고의 지능",
+    "anthropic/claude-opus-5": "최신 Opus — 최고의 지능",
+    "z-ai/glm-5.3-flash": "가장 저렴한 강력한 중국어 모델 — 먼저 생각해요",
+    "tencent/hy3": "뛰어난 가성비, 미묘한 설정도 잘 포착해요",
+    "tencent/hy4": "자연스러운 중국어, 날카로운 기억력",
+    "tencent/hy4-flash": "가장 저렴한 Hunyuan, 자연스러운 중국어",
+    "thinkingmachines/inkling-2-small": "저렴하고 빠르며 형식을 잘 지켜요",
+    "openai/gpt-5.6-luna": "저렴하고 깔끔한 영어 — 노골적인 장면 없음",
+    "meituan/longcat-2.0": "자연스러운 문체, Limitless에 적합",
+    "google/gemini-3.5-flash-lite": "가장 빠른 답변, 저렴해요",
+    "stepfun/step-3.7-flash": "저렴하고 패널을 안정적으로 업데이트해요",
+    "minimax/minimax-m3": "생생한 다국어 문체",
+    "mistralai/mistral-large-2512": "길고 자세한 답변",
+    "thinkingmachines/inkling-small": "최고의 패널 업데이트, 긴 컨텍스트",
+    "google/gemini-3.7-flash": "Limitless를 유지하는 최신 Gemini",
+    "openai/gpt-5.4-mini": "날카로운 영어, 노골적인 표현은 순한 편",
+    "google/gemini-3.8-flash": "뛰어난 문장력 — 일본어 성인 콘텐츠는 거부해요",
+    "moonshotai/kimi-k2.6": "최고의 문체, 완전한 Limitless, 느려요",
+    "openai/gpt-5.6-sol": "OpenAI 플래그십 — 노골적인 장면 없음",
+    "openai/gpt-6.1-sol": "최신 Sol — 노골적인 장면 없음",
+    "anthropic/claude-sonnet-5.5": "최신 Sonnet — 추론 조절 가능",
+    "google/gemini-4-argon": "최신 Gemini — 뛰어난 문장력, 노골적인 표현은 제한 해제 필요",
+    "google/gemini-4-carbon": "Argon의 형제 모델, 더 깊은 사고, 노골적인 표현은 제한 해제 필요",
+    "google/gemini-2.5-flash-lite": "초경량",
+  },
+  id: {
+    "openrouter/free": "Disediakan oleh OpenRouter; bisa terkena batas laju dan kualitasnya lebih rendah",
+    "deepseek/deepseek-v4-flash": "Hemat, alurnya bisa melenceng",
+    "deepseek/deepseek-v3.2": "Sensor rendah",
+    "mistralai/mistral-nemo": "Paling murah — balasan singkat dan lugas",
+    "mistralai/mistral-small-3.2-24b-instruct": "Cepat & murah, balasan tetap ringkas",
+    "nousresearch/hermes-4-70b": "Sensor rendah, ringkas secara alami",
+    "qwen/qwen3-vl-235b-a22b-instruct": "Sangat sepadan, bawaan",
+    "anthropic/claude-3-haiku": "Pintar & tanpa batasan",
+    "moonshotai/kimi-k2-0905": "Kualitasnya menyaingi Pro, berpikirnya lebih lambat",
+    "z-ai/glm-4.6": "Konteks 200K, mendukung penalaran",
+    "google/gemini-3.1-flash-lite": "Ringan, murah",
+    "google/gemini-3.5-flash": "Model terbaru dari Google",
+    "google/gemini-2.5-pro": "Klasik yang andal",
+    "google/gemini-3-flash-preview": "Cepat & serbaguna",
+    "deepseek/deepseek-v4-pro": "Patuh pada instruksi",
+    "anthropic/claude-haiku-4.5": "Pintar & cepat",
+    "x-ai/grok-4.3": "Grok terbaru — kualitas tinggi & ramah Limitless",
+    "x-ai/grok-4.20": "Kualitas tinggi & ramah Limitless",
+    "google/gemini-3.1-pro-preview": "Terbaik secara keseluruhan & basis pengetahuan luas",
+    "anthropic/claude-sonnet-4.6": "Kualitas & kepribadian terbaik",
+    "anthropic/claude-sonnet-5": "Sonnet terbaru — kualitas & kepribadian terbaik",
+    "anthropic/claude-opus-4.7": "Kecerdasan maksimal",
+    "anthropic/claude-opus-5": "Opus terbaru — kecerdasan maksimal",
+    "z-ai/glm-5.3-flash": "Model Tiongkok kuat termurah — berpikir dulu",
+    "tencent/hy3": "Sangat sepadan, peka terhadap petunjuk halus",
+    "tencent/hy4": "Gaya bahasa Mandarin yang natural, ingatan tajam",
+    "tencent/hy4-flash": "Hunyuan termurah, Mandarin natural",
+    "thinkingmachines/inkling-2-small": "Murah, cepat, patuh pada format",
+    "openai/gpt-5.6-luna": "Murah, bahasa Inggris bersih — tanpa adegan eksplisit",
+    "meituan/longcat-2.0": "Prosa natural, ramah Limitless",
+    "google/gemini-3.5-flash-lite": "Balasan tercepat, murah",
+    "stepfun/step-3.7-flash": "Murah, memperbarui panel dengan andal",
+    "minimax/minimax-m3": "Prosa multibahasa yang hidup",
+    "mistralai/mistral-large-2512": "Balasan panjang dan detail",
+    "thinkingmachines/inkling-small": "Pembaruan panel terbaik, konteks panjang",
+    "google/gemini-3.7-flash": "Gemini terbaru yang tetap Limitless",
+    "openai/gpt-5.4-mini": "Bahasa Inggris tajam, lebih halus untuk konten eksplisit",
+    "google/gemini-3.8-flash": "Tulisan kuat — menolak konten dewasa berbahasa Jepang",
+    "moonshotai/kimi-k2.6": "Prosa terbaik, sepenuhnya Limitless, lambat",
+    "openai/gpt-5.6-sol": "Andalan OpenAI — tanpa adegan eksplisit",
+    "openai/gpt-6.1-sol": "Sol terbaru — tanpa adegan eksplisit",
+    "anthropic/claude-sonnet-5.5": "Sonnet terbaru — penalaran dapat diatur",
+    "google/gemini-4-argon": "Gemini terbaru — tulisan kuat; konten eksplisit perlu Unrestricted",
+    "google/gemini-4-carbon": "Saudara Argon, berpikir lebih dalam; konten eksplisit perlu Unrestricted",
+    "google/gemini-2.5-flash-lite": "Sangat ringan",
+  },
+  ru: {
+    "openrouter/free": "Предоставляется OpenRouter; возможны лимиты и качество пониже",
+    "deepseek/deepseek-v4-flash": "Бюджетная, может уходить от сюжета",
+    "deepseek/deepseek-v3.2": "Слабая цензура",
+    "mistralai/mistral-nemo": "Самая дешёвая — короткие бойкие ответы",
+    "mistralai/mistral-small-3.2-24b-instruct": "Быстрая и дешёвая, ответы лаконичные",
+    "nousresearch/hermes-4-70b": "Слабая цензура, лаконична по природе",
+    "qwen/qwen3-vl-235b-a22b-instruct": "Выгодная, по умолчанию",
+    "anthropic/claude-3-haiku": "Умная и без ограничений",
+    "moonshotai/kimi-k2-0905": "Качество как у Pro, думает дольше",
+    "z-ai/glm-4.6": "Контекст 200K, поддерживает рассуждения",
+    "google/gemini-3.1-flash-lite": "Лёгкая и дешёвая",
+    "google/gemini-3.5-flash": "Новейшая модель от Google",
+    "google/gemini-2.5-pro": "Надёжная классика",
+    "google/gemini-3-flash-preview": "Быстрая и универсальная",
+    "deepseek/deepseek-v4-pro": "Хорошо следует инструкциям",
+    "anthropic/claude-haiku-4.5": "Умная и быстрая",
+    "x-ai/grok-4.3": "Новейший Grok — высокое качество, подходит для Limitless",
+    "x-ai/grok-4.20": "Высокое качество, подходит для Limitless",
+    "google/gemini-3.1-pro-preview": "Лучшая в целом, огромная база знаний",
+    "anthropic/claude-sonnet-4.6": "Топовое качество и характер",
+    "anthropic/claude-sonnet-5": "Новейший Sonnet — топовое качество и характер",
+    "anthropic/claude-opus-4.7": "Максимум интеллекта",
+    "anthropic/claude-opus-5": "Новейший Opus — максимум интеллекта",
+    "z-ai/glm-5.3-flash": "Самая дешёвая из сильных китайских — сначала думает",
+    "tencent/hy3": "Выгодная, улавливает тонкие намёки в сюжете",
+    "tencent/hy4": "Естественный китайский, цепкая память",
+    "tencent/hy4-flash": "Самая дешёвая Hunyuan, естественный китайский",
+    "thinkingmachines/inkling-2-small": "Дешёвая, быстрая, держит формат",
+    "openai/gpt-5.6-luna": "Дешёвая, чистый английский — без откровенных сцен",
+    "meituan/longcat-2.0": "Естественный слог, подходит для Limitless",
+    "google/gemini-3.5-flash-lite": "Самые быстрые ответы, дешёвая",
+    "stepfun/step-3.7-flash": "Дешёвая, стабильно обновляет панели",
+    "minimax/minimax-m3": "Яркий слог на разных языках",
+    "mistralai/mistral-large-2512": "Длинные подробные ответы",
+    "thinkingmachines/inkling-small": "Лучше всех обновляет панели, длинный контекст",
+    "google/gemini-3.7-flash": "Новейший Gemini, который остаётся Limitless",
+    "openai/gpt-5.4-mini": "Сильный английский, откровенное смягчает",
+    "google/gemini-3.8-flash": "Сильный слог — отказывается от взрослого контента на японском",
+    "moonshotai/kimi-k2.6": "Лучший слог, полностью Limitless, медленная",
+    "openai/gpt-5.6-sol": "Флагман OpenAI — без откровенных сцен",
+    "openai/gpt-6.1-sol": "Новейший Sol — без откровенных сцен",
+    "anthropic/claude-sonnet-5.5": "Новейший Sonnet — настраиваемые рассуждения",
+    "google/gemini-4-argon": "Новейший Gemini — сильный слог; для откровенного нужен режим Unrestricted",
+    "google/gemini-4-carbon": "Собрат Argon, думает глубже; для откровенного нужен режим Unrestricted",
+    "google/gemini-2.5-flash-lite": "Сверхлёгкая",
   },
 } as const;
 
@@ -433,6 +743,24 @@ const TIER_LABEL_BY_LANG = {
     standard: "Estándar",
     premium: "Premium",
     ultra: "Ultra",
+  },
+  ko: {
+    budget: "절약",
+    standard: "스탠다드",
+    premium: "프리미엄",
+    ultra: "울트라",
+  },
+  id: {
+    budget: "Hemat",
+    standard: "Standar",
+    premium: "Premium",
+    ultra: "Ultra",
+  },
+  ru: {
+    budget: "Эконом",
+    standard: "Стандарт",
+    premium: "Премиум",
+    ultra: "Ультра",
   },
 } as const;
 
@@ -469,6 +797,30 @@ const PLAN_DISPLAY_BY_LANG = {
     ultra: "Ascendente",
     internal: "Interno",
   },
+  ko: {
+    free: "무료",
+    go: "골드",
+    plus: "플래티넘",
+    pro: "다이아몬드",
+    ultra: "어센던트",
+    internal: "내부",
+  },
+  id: {
+    free: "Gratis",
+    go: "Gold",
+    plus: "Platinum",
+    pro: "Diamond",
+    ultra: "Ascendant",
+    internal: "Internal",
+  },
+  ru: {
+    free: "Бесплатно",
+    go: "Gold",
+    plus: "Platinum",
+    pro: "Diamond",
+    ultra: "Ascendant",
+    internal: "Внутренний",
+  },
 } as const;
 
 function pickLang(language: string): Lang {
@@ -476,13 +828,17 @@ function pickLang(language: string): Lang {
   if (l.startsWith("zh")) return "zh";
   if (l.startsWith("ja")) return "ja";
   if (l.startsWith("es")) return "es";
+  if (l.startsWith("ko")) return "ko";
+  if (l.startsWith("id")) return "id";
+  if (l.startsWith("ru")) return "ru";
   return "en";
 }
 
 function makeT(language: string) {
-  const dict = STRINGS[pickLang(language)];
+  const lang = pickLang(language);
+  const dict = STRINGS[lang];
   return (key: keyof typeof STRINGS["en"], vars?: Record<string, string | number>): string => {
-    let s: string = dict[key] ?? STRINGS.en[key] ?? key;
+    let s: string = pluralVariant(dict, lang, key, vars) ?? dict[key] ?? STRINGS.en[key] ?? key;
     if (vars) {
       for (const [k, v] of Object.entries(vars)) {
         s = s.replace(`{{${k}}}`, String(v));
@@ -722,7 +1078,7 @@ function InlineModelPickerModal({
 
           <div
             onClick={(e) => e.stopPropagation()}
-            className="yumina-model-sheet relative z-10 w-[min(440px,calc(100vw-2rem))] max-h-[min(600px,calc(100dvh-env(safe-area-inset-top,0px)-env(safe-area-inset-bottom,0px)-4rem))] flex flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-[#1a1b1e]/95 shadow-2xl shadow-black/40 backdrop-blur-xl"
+            className="yumina-model-sheet relative z-10 w-[min(440px,calc(100vw-2rem))] max-h-[min(600px,calc(100dvh-env(safe-area-inset-top,0px)-env(safe-area-inset-bottom,0px)-4rem))] flex flex-col overflow-hidden rounded-2xl border border-play-ink/[0.08] bg-play-dialog/95 shadow-2xl shadow-black/40 backdrop-blur-xl"
             style={{ animation: "modalIn 0.2s ease-out" }}
           >
             {showMix && !isExternalModelSelection ? (
@@ -851,7 +1207,7 @@ function LocalModelSection({
         ? "bg-amber-400 animate-pulse"
         : live
           ? "bg-emerald-400"
-          : "bg-white/25";
+          : "bg-play-ink/25";
   const statusLabel =
     localBridge.status === "running"
       ? t("localRunning")
@@ -875,17 +1231,17 @@ function LocalModelSection({
   };
 
   return (
-    <div className="border-b border-white/[0.06] px-4 py-3">
+    <div className="border-b border-play-ink/[0.06] px-4 py-3">
       <div className="mb-2 flex items-center gap-2 px-1">
         <span className={`h-2 w-2 shrink-0 rounded-full ${dotClass}`} />
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-white/50">
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-play-ink/50">
           {t("thisComputer")}
         </span>
         {localBridge.runtimeLabel && (
-          <span className="truncate text-[11px] text-white/25">· {localBridge.runtimeLabel}</span>
+          <span className="truncate text-[11px] text-play-ink/25">· {localBridge.runtimeLabel}</span>
         )}
         {headerStatus && (
-          <span className="truncate text-[11px] text-white/35">· {headerStatus}</span>
+          <span className="truncate text-[11px] text-play-ink/35">· {headerStatus}</span>
         )}
         <span className="ml-auto shrink-0 text-[10px] font-medium text-emerald-400/60">
           {t("localFree")}
@@ -915,14 +1271,14 @@ function LocalModelSection({
                 className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25 ${
                   isSelected
                     ? "border-emerald-500/30 bg-emerald-500/10 shadow-md shadow-emerald-500/10"
-                    : "border-white/[0.06] bg-white/[0.02] hover:border-white/10 hover:bg-white/[0.04]"
+                    : "border-play-ink/[0.06] bg-play-ink/[0.02] hover:border-play-ink/10 hover:bg-play-ink/[0.04]"
                 }`}
               >
                 <Cpu
-                  className={`h-3.5 w-3.5 shrink-0 ${isSelected ? "text-emerald-300" : "text-white/30"}`}
+                  className={`h-3.5 w-3.5 shrink-0 ${isSelected ? "text-emerald-300" : "text-play-ink/30"}`}
                 />
                 <span
-                  className={`min-w-0 flex-1 truncate font-mono text-[13px] ${isSelected ? "text-white" : "text-white/80"}`}
+                  className={`min-w-0 flex-1 truncate font-mono text-[13px] ${isSelected ? "text-play-ink" : "text-play-ink/80"}`}
                 >
                   {localModelLabel(m.id)}
                 </span>
@@ -934,16 +1290,16 @@ function LocalModelSection({
           })}
         </div>
       ) : (
-        <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
-          <div className="text-[12px] text-white/70">{statusLabel}</div>
-          <div className="mt-0.5 text-[11px] leading-relaxed text-white/35">
+        <div className="rounded-xl border border-play-ink/[0.06] bg-play-ink/[0.02] p-3">
+          <div className="text-[12px] text-play-ink/70">{statusLabel}</div>
+          <div className="mt-0.5 text-[11px] leading-relaxed text-play-ink/35">
             {t("localOfflineHint")}
           </div>
           <button
             type="button"
             onClick={() => void handleReconnect()}
             disabled={reconnecting}
-            className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-1.5 text-[11px] font-medium text-white/70 transition-colors hover:border-white/20 hover:text-white disabled:opacity-50"
+            className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-play-ink/10 bg-play-ink/[0.03] px-2.5 py-1.5 text-[11px] font-medium text-play-ink/70 transition-colors hover:border-play-ink/20 hover:text-play-ink disabled:opacity-50"
           >
             {reconnecting && <Loader2 className="h-3 w-3 animate-spin" />}
             {t("localReconnect")}
@@ -1013,14 +1369,14 @@ function OfficialPicker({
             <Sparkles className="h-4 w-4 text-primary" />
           </div>
           <div>
-            <h2 className="text-sm font-bold text-white">{title ?? t("chooseModel")}</h2>
-            <p className="text-[11px] text-white/40">{subtitle ?? t("yuminaApi")}</p>
+            <h2 className="text-sm font-bold text-play-ink">{title ?? t("chooseModel")}</h2>
+            <p className="text-[11px] text-play-ink/40">{subtitle ?? t("yuminaApi")}</p>
           </div>
         </div>
         <button
           onClick={onClose}
           aria-label={t("cancel")}
-          className="play-action-btn flex h-7 w-7 items-center justify-center rounded-lg text-white/30 transition-colors hover:bg-white/5 hover:text-white/60 active:bg-white/5 active:text-white/60"
+          className="play-action-btn flex h-7 w-7 items-center justify-center rounded-lg text-play-ink/30 transition-colors hover:bg-play-ink/5 hover:text-play-ink/60 active:bg-play-ink/5 active:text-play-ink/60"
         >
           <X className="h-4 w-4" />
         </button>
@@ -1028,8 +1384,8 @@ function OfficialPicker({
 
       {providerSwitch}
 
-      <div className="flex items-center gap-2 border-y border-white/[0.06] px-5 py-2">
-        <p className="flex-1 text-[11px] leading-snug text-white/45">{t("usageNote")}</p>
+      <div className="flex items-center gap-2 border-y border-play-ink/[0.06] px-5 py-2">
+        <p className="flex-1 text-[11px] leading-snug text-play-ink/45">{t("usageNote")}</p>
         {onMixMode && <SandboxMixPill onClick={onMixMode} t={t} />}
       </div>
 
@@ -1054,10 +1410,10 @@ function OfficialPicker({
               className={`flex flex-1 items-center justify-center gap-1.5 rounded-xl border px-2 py-2 text-[11px] font-semibold uppercase tracking-wider transition-all ${
                 isActive
                   ? `${meta.bg} ${meta.border} ${meta.color} shadow-md ${meta.glow}`
-                  : "border-white/[0.06] bg-white/[0.02] text-white/30 hover:border-white/10 hover:text-white/50"
+                  : "border-play-ink/[0.06] bg-play-ink/[0.02] text-play-ink/30 hover:border-play-ink/10 hover:text-play-ink/50"
               }`}
             >
-              <div className={`h-1.5 w-1.5 rounded-full ${isActive ? meta.dot : "bg-white/20"}`} />
+              <div className={`h-1.5 w-1.5 rounded-full ${isActive ? meta.dot : "bg-play-ink/20"}`} />
               <span>{getTierLabel(tier, language)}</span>
             </button>
           );
@@ -1087,10 +1443,10 @@ function OfficialPicker({
                 key={group.key}
                 className={`group flex w-full flex-wrap items-center gap-x-3 rounded-xl border p-3.5 text-left transition-all ${
                   locked
-                    ? "cursor-not-allowed border-white/[0.04] bg-white/[0.01] opacity-45"
+                    ? "cursor-not-allowed border-play-ink/[0.04] bg-play-ink/[0.01] opacity-45"
                     : isSelected
                       ? `${meta.border} ${meta.bg} shadow-md ${meta.glow}`
-                      : "border-white/[0.06] bg-white/[0.02] hover:border-white/10 hover:bg-white/[0.04]"
+                      : "border-play-ink/[0.06] bg-play-ink/[0.02] hover:border-play-ink/10 hover:bg-play-ink/[0.04]"
                 }`}
               >
                 <button
@@ -1105,7 +1461,7 @@ function OfficialPicker({
                   {/* Info */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className={`text-sm font-medium ${locked ? "text-white/30" : isSelected ? "text-white" : "text-white/80"}`}>
+                      <span className={`text-sm font-medium ${locked ? "text-play-ink/30" : isSelected ? "text-play-ink" : "text-play-ink/80"}`}>
                         {m.name}
                       </span>
                       {m.badge && !locked && (
@@ -1114,14 +1470,14 @@ function OfficialPicker({
                         </span>
                       )}
                       {locked && (
-                        <span className="inline-flex items-center gap-0.5 rounded-md bg-white/[0.06] px-1.5 py-0.5 text-[9px] font-bold text-white/30">
+                        <span className="inline-flex items-center gap-0.5 rounded-md bg-play-ink/[0.06] px-1.5 py-0.5 text-[9px] font-bold text-play-ink/30">
                           <Lock className="h-2.5 w-2.5" />
                           {getPlanLabel(m.minPlan, language)}
                         </span>
                       )}
                     </div>
                     <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-                      <span className={`text-[11px] ${locked ? "text-white/15" : "text-white/35"}`}>
+                      <span className={`text-[11px] ${locked ? "text-play-ink/15" : "text-play-ink/35"}`}>
                         {getModelDescription(m.id, language)}
                       </span>
                       {m.avgCostMushiesByPeriod && !locked ? (
@@ -1165,7 +1521,7 @@ function OfficialPicker({
                           className={`min-w-[34px] rounded-md border px-2 py-0.5 text-[11px] tabular-nums transition-colors ${
                             current
                               ? `${meta.border} ${meta.bg} ${meta.color}`
-                              : "border-white/[0.08] text-white/55 hover:border-white/20 hover:text-white/85"
+                              : "border-play-ink/[0.08] text-play-ink/55 hover:border-play-ink/20 hover:text-play-ink/85"
                           }`}
                         >
                           {v.label}
@@ -1181,8 +1537,8 @@ function OfficialPicker({
       </div>
 
       {/* Footer */}
-      <div className="px-5 py-3 border-t border-white/[0.06]">
-        <p className="text-[10px] text-white/25 text-center">
+      <div className="px-5 py-3 border-t border-play-ink/[0.06]">
+        <p className="text-[10px] text-play-ink/25 text-center">
           {userPlan === "free"
             ? t("upgradeForMore")
             : t("currentPlan", { plan: getPlanLabel(userPlan, language) })}
@@ -1314,7 +1670,7 @@ function ByokPicker({
   const renderModel = (m: ByokModel) => {
     const isSelected = !isMixActive && selectedModel === m.id;
     const isPinned = pinnedSet.has(m.id);
-    const providerColor = PROVIDER_COLORS[m.provider] ?? "text-white/40";
+    const providerColor = PROVIDER_COLORS[m.provider] ?? "text-play-ink/40";
 
     return (
       <button
@@ -1323,7 +1679,7 @@ function ByokPicker({
         className={`group flex w-full items-center gap-2.5 rounded-xl border p-3 text-left transition-all ${
           isSelected
             ? "border-slate-400/25 bg-slate-400/8 shadow-md shadow-slate-500/10"
-            : "border-white/[0.05] bg-white/[0.015] hover:border-slate-400/15 hover:bg-slate-400/[0.04]"
+            : "border-play-ink/[0.05] bg-play-ink/[0.015] hover:border-slate-400/15 hover:bg-slate-400/[0.04]"
         }`}
       >
         {/* Pin control — span, not button: it sits inside the model-row
@@ -1344,7 +1700,7 @@ function ByokPicker({
           className={`play-action-btn flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-md transition-colors ${
             isPinned
               ? "text-slate-300/70 hover:text-slate-300"
-              : "text-transparent group-hover:text-white/20 hover:!text-white/40 [@media(hover:none)]:text-white/25"
+              : "text-transparent group-hover:text-play-ink/20 hover:!text-play-ink/40 [@media(hover:none)]:text-play-ink/25"
           }`}
         >
           <Star className={`h-3 w-3 ${isPinned ? "fill-current" : ""}`} />
@@ -1352,7 +1708,7 @@ function ByokPicker({
 
         {/* Model info */}
         <div className="flex-1 min-w-0">
-          <p className={`truncate text-sm font-medium ${isSelected ? "text-white" : "text-white/80"}`}>
+          <p className={`truncate text-sm font-medium ${isSelected ? "text-play-ink" : "text-play-ink/80"}`}>
             {m.name || formatModelId(m.id)}
           </p>
         </div>
@@ -1364,7 +1720,7 @@ function ByokPicker({
 
         {/* Context length */}
         {m.contextLength > 0 && (
-          <span className="shrink-0 text-[10px] text-white/20">
+          <span className="shrink-0 text-[10px] text-play-ink/20">
             {Math.round(m.contextLength / 1000)}k
           </span>
         )}
@@ -1386,14 +1742,14 @@ function ByokPicker({
             <Sparkles className="h-4 w-4 text-slate-300" />
           </div>
           <div>
-            <h2 className="text-sm font-bold text-white">{title ?? t("chooseModel")}</h2>
-            <p className="text-[11px] text-white/40">{subtitle ?? t("privateApiKey")}</p>
+            <h2 className="text-sm font-bold text-play-ink">{title ?? t("chooseModel")}</h2>
+            <p className="text-[11px] text-play-ink/40">{subtitle ?? t("privateApiKey")}</p>
           </div>
         </div>
         <button
           onClick={onClose}
           aria-label={t("cancel")}
-          className="play-action-btn flex h-7 w-7 items-center justify-center rounded-lg text-white/30 transition-colors hover:bg-white/5 hover:text-white/60 active:bg-white/5 active:text-white/60"
+          className="play-action-btn flex h-7 w-7 items-center justify-center rounded-lg text-play-ink/30 transition-colors hover:bg-play-ink/5 hover:text-play-ink/60 active:bg-play-ink/5 active:text-play-ink/60"
         >
           <X className="h-4 w-4" />
         </button>
@@ -1401,8 +1757,8 @@ function ByokPicker({
 
       {providerSwitch}
 
-      <div className="flex items-center gap-2 border-y border-white/[0.06] px-5 py-2">
-        <p className="flex-1 text-[11px] leading-snug text-white/45">{t("usageNote")}</p>
+      <div className="flex items-center gap-2 border-y border-play-ink/[0.06] px-5 py-2">
+        <p className="flex-1 text-[11px] leading-snug text-play-ink/45">{t("usageNote")}</p>
         {onMixMode && <SandboxMixPill onClick={onMixMode} t={t} />}
       </div>
 
@@ -1411,14 +1767,14 @@ function ByokPicker({
       {/* Search */}
       <div className="px-4 pt-3 pb-1">
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/25" />
+          <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-play-ink/25" />
           <input
             ref={searchRef}
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={t("searchModels")}
-            className="w-full rounded-xl border border-slate-400/10 bg-slate-400/[0.03] py-2.5 pl-9 pr-3 text-xs text-white placeholder:text-white/25 focus:border-slate-400/20 focus:outline-none"
+            className="w-full rounded-xl border border-slate-400/10 bg-slate-400/[0.03] py-2.5 pl-9 pr-3 text-xs text-play-ink placeholder:text-play-ink/25 focus:border-slate-400/20 focus:outline-none"
           />
         </div>
       </div>
@@ -1427,7 +1783,7 @@ function ByokPicker({
       <div className="flex-1 overflow-y-auto px-4 py-2">
         {loading ? (
           <div className="flex items-center justify-center py-12">
-            <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/10 border-t-primary" />
+            <div className="h-5 w-5 animate-spin rounded-full border-2 border-play-ink/10 border-t-primary" />
           </div>
         ) : query ? (
           /* Search results */
@@ -1438,7 +1794,7 @@ function ByokPicker({
                 : t("resultsMany", { count: filtered.length })}
             </SectionLabel>
             {filtered.length === 0 && (
-              <p className="py-6 text-center text-xs text-white/25">
+              <p className="py-6 text-center text-xs text-play-ink/25">
                 {t("noModelsMatch", { query })}
               </p>
             )}
@@ -1477,7 +1833,7 @@ function ByokPicker({
               </div>
             )}
             {models.length === 0 && (
-              <p className="py-8 text-center text-xs text-white/25">
+              <p className="py-8 text-center text-xs text-play-ink/25">
                 {t("noModelsAvailable")}
               </p>
             )}
@@ -1493,8 +1849,8 @@ function ByokPicker({
 function SectionLabel({ icon, children }: { icon?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="flex items-center gap-1.5 px-1 pb-1 pt-2">
-      {icon && <span className="text-white/20">{icon}</span>}
-      <span className="text-[10px] font-semibold uppercase tracking-wider text-white/25">
+      {icon && <span className="text-play-ink/20">{icon}</span>}
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-play-ink/25">
         {children}
       </span>
     </div>
@@ -1533,7 +1889,7 @@ function SandboxMixPill({ onClick, t }: { onClick: () => void; t: T }) {
       <button onClick={onClick}
         className="flex shrink-0 items-center gap-1.5 rounded-full border border-primary/30 bg-primary/[0.08] px-2.5 py-1 text-[10px] font-medium text-primary transition-all hover:border-primary/50 hover:bg-primary/[0.14]">
         <Shuffle className="h-3 w-3" />
-        <div className="flex h-1.5 w-8 overflow-hidden rounded-full bg-white/[0.08]">
+        <div className="flex h-1.5 w-8 overflow-hidden rounded-full bg-play-ink/[0.08]">
           {pcts.map((e, i) => <div key={e.modelId} className={MIX_COLORS[i % MIX_COLORS.length]} style={{ width: `${e.pct}%` }} />)}
         </div>
         <span>{modelPool.length}</span>
@@ -1543,7 +1899,7 @@ function SandboxMixPill({ onClick, t }: { onClick: () => void; t: T }) {
 
   return (
     <button onClick={onClick}
-      className="flex shrink-0 items-center gap-1 rounded-full border border-white/[0.08] bg-white/[0.04] px-2.5 py-1 text-[10px] font-medium text-white/50 transition-all hover:border-primary/30 hover:bg-primary/[0.08] hover:text-primary">
+      className="flex shrink-0 items-center gap-1 rounded-full border border-play-ink/[0.08] bg-play-ink/[0.04] px-2.5 py-1 text-[10px] font-medium text-play-ink/50 transition-all hover:border-primary/30 hover:bg-primary/[0.08] hover:text-primary">
       <Shuffle className="h-3 w-3" />
       {t("mixModels")}
     </button>
@@ -1586,24 +1942,24 @@ function SandboxMixConfig({ onBack, onClose, t }: { onBack: () => void; onClose:
     <>
       <div className="flex items-center justify-between px-5 pt-5 pb-1">
         <div className="flex items-center gap-2.5">
-          <button onClick={onBack} className="flex h-8 w-8 items-center justify-center rounded-xl bg-white/[0.04] text-white/40 transition-colors hover:bg-white/[0.08] hover:text-white/70">
+          <button onClick={onBack} className="flex h-8 w-8 items-center justify-center rounded-xl bg-play-ink/[0.04] text-play-ink/40 transition-colors hover:bg-play-ink/[0.08] hover:text-play-ink/70">
             <ArrowLeft className="h-4 w-4" />
           </button>
           <div>
-            <h2 className="text-sm font-bold text-white">{t("mixModels")}</h2>
-            <p className="text-[11px] text-white/40">{(modelPool ?? []).length}/{MAX_POOL}</p>
+            <h2 className="text-sm font-bold text-play-ink">{t("mixModels")}</h2>
+            <p className="text-[11px] text-play-ink/40">{(modelPool ?? []).length}/{MAX_POOL}</p>
           </div>
         </div>
-        <button onClick={onClose} className="play-action-btn flex h-7 w-7 items-center justify-center rounded-lg text-white/30 transition-colors hover:bg-white/5 hover:text-white/60 active:bg-white/5 active:text-white/60">
+        <button onClick={onClose} className="play-action-btn flex h-7 w-7 items-center justify-center rounded-lg text-play-ink/30 transition-colors hover:bg-play-ink/5 hover:text-play-ink/60 active:bg-play-ink/5 active:text-play-ink/60">
           <X className="h-4 w-4" />
         </button>
       </div>
 
-      <p className="border-y border-white/[0.06] px-5 py-2 text-[11px] leading-snug text-white/45">{t("mixDescription")}</p>
+      <p className="border-y border-play-ink/[0.06] px-5 py-2 text-[11px] leading-snug text-play-ink/45">{t("mixDescription")}</p>
 
       {(modelPool ?? []).length > 0 && (
         <div className="px-5 pt-3 pb-1">
-          <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-white/[0.04]">
+          <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-play-ink/[0.04]">
             {pcts.map((e, i) => <div key={e.modelId} className={`transition-all duration-300 ease-out ${MIX_COLORS[i % MIX_COLORS.length]}`} style={{ width: `${e.pct}%` }} />)}
           </div>
         </div>
@@ -1617,20 +1973,20 @@ function SandboxMixConfig({ onBack, onClose, t }: { onBack: () => void; onClose:
             const locked = canLockWeights && !!entry.locked;
             const lockLabel = t(locked ? "unlockWeight" : "lockWeight");
             return (
-              <div key={entry.modelId} className="group rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 transition-all hover:border-white/10">
+              <div key={entry.modelId} className="group rounded-xl border border-play-ink/[0.06] bg-play-ink/[0.02] p-3 transition-all hover:border-play-ink/10">
                 <div className="flex items-center gap-2.5">
                   <div className={`h-2.5 w-2.5 shrink-0 rounded-full ${MIX_COLORS[i % MIX_COLORS.length]}`} />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-white/80">{name}</p>
+                    <p className="truncate text-sm font-medium text-play-ink/80">{name}</p>
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
                     <button onClick={() => setPoolWeight(entry.modelId, pct - 1)} disabled={pct <= 0}
-                      className="flex h-6 w-6 items-center justify-center rounded-lg text-white/30 hover:bg-white/[0.06] hover:text-white/60 disabled:pointer-events-none disabled:opacity-20">
+                      className="flex h-6 w-6 items-center justify-center rounded-lg text-play-ink/30 hover:bg-play-ink/[0.06] hover:text-play-ink/60 disabled:pointer-events-none disabled:opacity-20">
                       <Minus className="h-3 w-3" />
                     </button>
-                    <span className="w-10 text-center text-xs font-medium tabular-nums text-white/50">{pct}%</span>
+                    <span className="w-10 text-center text-xs font-medium tabular-nums text-play-ink/50">{pct}%</span>
                     <button onClick={() => setPoolWeight(entry.modelId, pct + 1)} disabled={pct >= 100}
-                      className="flex h-6 w-6 items-center justify-center rounded-lg text-white/30 hover:bg-white/[0.06] hover:text-white/60 disabled:pointer-events-none disabled:opacity-20">
+                      className="flex h-6 w-6 items-center justify-center rounded-lg text-play-ink/30 hover:bg-play-ink/[0.06] hover:text-play-ink/60 disabled:pointer-events-none disabled:opacity-20">
                       <Plus className="h-3 w-3" />
                     </button>
                   </div>
@@ -1639,13 +1995,13 @@ function SandboxMixConfig({ onBack, onClose, t }: { onBack: () => void; onClose:
                       className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg transition-all ${
                         locked
                           ? "bg-primary/15 text-primary hover:bg-primary/25"
-                          : "text-white/25 hover:bg-white/[0.06] hover:text-white/60"
+                          : "text-play-ink/25 hover:bg-play-ink/[0.06] hover:text-play-ink/60"
                       }`}>
                       {locked ? <Lock className="h-3 w-3" /> : <Unlock className="h-3 w-3" />}
                     </button>
                   )}
                   <button onClick={() => removeFromPool(entry.modelId)}
-                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-white/20 transition-all hover:bg-red-500/10 hover:text-red-400 md:opacity-0 md:group-hover:opacity-100">
+                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-play-ink/20 transition-all hover:bg-red-500/10 hover:text-red-400 md:opacity-0 md:group-hover:opacity-100">
                     <X className="h-3 w-3" />
                   </button>
                 </div>
@@ -1656,7 +2012,7 @@ function SandboxMixConfig({ onBack, onClose, t }: { onBack: () => void; onClose:
                   value={pct}
                   aria-label={`${name} mix weight`}
                   onChange={(e) => setPoolWeight(entry.modelId, Number(e.currentTarget.value))}
-                  className="mt-2 h-1.5 w-full cursor-pointer appearance-none rounded-full bg-white/[0.06] outline-none [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white/80 [&::-webkit-slider-thumb]:shadow-sm [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:hover:bg-white [&::-moz-range-thumb]:h-3.5 [&::-moz-range-thumb]:w-3.5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-white/80"
+                  className="mt-2 h-1.5 w-full cursor-pointer appearance-none rounded-full bg-play-ink/[0.06] outline-none [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-play-ink/80 [&::-webkit-slider-thumb]:shadow-sm [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:hover:bg-play-ink [&::-moz-range-thumb]:h-3.5 [&::-moz-range-thumb]:w-3.5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-play-ink/80"
                 />
               </div>
             );
@@ -1666,19 +2022,19 @@ function SandboxMixConfig({ onBack, onClose, t }: { onBack: () => void; onClose:
         {(modelPool ?? []).length < MAX_POOL && (
           <div className="mt-3">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/25" />
+              <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-play-ink/25" />
               <input type="text" value={addQuery} onChange={(e) => setAddQuery(e.target.value)}
                 placeholder={t("addModel")}
-                className="w-full rounded-xl border border-white/[0.06] bg-white/[0.02] py-2.5 pl-9 pr-3 text-xs text-white placeholder:text-white/20 focus:border-white/15 focus:outline-none" />
+                className="w-full rounded-xl border border-play-ink/[0.06] bg-play-ink/[0.02] py-2.5 pl-9 pr-3 text-xs text-play-ink placeholder:text-play-ink/20 focus:border-play-ink/15 focus:outline-none" />
             </div>
             {addResults.length > 0 && (
               <div className="mt-1.5 space-y-0.5">
                 {addResults.map((m) => (
                   <button key={m.id} onClick={() => { addToPool(m.id); setAddQuery(""); }}
-                    className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left transition-all hover:bg-white/[0.04]">
+                    className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left transition-all hover:bg-play-ink/[0.04]">
                     <Plus className="h-3.5 w-3.5 shrink-0 text-primary/60" />
-                    <span className="flex-1 truncate text-xs font-medium text-white/70">{m.name || formatModelId(m.id)}</span>
-                    <span className="shrink-0 text-[10px] text-white/25">{m.provider}</span>
+                    <span className="flex-1 truncate text-xs font-medium text-play-ink/70">{m.name || formatModelId(m.id)}</span>
+                    <span className="shrink-0 text-[10px] text-play-ink/25">{m.provider}</span>
                   </button>
                 ))}
               </div>
@@ -1687,19 +2043,19 @@ function SandboxMixConfig({ onBack, onClose, t }: { onBack: () => void; onClose:
         )}
       </div>
 
-      <div className="border-t border-white/[0.06] px-5 py-3">
+      <div className="border-t border-play-ink/[0.06] px-5 py-3">
         <button onClick={handleToggle} disabled={!canActivate && !mixMode}
           className={`flex w-full items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold transition-all ${
             mixMode
-              ? "border border-white/[0.08] bg-white/[0.04] text-white/60 hover:bg-white/[0.08]"
+              ? "border border-play-ink/[0.08] bg-play-ink/[0.04] text-play-ink/60 hover:bg-play-ink/[0.08]"
               : canActivate
-                ? "bg-primary text-white hover:bg-primary/90"
-                : "bg-white/[0.04] text-white/20 cursor-not-allowed"
+                ? "bg-primary text-play-ink hover:bg-primary/90"
+                : "bg-play-ink/[0.04] text-play-ink/20 cursor-not-allowed"
           }`}>
           {mixMode ? t("deactivate") : t("activate")}
         </button>
         {!canActivate && !mixMode && (
-          <p className="mt-1.5 text-center text-[10px] text-white/25">{t("needTwo")}</p>
+          <p className="mt-1.5 text-center text-[10px] text-play-ink/25">{t("needTwo")}</p>
         )}
       </div>
     </>
@@ -1820,7 +2176,7 @@ export function useMushieBalance(): number | null {
 export function BalanceTag({
   balance,
   language,
-  dividerClass = "bg-white/10",
+  dividerClass = "bg-play-ink/10",
   compact = false,
 }: {
   balance: number;
@@ -1841,8 +2197,9 @@ export function BalanceTag({
         data-balance-tag=""
         className="inline-flex shrink-0 items-center gap-0.5 text-[11px] font-semibold text-[#f3d361] tabular-nums whitespace-nowrap"
       >
-        {compact ? formatBalanceCompact(balance) : full}
+        {/* Mark first, then the number: as in the site's header pill. */}
         <MushroomIcon className="h-3 w-3 shrink-0 text-[#f3d361]/80" />
+        {compact ? formatBalanceCompact(balance) : full}
       </span>
     </>
   );
@@ -1900,7 +2257,7 @@ export function ModelTrigger({ onClick, model, className, provider, showBalance 
         title={`${s.mixModels} · ${modelPool.length}`}
       >
         <Shuffle className="h-3 w-3 shrink-0 text-primary/70" />
-        <div className="flex h-1.5 w-8 shrink-0 overflow-hidden rounded-full bg-white/[0.08]">
+        <div className="flex h-1.5 w-8 shrink-0 overflow-hidden rounded-full bg-play-ink/[0.08]">
           {poolPcts.map((entry: { modelId: string; pct: number }, i: number) => (
             <div
               key={entry.modelId}

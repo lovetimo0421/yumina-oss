@@ -125,6 +125,10 @@ type Run = {
   sponsored: boolean;
   creditsLive?: boolean;
   creditsBeat?: ReturnType<typeof setInterval>;
+  /** Paid calls end when nobody is playing (owner 2026-10-24): the last player activity, and its watcher. */
+  lastActiveAt?: number;
+  idleWatch?: ReturnType<typeof setInterval>;
+  idleWarned?: boolean;
   privatePilot?: boolean;
   connectionId: string;
   connecting: boolean;
@@ -167,7 +171,12 @@ type Run = {
   cancellationSequence: number;
 };
 
-class VoiceFailure extends Error {}
+class VoiceFailure extends Error {
+  /** A stable code for the world (e.g. the server ended a paid call: idle, out of Mushies, the ceiling). */
+  constructor(message: string, readonly code?: string) { super(message); }
+}
+/** Paid-call idle rules; the server's are authoritative (voice-live-credits: 150 s warn, 180 s end). */
+const CREDITS_IDLE_WARN_MS = 120_000, CREDITS_IDLE_END_MS = 180_000, CREDITS_IDLE_REPORT_MS = 60_000;
 const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 const boundedString = (value: unknown, max: number): value is string => typeof value === "string" && value.length <= max;
 const identifier = (value: unknown): value is string => boundedString(value, 160) && /^[\w:-]+$/.test(value);
@@ -449,7 +458,7 @@ export class VoiceController {
     const inputLevel = (value: number) => {
       if (!this.current(run) || !run.ready) return;
       this.emit({ type: "input-level", value: this.muted.input ? 0 : Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0)) });
-      if (run.live) { if (!this.muted.input && value >= .025) run.userVoiceAt = this.now(); run.fallback?.level(this.muted.input ? 0 : value); run.live.inputLevel(this.muted.input ? 0 : value); return; }
+      if (run.live) { if (!this.muted.input && value >= .025) { run.userVoiceAt = this.now(); this.noteActivity(run); } run.fallback?.level(this.muted.input ? 0 : value); run.live.inputLevel(this.muted.input ? 0 : value); return; }
       const input = run.speakingInput ? run.inputs.get(run.speakingInput) : undefined;
       if (input && !this.deps.canUse()) input.eligible = false;
       if (input?.protected && input.decision === "pending") {
@@ -530,6 +539,7 @@ export class VoiceController {
         send: event => this.send(run, event),
         emit: event => {
           if (event.type === "transcript" && event.role === "user") {
+            this.noteActivity(run);
             // QA only: simulate the live model losing the player's words, to exercise the fallback.
             if ((globalThis as { __voiceDropUserTranscripts?: boolean }).__voiceDropUserTranscripts === true) return;
             run.fallback?.heard();
@@ -759,26 +769,64 @@ export class VoiceController {
     // Provider teardown may reach the event loop before an overdue timer.
     if (run.expiresAt !== undefined && this.now() >= run.expiresAt) { this.expire(run); return; }
     this.cleanup(run, error);
-    this.emit({ type: "level", value: 0 }); this.emit({ type: "status", status: "error", message: error.message, ...(run.balanceFunding ? { phase: 'cleanup' as const, code: 'VOICE_BALANCE_ERROR' } : {}) });
+    this.emit({ type: "level", value: 0 }); this.emit({ type: "status", status: "error", message: error.message, ...(error.code ? { code: error.code } : {}), ...(run.balanceFunding ? { phase: 'cleanup' as const, code: 'VOICE_BALANCE_ERROR' } : {}) });
   }
 
-  /** A credits-paid call beats every 30 s; the server hangs up a silent one and stops billing.
-   * A beat the server no longer recognises means it already ended the call (out of Mushies, or the cap). */
+  /** A credits-paid call beats every 30 s with how long the player has been inactive; the server ends
+   * a call nobody is playing (3 idle minutes), a silent tab, an empty wallet, or one at the ceiling,
+   * and stops billing. The reply says why, so the world never auto-reconnects into a new charge. */
   private startCreditsHeartbeat(run: Run): void {
-    clearInterval(run.creditsBeat);
-    run.creditsBeat = setInterval(() => {
-      if (run.closing || this.run !== run) { clearInterval(run.creditsBeat); return; }
-      void this.deps.fetch(`${this.deps.apiBase ?? ""}/api/voice/${encodeURIComponent(this.deps.sessionId)}/live/heartbeat`, {
-        method: "POST", credentials: "include", headers: { "X-Voice-Connection-Id": run.connectionId },
-      }).then(response => {
-        if (response.status === 404 && !run.closing && this.run === run) this.fail(run, new VoiceFailure("Live voice ended: your Mushies ran out or the call reached its time limit."));
-      }, () => { /* A missed beat is retried; the server allows two. */ });
-    }, 30_000);
+    clearInterval(run.creditsBeat); clearInterval(run.idleWatch);
+    run.lastActiveAt = this.now(); run.idleWarned = false;
+    run.creditsBeat = setInterval(() => this.creditsBeat(run), 30_000);
+    // Warn from two idle minutes, a minute before the server ends it, and clear on activity.
+    run.idleWatch = setInterval(() => {
+      if (run.closing || this.run !== run) { clearInterval(run.idleWatch); return; }
+      const idle = this.now() - (run.lastActiveAt ?? this.now());
+      if (idle >= CREDITS_IDLE_WARN_MS && !run.idleWarned) {
+        run.idleWarned = true;
+        const remaining = Math.max(5_000, CREDITS_IDLE_END_MS - idle);
+        this.emit({ type: "call-notice", notice: { kind: "ending-soon", reason: "idle", remainingMs: remaining,
+          message: `The line closes in about ${Math.ceil(remaining / 1000)} seconds unless you speak or move.` } });
+      }
+    }, 5_000);
   }
+  private creditsBeat(run: Run): void {
+    if (run.closing || this.run !== run) { clearInterval(run.creditsBeat); return; }
+    const idleMs = Math.max(0, this.now() - (run.lastActiveAt ?? this.now()));
+    void this.deps.fetch(`${this.deps.apiBase ?? ""}/api/voice/${encodeURIComponent(this.deps.sessionId)}/live/heartbeat`, {
+      method: "POST", credentials: "include", headers: { "X-Voice-Connection-Id": run.connectionId, "Content-Type": "application/json" },
+      body: JSON.stringify({ idleMs }),
+    }).then(async response => {
+      if (run.closing || this.run !== run) return;
+      const body = await response.json().catch(() => ({})) as { reason?: unknown; lowBalance?: unknown };
+      if (response.status === 404) {
+        const reason = body.reason;
+        this.fail(run, reason === "idle" ? new VoiceFailure("The line closed because nobody was playing. Call the screen again to continue.", "VOICE_IDLE_ENDED")
+          : reason === "balance" ? new VoiceFailure("Live voice ended: you're out of Mushies (about 60 a minute).", "VOICE_CREDITS_REQUIRED")
+          : reason === "cap" ? new VoiceFailure("This voice call reached its time limit. Start voice again to continue.", "VOICE_CALL_CAP")
+          : new VoiceFailure("Live voice ended. Start voice again to continue.", "VOICE_CALL_ENDED"));
+        return;
+      }
+      if (response.ok && body.lowBalance === true) this.emit({ type: "call-notice", notice: { kind: "ending-soon", reason: "balance", remainingMs: 60_000,
+        message: "About a minute of Mushies left for live voice." } });
+    }, () => { /* A missed beat is retried; the server allows two. */ });
+  }
+  /** The player did something (spoke, typed, moved, a transcript arrived). Activity after a long
+   * quiet is reported at once, so the server never ends a call the player has just come back to. */
+  private noteActivity(run: Run): void {
+    if (!run.creditsLive || run.closing || this.run !== run) return;
+    const now = this.now(), idle = now - (run.lastActiveAt ?? now);
+    run.lastActiveAt = now;
+    if (run.idleWarned) { run.idleWarned = false; this.emit({ type: "call-notice", notice: null }); }
+    if (idle >= CREDITS_IDLE_REPORT_MS) this.creditsBeat(run);
+  }
+  /** World input (keys, pointer, touch) while a paid call is open. */
+  markActive(): void { if (this.run) this.noteActivity(this.run); }
   private cleanup(run: Run, reason: Error): void {
     if (run.closing) return;
     run.closing = true;
-    clearInterval(run.creditsBeat); run.creditsBeat = undefined;
+    clearInterval(run.creditsBeat); run.creditsBeat = undefined; clearInterval(run.idleWatch); run.idleWatch = undefined;
     run.fallback?.close();
     run.live?.close();
     if (this.run === run) this.emit({ type: "call-notice", notice: null });
@@ -1638,6 +1686,7 @@ export function dispatchVoiceCall(controller: VoiceController, method: string, a
       if (args.length !== 0) throw new VoiceFailure("Invalid voice arguments.");
       return controller.interrupt();
     case "realtimeVoice.setMuted": return controller.setMuted(args[0]);
+    case "realtimeVoice.active": return controller.markActive();
     case "realtimeVoice.updateContext": return controller.updateContext(args[0]);
     case "realtimeVoice.updateInstructions":
       if (args.length !== 1) throw new VoiceFailure("Invalid voice arguments.");

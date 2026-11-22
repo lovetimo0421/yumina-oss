@@ -1,104 +1,44 @@
-# Earnings & Payouts
+---
+title: "Earnings and payouts"
+description: "The Creator Dashboard shows how your worlds do and pays out money tips. You keep 80%, each tip is held 7 days, payouts start at $10 through Stripe, or spend tips on mushies with 5% extra."
+---
 
-Your **Creator Dashboard** — found under **Me → Creator Center** — is where you see how your worlds are doing (plays, players, favorites, messages) and where you cash out money tips from supporters.
+# Earnings and payouts
 
-![Creator Dashboard — empty state showing the hero, charts, and worlds grid](./images/earnings-dashboard.png)
+The Creator Dashboard, under **Me → Creator Center**, shows how your worlds are doing and pays out the money tips players send you. Mushie gifts go straight into your wallet.
 
-## The hero
+## What the numbers mean
 
-At the top of the dashboard you'll see two big numbers side by side:
+The dashboard compares the last 7 days with the 7 before, never calendar weeks, and never counts your own plays on your own cards.
 
-- **Total Earnings** -- money tips you've received, including pending and available balance, in your local currency (USD-equivalent under the hood)
-- **Mushies Received** -- the lifetime total of mushie gifts in your wallet
+Pick a card to see its funnel. Each rate is shown against the site average: green above it, yellow slightly below, red well below.
 
-Below those, a stats row breaks down:
-
-- **Lifetime** -- all-time money earnings
-- **This Month** -- money earned this calendar month
-- **Tips** -- count of money tips received
-- **Gifts** -- count of mushie gifts received
-
-To the right is the **Cash Out** button. If your Stripe Connect isn't set up yet, this becomes **Set Up Payouts** and walks you through onboarding.
-
-## Charts
-
-Two side-by-side charts sit under the hero:
-
-- **Earnings — Last 30 Days** (gold) — daily total tip revenue
-- **Mushies — Last 30 Days** (purple) — daily mushie gifts received
-
-Both charts always render, even at zero, so you can see when things start picking up. Hover for per-day tooltips.
-
-## Your Worlds
-
-A grid of every published world you own. Each card shows:
-
-- Thumbnail (with a gold earnings badge in the corner if that world has earned anything)
-- Title
-- Plays, favorites, messages, average rating
-
-**Click any card** to drill into the per-world view.
-
-## Per-world detail
-
-Inside a world's detail view you get:
-
-- **Four metric cards** -- Plays · Unique Players · Favorites · Messages (for the selected time window)
-- **Extra stats row** -- Avg Session, Conversion (card views → plays), Card Views, Reviews
-- **Charts** — one per metric, showing the daily trend
-
-The **period picker** (top-right) toggles between 7 / 30 / 90 / 365 days. The 30-day default usually has enough signal without too much noise.
-
-## Recent Support
-
-Below the worlds grid, when you have any support history, a **Recent Support** section appears:
-
-- A feed of recent tips and mushie gifts, with sender name (or "Anonymous"), amount, and any message the supporter left
-- A **Top Supporters** column on the right -- your highest-cumulative supporters with avatars
-
-Anonymous tips appear in the feed with the name "Anonymous" -- you get the amount and message, but not the identity.
-
-## Stripe Connect & cash-out
-
-To turn money tips into actual bank deposits, link a Stripe Connect Express account:
-
-1. Click **Set Up Payouts** in the dashboard hero
-2. Stripe walks you through identity verification (name, address, bank account, tax info as required by your country)
-3. Your status switches to **Payouts active** once Stripe approves
-
-Once active:
-
-- The **Cash Out** button releases your available balance to Stripe, which pays out to your linked bank on its standard schedule
-- The **Stripe Dashboard** link in the dashboard footer takes you to your Stripe Express dashboard for payout history, account updates, and tax forms
-
-## Holds, fees, and minimums
-
-| | Value |
+| Rate | How it is counted |
 |---|---|
-| **Platform fee** | 20% of gross tip |
-| **Stripe processing** | Deducted separately by Stripe per their pricing |
-| **Hold period** | 7 days after each payment succeeds |
-| **Minimum payout** | $10 |
+| Click rate | Discover clicks ÷ Discover impressions. An impression counts only when the card was at least half visible for half a second |
+| Conversion | Plays started from Discover ÷ Discover clicks |
+| Quality rate | Share of all plays that lasted 5 minutes or more |
+| Return rate | Share of last week's players who came back this week. Continuing an old save counts |
 
-Earnings start as **pending** for 7 days (refund/dispute window) and automatically roll into your **available balance** after. The hero shows pending and available separately when there's anything held.
+"Not enough data" means the card has not reached the minimum yet: 200 impressions for click rate, 20 clicks for conversion, 20 plays for quality, 30 players last week for return rate.
 
-## Mushie gifts
+The **To do** cards at the top appear when something needs you: a click rate below three quarters of the site average with 200 or more impressions, a jump of 20 or more new players that is also 30% up on last week, or edits that have sat unpublished for 3 days.
 
-Mushies received from supporters are pure profit -- no platform fee, no Stripe processing, no hold. They land in your wallet instantly and you can spend them on anything that takes mushies (your own AI usage, paid models, etc.).
+## Getting paid
 
-## Support entry in a fullscreen world
+Money tips are split 80/20. You keep 80%, Yumina keeps 20%, and Stripe takes its processing fee on top. Each tip is held for 7 days, the refund window, then becomes available.
 
-The play header carries a heart button players use to support you. A world with a **fullscreen custom UI covers that header** — so unless the world offers its own entry, its players have no way to reach the tip dialog at all.
+To receive money, click **Set Up Payouts** and pick the country you live in. Stripe pays out to the US, UK, EU and EEA, Canada and Switzerland, and the country cannot be changed once the account is active. Stripe checks your identity and bank details. Once it approves, your available balance is paid out automatically whenever it reaches $10. Tax forms come from your Stripe dashboard once you cross your country's reporting threshold, and Yumina produces no separate tax documents.
 
-If your world takes over the screen, have it call `api.openSupport()` from somewhere calm — a corner of the title or pause screen. It opens the same dialog with the same attribution to this world; you never handle payments yourself. See the [API reference](./advanced/08-api-reference).
+Anywhere else, or if you would rather not set up payouts, **Spend on mushies** turns tip earnings into mushie packs with 5% extra, from 50 cents up. Only earnings past the 7-day hold can be spent, and what you spend is no longer paid out.
 
-Keep it small and never interrupt play with it. A support prompt shown mid-scene, or right after a player loses, converts worse than one sitting quietly on a menu.
+Mushie gifts carry no fee and no hold. Players can gift you mushies once your worlds together have 10 downloads and 100 messages. Money tips have no threshold.
 
-## Tax
+## Worlds that cover the screen
 
-Stripe Express handles tax forms (1099-NEC for US, the equivalent for other regions) once your annual earnings cross the local reporting threshold. You can find the forms in your Stripe Dashboard. Yumina does not produce separate tax documents.
+The play header has the heart button players use to support you. A world with a fullscreen interface covers that header, so unless the world offers its own way in, players cannot tip you at all. Have your interface call `api.openSupport()` from somewhere calm, like a corner of the title or pause screen. It opens the same dialog, credited to this world, and you never handle payments yourself. Keep it small. A support prompt shown mid-scene, or right after a player loses, converts worse than one sitting quietly on a menu. Details in the [API reference](./advanced/08-api-reference).
 
-## See also
+## Related
 
-- [Publishing](./publishing) — how to publish a world so players can find and support it
-- [Supporting Creators](/guide/06-supporting-creators) — the player-side of tipping, useful for understanding what your supporters see
+- [Publishing](./publishing.md)
+- [Supporting creators](../guide/supporting-creators.md), what your supporters see

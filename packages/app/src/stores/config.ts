@@ -1,8 +1,11 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { PLAY_MODEL_IDS, DEFAULT_MODEL, DEFAULT_PINNED_MODELS, MAX_PINNED_MODELS, DEFAULT_POOL, DEFAULT_MIX_MODE } from "@yumina/shared";
+import {
+  PLAY_MODEL_IDS, DEFAULT_MODEL, DEFAULT_PINNED_MODELS, MAX_PINNED_MODELS, DEFAULT_POOL, DEFAULT_MIX_MODE,
+  SHIPPED_DEFAULT_PINNED_MODELS, SHIPPED_DEFAULT_POOLS,
+} from "@yumina/shared";
 import { DEFAULT_MODEL_FALLBACK_POLICY, type ModelFallbackPolicy } from "@yumina/shared";
-import { AI_GENERATION_DEFAULTS } from "@yumina/shared";
+import { AI_GENERATION_DEFAULTS, type PlayerRoleModels, type RecapShare } from "@yumina/shared";
 import {
   MAX_POOL_SIZE,
   DEFAULT_WEIGHT,
@@ -18,6 +21,8 @@ const apiBase = import.meta.env?.VITE_API_URL || "";
 const PUSH_DEBOUNCE_MS = 800;
 const MAX_PUSH_RETRIES = 4;
 const MAX_PINNED = MAX_PINNED_MODELS;
+const PERSIST_KEY = "yumina-global-config";
+const PERSIST_VERSION = 12;
 
 /** Which model universe a pin belongs to. The official catalog and a user's
  *  BYOK catalog are disjoint, and each picker can only render ids from its own
@@ -33,6 +38,9 @@ const SYNCED_KEYS = [
   "maxTokens",
   "maxContext",
   "storyMemory",
+  "recapShare",
+  "memoryEvery",
+  "regexRules",
   "temperature",
   "topP",
   "frequencyPenalty",
@@ -48,6 +56,7 @@ const SYNCED_KEYS = [
   "pinnedPrivateModels",
   "mixMode",
   "modelPool",
+  "roleModels",
 ] as const;
 type SyncedKey = (typeof SYNCED_KEYS)[number];
 const SYNCED_KEY_SET = new Set<string>(SYNCED_KEYS);
@@ -66,6 +75,16 @@ interface ConfigState {
    * without them asking. The server decides what absence means.
    */
   storyMemory: number | null;
+  /**
+   * How large the recap of older scenes may grow, as a share of story memory
+   * (shared/src/recap.ts). null = never chosen, never sent; the server then
+   * keeps whatever the player had before the choice existed.
+   */
+  recapShare: RecapShare | null;
+  /** Turns between session memory updates. null = never chosen (3). */
+  memoryEvery: number | null;
+  /** The player's find-and-replace rules ("正则"), shared/src/regex-rules.ts. */
+  regexRules: import("@yumina/shared").RegexRule[];
   temperature: number;
   topP: number;
   frequencyPenalty: number;
@@ -81,6 +100,8 @@ interface ConfigState {
   pinnedPrivateModels: string[];
   mixMode: boolean;
   modelPool: ModelPoolEntry[];
+  /** A model per background AI (world, memory, summary, state check). */
+  roleModels: PlayerRoleModels;
 
   setConfig: <K extends keyof ConfigValues>(key: K, value: ConfigValues[K]) => void;
   /** Returns false when the pin was rejected because the list is full, so the
@@ -103,11 +124,14 @@ interface ConfigState {
   flushPendingPush: () => Promise<void>;
 }
 
-type ConfigValues = Pick<ConfigState, "maxTokens" | "maxContext" | "storyMemory" | "temperature" | "topP" | "frequencyPenalty" | "presencePenalty" | "repetitionPenalty" | "topK" | "minP" | "reasoningEffort" | "streaming" | "selectedModel" | "modelFallback" | "mixMode" | "modelPool">;
+type ConfigValues = Pick<ConfigState, "maxTokens" | "maxContext" | "storyMemory" | "recapShare" | "memoryEvery" | "regexRules" | "temperature" | "topP" | "frequencyPenalty" | "presencePenalty" | "repetitionPenalty" | "topK" | "minP" | "reasoningEffort" | "streaming" | "selectedModel" | "modelFallback" | "mixMode" | "modelPool" | "roleModels">;
 
 const DEFAULTS: ConfigValues & { pinnedModels: string[]; pinnedPrivateModels: string[] } = {
   ...AI_GENERATION_DEFAULTS,
   storyMemory: null,
+  recapShare: null,
+  memoryEvery: null,
+  regexRules: [],
   selectedModel: DEFAULT_MODEL,
   modelFallback: { ...DEFAULT_MODEL_FALLBACK_POLICY },
   pinnedModels: [...DEFAULT_PINNED_MODELS],
@@ -116,6 +140,7 @@ const DEFAULTS: ConfigValues & { pinnedModels: string[]; pinnedPrivateModels: st
   pinnedPrivateModels: [],
   mixMode: DEFAULT_MIX_MODE,
   modelPool: sanitizeModelPool([...DEFAULT_POOL] as ModelPoolEntry[]),
+  roleModels: {},
 };
 
 // Module-level push queue. The Zustand store stays a pure data container —
@@ -185,6 +210,30 @@ function schedulePush(key: SyncedKey, value: unknown) {
   pushTimer = setTimeout(pushPending, PUSH_DEBOUNCE_MS);
 }
 
+/** A pin row or pool still exactly as an earlier release shipped it was never
+ *  touched by its owner, so it moves to today's default. One reordered pin, one
+ *  changed weight or a lock makes it the owner's, and it stays as it is. */
+export function upgradeUntouchedDefaults(values: { pinnedModels?: unknown; modelPool?: unknown }): {
+  pinnedModels?: string[];
+  modelPool?: ModelPoolEntry[];
+} {
+  const out: { pinnedModels?: string[]; modelPool?: ModelPoolEntry[] } = {};
+  const pins = values.pinnedModels;
+  if (Array.isArray(pins) && SHIPPED_DEFAULT_PINNED_MODELS.some((old) =>
+    old.length === pins.length && old.every((id, i) => pins[i] === id))) {
+    out.pinnedModels = [...DEFAULT_PINNED_MODELS];
+  }
+  const pool = values.modelPool;
+  if (Array.isArray(pool) && SHIPPED_DEFAULT_POOLS.some((old) =>
+    old.length === pool.length && old.every((entry, i) => {
+      const e = pool[i] as Partial<ModelPoolEntry> | null;
+      return !!e && e.modelId === entry.modelId && e.weight === entry.weight && !e.locked;
+    }))) {
+    out.modelPool = sanitizeModelPool([...DEFAULT_POOL] as ModelPoolEntry[]);
+  }
+  return out;
+}
+
 /** Persisted-state migration. Exported so the pin split can be tested without
  *  driving zustand's persist middleware. */
 export function migrateConfig(persisted: unknown, version: number): Record<string, unknown> {
@@ -242,6 +291,7 @@ export function migrateConfig(persisted: unknown, version: number): Record<strin
       state.pinnedModels = all.filter((id) => PLAY_MODEL_IDS.has(id));
     }
   }
+  if (version < 12) Object.assign(state, upgradeUntouchedDefaults(state));
   if (Array.isArray(state.modelPool)) {
     state.modelPool = sanitizeModelPool(state.modelPool as ModelPoolEntry[]);
   }
@@ -378,6 +428,14 @@ export const useConfigStore = create<ConfigState>()(
           const seed: Partial<Record<SyncedKey, unknown>> = {};
           const current = get();
 
+          // Most accounts never touch their pins or pool, so the copy the server
+          // holds is whichever default they signed up under. Move those to the
+          // current default and write it back, as the persist migration does.
+          // Checked before the split below, which would drop retired ids from an
+          // old default and make it unrecognisable.
+          const upgraded = upgradeUntouchedDefaults(remote);
+          Object.assign(remote, upgraded);
+
           // Blobs written before pins were scoped keep both universes in one
           // list. Split it here as well as in the persist migration: a device
           // with empty local state would otherwise seed an empty BYOK list over
@@ -386,6 +444,9 @@ export const useConfigStore = create<ConfigState>()(
             const legacy = remote.pinnedModels as string[];
             remote.pinnedPrivateModels = legacy.filter((id) => !PLAY_MODEL_IDS.has(id));
             remote.pinnedModels = legacy.filter((id) => PLAY_MODEL_IDS.has(id));
+          }
+          for (const k of Object.keys(upgraded) as SyncedKey[]) {
+            if (!hasUnsentEdit(k)) seed[k] = remote[k];
           }
           for (const k of SYNCED_KEYS) {
             // A local edit that hasn't been confirmed by the server yet wins.
@@ -442,9 +503,47 @@ export const useConfigStore = create<ConfigState>()(
       },
     }),
     {
-      name: "yumina-global-config",
-      version: 11,
+      name: PERSIST_KEY,
+      version: PERSIST_VERSION,
       migrate: migrateConfig,
     }
   )
 );
+
+/**
+ * Another tab saved the settings (the `storage` event carries its copy): take
+ * them, so the tab being played in follows a change made in a second tab.
+ * Without this every tab kept the copy it loaded until a reload: thinking
+ * switched off in one tab still thought in the other (a PC-only report; a
+ * phone has one tab). Keys this tab is still pushing keep this tab's value,
+ * BYOK pins stay with the login that hydrated them, and a copy written by a
+ * newer build is left alone. Returns whether anything changed.
+ */
+export function adoptConfigFromOtherTab(raw: string | null): boolean {
+  if (!raw) return false;
+  let parsed: { state?: unknown; version?: unknown };
+  try { parsed = JSON.parse(raw); } catch { return false; }
+  const saved = parsed?.state;
+  if (!saved || typeof saved !== "object" || Array.isArray(saved)) return false;
+  const version = typeof parsed.version === "number" ? parsed.version : 0;
+  if (version > PERSIST_VERSION) return false;
+  const state = version < PERSIST_VERSION
+    ? migrateConfig({ ...(saved as Record<string, unknown>) }, version)
+    : saved as Record<string, unknown>;
+  const current = useConfigStore.getState() as unknown as Record<string, unknown>;
+  const patch: Record<string, unknown> = {};
+  for (const key of Object.keys(DEFAULTS)) {
+    if (key === "pinnedPrivateModels" || !(key in state)) continue;
+    if (SYNCED_KEY_SET.has(key) && hasUnsentEdit(key as SyncedKey)) continue;
+    if (JSON.stringify(state[key]) !== JSON.stringify(current[key])) patch[key] = state[key];
+  }
+  if (Object.keys(patch).length === 0) return false;
+  useConfigStore.setState(patch as Partial<ConfigState>);
+  return true;
+}
+
+if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+  window.addEventListener("storage", (event) => {
+    if (event.key === PERSIST_KEY) adoptConfigFromOtherTab(event.newValue);
+  });
+}

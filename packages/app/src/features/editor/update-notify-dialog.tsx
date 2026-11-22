@@ -52,7 +52,7 @@ export function UpdateNotifyDialog({ worldId, worldName, onClose, held = false }
       <div className="mx-4 max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto overscroll-contain rounded-xl border border-zinc-700/50 bg-zinc-900 p-6 shadow-2xl">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
-            <Megaphone className="h-5 w-5 text-blue-400" />
+            <Megaphone className="h-5 w-5 text-zinc-400" />
             <h3 className="text-lg font-semibold text-zinc-100">{t("updateNotify.title")}</h3>
           </div>
           <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300 transition-colors">
@@ -62,7 +62,7 @@ export function UpdateNotifyDialog({ worldId, worldName, onClose, held = false }
 
         {held && (
           <p className="text-sm text-zinc-400 mb-4">
-            {t("updateNotify.heldDescription", { worldName, defaultValue: "These changes need review. Write a note for your players — it'll be posted when your update is approved and goes live." })}
+            {t("updateNotify.heldDescription", { worldName, defaultValue: "Posted when your update is approved." })}
           </p>
         )}
 

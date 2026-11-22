@@ -1,3 +1,8 @@
+---
+title: "Scenarios"
+description: "A scenario is a card inside your card: a dungeon, a chapter or a side story with its own lore, variables, AIs and memory, open only when it is time."
+---
+
 # Scenarios
 
 A scenario is like another card inside your card: it has its own lore, variables, behaviors and memory, and it only applies at certain times. A dungeon, a chapter, a side story, an underground casino that only opens at night: any of these can be a scenario.
@@ -27,7 +32,7 @@ If you're writing inside a scenario and realise something should really apply ev
 
 There are two ways to put things in it:
 
-- Select the scenario, then add things from **Add**. New things go straight into this scenario
+- Add things with the **＋** on the scenario's own blocks, or the icons in its header. New things go straight into this scenario
 - **Drag** a row from the card (or from another scenario) **into it**. With several rows selected, you can also click **Move to…** in the floating bar
 
 Deleting a scenario doesn't delete what's inside. Those things go back onto the card.
@@ -66,7 +71,7 @@ A scenario can keep its own. Choose under **Memory** in the scenario's settings:
 
 Whatever you pick, the chat history stays complete. All that changes is which part the AI here can see.
 
-Endless-dungeon style games suit "Its own pool": every time you enter a dungeon, it's clean inside (ง •̀_•́)ง
+Endless-dungeon style games suit "Its own pool": every time you enter a dungeon, it's clean inside
 
 There's also **When the player leaves**:
 

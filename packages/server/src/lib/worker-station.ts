@@ -16,7 +16,8 @@ import { db } from "../db/index.js";
 import { messages, playSessions } from "../db/schema.js";
 import type { ChatMessage } from "./llm/types.js";
 import { applyModelRedirect } from "./llm/model-redirects.js";
-import { DEFAULT_STORY_SUMMARY_MODEL, generateStorySummaryText } from "./session-compaction.js";
+import { generateStorySummaryText } from "./session-compaction.js";
+import { worldAiModel } from "./role-model.js";
 import { buildSummaryLanguageInstruction, normalizeSessionSummaryLanguage } from "./summary-language.js";
 import {
   buildInputBlocksFor,
@@ -346,7 +347,7 @@ async function runWorkerNow(args: {
       .slice(0, 8000);
 
     const model = applyModelRedirect(
-      (station.model || session.summaryModel || DEFAULT_STORY_SUMMARY_MODEL).trim(),
+      await worldAiModel(args.userId, station.model, session.summaryModel),
     );
     const language = normalizeSessionSummaryLanguage(session.summaryLanguage);
 

@@ -1,9 +1,7 @@
-import { useExternalWrites } from "./lib/use-external-writes";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { STUDIO_ASK_EVENT } from "./lib/block-ask";
-import { STUDIO_BACK_EVENT } from "./lib/studio-back";
+import { STUDIO_BACK_EVENT, STUDIO_OPEN_AI_CHANGES_EVENT, STUDIO_OPEN_VERSIONS_EVENT } from "./lib/studio-back";
 import type { IDockviewPanelProps } from "dockview-react";
 import {
   BookOpen,
@@ -23,17 +21,17 @@ import {
   ChevronDown,
   PanelsTopLeft,
   Sparkles,
-  History,
   Languages,
-  ArrowLeft,
+  List,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useStudioStore } from "@/stores/studio";
 import { useEditorStore, type EditorSection } from "@/stores/editor";
-import { ComponentsSection } from "@/features/editor/sections/components";
+import { useAuthGuard } from "@/hooks/use-auth-guard";
+import { LoreBindingsPanel } from "@/features/editor/components/lore-bindings-panel";
 import { STUDIO_FOCUS_COVER_EVENT, type CoverSettingsTarget, type StudioFocusCoverDetail } from "@/features/editor/lib/cover-settings-target";
 import { VariantTabBar } from "@/features/editor/variant-tab-bar";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
   AiChatPanel,
   AssetsPanel,
@@ -46,7 +44,6 @@ import {
   AudioPanel,
   SceneImagesPanel,
   BackgroundsPanel,
-  MechanicPacksPanel,
   CodeViewPanel,
   OverviewPanel,
   OverviewCoverPanel,
@@ -55,13 +52,12 @@ import {
 } from "./panels";
 import { BlueprintCanvasCore } from "./panels/blueprint-panel";
 import { FrontendPage } from "./panels/inspector/frontend-page";
-import { GenerationAtelier } from "@/edition/slots";
+import { GenerationAtelier, openPackMarketStore } from "@/edition/slots";
 import { useEdition } from "@/edition/edition";
 import { setPendingCodeJump } from "@/lib/code-jump";
 import { StageTree } from "./stage-tree";
 import { LEARNING_CANVAS_EVENT, LEARNING_PANEL_EVENT, lessonById } from "./learn/learning-catalog";
 import { useLearningWorkspace } from "./learn/learning-workspace";
-import { StudioDocsButton, StudioLearningButton } from "./learn/learning-button";
 import { LoreTokenMeter } from "./lore-token-meter";
 import { DockWorkspace, type DockTool } from "./dock-tools";
 import { AiPresenceLayer } from "./ai-presence";
@@ -71,8 +67,15 @@ import { takeRequestedPanel } from "@/lib/studio-entry";
 import { isScreenFirst } from "@/lib/editor-surface";
 const VersionHistoryDialog = lazy(() => import("@/features/editor/version-history-dialog").then(m => ({ default: m.VersionHistoryDialog })));
 
+/** 界面绑定: which lore each <LoreSlot> in the interface shows. Only that —
+ *  the full editor's 玩家界面 section also carries a 代码 tab, and here that
+ *  tab was a second editor for the same index.tsx that 界面代码 opens. */
 function ComponentsPanel() {
-  return <div className="h-full min-h-0 overflow-auto"><ComponentsSection /></div>;
+  return (
+    <div className="h-full min-h-0 overflow-auto px-6 py-5">
+      <LoreBindingsPanel onGoToCode={() => window.dispatchEvent(new CustomEvent("yumina:studio-stage-open-panel", { detail: { panelId: "code-view" } }))} />
+    </div>
+  );
 }
 
 function VariantsPanel() {
@@ -107,7 +110,6 @@ const DRAWER_PANELS: Record<string, { component: React.FC<IDockviewPanelProps>; 
   audio: { component: AudioPanel, titleKey: "studio.panels.audio", icon: Music },
   "scene-images": { component: SceneImagesPanel, titleKey: "studio.panels.sceneImages", icon: ImageIcon },
   backgrounds: { component: BackgroundsPanel, titleKey: "studio.panels.backgrounds", icon: ImageIcon },
-  packs: { component: MechanicPacksPanel, titleKey: "studio.panels.packs", icon: Zap },
   "code-view": { component: CodeViewPanel, titleKey: "studio.panels.frontEndCode", icon: Code },
   // The card can be finished on the stage: its identity, its assets and the
   // marketplace all reach the same drawer instead of forcing a mode switch.
@@ -128,8 +130,7 @@ const SECTION_PANEL: Record<EditorSection, string> = {
 const STUB_PANEL_PROPS = {} as IDockviewPanelProps;
 
 type StageDrawer =
-  /** `focus`: opened by a double-click on the board. The object's editor gets
-   *  the whole window and one way back, nothing else around it. */
+  /** `focus`: an object's editor, contained within the canvas workspace. */
   | { kind: "panel"; panelId: string; focus?: boolean }
   | { kind: "review"; title: string; node: React.ReactNode; key: string };
 
@@ -154,7 +155,6 @@ export function BlueprintStage({
   const teaching = learning.step !== null;
   const serverWorldId = useEditorStore(s => s.serverWorldId);
   const readOnly = useEditorStore(s => s.readOnlyInspect || s.guestMode);
-  const secondaryVariant = useEditorStore(s => s.variants.find(v => v.id === s.serverWorldId)?.isPrimaryVariant === false);
   const [showVersions, setShowVersions] = useState(false);
 
   // The assistant is open on arrival, docked on the right — it is how most
@@ -213,9 +213,12 @@ export function BlueprintStage({
   }, [centre]);
   const routingSection = useRef(false);
 
+  const { requireAuth } = useAuthGuard();
   const toggleAi = useCallback(() => {
+    // A signed-out visitor's assistant could only fail: sign in first.
+    if (useEditorStore.getState().guestMode) { requireAuth("create worlds"); return; }
     setAiOpen(open => !open);
-  }, []);
+  }, [requireAuth]);
   /** A request put in the assistant's composer from elsewhere. If the
    *  assistant is closed, that lands somewhere the creator cannot see and the
    *  click reads as a no-op — so the same event that writes the sentence also
@@ -223,7 +226,6 @@ export function BlueprintStage({
    *  decides what the right rail shows. */
   useEffect(() => {
     const reveal = (event: Event) => {
-      window.dispatchEvent(new Event("yumina:studio-canvas-clear-selection"));
       holdForAssistant(event);
       setAiOpen(true);
     };
@@ -247,6 +249,13 @@ export function BlueprintStage({
     // a drawer. It took the player-interface tab's place: that page was the
     // interface block drawn a second time, and generation is a job that needs
     // a whole page (wait, several results, listen, pick).
+    // 玩法包 is a shelf of the resource market now (Yumina's mechanic packs
+    // are official packs there), so an old door to its page opens the store
+    // on that shelf; the market page where there is no board.
+    if (panelId === "packs") {
+      if (openPackMarketStore("mechanics")) return;
+      panelId = "marketplace";
+    }
     if (panelId === "generation") {
       if (!features.imageGeneration) return;
       setDrawer(null);
@@ -274,6 +283,12 @@ export function BlueprintStage({
       openDrill(SECTION_PANEL[state.activeSection]);
     }
   }), [openDrill]);
+
+  useEffect(() => {
+    const open = () => { if (useEditorStore.getState().serverWorldId) setShowVersions(true); };
+    window.addEventListener(STUDIO_OPEN_VERSIONS_EVENT, open);
+    return () => window.removeEventListener(STUDIO_OPEN_VERSIONS_EVENT, open);
+  }, []);
 
   useEffect(() => {
     const showCanvas = () => { setDrawer(null); setCentre("blueprint"); };
@@ -368,7 +383,6 @@ export function BlueprintStage({
   // user can't watch is a run they'll think never started.
   useEffect(() => {
     const handler = (event: Event) => {
-      window.dispatchEvent(new Event("yumina:studio-canvas-clear-selection"));
       holdForAssistant(event);
       setAiOpen(true);
     };
@@ -403,7 +417,11 @@ export function BlueprintStage({
   useEffect(() => {
     if (!drawer) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !e.defaultPrevented) setDrawer(null);
+      if (e.key !== "Escape" || e.defaultPrevented || e.isComposing) return;
+      // Escape in the assistant belongs to the assistant, not the entry.
+      if (e.target instanceof Element && e.target.closest('[data-onboarding="assistant"]')) return;
+      e.preventDefault();
+      setDrawer(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -414,6 +432,7 @@ export function BlueprintStage({
   // board with nothing over it lets the arrow leave the card.
   useEffect(() => {
     const back = (event: Event) => {
+      if (event.defaultPrevented) return;
       if (showVersions) setShowVersions(false);
       else if (drawer) setDrawer(null);
       else if (isPlaytest) useStudioStore.getState().setMode("edit");
@@ -537,7 +556,6 @@ export function BlueprintStage({
   useEffect(() => () => setStageAssistant(null), [setStageAssistant]);
   // The block or row the assistant is changing right now glows on the canvas.
   useAgentPresence();
-  useExternalWrites(useEditorStore((s) => s.serverWorldId));
 
   const stageTools: DockTool[] = [
     {
@@ -546,8 +564,9 @@ export function BlueprintStage({
       open: aiShown,
       onClose: () => setAiOpen(false),
       keepMounted: true,
+      bare: true,
       defaultPosition: { direction: "right", size: 400 },
-      children: <div data-onboarding="assistant" className="flex h-full min-h-0 flex-col"><AiChatPanel {...STUB_PANEL_PROPS} /></div>,
+      children: <div data-onboarding="assistant" className="relative z-50 flex h-full min-h-0 flex-col"><AiChatPanel {...STUB_PANEL_PROPS} /></div>,
     },
     {
       id: "playtest",
@@ -574,8 +593,9 @@ export function BlueprintStage({
     <AiPresenceLayer />
     <DockWorkspace scope="canvas" mainTitle={t("studio.panels.blueprint")} tools={stageTools} className="flex min-h-0 w-full flex-1">
     <div
+      data-canvas-workspace
       className={cn(
-        "relative flex min-h-0 w-full flex-1 overflow-hidden",
+        "relative isolate z-0 flex min-h-0 w-full flex-1 overflow-hidden",
       )}
     >
       {/* No left rail: it held 44px for one button (the outline), and search
@@ -593,17 +613,27 @@ export function BlueprintStage({
         <div className="@container grid shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-b border-white/[0.07] px-2 py-1.5">
           <div className="flex min-w-0 items-center gap-1">
           <DropdownMenu>
-            <DropdownMenuTrigger asChild><button type="button" data-onboarding="editors" className={cn(pageTab(!!detailShown), "flex items-center gap-1.5")}><PanelsTopLeft className="h-3.5 w-3.5 shrink-0" /><span className="truncate @max-[46rem]:hidden">{detailShown && drawerMeta ? t(drawerMeta.titleKey as never) : t("studio.workspace.editors")}</span><ChevronDown className="h-3 w-3 shrink-0" /></button></DropdownMenuTrigger>
+            <DropdownMenuTrigger asChild><button type="button" data-onboarding="editors" className={cn(pageTab(!!detailShown), "flex items-center gap-1.5")}><PanelsTopLeft className="h-3.5 w-3.5 shrink-0" /><span className={cn("truncate", !detailShown && "@max-[46rem]:hidden")}>{detailShown && drawerMeta ? t(drawerMeta.titleKey as never) : t("studio.workspace.editors")}</span><ChevronDown className="h-3 w-3 shrink-0" /></button></DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="max-h-[80vh] w-60 overflow-y-auto">
               {/* What only lives here first; then the same things the board
                   shows, as full-page lists (folders, bulk edits, imports),
                   labelled as such so they no longer read as a second,
                   rival place to edit each thing. Nothing is taken out. */}
-              {["overview", "code-view", "assets", "variants", "marketplace"].filter(id => id !== "overview" || !secondaryVariant).map(id => { const meta = DRAWER_PANELS[id]!; return <DropdownMenuItem key={id} onSelect={() => openDrill(id)} className="gap-2 py-2"><meta.icon className="h-4 w-4 text-muted-foreground" />{t(meta.titleKey as never)}</DropdownMenuItem>; })}
-              <DropdownMenuItem disabled={!serverWorldId || !!readOnly} onSelect={() => setShowVersions(true)} className="gap-2 py-2"><History className="h-4 w-4" />{t("studio.versionHistory")}</DropdownMenuItem>
+              {/* Pages only. Not here any more: 资源市场 (its own button sits
+                  right beside this one), 语言与变体 (卡的设置 of the same card
+                  under a language switch the top bar's EN ▾ already is; a
+                  translation's 卡的设置 still opens it) and 版本历史 (a dialog,
+                  not a page — it is in ⋮ with the other history). */}
+              {["overview", "code-view", "assets"].map(id => { const meta = DRAWER_PANELS[id]!; return <DropdownMenuItem key={id} onSelect={() => openDrill(id)} className="gap-2 py-2"><meta.icon className="h-4 w-4 text-muted-foreground" />{t(meta.titleKey as never)}</DropdownMenuItem>; })}
+              {/* The same things the board shows, as whole-page lists for
+                  bulk work: one line here, opened only by someone looking. */}
               <DropdownMenuSeparator />
-              <p className="px-2 pb-1 pt-1.5 text-[11px] font-medium text-muted-foreground">{t("studio.workspace.fullLists")}</p>
-              {["first-message", "lorebook", "variables", "rules", "modules", "components", "audio", "scene-images", "packs"].map(id => { const meta = DRAWER_PANELS[id]!; return <DropdownMenuItem key={id} onSelect={() => openDrill(id)} className="gap-2 py-1.5 text-muted-foreground"><meta.icon className="h-4 w-4" />{t(meta.titleKey as never)}</DropdownMenuItem>; })}
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger className="gap-2 py-2 text-muted-foreground"><List className="h-4 w-4" />{t("studio.workspace.fullLists")}</DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="w-52">
+                  {["first-message", "lorebook", "variables", "rules", "modules", "components", "audio", "scene-images"].map(id => { const meta = DRAWER_PANELS[id]!; return <DropdownMenuItem key={id} onSelect={() => openDrill(id)} className="gap-2 py-1.5"><meta.icon className="h-4 w-4 text-muted-foreground" />{t(meta.titleKey as never)}</DropdownMenuItem>; })}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
             </DropdownMenuContent>
           </DropdownMenu>
           {/* The board's tools (加东西, then search and view once the board
@@ -614,10 +644,11 @@ export function BlueprintStage({
           <div ref={setToolbarHost} data-stage-toolbar className={cn("flex min-w-0 items-center justify-start", (frontendShown || generationShown || detailShown) && "invisible")} />
           </div>
 
+          {/* Only while the assistant is put away: open, it stands right
+              beside this button with a close of its own, and the two said
+              「创作助手」 side by side (owner, 11/16). */}
           <div className="flex min-w-0 items-center justify-end gap-1 overflow-hidden">
-            <StudioLearningButton />
-            <StudioDocsButton />
-            <button type="button" onClick={toggleAi} aria-pressed={aiShown} title={t("studio.panels.aiAssistant")} className={cn(pageTab(aiShown), "flex shrink-0 items-center gap-1.5 whitespace-nowrap")}><MessageSquare className="h-3.5 w-3.5" /><span className="@max-[46rem]:hidden">{t("studio.panels.aiAssistant")}</span></button>
+            {!aiShown && <button type="button" onClick={toggleAi} aria-pressed={false} title={t("studio.panels.aiAssistant")} className={cn(pageTab(false), "flex shrink-0 items-center gap-1.5 whitespace-nowrap")}><MessageSquare className="h-3.5 w-3.5" /><span className="@max-[46rem]:hidden">{t("studio.panels.aiAssistant")}</span></button>}
           </div>
         </div>
         )}
@@ -688,42 +719,15 @@ export function BlueprintStage({
             stays mounted underneath (layout, selection and undo state survive)
             and the top bar's ← walks straight back to it.
             The AI keeps its column throughout. */}
-        {/* A double-click on the board opens the object's editor as a page of
-            its own: the whole window, the editor and a way back — no bars,
-            tabs or menus around it. ← and Esc both return to the board,
-            which stayed mounted underneath exactly as it was.
-            Portalled to <body>: inside the stage, an ancestor contains fixed
-            positioning, and the page came out framed in the centre column
-            with the shell's bar and the assistant still around it. z-45 sits
-            over the shell, under the z-50 menus and dialogs the editor opens. */}
-        {drawer && drawer.kind === "panel" && drawer.focus && DrawerComponent && createPortal(
-          <div data-stage-focus-page={drawer.panelId} className="fixed inset-0 z-[45] flex flex-col bg-[#131118] text-foreground">
-            <div className="flex shrink-0 items-center gap-3 border-b border-white/[0.07] px-3 py-2" style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 0.5rem)" }}>
-              <button
-                type="button"
-                data-stage-focus-back
-                onClick={() => setDrawer(null)}
-                className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-sm text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-amber-400"
-              >
-                <ArrowLeft className="h-4 w-4" />
-                {t("entries.back")}
-              </button>
-              {drawerMeta && <span className="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-foreground"><drawerMeta.icon className="h-3.5 w-3.5 shrink-0 text-amber-400" /><span className="truncate">{t(drawerMeta.titleKey as never)}</span></span>}
-            </div>
-            <div className="min-h-0 flex-1 overflow-hidden">
-              {drawerBody}
-            </div>
-          </div>,
-          document.body,
-        )}
-        {drawer && drawer.kind === "panel" && !drawer.focus && DrawerComponent && (
-          <div className="absolute inset-0 z-30 flex flex-col bg-[#131118]">
-            {/* A title, not a way out: the top bar's ← is the one way back
-                (it closes this page first), and Esc does the same. */}
-            <div className="flex shrink-0 items-center gap-1.5 border-b border-white/[0.07] px-3 py-2">
-              {drawerMeta && <drawerMeta.icon className="h-3.5 w-3.5 shrink-0 text-amber-400" />}
-              <span className={dockTitle}>{t(drawerMeta!.titleKey as never)}</span>
-            </div>
+        {/* Entry pages stay inside the canvas. The toolbar and assistant remain
+            reachable, including when a tool is floated above this workspace. */}
+        {/* No title row of its own: the 面板 switch just above already reads
+            「设定 ▾」, and a second 「设定」 under it — then the page's own
+            heading under that — was the same word stacked three times. The
+            top bar's ← is the one way back (it closes this page first), and
+            Esc does the same. */}
+        {drawer && drawer.kind === "panel" && DrawerComponent && (
+          <div data-stage-focus-page={drawer.focus ? drawer.panelId : undefined} className="absolute inset-0 z-30 flex flex-col overflow-hidden bg-[#131118] text-foreground">
             <div className="min-h-0 flex-1 overflow-hidden">
               {drawerBody}
             </div>
@@ -735,7 +739,7 @@ export function BlueprintStage({
         {drawer && drawer.kind === "review" && (
           <div className="absolute bottom-3 right-3 top-3 z-[60] flex w-[620px] max-w-[90%] flex-col overflow-hidden rounded-xl border border-white/[0.08] bg-[#181a24] shadow-[0_24px_80px_rgba(0,0,0,0.6)]">
             <div className={dockHeader}>
-              <Code className="h-3.5 w-3.5 shrink-0 text-amber-400" />
+              <Code className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               <span className={dockTitle}>{drawer.title}</span>
               <button type="button" onClick={() => setDrawer(null)} title={t("studio.stage.close")} className={dockIconBtn}>
                 <X className="h-3.5 w-3.5" />
@@ -772,7 +776,7 @@ export function BlueprintStage({
           <div className="min-h-0 flex-1"><PlaytestPanel {...STUB_PANEL_PROPS} /></div>
         </>}
       </aside>
-      {showVersions && serverWorldId && <Suspense fallback={null}><VersionHistoryDialog worldId={serverWorldId} onClose={() => setShowVersions(false)} /></Suspense>}
+      {showVersions && serverWorldId && <Suspense fallback={null}><VersionHistoryDialog worldId={serverWorldId} onClose={() => setShowVersions(false)} onOpenAiChanges={() => { setShowVersions(false); window.dispatchEvent(new Event(STUDIO_OPEN_AI_CHANGES_EVENT)); }} /></Suspense>}
     </div>
     </DockWorkspace>
     </>

@@ -18,7 +18,7 @@ export async function recordNotificationLikeVisit(
     )
     WHERE user_id = ${userId}
       AND type IN (
-        'new_favorite', 'bundle_like', 'thread_like', 'post_like',
+        'new_favorite', 'bundle_like', 'bundle_installed', 'thread_like', 'post_like',
         'new_follower', 'thread_reply', 'post_reply', 'new_comment', 'new_review_reply'
       )
       AND payload->>'activityBatchId' IS NULL

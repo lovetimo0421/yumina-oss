@@ -1,0 +1,535 @@
+{
+  "pageTitle": "Pengaturan",
+  "search": {
+    "label": "Cari pengaturan",
+    "placeholder": "Cari pengaturan",
+    "clear": "Hapus pencarian pengaturan",
+    "results": "{{count}} pengaturan ditemukan",
+    "noResults": "Pengaturan tidak ditemukan",
+    "noResultsHint": "Coba kata kunci lain, misalnya bahasa atau privasi.",
+    "aiConfigDescription": "Model, penyedia, kunci API, dan preferensi pembuatan.",
+    "byokTitle": "Koneksi API pribadi",
+    "byokDescription": "Pakai kunci API-mu sendiri",
+    "localModelTitle": "Jalankan di komputermu sendiri",
+    "localModelDescription": "Main gratis dengan model di perangkat ini"
+  },
+  "nav": {
+    "account": "Akun",
+    "aiConfig": "Konfigurasi AI",
+    "contentSafety": "Konten & Keamanan",
+    "privacy": "Privasi",
+    "notifications": "Notifikasi",
+    "display": "Tampilan / Bahasa",
+    "wallpaper": "Wallpaper",
+    "about": "Tentang",
+    "prompts": "Prompt"
+  },
+  "aiConfig": {
+    "title": "Konfigurasi AI",
+    "ownAi": "Lanjutan: pakai AI-mu sendiri"
+  },
+  "account": {
+    "saved": "Tersimpan",
+    "title": "Akun",
+    "emailLabel": "Email",
+    "emailCannotChange": "Email tidak bisa diubah",
+    "usernameLabel": "Nama pengguna",
+    "usernameHint": "3-30 karakter, hanya huruf, angka, dan garis bawah",
+    "save": "Simpan",
+    "saving": "Menyimpan...",
+    "changePassword": {
+      "changed": "Diubah",
+      "title": "Ubah kata sandi",
+      "description": "Perbarui kata sandimu. Semua sesi lainnya akan dikeluarkan.",
+      "currentPassword": "Kata sandi saat ini",
+      "newPassword": "Kata sandi baru",
+      "confirmNewPassword": "Konfirmasi kata sandi baru",
+      "submit": "Ubah kata sandi",
+      "changing": "Mengubah..."
+    },
+    "signOut": {
+      "title": "Keluar",
+      "description": "Keluar dari akunmu di perangkat ini.",
+      "button": "Keluar"
+    },
+    "loginDevices": {
+      "title": "Perangkat login",
+      "description": "Keluarkan perangkat yang tidak kamu kenali atau sudah tidak dipakai.",
+      "loading": "Memuat perangkat...",
+      "loadError": "Perangkatmu tidak bisa dimuat. Coba lagi nanti.",
+      "unknownDevice": "Perangkat tidak dikenal",
+      "thisDevice": "Perangkat ini",
+      "lastActive": "Terakhir aktif {{time}}",
+      "signOutDevice": "Keluar",
+      "signingOut": "Sedang keluar...",
+      "signOutOthers": "Keluarkan semua perangkat lain ({{n}})",
+      "revoked": "Perangkat berhasil dikeluarkan",
+      "revokedOthers": "Semua perangkat lain berhasil dikeluarkan",
+      "revokeError": "Perangkat itu tidak bisa dikeluarkan. Coba lagi nanti.",
+      "propagationNote": "Perangkat yang dikeluarkan bisa butuh sampai 5 menit untuk benar-benar logout. Mengubah kata sandi akan langsung mengeluarkan semua perangkat lain.",
+      "showAll": "Tampilkan semua {{n}} perangkat"
+    },
+    "deleteAccount": {
+      "title": "Hapus akun",
+      "description": "Hapus akun dan data terkait secara permanen.",
+      "button": "Hapus akun",
+      "dialogTitle": "Hapus akunmu secara permanen?",
+      "dialogDescription": "Kami akan mengirim tautan konfirmasi lewat email. Akunmu tetap aktif sampai kamu mengonfirmasi.",
+      "warningTitle": "Tindakan ini tidak bisa dibatalkan",
+      "summaryWarnings": {
+        "data": "Akun, konten, chat, dan file yang kamu upload akan dihapus secara permanen.",
+        "billing": "Langganan langsung berakhir. Sisa waktu dan mushies tidak dikembalikan.",
+        "deletionCooldown": "Kamu bisa daftar lagi kapan saja. Untuk menghapus lagi, harus lewat 3 hari sejak penghapusan ini."
+      },
+      "warnings": {
+        "identity": "Profilmu dan semua metode login yang terhubung akan dihapus.",
+        "deletionCooldown": "Email yang sama bisa langsung dipakai mendaftar lagi, termasuk lewat Google atau Discord, tetapi akun yang dibuat ulang tidak bisa dihapus lagi selama 3 hari setelah penghapusan ini.",
+        "content": "Dunia, paket sumber daya, konten yang dipublikasikan, sesi, pesan, persona, dan file uploadmu akan dihapus.",
+        "community": "Pemain lain mungkin kehilangan sesi, ulasan, atau balasan yang terkait dengan konten buatanmu.",
+        "billing": "Langganan aktif akan langsung berakhir. Sisa waktu paket dan mushies tidak dikembalikan.",
+        "records": "Penyedia pembayaran mungkin menyimpan catatan tagihan dan identitas sesuai kewajiban hukum untuk akuntansi atau pencegahan penipuan; catatan itu tidak lagi terhubung ke akun Yumina yang aktif.",
+        "antiAbuse": "Log keamanan pseudonim dan analitik terbatas mungkin disimpan selama jangka waktu yang diperlukan untuk mencegah penyalahgunaan dan menjalankan layanan.",
+        "cache": "File upload yang tersimpan akan dihapus, tetapi cache di browser atau jaringan pengiriman yang sudah ada mungkin masih terlihat sampai masa cache-nya habis."
+      },
+      "pendingEarnings": "Penghasilan kreator yang belum diselesaikan menghalangi penghapusan akun. Hubungi dukungan untuk bantuan.",
+      "confirmLabel": "Ketik {{target}} untuk mengonfirmasi",
+      "confirmPlaceholder": "Masukkan {{target}}",
+      "acknowledge": "Aku mengerti bahwa akun dan datanya akan dihapus secara permanen.",
+      "sendEmail": "Kirim email konfirmasi",
+      "sending": "Mengirim...",
+      "cancel": "Tetap simpan akunku",
+      "canceling": "Membatalkan permintaan...",
+      "emailSentTitle": "Cek emailmu",
+      "emailSentDescription": "Kami sudah mengirim tautan penghapusan ke {{email}}. Akunmu tetap aktif sampai kamu menyelesaikan halaman konfirmasi terakhir. Setelah dihapus, kamu bisa langsung mendaftar lagi, tapi akun yang dibuat ulang tidak bisa dihapus lagi selama 3 hari. Tautan ini kedaluwarsa dalam 1 jam.",
+      "close": "Tutup",
+      "finalConfirmationDescription": "Ini langkah terakhir. Penghapusan langsung dimulai begitu kamu menekan tombol di bawah dan tidak bisa dibatalkan. Kamu bisa langsung mendaftar lagi, tapi akun yang dibuat ulang tidak bisa dihapus lagi selama 3 hari.",
+      "deleting": "Menghapus...",
+      "invalidLinkTitle": "Tautan tidak valid atau sudah kedaluwarsa",
+      "signInRequiredTitle": "Perlu login",
+      "signInRequiredDescription": "Demi keamananmu, login ke akun ini di browser yang sama, lalu buka lagi tautan penghapusan dari emailmu.",
+      "signIn": "Masuk",
+      "errors": {
+        "confirmationMismatch": "Teks konfirmasi tidak cocok dengan akunmu.",
+        "pendingEarnings": "Pendapatan kreator masih menunggu penyelesaian. Hubungi dukungan sebelum menghapus akunmu.",
+        "billing": "Layanan pembayaran tidak bisa membatalkan langganan, jadi penghapusan dihentikan. Coba lagi nanti; kalau masih terjadi, hubungi dukungan untuk memeriksa langgananmu.",
+        "creatorAccount": "Akun pembayaran kreatormu tidak bisa ditutup. Hubungi dukungan sebelum menghapus akunmu.",
+        "notReady": "Penghapusan akun sedang disiapkan. Coba lagi beberapa menit lagi.",
+        "cooldown": "Email ini dipakai oleh akun yang dihapus kurang dari 3 hari lalu. Kamu tetap bisa memakai akun ini, tapi belum bisa menghapusnya lagi.",
+        "cooldownUntil": "Email ini milik akun yang dihapus kurang dari 3 hari lalu, jadi akun ini tidak bisa dihapus sampai {{time}}. Ini bukan penguncian — kamu tetap bisa memakai akun seperti biasa.",
+        "lastAdmin": "Akun administrator terakhir tidak bisa dihapus. Jadikan administrator tepercaya lainnya terlebih dahulu.",
+        "referral": "Akun dengan riwayat referral perlu dihapus dengan bantuan dukungan agar hadiah tidak bisa diklaim dua kali.",
+        "protectedHistory": "Akun ini punya pembatasan keamanan yang aktif. Hubungi dukungan untuk bantuan penghapusan.",
+        "email": "Kami tidak bisa mengirim email konfirmasi. Coba lagi nanti.",
+        "invalidLink": "Tautan penghapusan ini tidak valid atau sudah kedaluwarsa. Minta tautan baru dari pengaturan Akun.",
+        "generic": "Tidak bisa memulai penghapusan akun. Coba lagi nanti.",
+        "privileged": "Akun berhak istimewa harus mengalihkan tanggung jawab administratif sebelum dihapus. Hubungi dukungan.",
+        "billingUnavailable": "Akunmu punya catatan pembayaran terkait, tetapi pembersihan pembayaran belum dikonfigurasi di layanan ini. Hubungi dukungan untuk memulihkannya sebelum menyelesaikan penghapusan. Ini tidak berarti kamu punya langganan berbayar aktif atau sudah menyelesaikan pengaturan pembayaran.",
+        "subscriptionLookup": "Layanan pembayaran tidak bisa memverifikasi status langganan. Penghapusan dihentikan. Coba lagi nanti atau hubungi dukungan.",
+        "paymentPending": "Ada pembayaran yang masih menunggu penyelesaian. Coba lagi setelah pembayaran selesai atau gagal; hubungi dukungan jika tetap tertunda.",
+        "signIn": "Sesimu sudah berakhir. Masuk lagi lalu coba lagi.",
+        "origin": "Halaman ini gagal dalam pemeriksaan asal yang aman. Buka lagi penghapusan akun dari pengaturan situs ini.",
+        "request": "Permintaan konfirmasi tidak valid. Muat ulang halaman lalu coba lagi."
+      },
+      "preflight": {
+        "title": "Masalah yang harus diselesaikan sebelum menghapus akunmu",
+        "loading": "Memeriksa persyaratan penghapusan…",
+        "failed": "Tidak bisa memeriksa persyaratan penghapusan. Coba lagi sebelum melanjutkan.",
+        "retry": "Periksa lagi",
+        "emailAllowed": "Masalah ini menghalangi penghapusan akhir, tapi kamu tetap bisa menerima email konfirmasi. Mengirim email tidak menghapus akunmu atau membatalkan langganan.",
+        "emailBlocked": "Selesaikan masalah di atas sebelum meminta email konfirmasi. Akunmu tetap bisa dipakai.",
+        "scope": "Ini masalah yang terdeteksi sejauh ini. Konfirmasi akhir akan memeriksa lagi, termasuk langganan dan pembayaran di layanan pembayaran.",
+        "records": "Catatan terkait ditemukan: {{records}}. Catatan saja tidak berarti ada langganan aktif atau pengaturan pembayaran yang sudah selesai.",
+        "recordKinds": {
+          "customer": "pelanggan pembayaran",
+          "subscription": "langganan",
+          "connect": "pembayaran kreator",
+          "payment": "pembayaran",
+          "checkout": "checkout"
+        }
+      }
+    },
+    "connectedAccounts": {
+      "title": "Metode masuk",
+      "description": "Semua metode yang terhubung akan memasukkanmu ke akun yang sama.",
+      "emailPassword": "Email & kata sandi",
+      "connected": "Terhubung",
+      "notConnected": "Belum terhubung",
+      "connect": "Hubungkan",
+      "disconnect": "Putuskan",
+      "connecting": "Menghubungkan...",
+      "disconnecting": "Memutuskan...",
+      "loading": "Memuat...",
+      "disconnected": "Terputus",
+      "connectError": "Gagal menghubungkan",
+      "disconnectError": "Gagal memutuskan"
+    },
+    "connectedApps": {
+      "title": "Aplikasi terhubung",
+      "description": "Mod game, aplikasi, dan AI yang kamu masuki dengan akun Yumina. Putuskan salah satunya dan aksesnya langsung dicabut.",
+      "loading": "Memuat…",
+      "loadError": "Gagal memuat. Muat ulang lalu coba lagi.",
+      "empty": "Belum ada aplikasi yang terhubung.",
+      "verified": "Resmi",
+      "connectedOn": "Terhubung {{date}}",
+      "disconnect": "Putuskan",
+      "disconnecting": "Memutuskan…",
+      "disconnectError": "Gagal memutuskan. Coba lagi.",
+      "scope": {
+        "aiChat": "Chat pakai mushies-mu",
+        "walletRead": "Saldo",
+        "quests": "Misi",
+        "cards": "Kartumu",
+        "profile": "Nama"
+      }
+    },
+    "validation": {
+      "usernameMinLength": "Nama pengguna minimal 3 karakter",
+      "usernameTaken": "Nama pengguna sudah dipakai",
+      "usernameUpdateFailed": "Gagal memperbarui nama pengguna",
+      "usernameUpdated": "Nama pengguna diperbarui",
+      "passwordMinLength": "Kata sandi baru minimal 8 karakter",
+      "passwordsMismatch": "Kata sandi tidak cocok",
+      "passwordChanged": "Kata sandi berhasil diubah",
+      "passwordChangeFailed": "Gagal mengubah kata sandi",
+      "saveFailed": "Gagal menyimpan pengaturan"
+    }
+  },
+  "contentSafety": {
+    "title": "Konten & Keamanan",
+    "description": "Atur jenis konten yang kamu lihat di platform.",
+    "contentLevel": "Mode Konten",
+    "safe": {
+      "label": "Limited",
+      "description": "Tampilkan konten Limited saja"
+    },
+    "sensitive": {
+      "label": "Limitless",
+      "description": "Sertakan konten Limitless."
+    },
+    "minorRestriction": "Mode Limitless tidak tersedia untuk akun ini.",
+    "audiencePreference": {
+      "title": "Preferensi Audiens",
+      "description": "Pilih audiens yang ingin kamu lihat di feed rekomendasi. Tidak memengaruhi pencarian, tag, atau halaman kreator.",
+      "all": {
+        "label": "Untuk Semua",
+        "description": "Lihat semua cerita, termasuk yang berorientasi pria dan wanita."
+      },
+      "male": {
+        "label": "Untuk Pria",
+        "description": "Lihat cerita berorientasi pria dan umum, sembunyikan yang berorientasi wanita."
+      },
+      "female": {
+        "label": "Untuk Wanita",
+        "description": "Lihat cerita berorientasi wanita dan umum, sembunyikan yang berorientasi pria."
+      }
+    },
+    "blurSensitive": {
+      "title": "Buramkan sampul sensitif",
+      "description": "Sampul sensitif disembunyikan di balik efek buram sampai kamu memilih untuk melihatnya satu per satu. Matikan untuk menampilkan semua sampul. Mode kontenmu tidak berubah."
+    },
+    "hiddenWorlds": {
+      "title": "Dunia tersembunyi",
+      "subtitle": "Dunia yang kamu tandai \"Tidak tertarik\" di Jelajahi",
+      "empty": "Tidak ada dunia tersembunyi.",
+      "show": "Tampilkan lagi",
+      "failed": "Gagal memulihkan, coba lagi"
+    }
+  },
+  "privacy": {
+    "title": "Privasi",
+    "description": "Atur siapa yang bisa melihat aktivitasmu dan menghubungimu.",
+    "privateAccount": {
+      "title": "Akun Privat",
+      "description": "Hanya orang yang kamu ikuti yang bisa melihat dunia yang kamu publikasikan, statistik, dan aktivitasmu."
+    },
+    "allowDMs": {
+      "title": "Izinkan Pesan Pribadi",
+      "description": "Biarkan pengguna lain memulai percakapan pesan langsung denganmu."
+    },
+    "showRecentPlay": {
+      "title": "Tampilkan Riwayat Main Terbaru",
+      "description": "Tampilkan dunia yang baru kamu mainkan di profil publikmu."
+    },
+    "profileVisibility": {
+      "title": "Visibilitas Profil",
+      "description": "Pilih siapa yang bisa melihat bagian privat profilmu. Saat profilmu dibatasi, orang lain tidak bisa melihat dunia yang kamu publikasikan, riwayat main terbaru, daftar pengikut/mengikuti, atau favorit di profilmu.",
+      "public": {
+        "title": "Publik",
+        "description": "Siapa saja bisa melihat detail dan bagian profilmu."
+      },
+      "followers": {
+        "title": "Orang yang kuikuti",
+        "description": "Hanya orang yang kamu ikuti yang bisa melihat dunia yang kamu publikasikan dan data profil privatmu."
+      },
+      "private": {
+        "title": "Privat",
+        "description": "Hanya kamu yang bisa melihat dunia yang kamu publikasikan dan data profil privatmu."
+      }
+    },
+    "showPlayHistory": {
+      "title": "Tampilkan Riwayat Bermain",
+      "description": "Tampilkan dunia yang baru-baru ini kamu mainkan di profil publikmu."
+    },
+    "showStats": {
+      "title": "Tampilkan Datakuku",
+      "description": "Tampilkan waktu bermain dan statistik kreator di profil publikmu."
+    },
+    "showFollowLists": {
+      "title": "Tampilkan Daftar Pengikut / Mengikuti",
+      "description": "Izinkan orang lain membuka daftar pengikut dan daftar yang kamu ikuti. Jumlahnya tetap terlihat di kedua kondisi."
+    },
+    "showFavorites": {
+      "title": "Tampilkan Favoritku",
+      "description": "Tampilkan pratinjau favorit dan pustaka di profil publikmu."
+    },
+    "blacklist": {
+      "title": "Daftar Blokir",
+      "subtitle": "Kelola pengguna yang diblokir",
+      "empty": "Belum ada pengguna yang diblokir.",
+      "unblock": "Buka blokir",
+      "saveFailed": "Gagal memperbarui daftar blokir",
+      "hideTheirWorlds": "Sembunyikan kartu dunia mereka",
+      "hideMyWorlds": "Sembunyikan kartu duniaku dari mereka",
+      "hideTheirActivity": "Sembunyikan ulasan dan postingan komunitas mereka"
+    }
+  },
+  "notifications": {
+    "title": "Notifikasi",
+    "groups": {
+      "engagement": "Interaksi",
+      "engagementDesc": "Favorit, ulasan, suka, dan tip untuk dunia dan paket sumber dayamu.",
+      "social": "Sosial",
+      "socialDesc": "Pengikut baru dan dunia baru dari kreator yang kamu ikuti.",
+      "creatorPosts": "Notifikasi postingan kreator",
+      "creatorPostsDesc": "Postingan dari kreator yang kamu ikuti atau yang kartunya ada di pustakamu. Notifikasi sosial harus aktif.",
+      "library": "Pustaka",
+      "libraryDesc": "Pembaruan dan perubahan status untuk dunia di pustakamu.",
+      "community": "Komunitas",
+      "communityDesc": "Balasan, suka, dan hadiah di postingan forummu."
+    }
+  },
+  "display": {
+    "readingAppearance": {
+      "title": "Tampilan bermain",
+      "description": "Pilih gelap atau terang untuk tampilan bermain default. Disimpan di browser ini.",
+      "dark": "Gelap",
+      "light": "Terang"
+    },
+    "turnImages": {
+      "title": "Ilustrasi cerita",
+      "description": "Menambahkan tombol “Gambar adegan ini” di balasan.",
+      "auto": "Ilustrasikan setiap balasan",
+      "free": "Sisa {{count}} gratis, setelah itu {{price}} mushies per gambar",
+      "price": "{{price}} mushies per gambar",
+      "unlimited": "Termasuk dalam paketmu",
+      "style": {
+        "default": "Cepat",
+        "detailed": "Detail",
+        "vivid": "Cerah"
+      },
+      "vividTag": "Satu orang"
+    },
+    "title": "Tampilan",
+    "language": {
+      "title": "Bahasa",
+      "current": "Saat ini"
+    },
+    "fontSize": {
+      "title": "Ukuran Font",
+      "small": "Kecil",
+      "default": "Default",
+      "large": "Besar",
+      "xLarge": "Sangat Besar",
+      "xxLarge": "Paling Besar",
+      "hint": "Perubahan langsung diterapkan dan disimpan di perangkat ini."
+    },
+    "autoFullscreenOnPlay": {
+      "title": "Otomatis layar penuh saat bermain",
+      "description": "Buka dunia dengan antarmuka khusus dalam layar penuh. Kamu juga bisa beralih ke layar penuh saat bermain."
+    },
+    "worldAudio": {
+      "title": "Musik & efek suara dunia",
+      "description": "Putar musik latar dan efek suara di dunia."
+    },
+    "tts": {
+      "title": "Bacakan suara",
+      "description": "Ketuk ikon speaker di balasan untuk mendengarnya, atau aktifkan baca otomatis di bawah.",
+      "offDescription": "Nonaktif secara default. Aktifkan agar balasan dibacakan; pembacaan memakai mushies.",
+      "autoPlay": {
+        "title": "Baca otomatis",
+        "description": "Bacakan balasan baru begitu muncul. Setiap pembacaan baru memakai mushies."
+      },
+      "mode": {
+        "full": "Bacakan semuanya",
+        "fullHint": "Narasi dan dialog",
+        "dialogue": "Dialog saja",
+        "dialogueHint": "Hanya kalimat di dalam tanda kutip"
+      },
+      "voice": {
+        "title": "Suara",
+        "poolTitle": "Kumpulan suaraku",
+        "poolHint": "Centang suara yang kamu suka dan AI akan memilih dari situ untuk tiap karakter. Kalau tidak ada yang dicentang, AI memilih dari semua suara.",
+        "poolAll": "Semua suara",
+        "poolCount": "{{count}} dipilih",
+        "poolClear": "Hapus semua",
+        "customGroup": "Kustom",
+        "rename": "Ganti nama",
+        "remove": "Hapus",
+        "namePlaceholder": "Beri nama suara ini",
+        "auto": "Otomatis (sesuai bahasaku)",
+        "preview": "Pratinjau suara",
+        "customPlaceholder": "ID suara kustom (32 karakter, dari fish.audio)",
+        "customHint": "Tempel ID suara apa pun dari pustaka suara fish.audio untuk menambahkannya ke kumpulan suaramu.",
+        "invalidId": "Sepertinya ini bukan ID suara — harusnya 32 huruf dan angka."
+      },
+      "volume": "Volume suara",
+      "previewFailed": "Pratinjau tidak bisa diputar. Coba lagi.",
+      "costHint": "Sintesis suara ditagih per karakter (mushies). Memutar ulang kalimat yang sudah dibuat selalu gratis.",
+      "voices": {
+        "zhGentleFemale": "Wanita lembut",
+        "zhMatureFemale": "Wanita dewasa",
+        "zhSweetGirl": "Gadis manis",
+        "zhYoungMale": "Pria muda",
+        "zhNarratorMale": "Narator",
+        "enFemale": "Wanita hangat",
+        "enYouthfulMale": "Pria enerjik",
+        "jaCalmFemale": "Wanita tenang",
+        "jaEnergeticFemale": "Gadis ceria",
+        "jaCalmMale": "Pria tenang",
+        "zhLivelyFemale": "Wanita lincah",
+        "zhLightMatureFemale": "Wanita dewasa lembut",
+        "zhBrightFemale": "Wanita riang",
+        "zhBroadcastMale": "Pria penyiar",
+        "zhDeepMale": "Pria bersuara dalam",
+        "zhSteadyMale": "Pria stabil",
+        "enNarratorFemale": "Wanita pendongeng",
+        "enSoftFemale": "E-girl lembut",
+        "enDeepMale": "Pria berat dan pelan",
+        "enCalmMale": "Pria kalem",
+        "jaBrightGirl": "Gadis ceria",
+        "jaDeepMale": "Narator santai",
+        "esFemale": "Wanita merdu",
+        "esGirl": "Gadis enerjik",
+        "esNarratorMale": "Narator pria"
+      }
+    },
+    "voiceInput": {
+      "title": "Input suara",
+      "description": "Tahan mikrofon dan bicara, tidak perlu mengetik. Saat kotak pesan kosong, tombol kirim berubah jadi mikrofon.",
+      "release": "Saat kamu melepas",
+      "followCard": "Bawaan kartu",
+      "confirm": "Periksa dulu",
+      "auto": "Kirim langsung",
+      "followCardHint": "Bawaan kartu: tiap kartu yang menentukan (kebanyakan memintamu periksa dulu).",
+      "key": "Tombol tahan untuk bicara",
+      "keySpace": "Spasi",
+      "keySpaceHint": "Berfungsi saat kamu tidak sedang mengetik di kotak pesan",
+      "keyAnyHint": "Berfungsi di mana saja, bahkan saat mengetik",
+      "keyPress": "Tekan sebuah tombol…",
+      "free": "Input suara gratis."
+    },
+    "sendKey": {
+      "title": "Tekan Enter untuk kirim",
+      "description": "Saat aktif, Enter mengirim pesanmu dan Shift+Enter membuat baris baru. Saat nonaktif, Ctrl/⌘+Enter mengirim dan Enter membuat baris baru."
+    },
+    "sceneVideo": {
+      "title": "Video adegan (eksperimental)",
+      "description": "Menampilkan Video adegan di menu bermain dan di kartu dengan layar film. Ada dua cara menonton: siaran langsung yang mengikuti cerita (sekitar 5.800 mushies per menit), atau film pendek dengan suara untuk setiap balasan, siap beberapa menit setelahnya (sekitar 100–1.400 mushies per balasan)."
+    },
+    "halloween": {
+      "title": "Dekorasi hari raya",
+      "description": "Saat Halloween, mushie dan logo berdandan, dan seekor kelelawar kecil sesekali melintas. Tampilan dunia tidak akan diubah."
+    }
+  },
+  "wallpaper": {
+    "title": "Wallpaper",
+    "description": "Pilih wallpaper untuk setiap halaman.",
+    "visualControls": {
+      "title": "Kontrol visual"
+    },
+    "opacity": {
+      "title": "Opasitas wallpaper",
+      "description": "Buat wallpaper lebih pudar atau lebih jelas.",
+      "minLabel": "Halus",
+      "maxLabel": "Tajam",
+      "ariaLabel": "Opasitas wallpaper",
+      "hint": "Latar belakang Jelajahi, profil, pengaturan, dan pustaka"
+    },
+    "gradient": {
+      "title": "Kekuatan gradasi bawah",
+      "description": "Atur gelapnya pudaran di bagian bawah halaman.",
+      "minLabel": "Lebih terang",
+      "maxLabel": "Lebih gelap",
+      "ariaLabel": "Kekuatan gradasi bawah"
+    },
+    "cloudyGlass": {
+      "title": "Kekuatan kaca buram",
+      "description": "Atur keburaman dan opasitas panel kaca.",
+      "minLabel": "Lebih jernih",
+      "maxLabel": "Lebih buram",
+      "ariaLabel": "Kekuatan kaca buram"
+    },
+    "autoSaves": "Perubahan tersimpan otomatis",
+    "library": {
+      "title": "Pustaka wallpaper",
+      "description": "Klik wallpaper untuk memilih halaman yang memakainya."
+    },
+    "upload": {
+      "title": "Upload wallpaper kustom",
+      "description": "Galeri ini menampilkan gambar di folder \"{{folderName}}\" milikmu. Upload tersimpan di sana.",
+      "loading": "Memuat wallpaper...",
+      "assetCount_one": "{{count}} aset gambar terunggah",
+      "assetCount": "{{count}} aset gambar terunggah",
+      "button": "Upload"
+    },
+    "assignments": {
+      "discover": {
+        "label": "Jelajahi",
+        "description": "Halaman Jelajahi dan penemuan"
+      },
+      "profile": {
+        "label": "Profil",
+        "description": "Halaman profil dan profil publik"
+      },
+      "settings": {
+        "label": "Pengaturan",
+        "description": "Halaman pengaturan dan konfigurasi"
+      },
+      "library": {
+        "label": "Pustaka",
+        "description": "Halaman Pustaka dan pilihan buat baru"
+      }
+    },
+    "unused": "Tidak dipakai",
+    "setFor": "Atur \"{{name}}\" untuk...",
+    "current": "Saat ini",
+    "set": "Atur",
+    "unknown": "Tidak diketahui",
+    "presets": {
+      "starryNight": {
+        "label": "Malam Berbintang",
+        "description": "Langit malam biru keemasan"
+      },
+      "libraryCanvas": {
+        "label": "Kanvas Pustaka",
+        "description": "Lukisan suasana lebih hangat"
+      },
+      "uploaded": {
+        "description": "Wallpaper yang diupload"
+      }
+    },
+    "folderError": "Gagal menyiapkan folder wallpaper"
+  },
+  "about": {
+    "title": "Tentang",
+    "version": "Versi",
+    "versionValue": "Yumina v1.0.0",
+    "termsOfService": "Ketentuan Layanan",
+    "privacyPolicy": "Kebijakan Privasi",
+    "licenses": "Kode sumber terbuka",
+    "contactSupport": "Hubungi Yumina",
+    "messageOfficial": "Kirim pesan ke {{username}}",
+    "emailSupport": "Dukungan lewat email",
+    "emailCopied": "Email disalin: {{email}}"
+  }
+}

@@ -11,10 +11,8 @@
  * ever opened a menu to change: flipping the switch on records "visual" and
  * every later card opens the canvas until they flip it back; flipping it off
  * records "classic" and every later card opens there. A creator who has never
- * flipped it lands on the canvas on a computer. On a phone the never-chosen
- * still land on the classic editor: the phone studio is a different page and
- * is not the default yet. Arriving on the canvas is not a choice — only the
- * switch is.
+ * flipped it lands on the canvas, on a computer and (as the phone studio) on a
+ * phone alike. Arriving on the canvas is not a choice — only the switch is.
  *
  * localStorage throws in private windows and when site data is blocked, so
  * every accessor swallows its own failure: a browser that refuses to remember
@@ -53,7 +51,9 @@ export interface SurfaceDecision {
   allowed: boolean;
   /** A signed-out draft cannot open Studio: that route demands a session. */
   guest: boolean;
-  /** Under 768px, where Studio is the phone studio rather than the board. */
+  /** Under 768px, where Studio is the phone studio rather than the board.
+   *  On a computer the board is the editor: an old 「完整」 choice no longer
+   *  holds it back (the board has no switch to leave by any more). */
   phone: boolean;
 }
 
@@ -61,11 +61,11 @@ export interface SurfaceDecision {
 export function shouldOpenVisual({ mode, last, allowed, guest, phone }: SurfaceDecision): boolean {
   if (mode !== "advanced") return false;
   if (!allowed || guest) return false;
+  if (!phone) return true;
   if (last) return last === "visual";
-  // Never chosen: the canvas on a computer. A phone that chose 画布 goes to
-  // the phone studio (开场白 / 设定 / 玩家界面 / 测试); one that never chose
-  // stays on the classic editor until the phone studio is the default too.
-  return !phone;
+  // Never chosen: the canvas — the board on a computer, the phone studio
+  // (助手 / 开场白 / 设定 / 试玩) on a phone.
+  return true;
 }
 
 /** The width below which Studio is the phone studio, not the board. */

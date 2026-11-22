@@ -12,6 +12,7 @@ export const MUTABLE_NOTIFICATION_TYPES = [
   "new_review",
   "new_comment",
   "new_review_reply",
+  "world_feedback",
   "followed_user_published",
   "world_update",
   "thread_reply",
@@ -19,6 +20,7 @@ export const MUTABLE_NOTIFICATION_TYPES = [
   "thread_like",
   "post_like",
   "bundle_like",
+  "bundle_installed",
   "creator_community_post",
 ] as const satisfies readonly NotificationType[];
 
@@ -40,6 +42,7 @@ export function notificationSubjectFor(
   payload: Record<string, unknown>,
 ): NotificationSubject | null {
   if (!SUBJECT_MUTABLE_TYPES.has(type)) return null;
+  if (type === "world_feedback" && ["moved", "rating_requested"].includes(String(payload.action))) return null;
 
   if (type === "post_reply") {
     const parentPostId = typeof payload.parentPostId === "string" ? payload.parentPostId : "";

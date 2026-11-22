@@ -7,7 +7,11 @@
     "results": "{{count}} 件の設定が見つかりました",
     "noResults": "設定が見つかりません",
     "noResultsHint": "「言語」や「プライバシー」など、別のキーワードをお試しください。",
-    "aiConfigDescription": "モデル、プロバイダー、API キー、生成設定。"
+    "aiConfigDescription": "モデル、プロバイダー、API キー、生成設定。",
+    "byokTitle": "個人用API接続",
+    "byokDescription": "自分の API キーを使う",
+    "localModelTitle": "自分のパソコンで動かす",
+    "localModelDescription": "このパソコンのモデルで無料で遊ぶ"
   },
   "nav": {
     "account": "アカウント",
@@ -21,7 +25,8 @@
     "prompts": "プロンプト"
   },
   "aiConfig": {
-    "title": "AI設定"
+    "title": "AI設定",
+    "ownAi": "上級者向け：自分の AI を使う"
   },
   "account": {
     "saved": "保存しました",
@@ -61,7 +66,8 @@
       "revoked": "デバイスをサインアウトしました",
       "revokedOthers": "他のすべてのデバイスをサインアウトしました",
       "revokeError": "そのデバイスをサインアウトできませんでした。しばらくしてからお試しください。",
-      "propagationNote": "サインアウトしたデバイスが実際にログアウトされるまで最大5分かかることがあります。パスワードを変更すると、他のすべてのデバイスが即座にサインアウトされます。"
+      "propagationNote": "サインアウトしたデバイスが実際にログアウトされるまで最大5分かかることがあります。パスワードを変更すると、他のすべてのデバイスが即座にサインアウトされます。",
+      "showAll": "すべての端末を表示（{{n}} 台）"
     },
     "deleteAccount": {
       "title": "アカウントを削除",
@@ -198,7 +204,7 @@
     },
     "sensitive": {
       "label": "無制限",
-      "description": "「無制限」のコンテンツを含めます。それでもモデルが書いてくれないときは、プロンプト広場の「制限解除」を入れてみてください。"
+      "description": "「無制限」のコンテンツを含めます。"
     },
     "minorRestriction": "このアカウントでは「無制限」モードを利用できません。",
     "audiencePreference": {
@@ -220,6 +226,13 @@
     "blurSensitive": {
       "title": "センシティブなカバーをぼかす",
       "description": "表示を選ぶまで、センシティブなカバーを強いぼかしで隠します。オフにするとすべてのカバーが表示されます。コンテンツモードは変わりません。"
+    },
+    "hiddenWorlds": {
+      "title": "非表示にした作品",
+      "subtitle": "探索で「興味なし」にした作品",
+      "empty": "非表示にした作品はありません。",
+      "show": "再表示",
+      "failed": "元に戻せませんでした。もう一度お試しください"
     }
   },
   "privacy": {
@@ -296,13 +309,25 @@
     }
   },
   "display": {
+    "readingAppearance": {
+      "title": "プレイ画面の外観",
+      "description": "標準のプレイ画面をダークまたはライトに切り替えます。このブラウザに保存されます。",
+      "dark": "ダーク",
+      "light": "ライト"
+    },
     "turnImages": {
       "title": "ストーリー挿絵",
       "description": "返信の下に「この場面を描く」ボタンが付きます。",
       "auto": "返信ごとに自動で挿絵",
       "free": "あと {{count}} 枚無料、その後は1枚 {{price}} mushies",
       "price": "1枚 {{price}} mushies",
-      "unlimited": "プランに含まれています"
+      "unlimited": "プランに含まれています",
+      "style": {
+        "default": "高速",
+        "detailed": "精細",
+        "vivid": "鮮やか"
+      },
+      "vividTag": "1人の絵"
     },
     "title": "表示",
     "language": {
@@ -315,6 +340,7 @@
       "default": "標準",
       "large": "大",
       "xLarge": "特大",
+      "xxLarge": "最大",
       "hint": "変更は即時反映され、このデバイスに保存されます。"
     },
     "autoFullscreenOnPlay": {
@@ -409,6 +435,10 @@
     "sceneVideo": {
       "title": "シーン動画（実験的）",
       "description": "オンにすると、プレイ画面のメニューと映像ステージのあるカードにシーン動画が表示されます。見方は 2 つ：物語に合わせたライブ映像（1 分あたり約 5,800 キノコ）か、返信ごとの音声付きショートフィルム（返信の数分後に完成、1 返信あたり約 100〜1,400 キノコ）。"
+    },
+    "halloween": {
+      "title": "季節の飾り",
+      "description": "ハロウィン期間中は Mushies とロゴが仮装し、ときどきコウモリが飛んでいきます。各ワールドの画面は変わりません。"
     }
   },
   "wallpaper": {
@@ -495,7 +525,7 @@
     "versionValue": "Yumina v1.0.0",
     "termsOfService": "利用規約",
     "privacyPolicy": "プライバシーポリシー",
-    "licenses": "GitHub OSS",
+    "licenses": "オープンソースコード",
     "contactSupport": "Yuminaに連絡",
     "messageOfficial": "{{username}} にメッセージ",
     "emailSupport": "メールサポート",

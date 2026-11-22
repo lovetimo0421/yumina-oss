@@ -1,10 +1,11 @@
 import { Hono } from "hono";
 import { eq, and } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { worldFolderBindings, assetFolders, worlds } from "../db/schema.js";
+import { worldFolderBindings, assetFolders } from "../db/schema.js";
 import { authMiddleware } from "../middleware/auth.js";
 import type { AppEnv } from "../lib/types.js";
 import { summarizeAssetFolderTrees } from "../lib/asset-folder-tree.js";
+import { canEdit, getWorldAccess } from "../lib/world-collaborators.js";
 
 const folderBindingRoutes = new Hono<AppEnv>();
 
@@ -12,12 +13,14 @@ folderBindingRoutes.use("/*", authMiddleware);
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
-async function verifyWorldOwnership(worldId: string, userId: string) {
-  const rows = await db
-    .select({ id: worlds.id })
-    .from(worlds)
-    .where(and(eq(worlds.id, worldId), eq(worlds.creatorId, userId)));
-  return rows.length > 0;
+/**
+ * The world side: "edit" is the creator or an editor collaborator, "read" also
+ * lets viewers in. The folder side (verifyFolderOwnership) stays the caller's
+ * own: a collaborator binds folders from their own library.
+ */
+async function verifyWorldAccess(worldId: string, userId: string, need: "edit" | "read" = "edit") {
+  const access = await getWorldAccess(userId, worldId);
+  return need === "read" ? access !== null : canEdit(access);
 }
 
 async function verifyFolderOwnership(folderId: string, userId: string) {
@@ -38,14 +41,15 @@ folderBindingRoutes.get("/worlds/:worldId/folder-bindings", async (c) => {
 
   // Reading the bindings is part of opening the card in Studio, and admins
   // open cards they did not create (moderation, hand-offs to other accounts).
-  // Binding and unbinding below stay creator-only.
-  if (currentUser.role !== "admin" && !(await verifyWorldOwnership(worldId, currentUser.id))) {
+  // Binding and unbinding below need edit access (creator or editor).
+  if (currentUser.role !== "admin" && !(await verifyWorldAccess(worldId, currentUser.id, "read"))) {
     return c.json({ error: "World not found or not authorized" }, 404);
   }
 
   const bound = await db
     .select({
       id: assetFolders.id,
+      userId: assetFolders.userId,
       name: assetFolders.name,
       parentFolderId: assetFolders.parentFolderId,
       createdAt: assetFolders.createdAt,
@@ -55,11 +59,15 @@ folderBindingRoutes.get("/worlds/:worldId/folder-bindings", async (c) => {
     .where(eq(worldFolderBindings.worldId, worldId))
     .orderBy(assetFolders.name);
 
-  const folderIds = bound.map((f) => f.id);
-
   // A bound folder includes its descendants (also how Studio's asset catalog
   // scopes it). Archive imports may put every file below a child folder.
-  const { counts, previews: previewRows } = await summarizeAssetFolderTrees(db, currentUser.id, folderIds);
+  // Collaborators bind folders from their own libraries, so the tree is
+  // summarized per folder owner.
+  const foldersByOwner = new Map<string, string[]>();
+  for (const f of bound) foldersByOwner.set(f.userId, [...(foldersByOwner.get(f.userId) ?? []), f.id]);
+  const summaries = await Promise.all([...foldersByOwner].map(([ownerId, ids]) => summarizeAssetFolderTrees(db, ownerId, ids)));
+  const counts = summaries.flatMap((s) => s.counts);
+  const previewRows = summaries.flatMap((s) => s.previews);
 
   const countByFolder = new Map(counts.map((r) => [r.folderId, r.count]));
   const previewsByFolder = new Map<string, string[]>();
@@ -70,7 +78,7 @@ folderBindingRoutes.get("/worlds/:worldId/folder-bindings", async (c) => {
     previewsByFolder.set(row.folder_id, list);
   }
 
-  const data = bound.map((f) => ({
+  const data = bound.map(({ userId: _owner, ...f }) => ({
     ...f,
     assetCount: countByFolder.get(f.id) ?? 0,
     previewAssetIds: previewsByFolder.get(f.id) ?? [],
@@ -89,7 +97,7 @@ folderBindingRoutes.post("/worlds/:worldId/folder-bindings", async (c) => {
     return c.json({ error: "folderId is required" }, 400);
   }
 
-  if (!(await verifyWorldOwnership(worldId, currentUser.id))) {
+  if (!(await verifyWorldAccess(worldId, currentUser.id))) {
     return c.json({ error: "World not found or not authorized" }, 404);
   }
 
@@ -126,8 +134,14 @@ folderBindingRoutes.delete("/worlds/:worldId/folder-bindings/:folderId", async (
   const worldId = c.req.param("worldId");
   const folderId = c.req.param("folderId");
 
-  if (!(await verifyWorldOwnership(worldId, currentUser.id))) {
+  // Unbinding takes the folder away from everyone on the card: the card's
+  // creator may, and so may whoever's folder it is (anyone still on the card).
+  const access = await getWorldAccess(currentUser.id, worldId);
+  if (!access) {
     return c.json({ error: "World not found or not authorized" }, 404);
+  }
+  if (access.role !== "owner" && !(await verifyFolderOwnership(folderId, currentUser.id))) {
+    return c.json({ error: "Only the card's creator or the folder's owner can unbind it", code: "NOT_FOLDER_OWNER" }, 403);
   }
 
   await db

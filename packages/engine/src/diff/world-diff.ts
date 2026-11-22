@@ -45,7 +45,7 @@ const COLLECTIONS: CollectionSpec[] = [
   // purely organizational metadata (tags, folderId, presetId). Keep in sync with
   // the WorldEntry interface: a new AI-affecting field added there should be
   // added here too, or it would change LIVE on a published card with no review.
-  { kind: "entry",    get: (w) => (w.entries as unknown as Row[]) ?? [],     fields: ["name", "content", "role", "portrait", "apiRole", "depth", "alwaysSend", "keywords", "conditions", "conditionLogic", "matchWholeWords", "secondaryKeywords", "secondaryKeywordLogic", "preventRecursion", "excludeRecursion", "section", "enabled"] },
+  { kind: "entry",    get: (w) => (w.entries as unknown as Row[]) ?? [],     fields: ["name", "content", "role", "portrait", "imageLora", "apiRole", "depth", "alwaysSend", "keywords", "conditions", "conditionLogic", "matchWholeWords", "secondaryKeywords", "secondaryKeywordLogic", "preventRecursion", "excludeRecursion", "section", "enabled"] },
   { kind: "variable", get: (w) => (w.variables as unknown as Row[]) ?? [],   fields: ["name", "type", "defaultValue", "description", "behaviorRules"] },
   { kind: "rule",     get: (w) => (w.rules as unknown as Row[]) ?? [],       fields: ["name", "enabled"] },
   { kind: "reaction", get: (w) => (w.reactions as unknown as Row[]) ?? [],   fields: ["name"] },
@@ -54,6 +54,9 @@ const COLLECTIONS: CollectionSpec[] = [
 ];
 
 const META_FIELDS = ["name", "description", "landscapeCover"] as const;
+
+/** The diff change id for the card's illustration style LoRA (settings.illustrationLora). */
+export const ILLUSTRATION_LORA_CHANGE_ID = "settings.illustrationLora";
 
 function asText(v: unknown): string {
   if (v === undefined || v === null) return "";
@@ -132,6 +135,16 @@ export function diffWorldSchemas(
     if (before !== after) {
       changes.push({ kind: "meta", op: "modified", id: f, name: f, ...(detail ? { fields: [{ field: f, before, after }] } : {}) });
     }
+  }
+
+  // The card's illustration style LoRA changes every picture players get, like
+  // an entry's imageLora or portrait: it is held for review too.
+  const loraBefore = asText((prev.settings as unknown as Row | undefined)?.illustrationLora);
+  const loraAfter = asText((next.settings as unknown as Row | undefined)?.illustrationLora);
+  if (loraBefore !== loraAfter) {
+    const op = !loraBefore ? "added" : !loraAfter ? "removed" : "modified";
+    changes.push({ kind: "meta", op, id: ILLUSTRATION_LORA_CHANGE_ID, name: "illustrationLora",
+      ...(detail ? { fields: [{ field: "settings.illustrationLora", before: loraBefore, after: loraAfter }] } : {}) });
   }
 
   const counts = { added: 0, removed: 0, modified: 0 };

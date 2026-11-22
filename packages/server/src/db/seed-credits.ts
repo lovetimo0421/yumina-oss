@@ -136,6 +136,9 @@ async function migrate() {
     ["moonshotai/kimi-k2.6",                   0.95,  4.00,  null,   null, null, "go",   1.2],
     ["openai/gpt-5.6-sol",                     2.00, 10.00,  null,   null, null, "plus", 1.25],
     ["openai/gpt-6-astra",                    10.00, 50.00,  null,   null, null, "plus", 1.25],
+    ["openai/gpt-6.2-sol",                     2.00, 10.00,  null,   null, null, "plus", 1.2],
+    ["openai/gpt-6.2-astra",                   8.00, 40.00,  null,   null, null, "plus", 1.2],
+    ["google/gemini-4-neon",                   3.00, 15.00,  null,   null, null, "plus", 1.2],
     // Free-tier model — costs $0 upstream, available to everyone. Routing to
     // the actual OpenRouter free-tier model is wired separately (see resolve-provider).
     ["openrouter/free",                        0.00,  0.00,  null,   null, null, "free", 1.0],

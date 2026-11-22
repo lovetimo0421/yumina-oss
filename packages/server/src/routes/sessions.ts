@@ -1,3 +1,5 @@
+import { canReadFollowerWorld, followerWorldAudienceSql } from "../lib/world-follower-access.js";
+import { isActiveWorldTester, passesTesterPlayGate, worldPlayAccessSql } from "../lib/world-testers.js";
 import { refreshSessionGreeting } from "../lib/refresh-session-greeting.js";
 import { playtimeDecision } from "../lib/playtime-policy.js";
 import { appendPendingContext } from "../lib/pending-context.js";
@@ -8,12 +10,16 @@ import { PLAY_ENGAGEMENT_LUA } from "../lib/play-engagement.js";
 import { redis } from "../lib/redis.js";
 import { captureServerError } from "../lib/posthog.js";
 import { Hono } from "hono";
+import { stampCompiledLater } from "../lib/card-code/stamp.js";
+import { CARD_CODE_HEADER, playerSchema } from "../lib/card-code/source.js";
 import { eq, and, ne, desc, asc, sql, count, inArray, isNotNull } from "drizzle-orm";
 import { db, readOwn } from "../db/index.js";
 import { createHash, randomUUID } from "node:crypto";
 import { playSessions, worlds, messages, apiKeys, worldMemories, checkpoints, userLibrary, user, summaryceptionSnippets, sessionLoreEntries } from "../db/schema.js";
 import { getBlockStatus } from "../lib/blocks.js";
-import { restoreSessionStorage } from "../lib/session-storage-service.js";
+import { canReadSessionAsRoomMember, findOpenRoomForSession } from "../lib/story-rooms.js";
+import { publishRoomState, sessionStateWriter } from "../lib/story-room-state.js";
+import { copySessionStorageToBranch, restoreSessionStorage } from "../lib/session-storage-service.js";
 import { MediaError } from "../lib/session-media-service.js";
 import { authMiddleware } from "../middleware/auth.js";
 import { sessionMedia } from "../lib/session-media.js";
@@ -27,7 +33,7 @@ import { captureSessionPersona } from "../lib/session-persona.js";
 import { applyPersonaMetadata, applyPersonaMetadataToState, personaIdentityReceipt } from "../lib/persona-metadata.js";
 import { resolvePersonaForWorld, resolvePersonaForSession, setSessionPersona, setSessionPersonaLock } from "../lib/resolve-persona.js";
 import { getPendingEdit, resolveSessionWorldSchema } from "../lib/pending-edit.js";
-import { viewerSeesWorkingCopy } from "../lib/working-copy.js";
+import { draftAccessEnded, viewerCanEditSql, viewerSeesWorkingCopy, workingCopyViewerId } from "../lib/working-copy.js";
 import { loadSessionWorldDef } from "../lib/world-def-cache.js";
 import { SESSION_NOT_FOUND, SessionBusyError, withSessionRowLock } from "../lib/session-lock.js";
 import { enqueueLifetimePlaytime } from "../lib/lifetime-playtime-sql.js";
@@ -48,12 +54,31 @@ import { collectExtensionInvalidation } from "../lib/extension-hooks.js";
 import { regenerateDroppedMemoryTiers } from "../extensions/session-memory/hooks.js";
 import { deleteTestStart, listTestStarts, runTestStart, saveTestStart, TestStartError } from "../lib/studio-test-starts.js";
 import { scheduleQuestCollect } from "../lib/quest-auto-collect.js";
+import { redactSchemaFor } from "../lib/sealed-entries.js";
+import { loadSaveSubtitles, searchSaves } from "../lib/save-picker.js";
 
 const sessionRoutes = new Hono<AppEnv>();
 
 sessionRoutes.use("/*", authMiddleware);
 
-// Dedicated creator-only test starts; declared before the generic /:id route.
+// Custom-card actions and auxiliary generation also continue a play session.
+// Check the live audience before their service-specific handlers load content.
+// Editor collaborators are the card's team and pass, like its creator.
+const followerGatedActions = new Set(["state", "context", "execute-action", "quiet-tick", "player-state", "life", "ai-call", "group-reply", "extract-memories"]);
+sessionRoutes.use("/:id/*", async (c, next) => {
+  const action = c.req.path.split("/").at(-1);
+  const nestedLifeAction = /\/life\//.test(c.req.path);
+  if (!nestedLifeAction && !followerGatedActions.has(action ?? "")) return next();
+  const viewerId = c.get("user").id;
+  const [row] = await db.select({ allowed: worldPlayAccessSql(viewerId), viewerCanEdit: viewerCanEditSql(viewerId) })
+    .from(playSessions).innerJoin(worlds, eq(playSessions.worldId, worlds.id))
+    .where(and(eq(playSessions.id, c.req.param("id")!), eq(playSessions.userId, viewerId))).limit(1);
+  if (row && !row.allowed && row.viewerCanEdit !== true) return c.json({ error: "You no longer have access to this card.", code: "WORLD_ACCESS_ENDED" }, 403);
+  return next();
+});
+
+// Dedicated Studio test starts (creator or editor collaborator, each keeps their
+// own); declared before the generic /:id route.
 sessionRoutes.get("/studio-test-starts", async (c) => {
   try {
     return c.json({ data: await listTestStarts(c.get("user").id, c.req.query("worldId") ?? "") });
@@ -118,9 +143,10 @@ sessionRoutes.post("/", async (c) => {
     return c.json({ error: `Session name must be ${MAX_SESSION_NAME} characters or fewer` }, 400);
   }
 
-  // Load the world
+  // Load the world, and in the same round trip whether this person may edit it
+  // (its creator or an accepted editor collaborator — one indexed EXISTS).
   const worldRows = await db
-    .select()
+    .select({ world: worlds, viewerCanEdit: viewerCanEditSql(currentUser.id), viewerCanReadFollowers: followerWorldAudienceSql(currentUser.id) })
     .from(worlds)
     .where(eq(worlds.id, body.worldId));
 
@@ -128,14 +154,25 @@ sessionRoutes.post("/", async (c) => {
     return c.json({ error: "World not found" }, 404);
   }
 
-  const world = worldRows[0]!;
+  const world = worldRows[0]!.world;
+  // Editors play and playtest the card the way its creator does.
+  const viewerIsEditor = worldRows[0]!.viewerCanEdit === true;
+  if (currentUser.limitedContentOnly && ((world.ageRating ?? "all") !== "all" || world.isNsfw)) {
+    return c.json({ error: "Limitless content is not available for this account", code: "LIMITED_CONTENT_ONLY" }, 403);
+  }
 
-  // Access control: only published worlds or the creator's own worlds (#29).
+  // Access control: only published worlds or the creator's own worlds (#29),
+  // which includes worlds the viewer is an editor on.
   // Moderation exception: admins can play any world when adminPreview=true so
   // they can audit a pending submission. Forced ephemeral so it doesn't
   // pollute the admin's library or the world's play counters.
+  // A friend on the creator's tester list plays an unpublished world like any
+  // other player (lib/world-testers.ts).
   let isAdminPreview = false;
-  if (world.status !== "published" && world.creatorId !== currentUser.id) {
+  const isTeam = world.creatorId === currentUser.id || viewerIsEditor;
+  const isTester = world.status !== "published" && !isTeam
+    && await isActiveWorldTester(world.id, currentUser.id);
+  if ((world.status !== "published" || !worldRows[0]!.viewerCanReadFollowers) && !isTeam && !isTester) {
     if (body.adminPreview) {
       const [roleRow] = await db
         .select({ role: user.role })
@@ -166,8 +203,11 @@ sessionRoutes.post("/", async (c) => {
   // a narrative timeline — world state lives on the game server, progression on
   // the account). Reuse the existing session instead of stacking meaningless
   // rows in the session manager. Spec: game-room-primitives §"sessions".
-  const multiplayerSettings = (world.schema as { settings?: { multiplayer?: unknown } })?.settings?.multiplayer;
-  if (multiplayerSettings && !body.ephemeral) {
+  // Only the standing-room kind ({ roomId }, the Krew sea). A card opened for
+  // playing together (settings.multiplayer.enabled) keeps normal sessions: each
+  // new story is a new room.
+  const multiplayerSettings = (world.schema as { settings?: { multiplayer?: { roomId?: unknown } } })?.settings?.multiplayer;
+  if (typeof multiplayerSettings?.roomId === "string" && !body.ephemeral) {
     const [existing] = await db
       .select()
       .from(playSessions)
@@ -194,7 +234,7 @@ sessionRoutes.post("/", async (c) => {
   // and non-creators always get the live schema; admin-preview sessions hit
   // non-published worlds and so never reach this branch.
   let playSchema = world.schema as unknown as WorldDefinition;
-  if (viewerSeesWorkingCopy(world.status, world.creatorId, currentUser.id)) {
+  if (viewerSeesWorkingCopy(world.status, world.creatorId, currentUser.id, viewerIsEditor)) {
     const pend = await getPendingEdit(body.worldId);
     if (pend?.schema) {
       playSchema = pend.schema as unknown as WorldDefinition;
@@ -341,8 +381,12 @@ sessionRoutes.get("/", async (c) => {
   const rd = await readOwn(currentUser.id);
   const worldIdFilter = c.req.query("worldId");
   const languageGroupFilter = c.req.query("languageGroupId");
+  // `?worldId=` with nothing after it asked for one card's saves and named no
+  // card. Answering with every session the player has turned a filter into a dump.
+  if (worldIdFilter === "") return c.json({ data: [] });
 
   const conditions = [eq(playSessions.userId, currentUser.id)];
+  if (currentUser.limitedContentOnly) conditions.push(eq(worlds.ageRating, "all"), eq(worlds.isNsfw, false));
   if (worldIdFilter) {
     conditions.push(eq(playSessions.worldId, worldIdFilter));
   }
@@ -366,6 +410,7 @@ sessionRoutes.get("/", async (c) => {
       playtimeSeconds: playSessions.playtimeSeconds,
       parentSessionId: playSessions.parentSessionId,
       branchedFromMessageId: playSessions.branchedFromMessageId,
+      pinnedAt: playSessions.pinnedAt,
       createdAt: playSessions.createdAt,
       updatedAt: playSessions.updatedAt,
     })
@@ -377,8 +422,14 @@ sessionRoutes.get("/", async (c) => {
   // Enrich with last message preview and message count
   const sessionIds = result.map((r) => r.id);
 
+  // The save picker (one card's saves) tells unnamed saves apart by a line
+  // from their recap or opening; the all-cards list has no use for it.
+  const unnamedIds = worldIdFilter || languageGroupFilter
+    ? result.filter((r) => !r.name?.trim()).map((r) => r.id)
+    : [];
+
   // Fetch message stats AND child branch counts in parallel — one round-trip
-  const [messageCounts, lastMessages, childCounts] = sessionIds.length > 0
+  const [messageCounts, lastMessages, childCounts, subtitles] = sessionIds.length > 0
     ? await Promise.all([
         rd
           .select({
@@ -410,8 +461,9 @@ sessionRoutes.get("/", async (c) => {
             inArray(playSessions.parentSessionId, sessionIds),
           ))
           .groupBy(playSessions.parentSessionId),
+        loadSaveSubtitles(rd, currentUser.id, unnamedIds),
       ])
-    : [[], [], []];
+    : [[], [], [], new Map<string, string>()];
 
   const countMap = new Map(messageCounts.map((s) => [s.sessionId, Number(s.messageCount)]));
   const previewMap = new Map(lastMessages.map((s) => [s.sessionId, s.content]));
@@ -434,10 +486,32 @@ sessionRoutes.get("/", async (c) => {
         ? stats.lastMessagePreview.slice(0, 80)
         : null,
       childBranchCount: childCountMap.get(r.id) ?? 0,
+      subtitle: subtitles.get(r.id) ?? null,
     };
   });
 
   return c.json({ data: resolved });
+});
+
+// GET /api/sessions/search?worldId=|languageGroupId=&q= — the save picker's
+// keyword search over every message of the player's saves of one card (or its
+// language versions). Same saves as the list above. Each matching save: hit
+// count, and for the first 50 its newest hits with snippet + #position; more
+// hits of one save come from /:id/messages/search. Primary DB: the player's
+// own, just-written transcripts.
+sessionRoutes.get("/search", async (c) => {
+  const currentUser = c.get("user");
+  const worldId = c.req.query("worldId") || undefined;
+  const languageGroupId = c.req.query("languageGroupId") || undefined;
+  if (!worldId && !languageGroupId) return c.json({ error: "worldId or languageGroupId is required" }, 400);
+  const rd = await readOwn(currentUser.id);
+  const matches = await searchSaves(rd, {
+    userId: currentUser.id,
+    worldId,
+    languageGroupId,
+    limitedContentOnly: !!currentUser.limitedContentOnly,
+  }, c.req.query("q") ?? "");
+  return c.json({ data: matches });
 });
 
 // GET /api/sessions/recent-worlds — the five worlds the user played last, one
@@ -451,7 +525,8 @@ sessionRoutes.get("/recent-worlds", async (c) => {
     .select({ id: worlds.id, name: worlds.name, thumbnailUrl: worlds.thumbnailUrl, lastPlayedAt })
     .from(playSessions)
     .innerJoin(worlds, eq(playSessions.worldId, worlds.id))
-    .where(and(eq(playSessions.userId, currentUser.id), eq(playSessions.ephemeral, false)))
+    .where(and(eq(playSessions.userId, currentUser.id), eq(playSessions.ephemeral, false),
+      ...(currentUser.limitedContentOnly ? [eq(worlds.ageRating, "all"), eq(worlds.isNsfw, false)] : [])))
     .groupBy(worlds.id)
     .orderBy(desc(lastPlayedAt))
     .limit(5);
@@ -465,12 +540,20 @@ sessionRoutes.get("/:id", async (c) => {
   const rd = db;
   const sessionId = c.req.param("id");
 
-  const sessionRows = await rd
+  let sessionRows = await rd
     .select()
     .from(playSessions)
     .where(
       and(eq(playSessions.id, sessionId), eq(playSessions.userId, currentUser.id))
     );
+
+  // Members of an open story room on this session read it (read-only: every
+  // mutating route stays owner-only). They see the host's persona.
+  let roomMember = false;
+  if (sessionRows.length === 0 && await canReadSessionAsRoomMember(sessionId, currentUser.id)) {
+    sessionRows = await rd.select().from(playSessions).where(eq(playSessions.id, sessionId));
+    roomMember = sessionRows.length > 0;
+  }
 
   if (sessionRows.length === 0) {
     return c.json({ error: "Session not found" }, 404);
@@ -493,7 +576,12 @@ sessionRoutes.get("/:id", async (c) => {
       .from(messages)
       .where(eq(messages.sessionId, sessionId)),
     rd
-      .select()
+      .select({
+        world: worlds,
+        viewerCanEdit: viewerCanEditSql(currentUser.id),
+        // Ever held a tester seat (removed or not): see the read-only rule below.
+        viewerWasTester: sql<boolean>`EXISTS (SELECT 1 FROM world_testers wt WHERE wt.world_id = ${worlds.id} AND wt.user_id = ${currentUser.id})`,
+      })
       .from(worlds)
       .where(eq(worlds.id, sessionRows[0]!.worldId)),
     // Parent name (only if this session is itself a branch)
@@ -518,15 +606,34 @@ sessionRoutes.get("/:id", async (c) => {
   const sessionMessages = messagePage.messages;
   const messageTotal = messageTotalRows[0]?.value ?? sessionMessages.length;
 
-  const world = worldRows[0] ?? null;
+  const world = worldRows[0]?.world ?? null;
+  // Creator or accepted editor collaborator (folded into the world load above).
+  const viewerIsEditor = worldRows[0]?.viewerCanEdit === true;
+  if (world && !viewerIsEditor && !(await canReadFollowerWorld(world.id, currentUser.id))) {
+    return c.json({ error: "You no longer have access to this card.", code: "WORLD_ACCESS_ENDED" }, 403);
+  }
+  // A removed collaborator's old playtest of a never-published card: the card
+  // is no longer theirs to open. (A tester taken off the list keeps the
+  // read-only transcript below, and a story room's members read the host's.)
+  if (world && !roomMember && draftAccessEnded(world, currentUser, viewerIsEditor || worldRows[0]?.viewerWasTester === true)) {
+    return c.json({ error: "You no longer have access to this card.", code: "WORLD_ACCESS_ENDED" }, 403);
+  }
   const parentSessionName = parentRows[0]?.name ?? null;
   const childBranches = childBranchRows;
 
   const sessionPersona = captureSessionPersona(await resolvePersonaForSession(sessionRows[0]!));
 
-  // Determine if this session should be read-only (unpublished world, non-creator)
+  // Determine if this session should be read-only (unpublished world, not its
+  // creator or one of its editors)
   const isCreator = world ? world.creatorId === currentUser.id : false;
-  const isReadOnly = world ? world.status === "unpublished" && !isCreator : false;
+  // The card's team (creator, editor collaborators) never reads it read-only.
+  const isTeam = isCreator || viewerIsEditor;
+  // A tester taken off the list (or whose world stopped being testable) keeps
+  // their transcript, read-only, exactly like a player of an unpublished world.
+  const testingEnded = world && !isTeam ? !(await passesTesterPlayGate(world.id, currentUser.id)) : false;
+  // An unpublished card stays playable for its current testers (in development again).
+  const unpublishedForViewer = world?.status === "unpublished" && !isTeam && !(await isActiveWorldTester(world.id, currentUser.id));
+  const isReadOnly = world ? (unpublishedForViewer || testingEnded) && !isTeam : false;
 
   // Creator-only preview parity: when the creator plays/previews their OWN
   // published world and a material edit is held for review, the live
@@ -539,7 +646,7 @@ sessionRoutes.get("/:id", async (c) => {
   // Players and non-creators never hit this branch, so they keep getting the
   // live approved schema until an admin approves.
   let renderSchema = (world?.schema ?? null) as unknown as WorldDefinition | null;
-  if (world && viewerSeesWorkingCopy(world.status, world.creatorId, currentUser.id)) {
+  if (world && viewerSeesWorkingCopy(world.status, world.creatorId, currentUser.id, viewerIsEditor)) {
     const pend = await getPendingEdit(world.id);
     if (pend?.schema) renderSchema = pend.schema as unknown as WorldDefinition;
   }
@@ -551,14 +658,29 @@ sessionRoutes.get("/:id", async (c) => {
       )
     : (sessionRows[0]!.state as unknown as GameState);
 
+  // A card that reaches play without precompiled code gets it stamped in the
+  // background, so the next player's browser skips the compile.
+  if (world && !isReadOnly && renderSchema === (world.schema as unknown as WorldDefinition)) {
+    stampCompiledLater(world);
+  }
+
   // If read-only, return a tombstone world (just metadata, no full schema).
   // Otherwise return the live row, overlaying the held working copy onto its
   // `schema` when the playtest-preview branch above chose the pending copy.
+  // A player's copy carries the interface's compiled code without its source
+  // (lib/card-code/source.ts); the creator, who may be seeing a held edit,
+  // always gets the source.
   const worldData = isReadOnly && world
-    ? { id: world.id, name: world.name, status: world.status, thumbnailUrl: world.thumbnailUrl }
+    ? { id: world.id, name: world.name, status: testingEnded ? "unpublished" : world.status, thumbnailUrl: world.thumbnailUrl }
     : world && renderSchema && renderSchema !== (world.schema as unknown as WorldDefinition)
       ? { ...world, schema: renderSchema as unknown as typeof world.schema }
-      : world;
+      : world
+        ? { ...world, schema: playerSchema(world, { clientFormat: c.req.header(CARD_CODE_HEADER), isCreator }) }
+        : world;
+  // Entries the author kept never reach a player (lib/sealed-entries.ts).
+  if (world && worldData && "schema" in worldData) {
+    (worldData as { schema: unknown }).schema = redactSchemaFor(world, worldData.schema, currentUser.id, "play");
+  }
   // Asset preload manifest — client emits <link rel="preload"> for priority,
   // <link rel="prefetch"> for deferred, BEFORE the sandbox iframe mounts. This
   // parallelizes CDN fetches with the iframe boot instead of serializing them
@@ -571,16 +693,24 @@ sessionRoutes.get("/:id", async (c) => {
       )
     : { priority: [], deferred: [] };
 
-  const greeting = !isReadOnly && renderSchema
+  const greeting = !isReadOnly && !roomMember && renderSchema
     ? await refreshSessionGreeting(sessionId, currentUser.id, migrateWorldDefinition(renderSchema)) : null;
   if (greeting) {
     const index = sessionMessages.findIndex(message => message.id === greeting.id);
     if (index >= 0) sessionMessages[index] = { ...greeting, createdAt: greeting.createdAt?.toISOString() ?? null };
   }
-  applyPersonaMetadataToState(normalizedState, sessionPersona.persona, currentUser);
+  // The chat reattaches its story room from this (host after a reload, members on entry).
+  const storyRoom = await findOpenRoomForSession(sessionId);
+  const personaAccount = roomMember
+    ? (await rd.select({ name: user.name, username: user.username, displayUsername: user.displayUsername, image: user.image })
+      .from(user).where(eq(user.id, sessionRows[0]!.userId)).limit(1))[0] ?? {}
+    : currentUser;
+  applyPersonaMetadataToState(normalizedState, sessionPersona.persona, personaAccount);
   return c.json({
     data: {
       ...sessionRows[0]!,
+      ...(roomMember ? { roomMember: true } : {}),
+      ...(storyRoom ? { storyRoomCode: storyRoom.code } : {}),
       sessionPersona: { ...sessionPersona, selectionVersion: sessionRows[0]!.sessionPersona?.selectionVersion ?? "" },
       currentUser: {
         id: currentUser.id,
@@ -619,6 +749,23 @@ sessionRoutes.delete("/:id", async (c) => {
   }
 
   return c.json({ data: { deleted: true } });
+});
+
+// PUT /api/sessions/:id/pin { pinned } — pin a save to the top of the picker.
+// Leaves updatedAt alone: pinning is not playing.
+sessionRoutes.put("/:id/pin", async (c) => {
+  const currentUser = c.get("user");
+  const body = await c.req.json<{ pinned?: unknown }>().catch(() => ({} as { pinned?: unknown }));
+  if (typeof body.pinned !== "boolean") return c.json({ error: "pinned must be true or false" }, 400);
+  // Narrow RETURNING through SQL: the full row carries the whole game state.
+  const pinned = await db.execute<{ pinned_at: string | null }>(sql`
+    UPDATE play_sessions SET pinned_at = ${body.pinned ? sql`(now() AT TIME ZONE 'UTC')` : sql`NULL`}
+    WHERE id = ${c.req.param("id")} AND user_id = ${currentUser.id}
+    RETURNING to_char(pinned_at, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS pinned_at
+  `);
+  const row = pinned.rows[0];
+  if (!row) return c.json({ error: "Session not found" }, 404);
+  return c.json({ data: { pinnedAt: row.pinned_at } });
 });
 
 // PUT /api/sessions/:id/persona — in-chat selection overrides only this save.
@@ -660,7 +807,7 @@ sessionRoutes.put("/:id/persona-lock", async (c) => {
 sessionRoutes.patch("/:id/state", async (c) => {
   const currentUser = c.get("user");
   const sessionId = c.req.param("id");
-  const body = await c.req.json<{ state: Record<string, unknown> }>();
+  const raw = await c.req.json<{ state: Record<string, unknown> }>();
 
   // Build the world definition BEFORE taking the row lock. The world schema is
   // stable for the request, so fetching + migrating it (a multi-MB JSONB detoast
@@ -673,14 +820,25 @@ sessionRoutes.patch("/:id/state", async (c) => {
     .from(playSessions)
     .where(eq(playSessions.id, sessionId))
     .limit(1);
-  if (!meta || meta.userId !== currentUser.id) {
+  // The owner, or a member of the session's open story room (variables only).
+  const writer = meta ? await sessionStateWriter(meta, sessionId, currentUser.id) : null;
+  if (!meta || !writer) {
     return c.json({ error: "Session not found" }, 404);
   }
+  if (writer.kind === "rate-limited") {
+    c.header("Retry-After", String(writer.retryAfter));
+    return c.json({ error: "rate-limited", retryAfter: writer.retryAfter }, 429);
+  }
+  // Background work a member's press starts is the host's bill: none past the host's limit.
+  const hostBilled = writer.kind === "owner" || !writer.overCap;
+  const body = writer.kind === "owner"
+    ? raw
+    : { state: raw?.state?.variables && typeof raw.state.variables === "object" ? { variables: raw.state.variables } : {} };
   // Version-stamped cache of the parsed definition (lib/world-def-cache.ts):
   // this path ran ~1M times a week and each call detoasted the multi-MB world
   // schema. A creator playtesting their own published world still gets the held
   // WORKING COPY (see resolveSessionWorldSchema for why that matters).
-  const worldDef = await loadSessionWorldDef(meta.worldId, currentUser.id);
+  const worldDef = await loadSessionWorldDef(meta.worldId, meta.userId);
   if (!worldDef) {
     return c.json({ error: "World not found" }, 404);
   }
@@ -746,7 +904,7 @@ sessionRoutes.patch("/:id/state", async (c) => {
       .returning();
     return { data: updated[0], closedRecords, nextState: mergedState, prevState: normalizeGameState(worldDef, currentState) };
     }, c.req.header('X-Yumina-State-Acknowledgement') === 'required'
-      ? { acknowledged: { userId: currentUser.id, signal: c.req.raw.signal } } : undefined);
+      ? { acknowledged: { userId: meta.userId, signal: c.req.raw.signal } } : undefined);
   } catch (err) {
     if (err instanceof SessionBusyError) {
       c.header("Retry-After", "2");
@@ -755,19 +913,19 @@ sessionRoutes.patch("/:id/state", async (c) => {
     throw err;
   }
   if (result === SESSION_NOT_FOUND) return c.json({ error: "Session not found" }, 404);
-  for (const record of result.closedRecords ?? []) {
+  if (hostBilled) for (const record of result.closedRecords ?? []) {
     const book = (worldDef.worldbooks ?? []).find((wb) => wb.id === record.bookId);
     if (book) {
       scheduleRunSummary({
         sessionId,
-        userId: currentUser.id,
+        userId: meta.userId,
         worldName: worldDef.name,
         book,
         record,
       });
     }
   }
-  for (const { book, cause } of dueWorkers({
+  if (hostBilled) for (const { book, cause } of dueWorkers({
     worldDef,
     prevState: result.prevState,
     nextState: result.nextState,
@@ -776,7 +934,7 @@ sessionRoutes.patch("/:id/state", async (c) => {
   })) {
     scheduleWorkerRun({
       sessionId,
-      userId: currentUser.id,
+      userId: meta.userId,
       worldName: worldDef.name,
       worldDef,
       book,
@@ -784,6 +942,9 @@ sessionRoutes.patch("/:id/state", async (c) => {
       cause,
       expectedGeneration: (result.data?.runMemories as RunMemories | null)?.generation,
     });
+  }
+  if (body.state && typeof body.state === "object" && "variables" in body.state) {
+    void publishRoomState(sessionId, (result.nextState as { variables?: unknown } | undefined)?.variables, currentUser.id);
   }
   return c.json({ data: result.data });
 });
@@ -865,11 +1026,20 @@ sessionRoutes.post("/:id/execute-action", async (c) => {
     .from(playSessions)
     .where(eq(playSessions.id, sessionId))
     .limit(1);
-  if (!meta || meta.userId !== currentUser.id) {
+  // The owner, or a member of the session's open story room pressing a button
+  // on the card's screen. The clock is the owner's alone: one tick per room.
+  const writer = meta ? await sessionStateWriter(meta, sessionId, currentUser.id) : null;
+  if (!meta || !writer || (writer.kind !== "owner" && clock !== null)) {
     return c.json({ error: "Session not found" }, 404);
   }
+  if (writer.kind === "rate-limited") {
+    c.header("Retry-After", String(writer.retryAfter));
+    return c.json({ error: "rate-limited", retryAfter: writer.retryAfter }, 429);
+  }
+  // Background work a member's press starts is the host's bill: none past the host's limit.
+  const hostBilled = writer.kind === "owner" || !writer.overCap;
   // Cached parsed definition — see the /state handler above.
-  const worldDef = await loadSessionWorldDef(meta.worldId, currentUser.id);
+  const worldDef = await loadSessionWorldDef(meta.worldId, meta.userId);
   if (!worldDef) {
     return c.json({ error: "World not found" }, 404);
   }
@@ -958,19 +1128,19 @@ sessionRoutes.post("/:id/execute-action", async (c) => {
     throw err;
   }
   if (result === SESSION_NOT_FOUND) return c.json({ error: "Session not found" }, 404);
-  for (const record of result.closedRecords ?? []) {
+  if (hostBilled) for (const record of result.closedRecords ?? []) {
     const book = (worldDef.worldbooks ?? []).find((wb) => wb.id === record.bookId);
     if (book) {
       scheduleRunSummary({
         sessionId,
-        userId: currentUser.id,
+        userId: meta.userId,
         worldName: worldDef.name,
         book,
         record,
       });
     }
   }
-  for (const { book, cause } of dueWorkers({
+  if (hostBilled) for (const { book, cause } of dueWorkers({
     worldDef,
     prevState: result.prevState,
     nextState: result.nextState,
@@ -979,7 +1149,7 @@ sessionRoutes.post("/:id/execute-action", async (c) => {
   })) {
     scheduleWorkerRun({
       sessionId,
-      userId: currentUser.id,
+      userId: meta.userId,
       worldName: worldDef.name,
       worldDef,
       book,
@@ -988,6 +1158,7 @@ sessionRoutes.post("/:id/execute-action", async (c) => {
       expectedGeneration: result.expectedGeneration,
     });
   }
+  if ((result.data.changes?.length ?? 0) > 0) void publishRoomState(sessionId, result.data.variables, currentUser.id);
   return c.json({ data: result.data });
 });
 
@@ -1182,6 +1353,8 @@ sessionRoutes.patch("/:id", async (c) => {
 //   messageId omitted → revert the last assistant+user exchange.
 export async function revertSession(args: {
   userId: string;
+  /** The caller's site role: an admin keeps reading drafts they review. */
+  userRole?: string;
   sessionId: string;
   messageId?: string;
 }): Promise<{
@@ -1191,6 +1364,7 @@ export async function revertSession(args: {
      *  target, so the live variables were kept instead of rewound. */
     data?: { state: Record<string, unknown>; messages: unknown[]; messageTotal: number; variablesRestored: boolean };
     error?: string;
+    code?: "WORLD_ACCESS_ENDED";
   };
 }> {
   const { userId, sessionId } = args;
@@ -1209,12 +1383,17 @@ export async function revertSession(args: {
   // Resolve before the timeline transaction: the shared resolver reads through
   // the primary connection, which must not be acquired again from inside tx.
   const currentPersona = await resolvePersonaForSession(session);
-  const worldRows = await db.select().from(worlds).where(eq(worlds.id, session.worldId));
+  // The live audience (follower + tester gate, which also ends a never-published
+  // card for someone no longer working on it); editor collaborators pass.
+  const worldRows = await db.select({ world: worlds, viewerCanEdit: viewerCanEditSql(userId), viewerCanReadFollowers: worldPlayAccessSql(userId) }).from(worlds).where(eq(worlds.id, session.worldId));
+  if (worldRows[0] && !worldRows[0].viewerCanReadFollowers && worldRows[0].viewerCanEdit !== true) {
+    return { status: 403, body: { error: "You no longer have access to this card.", code: "WORLD_ACCESS_ENDED" } };
+  }
   if (worldRows.length === 0) return { status: 404, body: { error: "World not found" } };
 
-  // Creator's revert must normalize against their held working copy (not live),
+  // Creator's (or an editor's) revert must normalize against the held working copy (not live),
   // or working-copy-only setup vars get stripped. See resolveSessionWorldSchema.
-  const rawWorldDef = (await resolveSessionWorldSchema(worldRows[0]!, userId)) as unknown as WorldDefinition;
+  const rawWorldDef = (await resolveSessionWorldSchema(worldRows[0]!.world, workingCopyViewerId(worldRows[0]!.world, userId, worldRows[0]!.viewerCanEdit === true))) as unknown as WorldDefinition;
   const worldDef = migrateWorldDefinition(rawWorldDef);
 
   const result = await db.transaction(async (tx) => {
@@ -1412,10 +1591,11 @@ sessionRoutes.post("/:id/revert", async (c) => {
 
   const result = await revertSession({
     userId: currentUser.id,
+    userRole: currentUser.role ?? undefined,
     sessionId,
     messageId: body.messageId,
   });
-  return c.json(result.body, result.status as 200 | 400 | 404);
+  return c.json(result.body, result.status as 200 | 400 | 403 | 404);
 });
 
 // POST /api/sessions/:id/restart — full reset: clear messages, state, memories, re-insert greeting
@@ -1437,12 +1617,17 @@ sessionRoutes.post("/:id/restart", async (c) => {
   await resolvePersonaForSession(session);
 
   // Load world definition
-  const worldRows = await db.select().from(worlds).where(eq(worlds.id, session.worldId));
+  const worldRows = await db.select({ world: worlds, viewerCanEdit: viewerCanEditSql(currentUser.id), viewerCanReadFollowers: worldPlayAccessSql(currentUser.id) }).from(worlds).where(eq(worlds.id, session.worldId));
   if (worldRows.length === 0) return c.json({ error: "World not found" }, 404);
+  // The live audience (follower + tester gate, which also ends a never-published
+  // card for someone no longer working on it); editor collaborators pass.
+  if (!worldRows[0]!.viewerCanReadFollowers && worldRows[0]!.viewerCanEdit !== true) {
+    return c.json({ error: "You no longer have access to this card.", code: "WORLD_ACCESS_ENDED" }, 403);
+  }
 
-  // Creator's restart rebuilds greeting + state from their held working copy
+  // Creator's (or an editor's) restart rebuilds greeting + state from the held working copy
   // (not live), so working-copy-only vars/greetings apply. See resolveSessionWorldSchema.
-  const rawWorldDef = (await resolveSessionWorldSchema(worldRows[0]!, currentUser.id)) as unknown as WorldDefinition;
+  const rawWorldDef = (await resolveSessionWorldSchema(worldRows[0]!.world, workingCopyViewerId(worldRows[0]!.world, currentUser.id, worldRows[0]!.viewerCanEdit === true))) as unknown as WorldDefinition;
   const worldDef = migrateWorldDefinition(rawWorldDef);
 
   // Prepare the new opening before locking and replacing the old timeline.
@@ -1576,10 +1761,12 @@ function chunkRows<T>(rows: T[], size = INSERT_CHUNK_ROWS): T[][] {
 
 export async function branchSession(args: {
   userId: string;
+  /** The caller's site role: an admin keeps reading drafts they review. */
+  userRole?: string;
   sessionId: string;
   messageId: string;
 }): Promise<{
-  status: 201 | 400 | 404 | 500;
+  status: 201 | 400 | 403 | 404 | 500;
   body: {
     data?: {
       sessionId: string; name: string | null; parentSessionId: string | null; branchedFromMessageId: string | null;
@@ -1587,6 +1774,7 @@ export async function branchSession(args: {
       variablesRestored: boolean;
     };
     error?: string;
+    code?: "WORLD_ACCESS_ENDED";
   };
 }> {
   // Verify ownership
@@ -1635,13 +1823,18 @@ export async function branchSession(args: {
   // (variables the world no longer declares get dropped; missing defaults are
   // filled in). This keeps branches valid even when the world has evolved
   // since the pivot message was recorded.
-  const worldRows = await db.select().from(worlds).where(eq(worlds.id, parent.worldId));
+  // The live audience (follower + tester gate, which also ends a never-published
+  // card for someone no longer working on it); editor collaborators pass.
+  const worldRows = await db.select({ world: worlds, viewerCanEdit: viewerCanEditSql(args.userId), viewerCanReadFollowers: worldPlayAccessSql(args.userId) }).from(worlds).where(eq(worlds.id, parent.worldId));
+  if (worldRows[0] && !worldRows[0].viewerCanReadFollowers && worldRows[0].viewerCanEdit !== true) {
+    return { status: 403, body: { error: "You no longer have access to this card.", code: "WORLD_ACCESS_ENDED" } };
+  }
   if (worldRows.length === 0) {
     return { status: 404, body: { error: "World not found" } };
   }
-  // Branch normalizes against the creator's working copy when they own a held
-  // edit, so working-copy-only vars survive the branch. See resolveSessionWorldSchema.
-  const branchSchema = await resolveSessionWorldSchema(worldRows[0]!, args.userId);
+  // Branch normalizes against the working copy when the creator (or an editor)
+  // has a held edit, so working-copy-only vars survive the branch. See resolveSessionWorldSchema.
+  const branchSchema = await resolveSessionWorldSchema(worldRows[0]!.world, workingCopyViewerId(worldRows[0]!.world, args.userId, worldRows[0]!.viewerCanEdit === true));
   const worldDef = migrateWorldDefinition(branchSchema as unknown as WorldDefinition);
   const normalizedState = normalizeGameState(worldDef, branchState);
 
@@ -1771,6 +1964,10 @@ export async function branchSession(args: {
     if (!inserted) {
       throw new Error("Failed to insert branch session");
     }
+
+    // What the card itself saved (sessionStorage: contact lists, in-card chats) as it stood at the branch point:
+    // up to the next message of the parent, or as it is now when the branch is taken from the last message.
+    await copySessionStorageToBranch(tx, args.sessionId, inserted.id, allMessages[branchIdx + 1]?.createdAt ?? null);
 
     // Session lore is configuration-style state: a branch receives a
     // point-in-time copy and then diverges independently from its parent.
@@ -1913,6 +2110,7 @@ sessionRoutes.post("/:id/branch", async (c) => {
 
   const result = await branchSession({
     userId: currentUser.id,
+    userRole: currentUser.role ?? undefined,
     sessionId,
     messageId: body.messageId,
   });
@@ -2178,12 +2376,17 @@ sessionRoutes.post("/:id/checkpoints/:checkpointId/restore", async (c) => {
   await resolvePersonaForSession(sessionRows[0]!);
   const checkpoint = cpRows[0]!;
   const snapshotMessages = checkpoint.messages as unknown as Array<Record<string, unknown>>;
-  const worldRows = await db.select().from(worlds).where(eq(worlds.id, sessionRows[0]!.worldId));
+  const worldRows = await db.select({ world: worlds, viewerCanEdit: viewerCanEditSql(currentUser.id), viewerCanReadFollowers: worldPlayAccessSql(currentUser.id) }).from(worlds).where(eq(worlds.id, sessionRows[0]!.worldId));
   if (worldRows.length === 0) return c.json({ error: "World not found" }, 404);
+  // The live audience (follower + tester gate, which also ends a never-published
+  // card for someone no longer working on it); editor collaborators pass.
+  if (!worldRows[0]!.viewerCanReadFollowers && worldRows[0]!.viewerCanEdit !== true) {
+    return c.json({ error: "You no longer have access to this card.", code: "WORLD_ACCESS_ENDED" }, 403);
+  }
 
-  // Creator's checkpoint restore normalizes against their held working copy so
+  // Creator's (or an editor's) checkpoint restore normalizes against the held working copy so
   // working-copy-only vars aren't stripped. See resolveSessionWorldSchema.
-  const cpSchema = await resolveSessionWorldSchema(worldRows[0]!, currentUser.id);
+  const cpSchema = await resolveSessionWorldSchema(worldRows[0]!.world, workingCopyViewerId(worldRows[0]!.world, currentUser.id, worldRows[0]!.viewerCanEdit === true));
   const worldDef = migrateWorldDefinition(cpSchema as unknown as WorldDefinition);
   const restoredState = renewSocialEpoch(normalizeGameState(worldDef, checkpoint.state), randomUUID());
   applyPersonaMetadataToState(restoredState, await resolvePersonaForSession(sessionRows[0]!), currentUser);

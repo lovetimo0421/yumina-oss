@@ -1,81 +1,80 @@
+---
+title: "Publishing"
+description: "Choose who can play your Yumina card. The content rules, the checklist, the publish dialog's switches, updating a live card, versions, language versions, gallery images and announcements."
+---
+
 # Publishing
+
+Public cards appear on Discover. Anyone with the link can play a link-only card after review. Followers Only limits play to people who follow you.
 
 > Cover and asset rules: effective October 24, 2026 at 11:59 p.m. Pacific time. [See the notice and previous rules](/legal/community-guidelines).
 
-Once your card is done, publish it and players can find it on Discover.
+## Anyone with Link
 
-## Content checklist
+Choose **Anyone with Link** in Publish settings to invite testers after review. Anyone who receives the link can play and forward it. This is not a named-person invite list. Link-only cards stay out of Discover, search, and profiles.
+
+After approval, open the notification to open Share, then press **Copy link**. Share is also available on the card preview on desktop and mobile.
+
+To send the card in a DM, choose **Share World** → **My works** and select the version you want to send. A recipient of a followers-only card must follow you to play.
+
+To make the approved card discoverable later, change its visibility to **Public** and save. The approved version becomes public; edits awaiting review remain held.
+
+## Content rules
 
 - **Limited = every asset is safe for work and non-suggestive**, including in-game art, audio, custom UI, and linked media.
 - **Limitless covers and public previews must be non-explicit:** no nudity, sexual acts, or graphic gore. Keep intimate areas covered with opaque clothing.
-- **Check all public material:** cover, gallery, screenshots, title, description, tags, and every language variant. Shared profile images must meet Limited standards.
+- **Check all public material:** cover, gallery, screenshots, title, description, tags, and every language version. Shared profile images must meet Limited standards.
 - **Blur does not make an explicit image acceptable.** Mark a suggestive Limitless cover **Blurred**, but make sure it passes the rules when fully visible.
 - **Use assets you have rights to publish** and follow the [full cover, asset, and content rules](/legal/community-guidelines#publishing-media). Review again after updates.
 
-## Before You Publish
+## Before you publish
 
-- **Playtest.** Send 10 to 20 messages. Check that variables update properly, lore is sent when it should be, and how it plays.
-- **Write the blurb.** It's the first thing players see on Discover. Say clearly what the card is about.
-- **Add a compliant cover image.** A cover is required to submit a World for publication.
-- **Pick the content mode.** **Limited** for regular content, **Limitless** for adult content. Mislabelling breaks the community guidelines.
-- **Add tags.** Players find your card through them when searching and filtering.
+- **Playtest.** Send 10 to 20 messages. Check that variables update, lore is sent when it should be, and how it plays.
+- **Write the blurb.** It is the first thing players see on Discover, so say clearly what the card is about.
+- **Add both covers.** A tall one for phones and a wide one for desktop. Both are required.
 
-## How to Publish
+Upload portrait artwork for 2:3 cards and wide artwork for gallery views, or reuse the portrait. In Gallery display, adjust Desktop banner (21:9) and Mobile and gallery cards (16:9) separately. Save crop keeps both selections.
 
-1. On the canvas, click **Cover & blurb** on the right. Fill in the name and blurb, and upload both covers, portrait and landscape
-2. Click **Not live** on the right of the top bar and choose to publish
-3. Before publishing, it runs through a short checklist: a name, a cover, an opening, and at least one playtest
-4. In the publish dialog, set the content mode, visibility, and whether others can edit; tick the terms; click Publish
+- **Pick the content mode.** Limited for regular content, Limitless for adult content. Mislabelling breaks the community guidelines.
+- **Add tags.** Players find your card through them. Up to 50.
 
-![The Publish to Discover dialog, with tags, play time, visibility and content mode](./images/publish.png)
+## How to publish
 
-Once it passes review, eligible players can discover it according to its visibility and content mode. Creators with review bypass enabled can publish without waiting for admin review; the same content rules apply.
+1. On the canvas, click **Cover & blurb** on the right. Fill in the name, the blurb, the language, and both covers.
+2. Click **Not live** on the right of the top bar. Studio checks four things first: a name, a cover, an opening, and at least one playtest.
+3. The publish dialog sets tags, play time, content mode, visibility (Public, Anyone with Link, or Followers only) and target audience. Three switches are easy to skip past and matter:
+   - **Derivative works.** Others can make an editable copy of your card. On by default. Turn it off to keep your work yours.
+   - **Custom API keys.** Players may play your card with their own key. On by default.
+   - **Lore Shift.** Players with the Lore Shift extension can change the lore and values you allow, in their own game only. Off by default. Turn on **Allow session editing**, then tick **Players may edit this** on the entries and variables you want to open up. **Allow new session lore** lets them add their own lore, ranked below yours.
+4. Tick the terms and click **Publish**. An AI reviews first, then a person when needed. You can submit up to 100 times an hour.
 
-### Lore Shift
+![The Publish to Discover dialog](./images/publish.png)
 
-The publish dialog also has a **Lore Shift** section. Players with the Lore Shift extension can change the lore and values you allow in their own game, like setting their coins to 999 or adding a new character. It only affects that player's own game. Your original card doesn't change.
+Your card's public address is `yumina.io/@yourname/card-name-id`. Old links keep working after a rename.
 
-![Lore Shift at the bottom of Card settings](./images/canvas/card-settings.webp)
+## Updating a live card
 
-- **Allow session editing**: the master switch. While it's off, nothing below it does anything
-- **Allow new session lore**: lets players add new lore to their own game. It ranks below the lore you wrote
-- Then tick **Players may edit this lore in a session** on the lore you want to open up, and **Players may edit this value in a session** on the variables you want to open up
+Keep editing after you publish. Changes to lore, the interface, the content mode or the cover wait for review while players keep seeing the live version. Small listing changes go live at once. Submit the update from the publish menu, with an optional note, and choose whether to notify players who have played your card. Players mid-game keep the version they started with. New games get the update.
 
-Everything is off by default.
+## Versions
 
-## Updating a Published World
+While you edit, a version is saved every 15 minutes. **Panels → Version History** keeps the latest 20 automatic records, thinning older ones to one a day for 30 days, plus 10 versions you name yourself. **Restore to draft** brings any version back into the editor, after a safety snapshot of your current draft, and you publish it through review as usual. **Make live** swaps the live card to a version that was live before. Neither touches listing details like the title and tags.
 
-You can keep editing after you publish. Your changes are first saved as "unpublished changes", and players still see the live version. When you're ready, open the publish menu in the top right and submit the update. You can add a short update note while you're at it, and once it passes review, it's sent to players who've played your card.
+## Language versions
 
-Players who already started a game aren't affected. They keep playing the version they started with. New games use the updated version.
+One card can have a version per language. Open **Panels → Languages & variants**, or the bar at the top of **Cover & blurb**, and make a new version. It is a separate copy where lore, openings and variables are written again in that language, or translated in one go by the Creation assistant for mushies. Versions are linked in a language group and published separately. The ★ **Main** one is what people see when browsing, and players can switch to the others after opening the card.
 
-## Version History and Rollback
+**Translate with AI** (in the language menu next to the card's name in the Studio top bar, or ask the Studio assistant) makes an English, Chinese, Spanish, Korean, Indonesian or Russian version for you. It translates the opening, lore, variable rules, keywords and the interface's labels, and keeps variable ids, directives and the values the interface checks unchanged. It shows the price first (up to a set number of mushies; you pay what it actually cost, and nothing if it fails), runs for a few minutes in the background and leaves a **draft**: open it, check the spots it lists, then publish it like any version.
 
-On the canvas, open it from **Panels → Version History** (in the full editor it's in the top bar or the **⋮** menu). Updating and publishing save one version of the changed content, cover and age rating. Submitting unchanged content again reuses the matching automatic record. Once approved, that same saved version is marked as the live version, without making a separate published copy. Saving, publishing and switching the live version don't make an extra backup of the live content you're switching away from.
+## Taking a card down
 
-Each **Saved version** is marked **Not published**, **Currently live** or **Previously published**. Each world keeps up to **20 automatic records, including restore backups**, plus **10 manually named versions**. When automatic history hits its limit, older records are cleared out. Manually named versions are always kept separately. Even if their content matches an automatic version, automatic history won't replace them.
+**Unpublish** in the publish menu takes down this version, all versions, or the ones you choose. Players with saves see "No longer available" until you publish again, which goes through review once more.
 
-- **Restore to draft:** pick any saved version to replace the content, cover and age rating you're editing. The live version stays as it is. Leave "Save current state as a safety snapshot first" ticked to back up your current draft first. After restoring, playtest to check, then publish through the normal process.
-- **Make live:** while your world is published, you can pick an eligible version marked **Previously published** to switch the content, cover and age rating everyone sees. **Currently live** marks the version in use. The draft you're editing is kept separately, and existing history still follows the automatic-record limit.
+## Gallery and announcements
 
-Neither action rolls back listing details like the title and tags. Only eligible versions that were actually live before offer **Make live**. Named versions and saved versions that were never published have to be restored to a draft first, then published through the normal review process. The optional restore safety copy is labelled **Backup before restore**. You must withdraw any update under review before switching. If a world was taken down and approved again, versions from before the latest approval can't be made live directly.
+Add up to 8 gallery images to the card's page. Every one is a public preview and follows the cover rules, even a screenshot from Limitless play. Pin an announcement of up to 2,000 characters for update notes or known issues.
 
-## Multi-Language Support
+## Related
 
-One card can have several versions, like a Chinese version and an English version, or different versions of the same story. On the canvas, open **Panels → Languages & variants**, or click **Cover & blurb**. The variants are right at the top, where you can switch between them or make a new language version.
-
-Each variant is its own separate content: lore, openings and variables all need to be written again in that language. They're linked together through a language group, and players see the version in their own language on Discover.
-
-To unpublish, open the publish menu and click **Unpublish**. The dialog defaults to **Current variant only**. Choose **All published variants** to take down your published variants in the same language group, or **Choose variants** to select individual versions, including different variants in the same language. Drafts and other variants that are not published are excluded.
-
-Before confirming, check the selected variants and the ones that will remain published. Only the selected variants are taken down; players with existing sessions for those variants lose access until they are published again. Unselected published variants remain available.
-
-## Gallery Images
-
-Add up to 8 gallery images to show off your world, like gameplay screenshots, custom UI or promo art. They appear on the card's details page.
-
-Every gallery image is a public preview and must follow the [cover and asset rules](/legal/community-guidelines#publishing-media), even if it is a screenshot from Limitless gameplay.
-
-## Announcements
-
-Pin an announcement to the card's details page to tell players about updates, events or other important news. Up to 5,000 characters.
+- [Playtest](./playtest.md)
+- [Earnings and payouts](./earnings.md)

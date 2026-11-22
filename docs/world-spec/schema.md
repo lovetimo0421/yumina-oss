@@ -1,3 +1,8 @@
+---
+title: "World schema"
+description: "The complete JSON shape of a Yumina world file, WorldDefinition, field by field: identity, entries, variables, behaviors, interface, audio and settings."
+---
+
 # World Schema
 
 A Yumina world is stored as a JSON object called `WorldDefinition`. This is the complete schema.

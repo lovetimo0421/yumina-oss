@@ -1,3 +1,8 @@
+---
+title: "Audio design"
+description: "Four ways to trigger audio in a world (playlists, smart tracking, AI directives, conditional BGM), plus behaviors, volume and fade advice."
+---
+
 <div v-pre>
 
 # Audio Design
@@ -36,7 +41,7 @@ Upload one audio file. Create a BGM track. Add it to the playlist with **Auto-pl
 
 ### 2. Smart tracking: the AI picks from your cues
 
-In **Panels → Audio**, each track has **Let the AI play this track** (for SFX, **Let the AI play this sound**). Write one line in **When to play**, like "lively and cheerful — festivals, markets, chasing around", or for a sound, "someone draws a blade". After each reply, smart tracking checks the scene against these cues: it switches the music when the story matches a track, and plays a sound once when its moment arrives. Leave the line empty and the track only follows the playlist and conditional rules.
+In **Panels → Audio**, each track has **Let the AI play this track** (for SFX, **Let the AI play this sound**). Write one line in **When to play**, like "lively and cheerful: festivals, markets, chasing around", or for a sound, "someone draws a blade". After each reply, smart tracking checks the scene against these cues: it switches the music when the story matches a track, and plays a sound once when its moment arrives. Leave the line empty and the track only follows the playlist and conditional rules.
 
 This works whatever model the player uses, because the story AI doesn't have to remember to write anything. A few settings decide how it gets along with your other music:
 
@@ -48,7 +53,7 @@ Smart tracking is on by default; it's the switch of the same name in **Card sett
 
 ### 3. AI directives: let the narrator cue the soundtrack
 
-The AI can embed audio commands in its responses using the same bracket syntax as variable directives. The player never sees these — the engine strips them before displaying the text.
+The AI can embed audio commands in its responses using the same bracket syntax as variable directives. The player never sees these. The engine strips them before displaying the text.
 
 Only tracks with **Allow AI control** enabled can be controlled this way. It's on by default; turn it off (click the track on the canvas, or in **Panels → Audio**) to reserve a track for custom UI, scripts, behaviors, or playlists. Copy the track's **Track ID** with **Copy ID** when writing directives or custom UI calls.
 
@@ -100,7 +105,7 @@ Each conditional BGM rule has:
 | **On end** | What plays when the condition stops being true: **Return to default playlist**, **Return to previous track**, or a specific track |
 
 ::: details Example: combat track switch
-Two BGM tracks: `explore-bgm` and `battle-bgm`. The playlist plays exploration music by default. A conditional BGM rule watches for `location` is `battle_arena` — when it becomes true, the engine fades to battle music over 0.5 seconds. When the player leaves the arena, **Return to default playlist** brings back exploration.
+Two BGM tracks: `explore-bgm` and `battle-bgm`. The playlist plays exploration music by default. A conditional BGM rule watches for `location` is `battle_arena`. When it becomes true, the engine fades to battle music over 0.5 seconds. When the player leaves the arena, **Return to default playlist** brings back exploration.
 
 The player hears a smooth musical transition whenever combat starts and ends, without the AI having to remember anything about audio.
 :::
@@ -111,7 +116,7 @@ The player hears a smooth musical transition whenever combat starts and ends, wi
 
 Behaviors have three audio effects, **Play music**, **Play sound effect** and **Stop audio**, which control audio without involving the AI at all. This is the most reliable method for audio that must fire at a precise moment.
 
-Battle Royale uses a `death-sfx` track and a `heartbeat-sfx` track as part of its audio toolkit. While its current version relies on AI directives to trigger them, wiring these to behaviors would guarantee they play at the right moment — a heartbeat SFX when health drops below 20, a death sound when health hits zero.
+Battle Royale uses a `death-sfx` track and a `heartbeat-sfx` track as part of its audio toolkit. While its current version relies on AI directives to trigger them, wiring these to behaviors would guarantee they play at the right moment: a heartbeat SFX when health drops below 20, a death sound when health hits zero.
 
 | Effect | What it does |
 |--------|-------------|
@@ -134,11 +139,11 @@ Fades and volume changes aren't behavior effects. For those, use conditional BGM
 
 ### Volume balance
 
-BGM at 0.3-0.5 works for most worlds. Players are reading text — music that's too loud competes with concentration. Ambient tracks can sit even lower (0.1-0.3) as background texture. SFX should be louder (0.7-0.9) because they're brief and meant to punctuate moments.
+BGM at 0.3-0.5 works for most worlds. Players are reading text. Music that's too loud competes with concentration. Ambient tracks can sit even lower (0.1-0.3) as background texture. SFX should be louder (0.7-0.9) because they're brief and meant to punctuate moments.
 
 ### Fewer tracks, more impact
 
-Battle Royale has four audio tracks: a character creation BGM, a game playlist BGM, a heartbeat SFX, and a death SFX. That's enough to create tension throughout a multi-hour survival game. You don't need a library of 20 tracks — a few well-chosen ones with good fade transitions do more than a cluttered soundtrack.
+Battle Royale has four audio tracks: a character creation BGM, a game playlist BGM, a heartbeat SFX, and a death SFX. That's enough to create tension throughout a multi-hour survival game. You don't need a library of 20 tracks. A few well-chosen ones with good fade transitions do more than a cluttered soundtrack.
 
 ### Fade everything
 
@@ -146,9 +151,9 @@ Abrupt audio cuts are jarring. Set **Fade In (s)** to 2 and **Fade Out (s)** to 
 
 ### When to let the AI handle it vs. when to automate
 
-Let the AI handle audio when the trigger is *narrative* — a door slamming, a character gasping, an explosion. These moments are unpredictable and the AI knows when they happen because it's writing them.
+Let the AI handle audio when the trigger is *narrative*: a door slamming, a character gasping, an explosion. These moments are unpredictable and the AI knows when they happen because it's writing them.
 
-Automate audio when the trigger is *mechanical* — entering a location, health crossing a threshold, a specific turn number. These are precise state changes that the engine tracks better than the AI.
+Automate audio when the trigger is *mechanical*: entering a location, health crossing a threshold, a specific turn number. These are precise state changes that the engine tracks better than the AI.
 
 Many worlds mix them: a playlist for base music, conditional BGM for location-based switches, and "When to play" cues or AI directives for dramatic SFX moments.
 
@@ -156,9 +161,9 @@ Many worlds mix them: a playlist for base music, conditional BGM for location-ba
 
 ## See also
 
-- [AI Directives & Macros](/creator/advanced/directives-macros) — how audio directives fit into the broader directive system
-- [Behaviors & Automation](/creator/advanced/rules-deep) — audio effects in behaviors for precise audio triggers
-- [Custom UI Guide](/creator/advanced/custom-ui-deep) — controlling audio from your custom UI via the bridge API
+- [AI Directives & Macros](/creator/advanced/directives-macros): how audio directives fit into the broader directive system
+- [Behaviors & Automation](/creator/advanced/rules-deep): audio effects in behaviors for precise audio triggers
+- [Custom UI Guide](/creator/advanced/custom-ui-deep): controlling audio from your custom UI via the bridge API
 
 Complete audio schema and playlist config → [World Spec: Audio](/world-spec/audio)
 

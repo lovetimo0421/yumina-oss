@@ -9,6 +9,7 @@ import { useEditorStore } from "@/stores/editor";
 import { useAssetStore } from "@/stores/assets";
 import { StyledCheckbox } from "../components/styled-checkbox";
 import { TwoTapDeleteButton } from "@/components/ui/two-tap-delete-button";
+import { DebouncedInput } from "../components/debounced-field";
 
 const SCENE_MAX = 200;
 
@@ -117,24 +118,29 @@ export function BackgroundsSection({ mobileListMode }: { mobileListMode?: boolea
       />
 
       {/* List */}
-      <div className={cn("flex min-h-0 w-full flex-col gap-2 md:w-64", selected && mobileListMode && "hidden md:flex")}>
+      {/* Stacked above an open background (narrow, not in list mode), the
+          list keeps to a share of the height and scrolls on its own: grown to
+          its full length it left the settings below no room at all. */}
+      <div
+        className={cn(
+          "flex min-h-0 w-full flex-col gap-2 md:w-64",
+          selected && (mobileListMode ? "hidden md:flex" : "max-h-[40%] shrink-0 md:max-h-none md:shrink"),
+        )}
+      >
         <div className="flex items-center gap-2">
-          <h2 className="text-sm font-semibold">{t("backgrounds.title", { defaultValue: "Background" })}</h2>
+          <h2
+            className="text-sm font-semibold"
+            title={t("backgrounds.blurb", {
+              defaultValue: "A picture behind the chat. Text gets a dark layer over it so it stays readable.",
+            })}
+          >
+            {t("backgrounds.title", { defaultValue: "Background" })}
+          </h2>
           <span className="text-[11px] text-muted-foreground">{backgrounds.length}</span>
         </div>
-        <p className="text-[11px] leading-relaxed text-muted-foreground">
-          {t("backgrounds.blurb", {
-            defaultValue: "A picture behind the chat. Text gets a dark layer over it so it stays readable.",
-          })}
-        </p>
 
         {backgrounds.length === 0 ? (
           <div className="rounded-xl border border-dashed border-border p-4">
-            <p className="mb-3 text-[12px] leading-relaxed text-muted-foreground">
-              {t("backgrounds.emptyHint", {
-                defaultValue: "Start with the cover you already have — no upload, no generation.",
-              })}
-            </p>
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
@@ -240,11 +246,16 @@ export function BackgroundsSection({ mobileListMode }: { mobileListMode?: boolea
             opacity={selected.opacity ?? DEFAULT_BACKGROUND_OPACITY}
             position={selected.position ?? "center"}
             sentence={t(PREVIEW_SENTENCE_KEY, {
-              defaultValue: "The rain pressed the whole city low. She did not look back — she only tilted the umbrella your way.",
+              defaultValue: "The rain pressed the whole city low. She did not look back, only tilted the umbrella your way.",
             })}
           />
 
-          <div className="grid gap-3">
+          <div
+            className="grid gap-3"
+            title={t("backgrounds.dimVsOpacity", {
+              defaultValue: "Dim lays black over everything and is what buys legibility. Opacity fades the picture into the card's own background instead.",
+            })}
+          >
             <Slider
               label={t("backgrounds.blur", { defaultValue: "Blur" })}
               value={selected.blur ?? DEFAULT_BACKGROUND_BLUR}
@@ -263,11 +274,6 @@ export function BackgroundsSection({ mobileListMode }: { mobileListMode?: boolea
               min={10} max={100} suffix="%"
               onChange={(n) => updateBackground(selected.id, { opacity: n })}
             />
-            <p className="text-[11px] leading-relaxed text-muted-foreground">
-              {t("backgrounds.dimVsOpacity", {
-                defaultValue: "Dim lays black over everything and is what buys legibility. Opacity fades the picture into the card's own background instead.",
-              })}
-            </p>
             <div className="flex items-center gap-3 text-[12px]">
               <span className="w-14 shrink-0 text-muted-foreground">
                 {t("backgrounds.position", { defaultValue: "Crop" })}
@@ -296,16 +302,27 @@ export function BackgroundsSection({ mobileListMode }: { mobileListMode?: boolea
             <label className="text-[11px] font-medium text-muted-foreground">
               {t("backgrounds.name", { defaultValue: "Name" })}
             </label>
-            <input
+            {/* Typed into its own state and committed on a pause, like the
+                editor's other name fields: bound straight to the store, every
+                key re-rendered the whole card under the phone keyboard. A name
+                is rarely a dictionary word, so no spellcheck to tap through. */}
+            <DebouncedInput
               className={inputClass}
               value={selected.name}
-              onChange={(e) => updateBackground(selected.id, { name: e.target.value })}
+              syncKey={selected.id}
+              onCommit={(name) => updateBackground(selected.id, { name })}
+              spellCheck={false}
               placeholder={t("backgrounds.namePlaceholder", { defaultValue: "Rainy rooftop" })}
             />
           </div>
 
           <div className="grid gap-2">
-            <label className="text-[11px] font-medium text-muted-foreground">
+            <label
+              className="text-[11px] font-medium text-muted-foreground"
+              title={t("backgrounds.whenHint", {
+                defaultValue: "Leave empty and the AI never picks this one. An opening or the default flag shows it instead.",
+              })}
+            >
               {t("backgrounds.when", { defaultValue: "When the AI should switch to it" })}
             </label>
             <textarea
@@ -317,11 +334,6 @@ export function BackgroundsSection({ mobileListMode }: { mobileListMode?: boolea
                 defaultValue: "A rainy night, or any scene outdoors and high up",
               })}
             />
-            <p className="text-[10.5px] leading-relaxed text-muted-foreground">
-              {t("backgrounds.whenHint", {
-                defaultValue: "Leave empty and the AI never picks this one — an opening or the default flag shows it instead.",
-              })}
-            </p>
           </div>
 
           <div className="grid gap-2">

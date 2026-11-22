@@ -196,3 +196,15 @@ test("sticky session header: hashed, stable per conversation, absent without one
   assert.ok(!a["x-session-id"]!.includes("session-1"));
   assert.deepEqual(stickySessionHeader(undefined), {});
 });
+
+test("glm 5.3: prefers Wafer and skips the hosts that drift into Chinese", () => {
+  for (const model of ["z-ai/glm-5.3", "z-ai/glm-5.3-flash"]) {
+    assert.deepEqual(providerRoutingFor(model, false), {
+      order: ["wafer"],
+      allow_fallbacks: true,
+      ignore: ["primeintellect", "coreweave", "inference-net", "open-inference"],
+    });
+  }
+  assert.equal(providerRoutingFor("z-ai/glm-5.2", false), undefined);
+  assert.equal(providerRoutingFor("z-ai/glm-5.3", false, undefined, true), undefined, "BYOK keeps account routing");
+});

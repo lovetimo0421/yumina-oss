@@ -28,10 +28,13 @@ export function formatWalletAmount(amount: number, locale?: string): string {
   return new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(shown);
 }
 
-/** Header-pill balance: compact "90.9K" from 10,000 up, otherwise the same
- *  number the wallet panel shows, so opening the pill never changes it. */
+/** The balance wherever it is shown (header pill, the story's composer, the
+ *  Studio and the Atelier): the wallet panel's number below 100,000, so
+ *  opening the pill never changes it and a player sees what a turn took;
+ *  then "152.1K" and "1.2M", floored, so it never overstates. */
 export function formatMushiePill(balance: number | null | undefined, locale?: string): string {
   const n = balance ?? 0;
-  if (n >= 10_000) return `${(Math.floor(n / 100) / 10).toFixed(1)}K`;
+  if (n >= 1_000_000) return `${(Math.floor(n / 100_000) / 10).toFixed(1)}M`;
+  if (n >= 100_000) return `${(Math.floor(n / 100) / 10).toFixed(1)}K`;
   return formatWalletAmount(n, locale);
 }

@@ -8,6 +8,8 @@ import { useLocalModelStore } from "./store";
 import { isLocalModelId } from "./enabled-flag";
 import { LocalModelDiagnosis } from "./local-model-status";
 import { requestGuideOpen } from "./local-model-guide";
+import { prettyLocalModelName } from "./hf-gguf";
+import { runtimeNames } from "./detect";
 
 /**
  * A phone can't run a model itself: no suitable GPU, and a phone browser
@@ -21,11 +23,18 @@ export function isLikelyPhone(): boolean {
   return /Android|iPhone|iPad|iPod|Mobile/i.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
 }
 
-/** Models we've played cards on, and what to tell a player about each. */
+const BEST = { tag: "best", chip: "bg-amber-400/10 text-amber-300", dot: "bg-amber-400" } as const;
+const RECOMMENDED = { tag: "recommended", chip: "bg-emerald-400/10 text-emerald-300", dot: "bg-emerald-400" } as const;
+const LIGHT = { tag: "light", chip: "bg-sky-400/10 text-sky-300", dot: "bg-sky-400" } as const;
+
+/** Models we've played cards on, and what to tell a player about each — by Ollama tag and LM Studio key. */
 const KNOWN_MODELS: Record<string, { tag: "best" | "recommended" | "light"; chip: string; dot: string }> = {
-  "qwen3.8:27b": { tag: "best", chip: "bg-amber-400/10 text-amber-300", dot: "bg-amber-400" },
-  "qwen3.5:9b": { tag: "recommended", chip: "bg-emerald-400/10 text-emerald-300", dot: "bg-emerald-400" },
-  "qwen3.5:4b": { tag: "light", chip: "bg-sky-400/10 text-sky-300", dot: "bg-sky-400" },
+  "qwen3.8:27b": BEST,
+  "qwen3.5:9b": RECOMMENDED,
+  "qwen3.5:4b": LIGHT,
+  "qwen/qwen3.8-27b": BEST,
+  "qwen/qwen3.5-9b": RECOMMENDED,
+  "qwen/qwen3.5-4b": LIGHT,
 };
 
 const KNOWN_ORDER = ["recommended", "best", "light"] as const;
@@ -57,6 +66,8 @@ export function LocalModelPickerView({ selectedModel, onSelect, onClose, provide
   const navigate = useNavigate();
   const { enabled, status, detecting, detection, detect, enable } = useLocalModelStore();
   const localModels = useModelsStore((s) => s.localModels);
+  // LM Studio says which models are in memory; the rest load on first use.
+  const notLoaded = new Set(detection?.status === "ready" ? detection.models.filter((m) => m.loaded === false).map((m) => `local/${m.id}`) : []);
   const [busy, setBusy] = useState(false);
   const k = (key: string, opts?: Record<string, unknown>) => t(`localModel.picker.${key}` as never, opts as never) as unknown as string;
 
@@ -72,7 +83,7 @@ export function LocalModelPickerView({ selectedModel, onSelect, onClose, provide
 
   const phone = isLikelyPhone();
   const live = enabled && (status === "connected" || status === "running");
-  const runtimeLabel = detection?.status === "ready" || detection?.status === "blocked" ? detection.runtime.label : "Ollama";
+  const runtimeLabel = detection?.status === "ready" ? runtimeNames(detection) : detection?.status === "blocked" ? detection.runtime.label : "Ollama";
 
   // The status pill in the banner.
   const pill = phone
@@ -194,12 +205,15 @@ export function LocalModelPickerView({ selectedModel, onSelect, onClose, provide
                         <span aria-hidden="true" className={cn("h-2 w-2 shrink-0 rounded-full", known?.dot ?? "bg-white/35", isSelected ? "opacity-100 ring-4 ring-white/5" : "opacity-75")} />
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
-                            <span className="min-w-0 truncate font-mono text-[13px] font-medium text-white/90">{name}</span>
+                            <span title={name} className="min-w-0 truncate font-mono text-[13px] font-medium text-white/90">{prettyLocalModelName(name)}</span>
                             {known && <span className={cn("shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium", known.chip)}>{k(`tag.${known.tag}`)}</span>}
                             {isSelected && <Check aria-hidden="true" className="h-3 w-3 shrink-0 text-emerald-300" />}
                             <span className="ml-auto shrink-0 text-[11px] text-emerald-400/80">{t("localModel.freeTag")}</span>
                           </div>
-                          <p className="mt-1 text-xs leading-snug text-white/50">{known ? k(`desc.${known.tag}`) : k("desc.other")}</p>
+                          <p className="mt-1 text-xs leading-snug text-white/50">
+                            {known ? k(`desc.${known.tag}`) : k("desc.other")}
+                            {notLoaded.has(m.id) && <span className="text-white/35"> · {k("notLoaded")}</span>}
+                          </p>
                         </div>
                       </button>
                     );
@@ -207,7 +221,7 @@ export function LocalModelPickerView({ selectedModel, onSelect, onClose, provide
                 </div>
               </div>
             ) : live ? (
-              <div className="rounded-[13px] border border-white/[0.07] bg-white/[0.02] p-4 text-[12px] leading-relaxed text-white/60">{k("noModels")}</div>
+              <div className="rounded-[13px] border border-white/[0.07] bg-white/[0.02] p-4 text-[12px] leading-relaxed text-white/60">{k(detection?.status === "ready" && detection.runtime.kind === "lmstudio" ? "noModelsLmStudio" : "noModels")}</div>
             ) : enabled ? (
               // Turned on, but the runtime isn't answering right now.
               <div className="rounded-[13px] border border-red-400/20 bg-red-400/[0.06] p-4">

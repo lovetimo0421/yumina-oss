@@ -115,7 +115,7 @@ export function withoutPlayer(state: string): string {
 
 /** The plate's prompt: the look, the scene state, an establishing wide shot. */
 export function platePrompt(style: string, state: string, others: Described[] = []): string {
-  return `${pictureStyle(style)} ${silentShot(withoutPlayer(state))}${othersLine(others, [])} Establishing wide shot of the whole place at eye level, everyone in it visible. Absolutely no text anywhere in the picture: no subtitles, captions, letters, writing or watermark.`;
+  return `${pictureStyle(style)} ${silentShot(withoutPlayer(state))}${othersLine(others, [])} Establishing wide shot of the whole place at eye level, everyone in it visible. The camera is the player's own eyes: the player is not in the picture, at most their bare hands (a live-action forest plate drew the waking player sitting on the ground, 2026-11-07). Absolutely no text anywhere in the picture: no subtitles, captions, letters, writing or watermark.`;
 }
 
 /** The prompt for plateRefGraph. With portraits (images 1..n) each is a reference sheet of one
@@ -126,7 +126,10 @@ export function platePrompt(style: string, state: string, others: Described[] = 
  *  her look every time and one of her in most. Without portraits the cover (`cover`) is a style
  *  sample only. The plate comes closer than a bare establishing shot: it is the scene's first frame,
  *  and faces too small to read lose what the portraits gave them. */
-export function plateRefPrompt(style: string, state: string, cover: boolean, faces: string[], others: Described[] = []): string {
+/** `preset`: the player picked a look (live action, anime, painted) instead of the card's own, so
+ *  the sheets give faces only and the picture takes the preset's medium: with the first sheet as
+ *  the art style too, an anime portrait turned a live-action film back into anime (2026-11-07). */
+export function plateRefPrompt(style: string, state: string, cover: boolean, faces: string[], others: Described[] = [], preset = false): string {
   const scene = ` The scene: ${silentShot(withoutPlayer(state))}${othersLine(others, faces)} Medium-wide shot at eye level that shows the place and the people in it, close enough that their faces read clearly. The camera is the player's own eyes: the player is not in the picture, at most their bare hands. Absolutely no text anywhere in the picture: no subtitles, captions, letters, writing or watermark.`;
   if (!faces.length) {
     return cover
@@ -137,11 +140,12 @@ export function plateRefPrompt(style: string, state: string, cover: boolean, fac
     // Hairstyle, accessories and clothes follow the story where it changed them: given "her hair
     // disheveled without her headband" and a sheet with one, a plate drew her twice, once each way
     // (prod 2026-10-19).
-    .map((name, i) => `Image ${i + 1} is a character reference sheet of ${name}: use it only for how ${name} looks (face, eye colour, hair colour and hair length; hairstyle, accessories and clothing as in the sheet unless the scene says otherwise, and then as the scene says)${i === 0 ? " and for the art style (the same medium, line work, cel shading, colouring and proportions)" : ""}.`)
+    .map((name, i) => `Image ${i + 1} is a character reference sheet of ${name}: use it only for how ${name} looks (face, eye colour, hair colour and hair length; hairstyle, accessories and clothing as in the sheet unless the scene says otherwise, and then as the scene says)${i === 0 && !preset ? " and for the art style (the same medium, line work, cel shading, colouring and proportions)" : ""}.`)
     .join(" ");
   const named = [...faces, ...others.map((o) => o.name)];
   const once = named.length === 1 ? `${named[0]} appears exactly once` : `each of ${named.join(", ")} appears exactly once`;
-  return `${sheets} Do not copy the reference sheets' poses, crossed arms, framing or backgrounds. Draw a new scene in which ${once}, in the pose the scene describes, and nobody else appears unless the scene names them.${scene}`;
+  const medium = preset ? `${pictureStyle(style)} The reference sheets are drawings of who is who: draw these people in that style as described, not in the sheets' own drawing style. ` : "";
+  return `${medium}${sheets} Do not copy the reference sheets' poses, crossed arms, framing or backgrounds. Draw a new scene in which ${once}, in the pose the scene describes, and nobody else appears unless the scene names them.${scene}`;
 }
 
 /** A style sentence for a picture model: what it is, without the "Not …" sentences. With no

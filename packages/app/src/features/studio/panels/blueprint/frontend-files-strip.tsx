@@ -11,6 +11,8 @@ export const FRONTEND_FILE_ROWS = 5;
  *  to FRONTEND_FILE_ROWS files, and one "N more" line when they overflow. */
 export function frontendFileRowCount(fileCount: number): number {
   if (fileCount <= 0) return 0;
+  // One file is its own summary: the totals line would say the same file and lines again.
+  if (fileCount === 1) return 1;
   return 1 + Math.min(fileCount, FRONTEND_FILE_ROWS) + (fileCount > FRONTEND_FILE_ROWS ? 1 : 0);
 }
 
@@ -30,30 +32,36 @@ const chip = "shrink-0 rounded px-1.5 text-[10px] font-semibold leading-[16px]";
  * row is a canvas object (`file:<name>`): a sticky note sticks to it, a click
  * opens the file, and the assistant reads the same list.
  */
-export function FrontendFilesStrip({ files, entryFile, aiCalls, onOpenFile }: {
+export function FrontendFilesStrip({ files, entryFile, aiCalls, onOpenFile, rulesFile }: {
   files: FrontendFileFacts[];
   entryFile?: string;
   aiCalls: number;
   onOpenFile?: (file: string, line: number) => void;
+  /** The file a 联机 rules table runs: tagged, and never folded away. */
+  rulesFile?: string;
 }) {
   const { t } = useTranslation("editor");
   if (files.length === 0) return null;
   const shown = files.slice(0, FRONTEND_FILE_ROWS);
+  const rules = rulesFile ? files.find((f) => f.file === rulesFile) : undefined;
+  if (rules && !shown.includes(rules)) shown[shown.length - 1] = rules;
   const more = files.length - shown.length;
   const reads = new Set(files.flatMap((f) => f.reads)).size;
   const writes = new Set(files.flatMap((f) => f.writes)).size;
   const lines = files.reduce((n, f) => n + f.lines, 0);
   return (
     <div data-frontend-files="" className="border-t border-white/[0.06]" style={{ paddingBlock: BLOCK_BODY_PAD }}>
-      <div className="flex items-center gap-2 px-2.5 text-[11px] text-muted-foreground" style={{ height: PLAIN_ROW_H }}>
-        <FileCode2 className="h-3.5 w-3.5 shrink-0 text-rose-300" />
-        <span className="min-w-0 truncate">
-          {t("blueprint.files.summary", { files: files.length, lines })}
-          {reads > 0 && ` · ${t("blueprint.files.reads", { count: reads })}`}
-          {writes > 0 && ` · ${t("blueprint.files.writes", { count: writes })}`}
-          {aiCalls > 0 && ` · ${t("blueprint.files.aiCalls", { count: aiCalls })}`}
-        </span>
-      </div>
+      {files.length > 1 && (
+        <div className="flex items-center gap-2 px-2.5 text-[11px] text-muted-foreground" style={{ height: PLAIN_ROW_H }}>
+          <FileCode2 className="h-3.5 w-3.5 shrink-0 text-rose-300" />
+          <span className="min-w-0 truncate">
+            {t("blueprint.files.summary", { files: files.length, lines })}
+            {reads > 0 && ` · ${t("blueprint.files.reads", { count: reads })}`}
+            {writes > 0 && ` · ${t("blueprint.files.writes", { count: writes })}`}
+            {aiCalls > 0 && ` · ${t("blueprint.files.aiCalls", { count: aiCalls })}`}
+          </span>
+        </div>
+      )}
       {shown.map((f) => (
         <div
           key={f.file}
@@ -70,11 +78,13 @@ export function FrontendFilesStrip({ files, entryFile, aiCalls, onOpenFile }: {
           className={cn("nodrag flex items-center gap-2 px-2.5 text-left", onOpenFile && "cursor-pointer hover:bg-white/[0.06]")}
           style={{ height: PLAIN_ROW_H }}
         >
+          {files.length === 1 && <FileCode2 className="h-3.5 w-3.5 shrink-0 text-rose-300" />}
           <span className={cn("min-w-0 truncate font-mono text-[11.5px]", f.file === entryFile ? "text-foreground/90" : "text-foreground/75")}>{f.file}</span>
           <span className="shrink-0 text-[10px] text-muted-foreground/70">{t("blueprint.files.lines", { count: f.lines })}</span>
           <span className="flex-1" />
+          {f === rules && <span data-rules-file-tag="" className={cn(chip, "bg-white/[0.08] text-foreground/70")}>{t("blueprint.multiplayer.rulesTag")}</span>}
           {f.reads.length > 0 && <span className={cn(chip, "bg-sky-400/15 text-sky-200")}>{t("blueprint.files.chipReads", { count: f.reads.length })}</span>}
-          {f.writes.length > 0 && <span className={cn(chip, "bg-amber-400/15 text-amber-200")}>{t("blueprint.files.chipWrites", { count: f.writes.length })}</span>}
+          {f.writes.length > 0 && <span className={cn(chip, "bg-white/[0.08] text-foreground/70")}>{t("blueprint.files.chipWrites", { count: f.writes.length })}</span>}
           {f.aiCalls.length > 0 && <span className={cn(chip, "bg-violet-400/15 text-violet-200")}>{t("blueprint.files.chipAi", { count: f.aiCalls.length })}</span>}
           {f.uses.filter((u) => u !== "ai").slice(0, 2).map((u) => (
             <span key={u} className={cn(chip, "bg-white/[0.08] text-foreground/70")}>{t(`blueprint.files.use_${u}`)}</span>

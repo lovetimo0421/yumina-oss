@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { ArrowDown, ArrowUp, Plus, X } from "lucide-react";
 import { UI_CHAT_STARTED } from "@yumina/engine";
 import type { AudioTrack, Condition, UiAction, UiPage, Variable } from "@yumina/engine";
+import { cn } from "@/lib/utils";
 import { templateFromDisplay, templateToDisplay } from "./template-names";
 
 /**
@@ -356,7 +357,7 @@ function ActionFields({ action, ctx, onChange }: { action: UiAction; ctx: Action
       const variable = ctx.variables.find((v) => v.id === action.variableId);
       const numeric = variable?.type === "number";
       return (
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-1.5" title={t(numeric ? "studio.element.randomNumberHint" : "studio.element.randomFromHint")}>
           <select
             value={action.variableId}
             onChange={(e) => {
@@ -385,7 +386,6 @@ function ActionFields({ action, ctx, onChange }: { action: UiAction; ctx: Action
               className={`${smallField} resize-y`}
             />
           )}
-          <p className="text-[10px] leading-relaxed text-muted-foreground/70">{t(numeric ? "studio.element.randomNumberHint" : "studio.element.randomFromHint")}</p>
         </div>
       );
     }
@@ -472,7 +472,7 @@ export function ActionListEditor({
   onChange: (next: UiAction[]) => void;
   /** The heading; a button's is 「按下时，依次做」, a card's 「选了以后」. */
   label?: string;
-  /** A line under the heading — what `{{choice}}` / `{{item}}` mean here. */
+  /** Behind the heading, on hover: what `{{choice}}` / `{{item}}` mean here. */
   hint?: string;
   /** Inside another box (a card's row in a table) — no section frame of its own. */
   bare?: boolean;
@@ -488,8 +488,7 @@ export function ActionListEditor({
   };
   return (
     <div className={bare ? undefined : "border-b border-border/50 px-3 py-2.5"} data-testid="button-actions">
-      <span className="mb-1.5 block text-[11px] font-medium text-muted-foreground">{label ?? t("studio.element.onPress")}</span>
-      {hint && <p className="mb-1.5 text-[10px] leading-relaxed text-muted-foreground/70">{hint}</p>}
+      <span className={cn("mb-1.5 block text-[11px] font-medium text-muted-foreground", hint && "cursor-help")} title={hint}>{label ?? t("studio.element.onPress")}</span>
       {actions.length === 0 && <p className="mb-2 text-[11px] leading-relaxed text-muted-foreground/70">{t("studio.element.noActions")}</p>}
       <ol className="flex flex-col gap-1.5">
         {actions.map((action, i) => {
@@ -582,7 +581,7 @@ export function ConditionEditor({
   const ops = operatorsFor(variable);
   return (
     <div className="border-b border-border/50 px-3 py-2.5" data-testid="visible-when">
-      <span className="mb-1.5 block text-[11px] font-medium text-muted-foreground">{t("studio.element.showWhen")}</span>
+      <span className={cn("mb-1.5 block text-[11px] font-medium text-muted-foreground", mode !== "always" && "cursor-help")} title={mode !== "always" ? t("studio.element.showHint") : undefined}>{t("studio.element.showWhen")}</span>
       <select value={mode} onChange={(e) => setMode(e.target.value as ShowMode)} className={field}>
         <option value="always">{t("studio.element.show.always")}</option>
         <option value="notStarted">{t("studio.element.show.notStarted")}</option>
@@ -629,7 +628,6 @@ export function ConditionEditor({
           </div>
         </div>
       )}
-      {mode !== "always" && <p className="mt-1.5 text-[10px] leading-relaxed text-muted-foreground/70">{t("studio.element.showHint")}</p>}
     </div>
   );
 }

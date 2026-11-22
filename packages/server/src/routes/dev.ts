@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { setCookie } from "hono/cookie";
 import { eq } from "drizzle-orm";
 import { makeSignature } from "better-auth/crypto";
@@ -21,13 +21,27 @@ async function markEmailVerified(email: string) {
     .where(eq(user.email, email));
 }
 
-function isLocalHelperAvailable(url: string) {
+/** The machine the request really came from. The Host header is whatever the
+ * caller typed, so "localhost" there proves nothing about where they are. */
+function cameFromThisMachine(c: Context): boolean {
+  const remote = (c.env as { incoming?: { socket?: { remoteAddress?: string } } } | undefined)?.incoming?.socket?.remoteAddress;
+  if (!remote) return IS_DEV;
+  return remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
+}
+
+function isLocalHelperAvailable(c: Context) {
   if (IS_DEV || !env.DATABASE_URL) {
-    const hostname = new URL(url).hostname;
-    return hostname === "localhost" || hostname === "127.0.0.1";
+    const hostname = new URL(c.req.url).hostname;
+    return (hostname === "localhost" || hostname === "127.0.0.1") && cameFromThisMachine(c);
   }
 
   return false;
+}
+
+/** A path inside this app. "//host" and "/\host" are other sites to a browser. */
+function localRedirect(raw: string | undefined, fallback: string): string {
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//") || raw.includes("\\")) return fallback;
+  return raw;
 }
 
 /**
@@ -36,7 +50,7 @@ function isLocalHelperAvailable(url: string) {
  * Only available when NODE_ENV !== "production".
  */
 devRoutes.post("/auto-login", async (c) => {
-  if (!isLocalHelperAvailable(c.req.url)) {
+  if (!isLocalHelperAvailable(c)) {
     return c.json({ error: "Not available in production" }, 404);
   }
 
@@ -99,13 +113,12 @@ devRoutes.post("/auto-login", async (c) => {
  * and redirects back into the app so the browser receives the auth cookie.
  */
 devRoutes.get("/auto-login/localgorgy", async (c) => {
-  if (!isLocalHelperAvailable(c.req.url)) {
+  if (!isLocalHelperAvailable(c)) {
     return c.json({ error: "Not available in production" }, 404);
   }
 
   try {
-    const redirectToRaw = c.req.query("redirect") || "/app/profile";
-    const redirectTo = redirectToRaw.startsWith("/") ? redirectToRaw : "/app/profile";
+    const redirectTo = localRedirect(c.req.query("redirect"), "/app/profile");
     let localUser = await db
       .select({ id: user.id })
       .from(user)

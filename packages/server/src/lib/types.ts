@@ -26,6 +26,7 @@ export type SessionUser = {
   /** Admin-granted trusted-creator flag: edits auto-publish without review and
    *  the publishing rate-limit tier uses the trusted (higher) window. */
   skipReview?: boolean;
+  limitedContentOnly?: boolean;
 };
 
 export type AppEnv = {

@@ -8,7 +8,7 @@ import type { BlockKind } from "@yumina/engine";
  *  guide, which stays docked at the bottom of the canvas. Finishing them
  *  unlocks the rest — one lesson per subject, taken in any order, each
  *  bringing its own block onto the same three. */
-export const LEARNING_RELEASE = "blueprint-tour-14";
+export const LEARNING_RELEASE = "blueprint-tour-21";
 export const LEARNING_PANEL_EVENT = "yumina:studio-learn-panel";
 export const LEARNING_CANVAS_EVENT = "yumina:studio-learn-canvas";
 export const LEARNING_TARGET_EVENT = "yumina:studio-learn-target";
@@ -20,6 +20,9 @@ export const LEARNING_REVEAL_EVENT = "yumina:studio-learn-reveal";
 /** The guide's sample object, opened for editing: an entry on its row, a
  *  variable or behaviour in the column. */
 export const LEARNING_SHOW_EVENT = "yumina:studio-learn-show";
+/** The phone board's version of "show this object": its page, opened over the
+ *  board the way a tap opens it (a phone cannot write on a row in place). */
+export const LEARNING_PHONE_OPEN_EVENT = "yumina:studio-learn-phone-open";
 /** The guide moved to another step. A menu or popover a beat asked the
  *  learner to open closes: left open, its backdrop ate the next click. */
 export const LEARNING_STEP_EVENT = "yumina:studio-learn-step";
@@ -38,17 +41,17 @@ export const LEARNING_LESSONS = [
   { id: "setting", revision: 17, part: "required", panel: "lorebook", stage: ["opening", "lore"], focus: ["lore"], canvasTarget: "setting" },
   { id: "interface", revision: 16, part: "required", panel: "frontend", stage: ["opening", "lore", "frontend"], focus: ["frontend"] },
   // ── More ── each brings its own block onto the three the learner knows.
-  { id: "state", revision: 17, part: "more", panel: "variables", stage: ["opening", "lore", "frontend", "state"], focus: ["state"] },
-  { id: "behavior", revision: 13, part: "more", panel: "rules", stage: ["opening", "lore", "frontend", "state", "behavior"], focus: ["behavior"] },
-  { id: "atmosphere", revision: 8, part: "more", panel: "audio", stage: ["opening", "lore", "frontend", "audio", "image"], focus: ["audio", "image"] },
+  { id: "state", revision: 18, part: "more", panel: "variables", stage: ["opening", "lore", "frontend", "state"], focus: ["state"] },
+  { id: "behavior", revision: 14, part: "more", panel: "rules", stage: ["opening", "lore", "frontend", "state", "behavior"], focus: ["behavior"] },
+  { id: "atmosphere", revision: 9, part: "more", panel: "audio", stage: ["opening", "lore", "frontend", "audio", "image"], focus: ["audio", "image"] },
   { id: "assistant", revision: 13, part: "more", panel: "ai-chat" },
-  { id: "card", revision: 13, part: "more", panel: "overview" },
+  { id: "card", revision: 16, part: "more", panel: "overview" },
   { id: "knowledge", revision: 9, part: "more", panel: "lorebook", stage: ["opening", "lore", "frontend"], focus: ["lore"] },
   { id: "looks", revision: 10, part: "more", panel: "frontend", stage: ["opening", "lore", "frontend"], focus: ["frontend"] },
   { id: "modules", revision: 15, part: "more", panel: "modules" },
-  { id: "ais", revision: 8, part: "more", panel: "modules" },
-  { id: "canvas", revision: 13, part: "more", panel: "blueprint" },
-  { id: "ship", revision: 14, part: "more", panel: "playtest" },
+  { id: "ais", revision: 10, part: "more", panel: "modules" },
+  { id: "canvas", revision: 15, part: "more", panel: "blueprint" },
+  { id: "ship", revision: 16, part: "more", panel: "playtest" },
 ] as const satisfies readonly { id: string; revision: number; part: LearningPart; panel: string; stage?: readonly BlockKind[]; focus?: readonly BlockKind[]; canvasTarget?: string }[];
 
 export type LearningLesson = typeof LEARNING_LESSONS[number];

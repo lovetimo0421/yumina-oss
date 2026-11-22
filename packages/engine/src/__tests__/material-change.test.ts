@@ -35,6 +35,24 @@ describe("detectMaterialChange", () => {
     }
   });
 
+  it("holds the card's illustration style LoRA for review: added, changed, re-weighted, removed", () => {
+    const lora = (modelId: string, weight?: number) => ({ illustrationLora: { modelId, ...(weight ? { weight } : {}) } });
+    for (const [before, after] of [[{}, lora("a")], [lora("a"), lora("b")], [lora("a"), lora("a", 1.2)], [lora("a"), {}]]) {
+      const approved = snap({ schema: world({ settings: before } as any) });
+      const proposed = snap({ schema: world({ settings: after } as any) });
+      expect(detectMaterialChange(approved, proposed)).toEqual({ changed: true, reasons: ["illustration"] });
+    }
+    const same = snap({ schema: world({ settings: { ...lora("a"), temperature: 1 } } as any) });
+    expect(detectMaterialChange(same, snap({ schema: world({ settings: { ...lora("a"), temperature: 0.5 } } as any) })).changed).toBe(false);
+  });
+
+  it("holds a character's illustration LoRA for review like its portrait", () => {
+    const character = { ...entry("alice", "An explorer"), role: "character" };
+    const approved = snap({ schema: world({ entries: [character] as any }) });
+    const proposed = snap({ schema: world({ entries: [{ ...character, imageLora: { modelId: "m" } }] as any }) });
+    expect(detectMaterialChange(approved, proposed)).toEqual({ changed: true, reasons: ["entries"] });
+  });
+
   it("flags a newly added entry as 'entries'", () => {
     const approved = snap({ schema: world({ entries: [entry("e1", "a")] }) });
     const proposed = snap({ schema: world({ entries: [entry("e1", "a"), entry("e2", "b")] }) });

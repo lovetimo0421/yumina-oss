@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { MAX_PINNED_MODELS, DEFAULT_PINNED_MODELS } from "@yumina/shared";
+import { MAX_PINNED_MODELS, DEFAULT_PINNED_MODELS, DEFAULT_POOL, SHIPPED_DEFAULT_PINNED_MODELS, SHIPPED_DEFAULT_POOLS } from "@yumina/shared";
 
 /**
  * Regressions for "I pinned a model, refreshed, and the star was gone".
@@ -52,7 +52,7 @@ let remoteConfig: Record<string, unknown> = {};
   return { ok: true, status: 200, json: async () => ({ data: remoteConfig }) };
 };
 
-const { useConfigStore, migrateConfig } = await import("../stores/config");
+const { useConfigStore, migrateConfig, adoptConfigFromOtherTab } = await import("../stores/config");
 
 async function reset() {
   putOk = true;
@@ -242,4 +242,82 @@ test("migration moves existing BYOK pins into the BYOK list", async () => {
     [...DEFAULT_PINNED_MODELS],
     "official ids stay in the official list",
   );
+});
+
+/**
+ * Most accounts never touch their pins or pool, so what the server holds is the
+ * default of whichever release they signed up under: on 2026-11-15, 4,409 accounts
+ * with mix mode on still drew 40% of their turns from DeepSeek V3.2 through the
+ * pre-September pool. An untouched default follows today's; an edited one stays.
+ */
+test("an untouched shipped pin row and pool move to today's default", async () => {
+  await reset();
+  remoteConfig = {
+    pinnedModels: [...SHIPPED_DEFAULT_PINNED_MODELS[1]!],
+    modelPool: SHIPPED_DEFAULT_POOLS[1]!.map((e) => ({ weight: e.weight, modelId: e.modelId })),
+    mixMode: true,
+  };
+
+  await useConfigStore.getState().syncFromServer();
+
+  const state = useConfigStore.getState();
+  assert.deepEqual(state.pinnedModels, [...DEFAULT_PINNED_MODELS]);
+  assert.deepEqual(state.modelPool.map((e) => [e.modelId, e.weight]), DEFAULT_POOL.map((e) => [e.modelId, e.weight]));
+  assert.equal(state.mixMode, true);
+  const put = calls.find((c) => c.method === "PUT");
+  assert.ok(put, "the upgraded values are written back to the server");
+  assert.deepEqual((put.body as { pinnedModels: string[] }).pinnedModels, [...DEFAULT_PINNED_MODELS]);
+});
+
+test("an edited pin row or pool is the owner's and is left alone", async () => {
+  await reset();
+  const pins = [...SHIPPED_DEFAULT_PINNED_MODELS[0]!].reverse();
+  const pool = SHIPPED_DEFAULT_POOLS[0]!.map((e, i) => ({ ...e, weight: i === 0 ? e.weight + 5 : e.weight - (i === 1 ? 5 : 0) }));
+  remoteConfig = { pinnedModels: pins, pinnedPrivateModels: [], modelPool: pool };
+
+  await useConfigStore.getState().syncFromServer();
+
+  const state = useConfigStore.getState();
+  assert.deepEqual(state.pinnedModels, pins);
+  assert.deepEqual(state.modelPool.map((e) => [e.modelId, e.weight]), pool.map((e) => [e.modelId, e.weight]));
+});
+
+test("the persist migration upgrades an untouched local default too", () => {
+  const migrated = migrateConfig({
+    pinnedModels: [...SHIPPED_DEFAULT_PINNED_MODELS[0]!],
+    modelPool: SHIPPED_DEFAULT_POOLS[0]!.map((e) => ({ ...e })),
+  }, 11);
+  assert.deepEqual(migrated.pinnedModels, [...DEFAULT_PINNED_MODELS]);
+  assert.deepEqual((migrated.modelPool as { modelId: string }[]).map((e) => e.modelId), DEFAULT_POOL.map((e) => e.modelId));
+});
+
+// Soleria, 2026-11-20: thinking switched off on PC kept thinking; the phone was
+// fine. Each tab kept the settings it loaded, so a change made in one tab never
+// reached a chat already open in another.
+test("a settings change saved by another tab reaches this one", async () => {
+  await reset();
+  useConfigStore.setState({ reasoningEffort: "low", streaming: true });
+  const otherTab = JSON.stringify({ state: { ...useConfigStore.getState(), reasoningEffort: "none" }, version: 12 });
+
+  assert.equal(adoptConfigFromOtherTab(otherTab), true);
+  assert.equal(useConfigStore.getState().reasoningEffort, "none");
+  assert.equal(adoptConfigFromOtherTab(otherTab), false, "nothing new, nothing written: tabs do not echo each other");
+  assert.equal(calls.filter((c) => c.method === "PUT").length, 0, "only the tab that made the change pushes it");
+});
+
+test("another tab's copy never overrides an edit this tab is still pushing, BYOK pins, or a newer build", async () => {
+  await reset();
+  putOk = false;
+  useConfigStore.getState().setConfig("reasoningEffort", "high");
+  useConfigStore.setState({ pinnedPrivateModels: ["custom/mine"] });
+  const base = useConfigStore.getState();
+
+  adoptConfigFromOtherTab(JSON.stringify({ state: { ...base, reasoningEffort: "none", pinnedPrivateModels: ["custom/theirs"], temperature: 0.4 }, version: 12 }));
+  assert.equal(useConfigStore.getState().reasoningEffort, "high");
+  assert.deepEqual(useConfigStore.getState().pinnedPrivateModels, ["custom/mine"]);
+  assert.equal(useConfigStore.getState().temperature, 0.4);
+
+  assert.equal(adoptConfigFromOtherTab(JSON.stringify({ state: { ...base, temperature: 1.7 }, version: 99 })), false);
+  for (const junk of [null, "", "not json", JSON.stringify({ state: [] })]) assert.equal(adoptConfigFromOtherTab(junk), false);
+  putOk = true;
 });

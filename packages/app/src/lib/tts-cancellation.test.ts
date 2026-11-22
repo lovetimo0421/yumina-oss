@@ -55,6 +55,7 @@ const stubs: Record<string, string> = {
   "@/stores/chat":
     "export const useChatStore={getState:()=>({messages:[],session:{world:{schema:{}}}})};",
   "@/lib/tts-card-voice": "export const resolveCardVoice=()=>undefined;",
+  "@/lib/tts-cast-store": "export const castFor=()=>({});export const rememberCast=()=>{};export const voicePicksFor=()=>({});",
   "@/lib/tts-stop-signal":
     "export const registerTtsHalt=()=>{};export const consumeTtsUserStop=()=>false;",
   "@/edition/slots.state":

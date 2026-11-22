@@ -294,6 +294,14 @@ export function isTemplateDescription(description: string | null | undefined): b
 export function isPlaceholderCardName(name: string | undefined): boolean {
   const text = (name ?? "").trim();
   if (!text) return true;
+  const untitled = untitledCardName();
+  // A new card is numbered after the creator's other untitled ones
+  // ("Untitled World 2"): still the default, not a name they chose.
   return text === t("chat.name") || text === t("world.name")
-    || text === String(i18n.t("editor:shell.untitledWorld", { defaultValue: "Untitled World" }));
+    || text === untitled || (text.startsWith(`${untitled} `) && /^\d{1,6}$/.test(text.slice(untitled.length + 1)));
+}
+
+/** The untitled default in the interface language ("Untitled World"). */
+export function untitledCardName(): string {
+  return String(i18n.t("editor:shell.untitledWorld", { defaultValue: "Untitled World" }));
 }

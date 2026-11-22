@@ -1,0 +1,32 @@
+/* Gallery flips (cover gallery and the viewer): the pictures move as one strip,
+   the new one sliding in from the side asked for while the old one slides out
+   the other way, instead of a hard cut. */
+.gallery-swap-layer {
+  display: block;
+  position: absolute;
+  inset: 0;
+  will-change: transform, opacity;
+}
+.gallery-swap-in-next, .gallery-swap-in-prev, .gallery-swap-out-next, .gallery-swap-out-prev {
+  animation-duration: var(--gallery-swap-ms, 420ms);
+  animation-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
+  animation-fill-mode: both;
+}
+.gallery-swap-in-next { animation-name: gallery-in-next; }
+.gallery-swap-in-prev { animation-name: gallery-in-prev; }
+.gallery-swap-out-next { animation-name: gallery-out-next; pointer-events: none; }
+.gallery-swap-out-prev { animation-name: gallery-out-prev; pointer-events: none; }
+@keyframes gallery-in-next { from { transform: translateX(var(--gallery-swap-shift, 100%)); opacity: 0.4; } to { transform: none; opacity: 1; } }
+@keyframes gallery-in-prev { from { transform: translateX(calc(-1 * var(--gallery-swap-shift, 100%))); opacity: 0.4; } to { transform: none; opacity: 1; } }
+@keyframes gallery-out-next { from { transform: none; opacity: 1; } to { transform: translateX(calc(-1 * var(--gallery-swap-shift, 100%))); opacity: 0.4; } }
+@keyframes gallery-out-prev { from { transform: none; opacity: 1; } to { transform: translateX(var(--gallery-swap-shift, 100%)); opacity: 0.4; } }
+/* The counter ticks with the picture. */
+.gallery-count-tick { animation: gallery-count-tick 260ms ease-out both; }
+@keyframes gallery-count-tick { from { transform: translateY(35%); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .gallery-swap-in-next, .gallery-swap-in-prev { animation: gallery-fade-in 160ms ease-out both; }
+  .gallery-swap-out-next, .gallery-swap-out-prev { animation: gallery-fade-out 160ms ease-out both; }
+  .gallery-count-tick { animation: none; }
+  @keyframes gallery-fade-in { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes gallery-fade-out { from { opacity: 1; } to { opacity: 0; } }
+}

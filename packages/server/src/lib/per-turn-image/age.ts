@@ -40,6 +40,37 @@ export function normalizeTags(tags: string): string {
   return list.join(", ");
 }
 
+/** Text authors put into a LoRA picture (trigger words, and the prompt they end up in)
+ *  as the youth check reads it: lowercase, "_" and "-" as spaces, spacing collapsed. */
+export function normalizeLoraText(text: string): string {
+  return text.toLowerCase().replace(/[_-]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+// Plural and variant forms the look filters don't need (taggers write single
+// tags) but free author text does, and the usual CJK words (no word boundaries there).
+const LORA_YOUTH_RE = /\b(?:child|children|kids?|toddlers?|(?:young|little) (?:girl|boy)s?|aged down|petite child|elementary school|middle school|preteens?|teens?|teenage|teenagers?|under ?age|lolis?|lolita|lolicon|shotas?|shotacon|schoolgirls?|schoolboys?)\b/;
+const CJK_YOUTH_RE = /萝莉|蘿莉|正太|幼女|幼童|幼儿|幼兒|儿童|兒童|女童|男童|小女孩|小男孩|未成年|小学生|小學生|初中生|中学生|中學生|ロリ|ショタ|子供|子ども|こども|어린이|아동|로리|쇼타/;
+
+/** True when LoRA-supplied text names a child or youth, in any of those forms. */
+export function loraTextMentionsYouth(text: string): boolean {
+  const normalized = normalizeLoraText(text);
+  return LORA_YOUTH_RE.test(normalized) || CJK_YOUTH_RE.test(normalized);
+}
+
+/** A LoRA's trigger words, cleaned: any tag naming youth is dropped. The tag
+ *  itself keeps its spelling ("deepseek_whale_girl" is one token to its LoRA);
+ *  only the check reads it normalized. */
+export function cleanTrigger(trigger: string): string {
+  return trigger.split(/[,，]/).map((t) => t.replace(/\s+/g, " ").trim())
+    .filter((t) => t && !loraTextMentionsYouth(t))
+    .join(", ");
+}
+
+/** True when the text names a child or youth (or a sexualised-youth tag) anywhere. */
+export function mentionsYouth(text: string): boolean {
+  return SEXUALISED_YOUTH_RE.test(text) || YOUTH_RE.test(text);
+}
+
 /** True when the tagger flagged the moment or its own tags are sexual. */
 export function isExplicitMoment(nsfw: boolean, ...tagLists: string[]): boolean {
   return nsfw || tagLists.some((tags) => splitTags(tags).some((t) => EXPLICIT_TAG_RE.test(t)));

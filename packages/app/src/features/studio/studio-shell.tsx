@@ -1,21 +1,22 @@
 import { ConnectAiDialog } from "./components/connect-ai-dialog";
+import { ConnectAiButton } from "./components/connect-ai-button";
+import { CollabBar } from "@/features/collab/collab-bar";
 import { VariantTranslateBanner } from "@/features/editor/variant-translate-banner";
-import { LANGUAGE_LABELS, LANGUAGE_SHORT, currentVariantTrigger, variantRowLabels } from "@/lib/languages";
+import { VariantTabBar } from "@/features/editor/variant-tab-bar";
 import { changeReviewTitle } from "./components/change-review";
 import { StudioChangeReviewPanel } from "./components/studio-change-review-panel";
-import { Suspense, useCallback, useMemo, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useRouter } from "@tanstack/react-router";
+import { Link, useRouter } from "@tanstack/react-router";
 import {
   ArrowLeft,
-  Loader2,
   Play,
   History,
+  GraduationCap,
+  BookOpen,
   MoreVertical,
-  Bot,
   Download,
   Upload,
-  Star,
   Workflow,
   Smartphone,
   Sparkles,
@@ -24,7 +25,9 @@ import {
   Undo2,
   Redo2,
 } from "lucide-react";
+import { LEARNING_OPEN_EVENT } from "./learn/learning-catalog";
 import { feedback } from "@/lib/feedback";
+import { DOCS_URLS } from "@/lib/docs-urls";
 import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
@@ -35,20 +38,23 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { navigateBackSafely } from "@/lib/safe-back";
 import { generatedInterfaceUnsaved, useEditorStore } from "@/stores/editor";
+import { useAuthGuard } from "@/hooks/use-auth-guard";
 import { useWorldsStore } from "@/stores/worlds";
+import { useUiStore } from "@/stores/ui";
 import { useStudioStore, probeStreamBase } from "@/stores/studio";
 import { isPlaceholderCardName } from "@/lib/world-templates";
 import { PublishChecklist } from "./publish-checklist";
 import { markPlaytested } from "./lib/playtested";
 import { MobileStudioShell } from "./mobile-studio-shell";
-import { VisualSurfaceSwitch } from "@/features/editor/visual-surface-switch";
 import { rememberEditorChoice } from "@/features/editor/lib/editor-mode";
+import { setCardEditorMode } from "@/features/editor/lib/card-editor-mode";
 import { isScreenFirst } from "@/lib/editor-surface";
 import { BlueprintStage } from "./blueprint-stage";
 import { StudioLearningCenter } from "./learn/studio-learning";
 import { LearningWorkspaceProvider } from "./learn/learning-workspace";
-import { BundleCreator, BundleImporter, ImportBundleModal, WorldPublishModal } from "@/edition/slots";
+import { BundleCreator, BundleImporter, CreditIndicator, ImportBundleModal, WorldPublishModal } from "@/edition/slots";
 import { useEdition } from "@/edition/edition";
+import { HOSTED_ROUTES } from "@/edition/routes";
 import { ExportCardMenu } from "../editor/export-card-menu";
 import { ChangeHistoryDialog } from "./change-history-dialog";
 import { ReviewStateControl } from "../editor/review-state-control";
@@ -59,8 +65,9 @@ import "dockview-react/dist/styles/dockview.css";
 import "./studio-theme.css";
 import { captureHubEvent } from "@/lib/analytics";
 import { ownsTypingUndo } from "./lib/text-entry-target";
-import { stepBack } from "./lib/studio-back";
+import { STUDIO_OPEN_AI_CHANGES_EVENT, STUDIO_OPEN_VERSIONS_EVENT, stepBack } from "./lib/studio-back";
 import { SaveStatus } from "@/features/editor/save-status";
+import { TemplateBlanksChip } from "./components/template-blanks-chip";
 
 function useIsMobileStudio() {
   const [isMobile, setIsMobile] = useState(() => {
@@ -80,10 +87,18 @@ function useIsMobileStudio() {
   return isMobile;
 }
 
-export function StudioShell() {
+/** A signed-out visitor looking at the canvas on the create page: there is no
+ *  saved card to go back to or to open in the classic editor, so the page that
+ *  shows them the board decides where those two lead. */
+export interface GuestStudioExits {
+  onBack: () => void;
+  onLeaveCanvas: () => void;
+}
+
+export function StudioShell({ guest }: { guest?: GuestStudioExits } = {}) {
   const isMobileStudio = useIsMobileStudio();
   useStreamBaseProbe();
-  return <LearningWorkspaceProvider>{isMobileStudio ? <MobileStudioShell /> : <StudioDesktopShell />}<StudioLearningCenter /></LearningWorkspaceProvider>;
+  return <LearningWorkspaceProvider>{isMobileStudio ? <MobileStudioShell guest={guest} /> : <StudioDesktopShell guest={guest} />}<StudioLearningCenter /></LearningWorkspaceProvider>;
 }
 
 /**
@@ -114,21 +129,40 @@ function useStreamBaseProbe() {
   }, []);
 }
 
-function StudioDesktopShell() {
+/** The canvas has the whole window: the site's left rail (Create, Discover,
+ *  Community…) goes while it is open, and the top bar's back arrow is the one
+ *  way out. */
+function useCanvasTakesTheWindow() {
+  useEffect(() => {
+    useUiStore.getState().setStudioTakeover(true);
+    return () => useUiStore.getState().setStudioTakeover(false);
+  }, []);
+}
+
+function StudioDesktopShell({ guest }: { guest?: GuestStudioExits }) {
+  useCanvasTakesTheWindow();
   const { t } = useTranslation("editor");
+  const { t: tc } = useTranslation("common");
+  const { t: tLearning } = useTranslation("learning");
+  // On a card someone shared with them: publishing needs the creator's leave,
+  // and taking a copy of the card stays the creator's call.
+  const cardAccess = useEditorStore(s => s.access);
+  // An editor the creator let publish may submit updates of a card that is
+  // already live; putting a card out for the first time stays the creator's.
+  const cardStatus = useEditorStore(s => s.worldStatus);
+  const canPublishCard = !cardAccess || cardAccess.role === "owner" || (cardAccess.canPublish && cardStatus === "published");
+  const ownsCard = !cardAccess || cardAccess.role === "owner";
+  // A viewer (or an admin inspecting) has nothing to save, so no "saved" either.
+  const viewOnly = useEditorStore(s => s.readOnlyInspect);
   const router = useRouter();
   const worldDraft = useEditorStore(s => s.worldDraft);
   const serverWorldId = useEditorStore(s => s.serverWorldId);
   const saving = useEditorStore(s => s.saving);
   const saveDraft = useEditorStore(s => s.saveDraft);
   const setField = useEditorStore(s => s.setField);
-  const variants = useEditorStore(s => s.variants);
-  const variantsLoading = useEditorStore(s => s.variantsLoading);
-  const variantLabel = useEditorStore(s => s.variantLabel);
-  // Rows name the card and, where two share a title, their language — two
-  // identical 「QA0926 猫咪咖啡馆」 rows were the whole menu before.
-  const variantRows = useMemo(() => variantRowLabels(variants), [variants]);
-  const readOnlyInspect = useEditorStore(s => s.readOnlyInspect);
+  const { requireAuth } = useAuthGuard();
+  // A guest sees the board the way an inspector does: nothing they can change.
+  const readOnlyInspect = useEditorStore(s => s.readOnlyInspect || s.guestMode);
   const canUndo = useEditorStore(s => s.canUndo);
   const canRedo = useEditorStore(s => s.canRedo);
   const mode = useStudioStore(s => s.mode);
@@ -143,6 +177,11 @@ function StudioDesktopShell() {
   const [showBundleCreator, setShowBundleCreator] = useState(false);
   const [importingBundle, setImportingBundle] = useState<YuminaBundle | null>(null);
   const [snapshotsOpen, setSnapshotsOpen] = useState(false);
+  useEffect(() => {
+    const open = () => setSnapshotsOpen(true);
+    window.addEventListener(STUDIO_OPEN_AI_CHANGES_EVENT, open);
+    return () => window.removeEventListener(STUDIO_OPEN_AI_CHANGES_EVENT, open);
+  }, []);
   const [outsideAiOpen, setOutsideAiOpen] = useState(false);
 
   const renderReviewPanel = useCallback(
@@ -166,42 +205,15 @@ function StudioDesktopShell() {
     [t],
   );
 
-  const leaveVisualSurface = useCallback(() => {
-    // Remembered before navigating, or /edit reads "visual" and sends them
-    // straight back to the canvas they just left.
-    rememberEditorChoice(serverWorldId, "classic");
-    if (serverWorldId) {
-      void router.navigate({ to: "/app/worlds/$worldId/edit", params: { worldId: serverWorldId } });
-    } else {
-      navigateBackSafely(router.history, "/app/library");
-    }
-  }, [serverWorldId, router]);
-
   // 简单模式 in the ⋮ menu: the same /edit route, which renders the simple editor
   // once this card's mode says so. The field goes into the draft too, so the
   // unsaved-changes dialog's save-and-switch carries it to the server.
   const leaveToSimple = useCallback(() => {
     if (!serverWorldId) return;
-    useEditorStore.getState().setField("editorMode", "simple");
+    setCardEditorMode("simple");
     rememberEditorChoice(serverWorldId, "simple");
     void router.navigate({ to: "/app/worlds/$worldId/edit", params: { worldId: serverWorldId } });
   }, [serverWorldId, router]);
-
-  const handleVariantSwitch = useCallback(
-    async (targetWorldId: string) => {
-      if (targetWorldId === serverWorldId || saving) return;
-        const store = useEditorStore.getState();
-      if (store.isDirty) {
-        const saved = await store.saveDraft();
-        if (!saved) return;
-      }
-      router.navigate({
-        to: "/app/studio/$worldId",
-        params: { worldId: targetWorldId },
-      });
-    },
-    [serverWorldId, saving, router],
-  );
 
   // The stage docks the playtest itself from the mode; nothing else to open.
   const handleModeSwitch = useCallback(
@@ -280,12 +292,25 @@ function StudioDesktopShell() {
             : "border-border"
         )}
       >
-        {/* LEFT: Navigation */}
+        {/* LEFT: Navigation. The site's rail is gone on the canvas, so its
+            mark comes along: one click home to Discover (the library where
+            the edition has no hub). */}
+        <Link
+          to={features.hub ? HOSTED_ROUTES.hub : "/app/library"}
+          preload="intent"
+          aria-label={features.hub ? tc("nav.discover") : tc("nav.library")}
+          title={features.hub ? tc("nav.discover") : tc("nav.library")}
+          data-testid="studio-home"
+          className="hover-surface flex shrink-0 items-center rounded-lg p-1"
+        >
+          <img src="/logo.png" alt="" className="h-6 w-6 object-contain" />
+        </Link>
         <button
           onClick={() => {
             // One step back: a page over the board closes first (see
             // lib/studio-back). Only from the bare board does it leave.
             if (stepBack()) return;
+            if (guest) { guest.onBack(); return; }
             // Straight to the library rather than back through history, and
             // no longer to /edit: that route sends them right back here now,
             // and history-back lands wherever the author happened to come
@@ -307,107 +332,108 @@ function StudioDesktopShell() {
           <ArrowLeft className="h-4 w-4" />
         </button>
 
-        {/* 画布, on. The simple and 完整 editors carry the same pill in the
-            same place, off; turning it off here goes to 完整. */}
-        <div className="relative shrink-0">
-          <VisualSurfaceSwitch on onToggle={leaveVisualSurface} />
-        </div>
+        {/* No 画布 switch: on a computer the canvas is the editor (a block
+            opens its own form with a click), so there is nothing to leave to. */}
+        {/* As wide as the name, so the language chip sits right after it; a
+            hidden copy of the text sets the width (an input cannot). */}
+        <span className="inline-grid min-w-[96px] max-w-[300px] shrink">
+          <span aria-hidden className="invisible col-start-1 row-start-1 overflow-hidden whitespace-pre px-2 py-1 text-sm font-medium">{(worldDraft.name || t("shell.untitledWorld", { defaultValue: "Untitled World" })) + " "}</span>
+          <input
+            type="text"
+            data-onboarding="name"
+            // The card's own name, numbered when it was made (Untitled World,
+            // Untitled World 1, …) so drafts tell apart in the library. Still
+            // a placeholder until renamed: a click selects it all, ready to
+            // type over, and publishing asks for a real one.
+            value={worldDraft.name ?? ""}
+            onChange={(e) => setField("name", e.target.value)}
+            onFocus={(e) => { if (isPlaceholderCardName(worldDraft.name)) e.currentTarget.select(); }}
+            placeholder={t("shell.untitledWorld", { defaultValue: "Untitled World" })}
+            title={t("shell.namePlaceholder")}
+            readOnly={readOnlyInspect}
+            className="col-start-1 row-start-1 w-full min-w-0 truncate rounded-md border border-transparent bg-transparent px-2 py-1 text-sm font-medium text-foreground placeholder:text-muted-foreground/50 transition-colors hover:border-border/70 focus:border-border focus:bg-background/40 focus:outline-none"
+          />
+        </span>
 
-        <input
-          type="text"
-          data-onboarding="name"
-          // A template's name (「角色聊天」) or the untitled default reads as
-          // an empty field asking for one, outlined: nothing in the editor
-          // used to say the card still needed a name of its own.
-          value={isPlaceholderCardName(worldDraft.name) ? "" : worldDraft.name}
-          onChange={(e) => setField("name", e.target.value)}
-          placeholder={t("shell.namePlaceholder", { defaultValue: "Untitled" })}
-          readOnly={readOnlyInspect}
-          className={cn(
-            "w-[clamp(96px,18vw,200px)] min-w-0 truncate rounded-md bg-transparent px-1.5 py-0.5 text-sm font-medium text-foreground placeholder:text-amber-200/55 focus:outline-none",
-            isPlaceholderCardName(worldDraft.name) && !readOnlyInspect && "ring-1 ring-amber-400/40",
-          )}
-        />
+        {/* Variants — the same menu as the full editor's bar: switch, add a
+            language, rename, delete, set the primary. */}
+        <VariantTabBar header readOnly={readOnlyInspect} destination="/app/studio/$worldId" />
 
-        {/* Variant switcher */}
-        {variants.length >= 2 && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                className="group flex items-center gap-1 rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
-              >
-                <span className="max-w-[160px] truncate">
-                  {currentVariantTrigger(variants, serverWorldId, variantLabel, t("studio.variant"))}
-                </span>
-                {variantsLoading ? (
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                ) : (
-                  <svg className="h-3 w-3 transition-transform group-data-[state=open]:rotate-180" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>
-                )}
+        {/* The card's own controls, beside its name: whether it is saved, a
+            step back or forward, and its menu (history, help, packs). They
+            sat among the people and publishing on the right, where the ✓
+            read as part of 试玩. */}
+        <div className="ml-1 flex shrink-0 items-center gap-0.5">
+            {/* Saved / saving / offline: the card saves itself. Counts a
+                tidied canvas too (`layoutDirty`). */}
+            {!viewOnly && <SaveStatus onSave={handleSave} iconOnly data-onboarding="save" />}
+            {/* The keys work everywhere, but a creator who has never heard of
+                them needs to see that a step can be taken back. */}
+            {!readOnlyInspect && !isPlaytest && <>
+              <button type="button" onClick={() => useEditorStore.getState().undo()} disabled={!canUndo} data-studio-undo
+                className="hover-surface rounded-lg p-1.5 text-muted-foreground disabled:pointer-events-none disabled:opacity-30" title={t("studio.undo")} aria-label={t("studio.undo")}>
+                <Undo2 className="h-3.5 w-3.5" />
               </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-52">
-              {variants.map((v) => {
-                const isActive = v.id === serverWorldId;
-                const label = variantRows.get(v.id) ?? (v.variantLabel || v.name);
-                // 主/副: a language with 2+ variants shows the ★ on its 主, and a
-                // 「设为主」 action on the published 副 (only a published version may
-                // become the public face).
-                const sameLangCount = variants.filter((x) => (x.language ?? "") === (v.language ?? "")).length;
-                const showStar = v.isPrimaryVariant && sameLangCount >= 2;
-                // Show 设为主 for any same-language 副 so the path is discoverable;
-                // a draft one is muted + guides to publish first (only a published
-                // version can be the public hub face).
-                const canPromote = v.isPrimaryVariant === false && sameLangCount >= 2;
-                const promoteReady = canPromote && v.status === "published";
-                return (
-                  <DropdownMenuItem
-                    key={v.id}
-                    onClick={() => handleVariantSwitch(v.id)}
-                    disabled={isActive || saving}
-                    className={cn(
-                      "flex items-center gap-2 text-xs",
-                      isActive && "bg-primary/10",
+              <button type="button" onClick={() => useEditorStore.getState().redo()} disabled={!canRedo}
+                className="hover-surface rounded-lg p-1.5 text-muted-foreground disabled:pointer-events-none disabled:opacity-30" title={t("studio.redo")} aria-label={t("studio.redo")}>
+                <Redo2 className="h-3.5 w-3.5" />
+              </button>
+            </>}
+            {/* More actions: bundle import/export (hosted-only), 简单模式 */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  className="hover-surface rounded-lg p-1.5 text-muted-foreground"
+                  title={t("studio.moreActions")}
+                >
+                  <MoreVertical className="h-3.5 w-3.5" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {/* One way to history: 版本历史, which links on to the
+                    assistant's own change log. 改动记录 here and 版本历史 in
+                    面板 were two doors, each saying the other was the real one. */}
+                <DropdownMenuItem disabled={!serverWorldId} onClick={() => window.dispatchEvent(new Event(STUDIO_OPEN_VERSIONS_EVENT))} className="text-xs gap-2" data-learn="history">
+                  <History className="h-3.5 w-3.5 text-muted-foreground" />
+                  {t("studio.versionHistory")}
+                </DropdownMenuItem>
+                {/* The lessons, beside the written guide: they had a toolbar slot of their own on every visit. */}
+                <DropdownMenuItem onClick={() => window.dispatchEvent(new Event(LEARNING_OPEN_EVENT))} className="text-xs gap-2" data-learning="help">
+                  <BookOpen className="h-3.5 w-3.5 text-muted-foreground" />
+                  {tLearning("help")}
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild className="text-xs gap-2">
+                  <a href={DOCS_URLS.canvas} target="_blank" rel="noopener noreferrer" data-studio-docs="">
+                    <GraduationCap className="h-3.5 w-3.5 text-muted-foreground" />
+                    {t("shell.creatorGuide")}
+                  </a>
+                </DropdownMenuItem>
+                {(features.bundles || serverWorldId) && <DropdownMenuSeparator />}
+                {features.bundles && (
+                  <>
+                    <DropdownMenuItem onClick={() => setShowImportModal(true)} className="text-xs gap-2">
+                      <Download className="h-3.5 w-3.5 text-muted-foreground" />
+                      {t("studio.importBundle")}
+                    </DropdownMenuItem>
+                    {/* A resource pack is the author's to hand out. */}
+                    {ownsCard && (
+                      <DropdownMenuItem onClick={() => setShowBundleCreator(true)} className="text-xs gap-2">
+                        <Upload className="h-3.5 w-3.5 text-muted-foreground" />
+                        {t("studio.exportBundle")}
+                      </DropdownMenuItem>
                     )}
-                  >
-                    <span className="min-w-0 flex-1 truncate">{label}</span>
-                    {showStar && <Star className="h-3 w-3 shrink-0 fill-[#C9A25E] text-[#C9A25E]" aria-label={t("variantBar.primaryBadge", "主")} />}
-                    {v.language && (
-                      <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-bold text-muted-foreground" title={LANGUAGE_LABELS[v.language] ?? v.language}>
-                        {LANGUAGE_SHORT[v.language] ?? v.language.toUpperCase()}
-                      </span>
-                    )}
-                    {/* Only a published version can be promoted. The button stays
-                        visible but disabled, labelled "(publish first)", so the
-                        reason sits on the control instead of in a pill. */}
-                    {canPromote && (
-                      <button
-                        type="button"
-                        disabled={!promoteReady}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void useEditorStore.getState().setPrimary(v.id);
-                        }}
-                        title={promoteReady ? t("variantBar.setPrimary", "Set as primary") : t("variantBar.setPrimaryDraft", "Set as primary (publish first)")}
-                        className={cn(
-                          "shrink-0 rounded-full p-1 transition-colors",
-                          promoteReady
-                            ? "text-muted-foreground/60 hover:bg-[#C9A25E]/15 hover:text-[#C9A25E]"
-                            : "cursor-not-allowed text-muted-foreground/30",
-                        )}
-                      >
-                        <Star className="h-3 w-3" />
-                      </button>
-                    )}
-                    {isActive && (
-                      <svg className="h-3 w-3 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
-                    )}
+                  </>
+                )}
+                {features.bundles && serverWorldId && <DropdownMenuSeparator />}
+                {serverWorldId && (
+                  <DropdownMenuItem onClick={leaveToSimple} className="text-xs gap-2" data-editor-menu-mode="simple">
+                    <SlidersHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
+                    {t("shell.menuSimpleMode")}
                   </DropdownMenuItem>
-                );
-              })}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+        </div>
 
         <div className="flex-1" />
 
@@ -449,100 +475,51 @@ function StudioDesktopShell() {
 
         <div className="flex-1" />
 
-        {/* RIGHT: Workspace actions */}
-        <div className="flex shrink-0 items-center gap-1">
-          {/* The keys work everywhere, but a creator who has never heard of
-              them needs to see that a step can be taken back. */}
-          {!readOnlyInspect && !isPlaytest && <>
-            <button type="button" onClick={() => useEditorStore.getState().undo()} disabled={!canUndo} data-studio-undo
-              className="hover-surface rounded-lg p-1.5 text-muted-foreground disabled:pointer-events-none disabled:opacity-30" title={t("studio.undo")} aria-label={t("studio.undo")}>
-              <Undo2 className="h-3.5 w-3.5" />
-            </button>
-            <button type="button" onClick={() => useEditorStore.getState().redo()} disabled={!canRedo}
-              className="hover-surface rounded-lg p-1.5 text-muted-foreground disabled:pointer-events-none disabled:opacity-30" title={t("studio.redo")} aria-label={t("studio.redo")}>
-              <Redo2 className="h-3.5 w-3.5" />
-            </button>
-          </>}
-          {!readOnlyInspect && !isPlaytest && features.bundles && (
-            <button type="button" onClick={() => setOutsideAiOpen(true)} data-studio-connect-ai
-              className="hover-surface flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground">
-              <Bot className="h-3.5 w-3.5" />{t("studio.connectAi.menu")}
-            </button>
-          )}
-          {/* More actions: bundle import/export (hosted-only), 简单模式 */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                className="hover-surface rounded-lg p-1.5 text-muted-foreground"
-                title={t("studio.moreActions")}
-              >
-                <MoreVertical className="h-3.5 w-3.5" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => setSnapshotsOpen(true)} className="text-xs gap-2" data-learn="history">
-                <History className="h-3.5 w-3.5 text-muted-foreground" />
-                {t("studio.changeLog.title")}
-              </DropdownMenuItem>
-              {serverWorldId && (
-                <DropdownMenuItem onClick={() => setOutsideAiOpen(true)} className="text-xs gap-2" data-studio-menu="outside-ai">
-                  <Bot className="h-3.5 w-3.5 text-muted-foreground" />
-                  {t("studio.connectAi.menu")}
-                </DropdownMenuItem>
-              )}
-              {(features.bundles || serverWorldId) && <DropdownMenuSeparator />}
-              {features.bundles && (
-                <>
-                  <DropdownMenuItem onClick={() => setShowImportModal(true)} className="text-xs gap-2">
-                    <Download className="h-3.5 w-3.5 text-muted-foreground" />
-                    {t("studio.importBundle")}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setShowBundleCreator(true)} className="text-xs gap-2">
-                    <Upload className="h-3.5 w-3.5 text-muted-foreground" />
-                    {t("studio.exportBundle")}
-                  </DropdownMenuItem>
-                </>
-              )}
-              {features.bundles && serverWorldId && <DropdownMenuSeparator />}
-              {serverWorldId && (
-                <DropdownMenuItem onClick={leaveToSimple} className="text-xs gap-2" data-editor-menu-mode="simple">
-                  <SlidersHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
-                  {t("shell.menuSimpleMode")}
-                </DropdownMenuItem>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
+        {/* RIGHT: who works on the card (outside AIs, people), then shipping
+            it. Only the publish control is outlined: one strong thing. */}
+        <div className="flex shrink-0 items-center gap-1.5">
+          {/* 连接你的 AI: marks, no words. The bar was a dozen words wide
+              before the newcomer found 试玩, so this adds none; it also says
+              which AI is signed in and when one is writing to this card.
+              Connecting an outside AI is the author's call (it acts as them). */}
+          {serverWorldId && !readOnlyInspect && ownsCard && <ConnectAiButton onOpen={() => setOutsideAiOpen(true)} refreshKey={outsideAiOpen} />}
+          <CollabBar />
+          <span aria-hidden className="mx-1.5 h-5 w-px bg-border/70" />
+          <TemplateBlanksChip />
 
 
           {/* 试玩: running the card, beside saving and publishing it. */}
           <button
             type="button"
-            onClick={() => { setStagePage(isPlaytest && isScreenFirst() ? "frontend" : "blueprint"); handleModeSwitch(isPlaytest ? "edit" : "playtest"); }}
+            onClick={() => {
+              // Playtesting needs a saved card, which a guest cannot have yet.
+              if (guest && !isPlaytest) { requireAuth("create worlds"); return; }
+              setStagePage(isPlaytest && isScreenFirst() ? "frontend" : "blueprint"); handleModeSwitch(isPlaytest ? "edit" : "playtest");
+            }}
             data-onboarding="playtest-switch"
             aria-pressed={isPlaytest}
             className={cn(
-              "mr-1 flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all duration-200",
+              "flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-semibold transition-colors duration-200",
               isPlaytest
-                ? "border-emerald-500/50 bg-emerald-500/15 text-emerald-300"
-                : "border-emerald-500/30 text-emerald-300/90 hover:border-emerald-500/50 hover:bg-emerald-500/10",
+                ? "bg-emerald-500/15 text-emerald-300"
+                : "text-emerald-300/90 hover:bg-emerald-500/10 hover:text-emerald-300",
             )}
           >
             {isPlaytest ? <Square className="h-3 w-3 fill-current" /> : <Play className="h-3 w-3" />}
             {t(isPlaytest ? "studio.stopPlay" : "studio.play")}
           </button>
-          {/* Saved / saving / offline: the card saves itself. Counts a
-              tidied canvas too (`layoutDirty`). */}
-          <SaveStatus onSave={handleSave} data-onboarding="save" />
           {/* Publish + review state in one control — the only review entry point
               in Studio. Green "Publish update" when live & clean; otherwise the
               button shows the state (not live / changes to submit / in review /
               rejected) and opens a popover with the matching action. */}
-          {!readOnlyInspect && features.publishing && (
+          {!readOnlyInspect && canPublishCard && features.publishing && (
             <span data-learn="publish" className="contents"><ReviewStateControl onPublish={handlePublishClick} size="sm" disabled={saving || !serverWorldId} draftExtra={(close) => <PublishChecklist onDone={close} />} /></span>
           )}
-          {!readOnlyInspect && !features.publishing && (
+          {!readOnlyInspect && ownsCard && !features.publishing && (
             <ExportCardMenu worldId={serverWorldId} size="sm" disabled={saving || !serverWorldId} />
           )}
+          {/* The balance, as on the rest of the site: the site's bar is not shown here. */}
+          {!guest && <span className="ml-1"><CreditIndicator /></span>}
         </div>
       </div>
 

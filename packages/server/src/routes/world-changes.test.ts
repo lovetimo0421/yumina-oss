@@ -12,6 +12,7 @@ import {
   directConversations,
   directConversationParticipants,
   directMessages,
+  follows,
 } from "../db/schema.js";
 import { worldChangeRoutes } from "./world-changes.js";
 
@@ -107,6 +108,17 @@ test("the original author can read a helper's copy only when it was sent to them
   assert.equal((await request("/api/world-changes/proposals/helper-copy", "stranger")).status, 404);
   // A card that isn't a copy of anything has no proposal.
   assert.equal((await request("/api/world-changes/proposals/card", "author")).status, 404);
+});
+
+test("published follower proposals require following the fork creator", async t => {
+  const request = setup(t);
+  await db.update(worlds).set({ visibility: "followers" }).where(eq(worlds.id, "public-copy"));
+  assert.equal((await request("/api/world-changes/proposals/public-copy", "author")).status, 404);
+  await db.insert(follows).values({ followerId: "author", followingId: "stranger" });
+  assert.equal((await request("/api/world-changes/proposals/public-copy", "author")).status, 200);
+  await db.delete(follows).where(and(eq(follows.followerId, "author"), eq(follows.followingId, "stranger")));
+  assert.equal((await request("/api/world-changes/proposals/public-copy", "author")).status, 404);
+  await db.update(worlds).set({ visibility: "public" }).where(eq(worlds.id, "public-copy"));
 });
 
 test("the pre-apply backup is creator-only, automatic, and carries the note", async (t) => {

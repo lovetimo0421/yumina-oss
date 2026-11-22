@@ -25,9 +25,12 @@ test("existing persona editor adds, saves, reloads and removes custom entries wi
     "@/stores/personas": { usePersonasStore: () => ({ updatePersona: async (_: string, input: Partial<typeof saved>) => { saves++; saved = { ...saved, ...input }; return saved; } }) },
     "@/stores/user-assets": { useUserAssetStore: () => ({ uploadAsset: async () => null }) },
     "@/lib/asset-url": { resolveImageUrl: () => null },
+    // The persona's illustration LoRA field (TURN_IMAGE_LORAS): off for an account without it.
+    "@/stores/user-profile": { useUserProfileStore: Object.assign((select: (state: { profile: null; acceptProfile: () => void }) => unknown) => select({ profile: null, acceptProfile() {} }), { getState: () => ({ profile: null }) }) },
+    "@/edition/slots": { IllustrationLoraField: () => null },
   };
   const module = { exports: {} as { PersonaEditModal: ComponentType<{ isOpen: boolean; onClose: () => void; persona: typeof saved }> } };
-  const source = readFileSync(new URL("./persona-edit-modal.tsx", import.meta.url), "utf8");
+  const source = readFileSync(new URL("./persona-edit-modal.tsx", import.meta.url), "utf8").replaceAll("import.meta.env.VITE_API_URL", '""');
   new Function("require", "module", "exports", transform(source, { transforms: ["typescript", "jsx", "imports"], jsxRuntime: "automatic" }).code)(
     (id: string) => modules[id] ?? require(id), module, module.exports,
   );

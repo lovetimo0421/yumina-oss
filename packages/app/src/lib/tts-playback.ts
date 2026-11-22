@@ -31,6 +31,7 @@ import { consumeTtsUserStop, registerTtsHalt } from "@/lib/tts-stop-signal";
 import { useAudioStore } from "@/stores/audio";
 import { useUserProfileStore } from "@/stores/user-profile";
 import { resolveCardVoice, type CardVoiceWorld } from "@/lib/tts-card-voice";
+import { castFor, rememberCast, voicePicksFor } from "@/lib/tts-cast-store";
 import { isPartialLeadingSpeakerTag } from "@yumina/engine";
 
 const apiBase = import.meta.env.VITE_API_URL || "";
@@ -48,10 +49,10 @@ async function chatStore() {
   return _chatStore;
 }
 /** The card's voice for a reply, if the card set one — see tts-card-voice. */
-function cardVoiceFor(text: string): string | undefined {
+function cardVoiceFor(text: string, sessionId: string): string | undefined {
   const session = _chatStore?.getState().session;
   const world = session?.world?.schema as CardVoiceWorld | undefined;
-  return resolveCardVoice(world, text);
+  return resolveCardVoice(world, text, voicePicksFor(sessionId));
 }
 /** What was actually said, for the speaker resolver: the live stream is raw,
  *  a stored reply keeps its tag only in the active swipe's rawContent. */
@@ -85,39 +86,6 @@ export function getTtsPrefs(): TtsPrefs {
     voice: own || defaultTtsVoiceForLang(i18n.language),
     mode: prefs.ttsMode === "dialogue" ? "dialogue" : "full",
   };
-}
-
-// ── Voice casting ───────────────────────────────────────────────────
-// The server decides who says each line and which voice a new speaker gets
-// (lib/tts/cast.ts). The voices it hands out are remembered per session so
-// a character keeps their voice for the whole game: in memory, mirrored to
-// localStorage so a reload doesn't recast everyone.
-
-const _casts = new Map<string, Record<string, string>>();
-const castStorageKey = (sessionId: string) => `yumina:tts-cast:${sessionId}`;
-
-function castFor(sessionId: string): Record<string, string> {
-  let cast = _casts.get(sessionId);
-  if (!cast) {
-    cast = {};
-    try {
-      const raw = localStorage.getItem(castStorageKey(sessionId));
-      const parsed = raw ? (JSON.parse(raw) as unknown) : null;
-      if (parsed && typeof parsed === "object") {
-        for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) if (typeof v === "string") cast[k] = v;
-      }
-    } catch { /* storage unavailable: memory only */ }
-    _casts.set(sessionId, cast);
-  }
-  return cast;
-}
-
-function rememberCast(sessionId: string, cast: unknown): void {
-  if (!cast || typeof cast !== "object") return;
-  const next: Record<string, string> = {};
-  for (const [k, v] of Object.entries(cast as Record<string, unknown>)) if (typeof v === "string") next[k] = v;
-  _casts.set(sessionId, next);
-  try { localStorage.setItem(castStorageKey(sessionId), JSON.stringify(next)); } catch { /* memory only */ }
 }
 
 /** A cast readout comes back as several clips (one per voice). A slice keeps
@@ -227,6 +195,39 @@ async function playToCompletion(urls: string[], key: string, serial: number): Pr
   return { ok: true };
 }
 
+/** Synthesize a card's line ahead of time without playing it or touching
+ *  playback state. The server keeps every synth in its CDN cache, so a later
+ *  `speakMessage` with the same text and voice is a cache hit that starts at
+ *  once (and costs nothing more). A card speaking sentence by sentence calls
+ *  this for the next sentence while the current one plays. */
+export async function prefetchSpeech(
+  sessionId: string,
+  opts: { text?: string; voice?: string },
+): Promise<{ ok: boolean; reason?: string }> {
+  const prefs = getTtsPrefs();
+  if (!prefs.enabled) return { ok: false, reason: "disabled" };
+  const text = typeof opts.text === "string" ? opts.text.trim() : "";
+  if (!text) return { ok: false, reason: "empty" };
+  const voice = opts.voice && isValidTtsVoice(opts.voice) ? opts.voice : cardVoiceFor(text, sessionId) ?? prefs.voice;
+  try {
+    const res = await fetch(`${apiBase}/api/sessions/${sessionId}/tts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        text,
+        voice,
+        ...(voice !== prefs.voice ? { fallbackVoice: prefs.voice } : {}),
+        mode: prefs.mode,
+        ...(opts.voice ? {} : { casting: true, playerVoice: prefs.voice, cast: castFor(sessionId), picks: voicePicksFor(sessionId) }),
+      }),
+    });
+    return res.ok ? { ok: true } : { ok: false, reason: res.status === 402 ? "payment" : res.status === 429 ? "rate-limited" : "error" };
+  } catch {
+    return { ok: false, reason: "network" };
+  }
+}
+
 async function speakMessageOwned(
   sessionId: string,
   opts: SpeakOptions,
@@ -243,7 +244,7 @@ async function speakMessageOwned(
   if (serial !== _speakSerial) return { ok: false, reason: "superseded" };
   // A card's explicit per-call voice, then the voice the card gave the
   // speaker (or its narrator), then the player's own choice.
-  const cardVoice = cardVoiceFor(opts.text ?? messageTextFor(opts.messageId));
+  const cardVoice = cardVoiceFor(opts.text ?? messageTextFor(opts.messageId), sessionId);
   const voice = opts.voice && isValidTtsVoice(opts.voice) ? opts.voice : cardVoice ?? prefs.voice;
 
   // Free replay: if this exact message was just auto-read with the same
@@ -292,7 +293,7 @@ async function speakMessageOwned(
         mode: prefs.mode,
         // A card naming its own voice for this call keeps it; everything
         // else is cast line by line.
-        ...(opts.voice ? {} : { casting: true, playerVoice: prefs.voice, cast: castFor(sessionId) }),
+        ...(opts.voice ? {} : { casting: true, playerVoice: prefs.voice, cast: castFor(sessionId), picks: voicePicksFor(sessionId) }),
       }),
     });
   } catch {
@@ -433,9 +434,10 @@ let _prefsFlushTimer: ReturnType<typeof setTimeout> | null = null;
  * app-shell effect); the PATCH is debounced so slider drags don't spam the API.
  */
 export function applyTtsPrefs(partial: Record<string, unknown>): void {
-  // Voice readout is opted into from Settings › Display only. Until then the
-  // in-chat panel isn't shown and card calls change nothing; after, the panel
-  // can tune it or switch it back off, but never on.
+  // Voice readout is opted into from Settings › Display, or from Yumina's own
+  // dialog when a card asks (requestTtsEnableFromCard). Until then the in-chat
+  // panel isn't shown and these calls change nothing; after, the panel can tune
+  // it or switch it back off, but this function never switches it on.
   if (!getTtsPrefs().enabled) return;
   const patch: Record<string, unknown> = {};
   if (partial.enabled === false) patch.ttsEnabled = false;
@@ -463,6 +465,31 @@ export function applyTtsPrefs(partial: Record<string, unknown>): void {
   }
 
   queuePreferencePatch(patch);
+}
+
+// A card asked to switch readout on (`tts.setPrefs({ enabled: true })`, from the player's click). Readout
+// bills the player for every line, so a card can't flip it by itself: Yumina asks the player in its own
+// dialog, and only their yes turns it on. One question at a time, and a "no" isn't asked again for a minute,
+// so a card retrying on every render can't nag.
+let _enableAsking = false;
+let _enableDeclinedAt = 0;
+const ENABLE_ASK_COOLDOWN_MS = 60_000;
+
+export async function requestTtsEnableFromCard(ask: () => Promise<boolean>): Promise<boolean> {
+  if (getTtsPrefs().enabled) return true;
+  if (_enableAsking || Date.now() - _enableDeclinedAt < ENABLE_ASK_COOLDOWN_MS) return false;
+  _enableAsking = true;
+  try {
+    const yes = await ask().catch(() => false);
+    if (!yes) {
+      _enableDeclinedAt = Date.now();
+      return false;
+    }
+    queuePreferencePatch({ ttsEnabled: true });
+    return true;
+  } finally {
+    _enableAsking = false;
+  }
 }
 
 /** Voice-input prefs from the in-chat voice panel. `mode` "" = follow the card. */
@@ -804,6 +831,7 @@ function pumpSynth(s: StreamReadSession, text: string, initialState: DialogueSca
         casting: true,
         playerVoice: s.fallbackVoice,
         cast: castFor(s.sessionId),
+        picks: voicePicksFor(s.sessionId),
         dialogueOnly: s.dialogueOnly && !s.fallbackFull,
       }),
     })
@@ -910,7 +938,7 @@ function harvestSlices(s: StreamReadSession, streamedText: string, flushAll: boo
     // in the wrong voice — unless the stream is over, in which case what we
     // have is all there is.
     if (!flushAll && isPartialLeadingSpeakerTag(streamedText)) return;
-    s.voice = cardVoiceFor(streamedText) ?? s.voice;
+    s.voice = cardVoiceFor(streamedText, s.sessionId) ?? s.voice;
     s.voiceResolved = true;
   }
   const unspoken = streamedText.slice(s.offset);

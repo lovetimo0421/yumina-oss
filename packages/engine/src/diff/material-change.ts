@@ -1,5 +1,5 @@
 import type { WorldDefinition } from "../types/index.js";
-import { diffWorldSchemas } from "./world-diff.js";
+import { diffWorldSchemas, ILLUSTRATION_LORA_CHANGE_ID } from "./world-diff.js";
 
 /**
  * The four "material" content surfaces that, when changed on an ALREADY-PUBLISHED
@@ -15,7 +15,7 @@ import { diffWorldSchemas } from "./world-diff.js";
  * goes live instantly. This list is the single source of truth — keep it in
  * sync with the creator-facing warning copy and the admin diff summary.
  */
-export type MaterialChangeReason = "entries" | "frontend" | "ageRating" | "cover";
+export type MaterialChangeReason = "entries" | "frontend" | "ageRating" | "cover" | "illustration";
 
 export interface MaterialSnapshot {
   /**
@@ -62,6 +62,7 @@ export function detectMaterialChange(
   const diff = diffWorldSchemas(approved.schema, proposed.schema);
   if (diff.changes.some((c) => c.kind === "entry")) reasons.push("entries");
   if (diff.changes.some((c) => c.kind === "customUI")) reasons.push("frontend");
+  if (diff.changes.some((c) => c.kind === "meta" && c.id === ILLUSTRATION_LORA_CHANGE_ID)) reasons.push("illustration");
 
   if (ratingClass(approved.ageRating) !== ratingClass(proposed.ageRating)) {
     reasons.push("ageRating");

@@ -1,18 +1,22 @@
+import { listLorasResult } from "../lib/studio-tools/loras.js";
 import { createHash } from "node:crypto";
 import { describeSources, listSources, loadSourceText, readSource, searchSource } from "../lib/studio-sources.js";
 import { BIBLE_SUFFIX, DigestStopped, countReadParts, estimateDigest, runDigest, stopDigests } from "../lib/studio-source-digest.js";
 import { usageObservation } from "../lib/usage-observation.js";
 import { Hono, type Context } from "hono";
 import { streamSSE } from "hono/streaming";
-import { eq, and, asc, desc, inArray, ne, sql } from "drizzle-orm";
+import { eq, and, asc, desc, inArray, ne, sql, type SQL } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { worlds, agentRuns, worldSnapshots, worldFolderBindings } from "../db/schema.js";
+import { worlds, agentRuns, worldSnapshots, worldFolderBindings, userAssets, assetFolders, user } from "../db/schema.js";
+import { attachedPictureKeys, libraryAssetForAttachment } from "../lib/rig/picture.js";
+import { existingRigJob, liveCharactersFor, liveCharactersForUser, RIG_HOLD_MUSHIES, RIG_MINUTES, RIG_TYPICAL_MUSHIES, RigSubmissionError, submitRigJob, watchRigJob } from "../lib/rig/jobs.js";
+import { canEdit, getWorldAccess } from "../lib/world-collaborators.js";
 import { recordUsageLog } from "../lib/usage-log.js";
 import { isShutdownAbort, registerStream } from "../lib/stream-registry.js";
 import { authMiddleware } from "../middleware/auth.js";
 import type { LLMProvider, StreamChunk, ChatMessage, ToolCall, ContentPart, ToolDefinition } from "../lib/llm/types.js";
 import { resolveProviderForModel, type ApiKeyTier } from "../lib/resolve-provider.js";
-import { calculateCost, deductCredits, ensureWallet, STUDIO_AGENT_MARKUP } from "../lib/credit-service.js";
+import { calculateCost, deductCredits, deductCreditsUpToBalance, ensureWallet, STUDIO_AGENT_MARKUP } from "../lib/credit-service.js";
 import { resolveEffectivePlanWithEventEntitlements } from "../lib/event-plan-entitlements.js";
 import { guardGeneration } from "../lib/credit-guard.js";
 import { getModelPrice, getOpenRouterListPrice } from "../lib/model-price-cache.js";
@@ -32,9 +36,22 @@ import { PLANS } from "../lib/plan-config.js";
 import type { AppEnv } from "../lib/types.js";
 import { type SchemaChange, type ToolResult } from "../lib/studio-tools/index.js";
 import { buildToolResultMessages } from "../lib/studio-tools/tool-results.js";
-import { STUDIO_TOOLS, READ_TOOL_NAMES, WRITE_TOOL_NAMES, CONTROL_TOOL_NAMES, withCustomImageTool } from "../lib/studio-tools/tools.js";
-import { STUDIO_MODEL_IDS, SMART_IMAGE_MODEL, type ImageBatchProposal } from "@yumina/shared";
+import { STUDIO_TOOLS, READ_TOOL_NAMES, WRITE_TOOL_NAMES, CONTROL_TOOL_NAMES, WEB_TOOL_NAMES, withCustomImageTool } from "../lib/studio-tools/tools.js";
+import { describeWebAccess, runWebSearch, webSearchCredits, webSearchEnabled, webSearchResult, webToolsEnabled, WebSearchError, WEB_SEARCH_QUOTE_CREDITS } from "../lib/studio-web-search.js";
+import { readWebPage, webPageAllowed } from "../lib/studio-web-fetch.js";
+import { PLAN_TOOL_NAME, describePlan, latestPlan, normalizePlan, type PlanStep } from "../lib/studio-tools/plan.js";
+import { MAX_STEER_CHARS, clearSteers, queueSteer, takeSteers, type Steer } from "../lib/studio-steer.js";
+import { STUDIO_MODEL_IDS, SMART_IMAGE_MODEL, YUMINA_MODELS, type ImageBatchProposal } from "@yumina/shared";
 import { isSmartGenerationEnabled, smartImageEstimates, submitSmartGeneration, SmartSubmissionError } from "../lib/generation/smart.js";
+import { GET_MEDIA_JOB_NAME, LIST_MEDIA_TOOLS_NAME, RUN_MEDIA_TOOL_NAME, listMediaToolsResult } from "../lib/studio-tools/media-tool-defs.js";
+import { TRANSLATE_CARD_TOOL_NAME } from "../lib/studio-tools/translate-card-def.js";
+import { runTranslateCardTool } from "../lib/card-translate-job.js";
+import { mediaJobResult, mediaToolMessages, normalizeMediaToolArgs, waitForMediaTool } from "../lib/studio-tools/media-tool-proposal.js";
+import { runSetCover } from "../lib/outside-ai-cover.js";
+import { listVoicesForAssistant } from "../lib/tts/assistant-voices.js";
+import { publishWorldEvent } from "../lib/world-events.js";
+import { estimateMediaTool, MediaToolError, mediaToolAvailable, submitMediaTool } from "../lib/generation/media-tools.js";
+import { mediaTool } from "@yumina/shared";
 import { ALL_PLATFORM_STYLE_SLUGS, IMAGE_TOOL_NAME, customProposalPrice, customSubmissionFor, imageToolMessages, normalizeImageProposal, waitForGeneratedImage } from "../lib/studio-tools/image-proposal.js";
 import { CustomSubmissionError, customSubmissionSchema, isCustomGenerationEnabled, readyPlatformStyles, submitCustomGeneration } from "../lib/generation/custom.js";
 import { IMAGE_BATCH_TOOL_NAME, normalizeImageBatchProposal, editImageBatchProposal, estimateImageBatch, readPersistedImageBatchProposal } from "../lib/studio-tools/image-batch-proposal.js";
@@ -45,7 +62,7 @@ import { loadAssetCatalog } from "../lib/studio-tools/asset-catalog.js";
 import { executeReadEntities, executeApplyChanges, executeGrepWorld, executeValidateWorld, executeAnalyzeTokenCost, toolCallsToSchemaChanges } from "../lib/studio-tools/tool-executor.js";
 import { executeReadUiDoc } from "../lib/studio-tools/ui-doc-tools.js";
 import { buildSystemPrompt, type SystemPromptParts } from "../lib/studio-tools/system-prompt.js";
-import { ADVISOR_READ_TOOLS, SAVE_BRIEF_TOOL, advisorTools, createBuildProposal, advisorPrompt, briefBlock, describeLanguage, loadBrief, referenceIndex, saveBrief } from "../lib/studio-advisor.js";
+import { ADVISOR_READ_TOOLS, SAVE_BRIEF_TOOL, advisorTools, createBuildProposal, advisorPrompt, briefBlock, cardLanguageName, creatorLanguage, loadBrief, referenceIndex, saveBrief, sheetLanguageProblem } from "../lib/studio-advisor.js";
 import { isStudioBuildProposal, type StudioBuildProposal } from "@yumina/shared";
 import { getSkillContent } from "../lib/studio-skills/index.js";
 import { parseToolArgs } from "../lib/studio-tools/parse-tool-args.js";
@@ -59,15 +76,22 @@ import {
   readRepeatNudge,
   readWanderNudge,
 } from "../lib/studio-tools/read-progress.js";
-import { harnessTurn, isGoAhead, isHarnessTurn, offersToAct, outputBudgetGuidance, replyAnnouncesAction, withToolNote } from "../lib/studio-tools/harness-notes.js";
+import { assetViewTurn, screenshotParts, harnessTurn, isGoAhead, isHarnessTurn, offersToAct, outputBudgetGuidance, replyAnnouncesAction, withToolNote } from "../lib/studio-tools/harness-notes.js";
+import { MAX_VIEWS_PER_RUN, expandAssetRefs, lookLabel, lookParts, modelSeesImages, viewAssets, type AssetLook } from "../lib/studio-tools/asset-vision.js";
+import { runScreenshot } from "../lib/outside-ai-screenshot.js";
+import { putObject } from "../lib/s3.js";
+import { resolveImageCdn } from "../lib/cdn-url.js";
 import { UnresolvedWork } from "../lib/studio-tools/unresolved-work.js";
 import { typicalRunCredits } from "../lib/studio-run-costs.js";
 import { executeSimulateBehaviors } from "../lib/studio-tools/simulate-behaviors.js";
-import { describeAgentWriteConflicts } from "../lib/studio-tools/rebase-agent-write.js";
+import { executeCheckRules } from "../lib/rules-check/run.js";
+import { describeAgentWriteConflicts, rebaseAgentWrite } from "../lib/studio-tools/rebase-agent-write.js";
+import { recordSnapshotEdits } from "../lib/snapshot-edits.js";
+import { writeStudioStep } from "../lib/world-versioning.js";
 import { VARIANT_TOOL_NAMES, describeLanguageVariants, hasVariantArg, listLanguageVariants, loadVariantWorld, resolveVariant, variantArg, variantLabel, withVariantKey, withVariantParam, withoutVariant, type LanguageSibling, type LanguageVariants, type VariantTarget, type VariantWorld } from "../lib/studio-tools/language-variants.js";
-import { migrateWorldDefinition } from "@yumina/engine";
+import { deepEqual, migrateWorldDefinition } from "@yumina/engine";
 import type { WorldDefinition } from "@yumina/engine";
-import { resolveWorkingSchema, writeStudioWorldSchema } from "../lib/pending-edit.js";
+import { resolveWorkingSchema, writeStudioWorldSchema, WorldWriteDeniedError } from "../lib/pending-edit.js";
 import { loadAgentHistoryForConversation, withStudioUserMessageContext } from "../lib/studio-conversations.js";
 // ── Request Routing ──
 
@@ -378,6 +402,33 @@ if (redisSub) {
 const agentRoutes = new Hono<AppEnv>();
 agentRoutes.use("/*", authMiddleware);
 
+type WorldAccessExecutor = Parameters<typeof getWorldAccess>[2];
+
+/**
+ * Where-clause selecting the world row when `userId` may work on it in Studio:
+ * its creator or an editor collaborator. Null otherwise. Authorization runs
+ * before the caller's query, so a stranger never takes the world's row lock.
+ */
+async function editableWorld(userId: string, worldId: string, executor?: WorldAccessExecutor): Promise<SQL | null> {
+  const access = await getWorldAccess(userId, worldId, executor);
+  return canEdit(access) ? and(eq(worlds.id, worldId), eq(worlds.creatorId, access.creatorId))! : null;
+}
+
+/**
+ * Where a picture generated for this card goes: its first bound folder that
+ * belongs to the requester. Generation files into the requester's own library
+ * (they pay, they keep the file), so a collaborator never targets the creator's
+ * bound folder, which fails as "Folder not found". No such folder means the
+ * requester's library root.
+ */
+export async function generatedImageFolder(userId: string, worldId: string): Promise<string | null> {
+  const [binding] = await db.select({ folderId: worldFolderBindings.folderId }).from(worldFolderBindings)
+    .innerJoin(assetFolders, eq(assetFolders.id, worldFolderBindings.folderId))
+    .where(and(eq(worldFolderBindings.worldId, worldId), eq(assetFolders.userId, userId)))
+    .orderBy(asc(worldFolderBindings.createdAt)).limit(1);
+  return binding?.folderId ?? null;
+}
+
 
 // ── POST /api/studio/:worldId/agent/start — Begin server-side agent run ──
 
@@ -400,6 +451,8 @@ agentRoutes.post("/:worldId/agent/start", async (c) => {
       /** New requests discuss first unless the creator explicitly chooses Build. */
       mode?: "build" | "advise";
       buildProposal?: StudioBuildProposal;
+      /** The creator's 联网 switch; absent means on. */
+      web?: boolean;
     };
     attachments?: Array<{ url: string; key: string; mimeType: string; name: string }>;
     /** Existing conversation messages to continue from */
@@ -414,11 +467,12 @@ agentRoutes.post("/:worldId/agent/start", async (c) => {
   }
   body.context = { ...body.context, mode: body.context?.mode === "build" || body.context?.jobApproved === true ? "build" : "advise" };
 
-  // Verify world ownership
-  const worldRows = await db
+  // Verify the user may edit this world (creator or editor collaborator)
+  const editable = await editableWorld(currentUser.id, worldId);
+  const worldRows = editable ? await db
     .select({ id: worlds.id, schema: worlds.schema, status: worlds.status })
     .from(worlds)
-    .where(and(eq(worlds.id, worldId), eq(worlds.creatorId, currentUser.id)));
+    .where(editable) : [];
 
   if (worldRows.length === 0) {
     return c.json({ error: "World not found or not authorized" }, 404);
@@ -431,6 +485,7 @@ agentRoutes.post("/:worldId/agent/start", async (c) => {
     worldId,
     worldRows[0]!.status,
     worldRows[0]!.schema as unknown as Record<string, unknown>,
+    currentUser.id,
   );
   const world = migrateWorldDefinition(workingSchema as unknown as WorldDefinition);
 
@@ -515,17 +570,24 @@ agentRoutes.post("/:worldId/agent/start", async (c) => {
     return c.json({ error: "Conversation not found" }, 404);
   }
 
+  // A picture the creator points at with @asset:<id> (one of their own files)
+  // reaches the model like an attached one. The stored message keeps the words
+  // as typed: history is matched against the chat transcript, which has no
+  // pictures for a reference (lib/studio-conversations.ts).
+  const modelUserContent = await expandAssetRefs(userContent, { userId: currentUser.id, worldId }, { model });
   const conversationMessages: ChatMessage[] = [
     ...history,
-    userContent,
+    modelUserContent,
   ];
 
   // Talking an idea through needs no building tools: a few reads and the brief.
   const tools = body.context?.mode === "advise"
     ? [...STUDIO_TOOLS.filter((t) => (ADVISOR_READ_TOOLS as readonly string[]).includes(t.function.name)), SAVE_BRIEF_TOOL]
     : STUDIO_TOOLS;
-  // A job the creator started gets room to finish; a chat turn keeps the usual cap.
-  const maxIter = body.context?.jobApproved ? JOB_MAX_ITERATIONS : MAX_ITERATIONS;
+  // A job the creator started, or a plan they confirmed on the advisor's sheet,
+  // gets room to finish; a chat turn keeps the usual cap.
+  const maxIter = body.context?.jobApproved || (body.context?.mode === "build" && isStudioBuildProposal(body.context?.buildProposal))
+    ? JOB_MAX_ITERATIONS : MAX_ITERATIONS;
 
   // Create agent run record
   const createRun = async (executor: typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0]) => executor
@@ -544,8 +606,8 @@ agentRoutes.post("/:worldId/agent/start", async (c) => {
   // Serialize start and credit-resume against the same world lock. A new task
   // explicitly supersedes the old worker, whose checkpoint writes then fail.
   const [agentRun] = studioCreditRecoveryEnabled() ? await db.transaction(async tx => {
-    await tx.select({ id: worlds.id }).from(worlds)
-      .where(and(eq(worlds.id, worldId), eq(worlds.creatorId, currentUser.id))).for("update");
+    // Access was checked above; the creator id it resolved to does not change.
+    await tx.select({ id: worlds.id }).from(worlds).where(editable!).for("update");
     const superseded = await tx.update(agentRuns).set({
       status: "completed", error: "Superseded by new agent run.", updatedAt: new Date(),
     }).where(and(eq(agentRuns.worldId, worldId), eq(agentRuns.userId, currentUser.id), eq(agentRuns.status, "running")))
@@ -611,6 +673,7 @@ agentRoutes.post("/:worldId/agent/resume-credits", async (c) => {
     return c.json(guard.body, guard.status as 400);
   }
   const claimed = await claimStudioCreditResume(scope);
+  if (!claimed.ok && claimed.code === "ACTIVE_RUN") return c.json(await activeRunBody(claimed.activeUserId), 409);
   if (!claimed.ok) return c.json({ error: claimed.code, code: claimed.code }, claimed.code === "NOT_FOUND" ? 404 : 409);
   const claimedRun = claimed.run;
   c.header("X-Accel-Buffering", "no");
@@ -626,6 +689,20 @@ agentRoutes.post("/:worldId/agent/resume-credits", async (c) => {
     committedTurns: claimedRun.committedTurns,
   });
 });
+
+/**
+ * The 409 for "an assistant run is already working": whose it is, so the
+ * editor can say "X's assistant is working" (activeRun.userId / name).
+ */
+async function activeRunBody(userId: string) {
+  const [who] = await db.select({ name: user.name }).from(user).where(eq(user.id, userId)).limit(1);
+  const name = who?.name ?? null;
+  return {
+    error: name ? `${name}'s assistant is still working on this card` : "Another agent run is active",
+    code: "ACTIVE_RUN" as const,
+    activeRun: { userId, name },
+  };
+}
 
 // ── POST /api/studio/:worldId/agent/approve — Approve/reject pending proposal ──
 
@@ -654,16 +731,20 @@ agentRoutes.post("/:worldId/agent/approve", async (c) => {
   // Legacy approvals can still exist. They share the same world lock as new
   // runs and credit recovery, so two paused tasks cannot both start writing.
   const approval = studioCreditRecoveryEnabled() ? await db.transaction(async tx => {
-    const [ownedWorld] = await tx.select({ id: worlds.id }).from(worlds)
-      .where(and(eq(worlds.id, worldId), eq(worlds.creatorId, currentUser.id))).for("update");
+    const lockable = await editableWorld(currentUser.id, worldId, tx);
+    if (!lockable) return { run: undefined, blocked: false };
+    const [ownedWorld] = await tx.select({ id: worlds.id }).from(worlds).where(lockable).for("update");
     if (!ownedWorld) return { run: undefined, blocked: false };
-    const [active] = await tx.select({ id: agentRuns.id }).from(agentRuns)
-      .where(and(eq(agentRuns.worldId, worldId), ne(agentRuns.id, body.runId), eq(agentRuns.status, "running"))).limit(1);
-    if (active) return { run: undefined, blocked: true };
+    // Per person, like starting a run (which supersedes only your own): a
+    // collaborator's assistant working on the card doesn't block yours, and
+    // each write rebases onto the other's saves.
+    const [active] = await tx.select({ id: agentRuns.id, userId: agentRuns.userId }).from(agentRuns)
+      .where(and(eq(agentRuns.worldId, worldId), eq(agentRuns.userId, currentUser.id), ne(agentRuns.id, body.runId), eq(agentRuns.status, "running"))).limit(1);
+    if (active) return { run: undefined, blocked: true, activeUserId: active.userId };
     const [run] = await transitionApproval(tx);
     return { run, blocked: false };
   }) : { run: (await transitionApproval(db))[0], blocked: false };
-  if (approval.blocked) return c.json({ error: "Another agent run is active", code: "ACTIVE_RUN" }, 409);
+  if (approval.blocked) return c.json(await activeRunBody(("activeUserId" in approval ? approval.activeUserId : undefined) ?? currentUser.id), 409);
   const run = approval.run;
 
   if (!run) {
@@ -672,7 +753,7 @@ agentRoutes.post("/:worldId/agent/approve", async (c) => {
 
   // Load current world from DB
   const worldRows = await db
-    .select({ schema: worlds.schema, status: worlds.status })
+    .select({ schema: worlds.schema, status: worlds.status, updatedAt: worlds.updatedAt })
     .from(worlds)
     .where(eq(worlds.id, worldId));
 
@@ -684,6 +765,7 @@ agentRoutes.post("/:worldId/agent/approve", async (c) => {
     worldId,
     worldRows[0]!.status,
     worldRows[0]!.schema as unknown as Record<string, unknown>,
+    currentUser.id,
   );
   let world = migrateWorldDefinition(approveWorkingSchema as unknown as WorldDefinition);
 
@@ -700,13 +782,15 @@ agentRoutes.post("/:worldId/agent/approve", async (c) => {
   if (body.approved) {
     // Snapshot the world BEFORE mutation (enables revert)
     const toolNames = pendingToolCalls.map((tc) => tc.function.name).join(", ");
-    await db.insert(worldSnapshots).values({
+    const approveBefore = world;
+    const [approveSnapshot] = await db.insert(worldSnapshots).values({
       worldId,
       userId: currentUser.id,
       agentRunId: body.runId,
       schemaData: world as unknown as Record<string, unknown>,
       label: `Before: ${toolNames}`.slice(0, 200),
-    });
+      edits: [],
+    }).returning();
 
     // Auto-cleanup: keep max 50 snapshots per world
     const [countResult] = await db
@@ -751,12 +835,21 @@ agentRoutes.post("/:worldId/agent/approve", async (c) => {
     }
 
     // Save updated world to DB. For a published world a material change is held
-    // for re-review (the live card is untouched) instead of going live.
-    await writeStudioWorldSchema({
-      worldId,
-      creatorId: currentUser.id,
-      schema: world as unknown as Record<string, unknown>,
-    });
+    // for re-review (the live card is untouched) instead of going live. Based on
+    // the copy read above: an editor save that landed while this was applied is
+    // merged in, not overwritten.
+    try {
+      await writeStudioStep({
+        worldId,
+        actorId: currentUser.id,
+        schema: world as unknown as Record<string, unknown>,
+        base: { schema: approveBefore as unknown as Record<string, unknown>, updatedAt: worldRows[0]!.updatedAt?.getTime() ?? null },
+      }, { snapshotId: approveSnapshot?.id, before: approveBefore, after: world });
+    } catch (error) {
+      // Removed from the card (or made a viewer) since the run paused.
+      if (error instanceof WorldWriteDeniedError) return c.json({ error: "You can no longer edit this card.", code: error.code }, 403);
+      throw error;
+    }
   } else {
     // Rejection results
     writeResults = pendingToolCalls.map((tc) => ({
@@ -904,16 +997,20 @@ agentRoutes.post("/:worldId/agent/generate-image", async (c) => {
     )
     .returning();
   const approval = studioCreditRecoveryEnabled() ? await db.transaction(async tx => {
-    const [ownedWorld] = await tx.select({ id: worlds.id }).from(worlds)
-      .where(and(eq(worlds.id, worldId), eq(worlds.creatorId, currentUser.id))).for("update");
+    const lockable = await editableWorld(currentUser.id, worldId, tx);
+    if (!lockable) return { run: undefined, blocked: false };
+    const [ownedWorld] = await tx.select({ id: worlds.id }).from(worlds).where(lockable).for("update");
     if (!ownedWorld) return { run: undefined, blocked: false };
-    const [active] = await tx.select({ id: agentRuns.id }).from(agentRuns)
-      .where(and(eq(agentRuns.worldId, worldId), ne(agentRuns.id, body.runId), eq(agentRuns.status, "running"))).limit(1);
-    if (active) return { run: undefined, blocked: true };
+    // Per person, like starting a run (which supersedes only your own): a
+    // collaborator's assistant working on the card doesn't block yours, and
+    // each write rebases onto the other's saves.
+    const [active] = await tx.select({ id: agentRuns.id, userId: agentRuns.userId }).from(agentRuns)
+      .where(and(eq(agentRuns.worldId, worldId), eq(agentRuns.userId, currentUser.id), ne(agentRuns.id, body.runId), eq(agentRuns.status, "running"))).limit(1);
+    if (active) return { run: undefined, blocked: true, activeUserId: active.userId };
     const [run] = await transitionApproval(tx);
     return { run, blocked: false };
   }) : { run: (await transitionApproval(db))[0], blocked: false };
-  if (approval.blocked) return c.json({ error: "Another agent run is active", code: "ACTIVE_RUN" }, 409);
+  if (approval.blocked) return c.json(await activeRunBody(("activeUserId" in approval ? approval.activeUserId : undefined) ?? currentUser.id), 409);
   const run = approval.run;
   if (!run) return c.json({ error: "Agent run not found or not awaiting confirmation" }, 404);
 
@@ -950,6 +1047,7 @@ agentRoutes.post("/:worldId/agent/generate-image", async (c) => {
     worldId,
     worldRows[0]!.status,
     worldRows[0]!.schema as unknown as Record<string, unknown>,
+    currentUser.id,
   );
   const world = migrateWorldDefinition(workingSchema as unknown as WorldDefinition);
 
@@ -1008,11 +1106,9 @@ agentRoutes.post("/:worldId/agent/generate-image", async (c) => {
       error: "The creator declined generating this image. Do not propose it again unless they ask; continue without it." }), { oneMoreTurn: true });
   }
 
-  // The card's first bound folder is where its pictures live; no binding means
-  // the library root, which is where the creator would look anyway.
-  const [binding] = await db.select({ folderId: worldFolderBindings.folderId }).from(worldFolderBindings)
-    .where(eq(worldFolderBindings.worldId, worldId)).orderBy(asc(worldFolderBindings.createdAt)).limit(1);
-  const folderId = binding?.folderId ?? null;
+  // The card's first bound folder is where its pictures live, when it is the
+  // requester's own; otherwise (a collaborator) their library root.
+  const folderId = await generatedImageFolder(currentUser.id, worldId);
 
   let jobId: string;
   if (proposal.mode === "custom") {
@@ -1077,6 +1173,122 @@ agentRoutes.post("/:worldId/agent/generate-image", async (c) => {
   });
 });
 
+// ── POST /api/studio/:worldId/agent/run-media-tool — the creator answers a run_media_tool card ──
+//
+// The same shape as /agent/generate-image: claim the paused run, turn the click
+// into the tool result, re-enter the loop. On Run the job is created here on the
+// creator's behalf (their wallet, the card's bound folder) through the
+// workbench's own submission, and the loop's prelude follows it until it lands.
+// Body: { runId, approved, inputs? } — `inputs` are the card's edited options,
+// merged over the parked ones and checked again.
+
+agentRoutes.post("/:worldId/agent/run-media-tool", async (c) => {
+  const currentUser = c.get("user");
+  const worldId = c.req.param("worldId");
+  const body = await c.req.json<{ runId: string; approved: boolean; inputs?: Record<string, unknown> }>().catch(() => null);
+  if (!body || typeof body.runId !== "string" || typeof body.approved !== "boolean") {
+    return c.json({ error: "Invalid confirmation", code: "INVALID_PROPOSAL" }, 400);
+  }
+
+  const transitionApproval = (executor: typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0]) => executor
+    .update(agentRuns)
+    .set({ status: "running", updatedAt: new Date() })
+    .where(and(eq(agentRuns.id, body.runId), eq(agentRuns.userId, currentUser.id), eq(agentRuns.worldId, worldId),
+      eq(agentRuns.status, "awaiting_approval")))
+    .returning();
+  const approval = studioCreditRecoveryEnabled() ? await db.transaction(async tx => {
+    // The creator or an editor collaborator, as for generate-image above.
+    const lockable = await editableWorld(currentUser.id, worldId, tx);
+    if (!lockable) return { run: undefined, blocked: false };
+    const [ownedWorld] = await tx.select({ id: worlds.id }).from(worlds).where(lockable).for("update");
+    if (!ownedWorld) return { run: undefined, blocked: false };
+    // Per person, like starting a run: a collaborator's assistant doesn't block yours.
+    const [active] = await tx.select({ id: agentRuns.id, userId: agentRuns.userId }).from(agentRuns)
+      .where(and(eq(agentRuns.worldId, worldId), eq(agentRuns.userId, currentUser.id), ne(agentRuns.id, body.runId), eq(agentRuns.status, "running"))).limit(1);
+    if (active) return { run: undefined, blocked: true, activeUserId: active.userId };
+    const [run] = await transitionApproval(tx);
+    return { run, blocked: false };
+  }) : { run: (await transitionApproval(db))[0], blocked: false };
+  if (approval.blocked) return c.json(await activeRunBody(("activeUserId" in approval ? approval.activeUserId : undefined) ?? currentUser.id), 409);
+  const run = approval.run;
+  if (!run) return c.json({ error: "Agent run not found or not awaiting confirmation" }, 404);
+  const giveBack = () => db.update(agentRuns).set({ status: "awaiting_approval", updatedAt: new Date() }).where(eq(agentRuns.id, body.runId));
+
+  const pending = (run.pendingToolCalls ?? []) as unknown as ToolCall[];
+  const call = pending[0];
+  if (pending.length !== 1 || !call || call.function.name !== RUN_MEDIA_TOOL_NAME) {
+    await giveBack();
+    return c.json({ error: "This run is not waiting for a media tool confirmation", code: "NOT_MEDIA_TOOL_PROPOSAL" }, 409);
+  }
+  const parked = parseToolArgs(call.function.arguments) as { tool?: string; inputs?: Record<string, unknown> };
+  const checked = normalizeMediaToolArgs({ tool: parked.tool, inputs: { ...parked.inputs, ...(body.inputs ?? {}) } });
+  if ("error" in checked) {
+    await giveBack();
+    return c.json({ error: checked.error, code: "INVALID_INPUT" }, 400);
+  }
+
+  const worldRows = await db.select({ schema: worlds.schema, status: worlds.status }).from(worlds).where(eq(worlds.id, worldId));
+  if (worldRows.length === 0) return c.json({ error: "World not found" }, 404);
+  const workingSchema = await resolveWorkingSchema(worldId, worldRows[0]!.status, worldRows[0]!.schema as unknown as Record<string, unknown>, currentUser.id);
+  const world = migrateWorldDefinition(workingSchema as unknown as WorldDefinition);
+  const wallet = await ensureWallet(currentUser.id);
+  const effectivePlan = await resolveEffectivePlanWithEventEntitlements(currentUser.id, wallet.plan);
+  const isUnlimited = PLANS[effectivePlan]?.unlimited ?? false;
+  const resolved = await resolveProviderForModel(currentUser.id, run.model, { allowNonPriced: STUDIO_MODEL_IDS.has(run.model) });
+  if (!resolved) {
+    await giveBack();
+    return c.json({ error: "No API key configured for this provider. Add one in Settings." }, 400);
+  }
+
+  const messages = run.messages as unknown as ChatMessage[];
+  const nextIteration = run.iteration + 1;
+  const assistantTurn: ChatMessage = { role: "assistant" as const, content: run.textContent ?? "", tool_calls: [call] };
+  const resumeWith = async (extraMessages: ChatMessage[], opts: { prelude?: AgentLoopParams["prelude"]; oneMoreTurn?: boolean }) => {
+    const updatedMessages: ChatMessage[] = [...messages, assistantTurn, ...extraMessages];
+    await db.update(agentRuns).set({
+      status: "running", messages: updatedMessages as unknown as Array<Record<string, unknown>>, pendingToolCalls: null,
+      readToolResults: null, textContent: null, iteration: nextIteration, updatedAt: new Date(),
+    }).where(eq(agentRuns.id, body.runId));
+    c.header("X-Accel-Buffering", "no");
+    c.header("X-Agent-Run-Id", body.runId);
+    return streamAgentLoop(c, {
+      runId: body.runId, conversationId: run.conversationId ?? run.id, worldId, userId: currentUser.id, world,
+      messages: updatedMessages, model: run.model, provider: resolved.provider, isByok: resolved.isByok, apiKeyTier: resolved.apiKeyTier,
+      context: run.context as { activePanel?: string; selectedElementId?: string; selectedElementType?: string; focusIds?: string[]; jobApproved?: boolean },
+      iteration: nextIteration, maxIterations: opts.oneMoreTurn ? nextIteration + 1 : run.maxIterations,
+      tools: STUDIO_TOOLS, unlimited: isUnlimited, prelude: opts.prelude,
+    });
+  };
+
+  if (!body.approved) {
+    return resumeWith(mediaToolMessages(call, { status: "error", result: null,
+      error: "The creator declined running this tool. Do not propose it again unless they ask; continue without it." }), { oneMoreTurn: true });
+  }
+
+  // The card's first bound folder of the requester's own, as for its pictures
+  // (generate-image above): the result files into the requester's library.
+  const folderId = await generatedImageFolder(currentUser.id, worldId);
+  let jobId: string;
+  try {
+    if (currentUser.isBanned || currentUser.isSuspended) throw new MediaToolError("ACCOUNT_RESTRICTED", 400);
+    // One run per card: a double click or a retried request finds the same job.
+    const requestId = `studio-${createHash("sha256").update(`${body.runId}:${call.id}`).digest("hex").slice(0, 40)}`;
+    jobId = (await submitMediaTool(currentUser.id, checked.tool, { inputs: checked.inputs, folderId, requestId })).job.id;
+  } catch (error) {
+    if (!(error instanceof MediaToolError)) console.error("[Agent] run_media_tool submission failed:", error);
+    const code = error instanceof MediaToolError ? error.code : "SUBMIT_FAILED";
+    const refunded = ["CONTENT_FILTERED", "PROVIDER_REJECTED", "SUBMIT_FAILED", "PROVIDER_CREDITS", "PROVIDER_BUSY", "PROVIDER_TIMEOUT"].includes(code);
+    return resumeWith(mediaToolMessages(call, { status: "error", result: null,
+      error: `The tool could not start (${code}). ${refunded ? "The charge was refunded." : "Nothing was charged."} Tell the creator${code === "NO_CREDITS" ? " they need more mushies" : ""} and continue without it.` }), {
+      oneMoreTurn: true,
+      prelude: async ({ send }) => { await send("media_tool_result", JSON.stringify({ runId: body.runId, toolCallId: call.id, jobId: null, status: "failed", errorCode: code })); return []; },
+    });
+  }
+  return resumeWith([], {
+    prelude: ({ send, progress }) => waitForMediaTool({ call, jobId, runId: body.runId, folderId, send, progress }),
+  });
+});
+
 function batchRouteError(c: Context<AppEnv>, error: unknown) {
   if (error instanceof ImageBatchError) return c.json({ error: error.code, code: error.code }, error.status);
   console.error("[Agent] image batch request failed", error);
@@ -1104,8 +1316,7 @@ agentRoutes.post("/:worldId/agent/generate-images", async (c) => {
     return c.json({ error: "Invalid batch confirmation", code: "INVALID_PROPOSAL" }, 400);
   }
   try {
-    const [ownedWorld] = await db.select({ id: worlds.id }).from(worlds).where(and(eq(worlds.id, worldId), eq(worlds.creatorId, userId)));
-    if (!ownedWorld) throw new ImageBatchError("WORLD_NOT_FOUND", 404);
+    if (!await editableWorld(userId, worldId)) throw new ImageBatchError("WORLD_NOT_FOUND", 404);
     const [run] = await db.select().from(agentRuns).where(and(eq(agentRuns.id, body.runId), eq(agentRuns.userId, userId), eq(agentRuns.worldId, worldId)));
     if (!run) throw new ImageBatchError("RUN_NOT_FOUND", 404);
     const saved = run.context?.imageBatchProposal as Record<string, unknown> | undefined;
@@ -1131,9 +1342,8 @@ agentRoutes.post("/:worldId/agent/generate-images", async (c) => {
     }
     const proposal = editImageBatchProposal(original, body);
     if (!proposal) throw new ImageBatchError("INVALID_PROPOSAL");
-    const [binding] = await db.select({ folderId: worldFolderBindings.folderId }).from(worldFolderBindings)
-      .where(eq(worldFolderBindings.worldId, worldId)).orderBy(asc(worldFolderBindings.createdAt)).limit(1);
-    return c.json({ data: await createImageBatch({ userId, worldId, runId: run.id, toolCallId, folderId: binding?.folderId, proposal }) });
+    const folderId = await generatedImageFolder(userId, worldId);
+    return c.json({ data: await createImageBatch({ userId, worldId, runId: run.id, toolCallId, folderId, proposal }) });
   } catch (error) { return batchRouteError(c, error); }
 });
 
@@ -1237,11 +1447,12 @@ agentRoutes.get("/:worldId/agent/estimate", async (c) => {
   const conversationId = c.req.query("conversationId");
   const advise = c.req.query("mode") !== "build";
 
-  const [row] = await db
+  const editable = await editableWorld(currentUser.id, worldId);
+  const [row] = editable ? await db
     .select({ schema: worlds.schema, status: worlds.status })
     .from(worlds)
-    .where(and(eq(worlds.id, worldId), eq(worlds.creatorId, currentUser.id)))
-    .limit(1);
+    .where(editable)
+    .limit(1) : [];
   if (!row) return c.json({ error: "World not found or not authorized" }, 404);
 
   const resolved = await resolveProviderForModel(currentUser.id, model, { allowNonPriced: STUDIO_MODEL_IDS.has(model) });
@@ -1250,16 +1461,17 @@ agentRoutes.get("/:worldId/agent/estimate", async (c) => {
   const plan = await resolveEffectivePlanWithEventEntitlements(currentUser.id, wallet.plan);
   if (PLANS[plan]?.unlimited) return c.json({ data: { billed: false } });
 
-  const working = await resolveWorkingSchema(worldId, row.status, row.schema as unknown as Record<string, unknown>);
+  const working = await resolveWorkingSchema(worldId, row.status, row.schema as unknown as Record<string, unknown>, currentUser.id);
   const world = migrateWorldDefinition(working as unknown as WorldDefinition);
   const resolvedContext = await resolveContext(world, "", {
     userId: currentUser.id,
     worldId,
-    contextWindow: getContextBudget(model),
+    // Sized like the run's own preload (streamAgentLoop), so the estimate matches it.
+    contextWindow: contextBudgetByName(model),
   });
   // Talking it through carries the advisor's short prompt and a handful of tools.
   const prompt = advise
-    ? advisorPrompt({ world, sources: [], brief: await loadBrief(currentUser.id, worldId), language: "Chinese" })
+    ? advisorPrompt({ world, sources: [], brief: await loadBrief(currentUser.id, worldId), language: "Chinese", liveCharacter: liveCharactersFor(currentUser) })
     : buildSystemPrompt(resolvedContext, {});
   const estimateTools = advise
     ? [...STUDIO_TOOLS.filter((t) => (ADVISOR_READ_TOOLS as readonly string[]).includes(t.function.name)), SAVE_BRIEF_TOOL]
@@ -1355,6 +1567,10 @@ agentRoutes.get("/:worldId/agent/status", async (c) => {
       ...(imageBatchProposal ? { imageBatchProposal, imageBatches } : {}),
       // A job waiting for Start survives a refresh or a dropped stream.
       ...(run.status === "awaiting_user" && run.context?.jobProposal ? { jobProposal: run.context.jobProposal } : {}),
+      // The checklist of a run still at work, for a client that lost the live one.
+      ...(run.status === "running" && Array.isArray(run.context?.plan) ? { plan: run.context.plan } : {}),
+      // Messages added mid-run that the run took: the client must not hand them back.
+      ...(Array.isArray(run.context?.steers) ? { steerIds: (run.context.steers as Array<{ id?: unknown }>).map((s) => s?.id).filter((id): id is string => typeof id === "string") } : {}),
       error: run.error,
       ...(run.error ? { errorCode: agentErrorCode(run.error) } : {}),
       ...(recoveryEnabled ? { creditPause } : {}),
@@ -1425,6 +1641,32 @@ agentRoutes.post("/:worldId/agent/stop", async (c) => {
   return c.json({ ok: true });
 });
 
+// ── POST /api/studio/:worldId/agent/steer — Add to a running request ──
+// The run reads it before its next step (lib/studio-steer.ts). 409 when the
+// run is no longer working: the client then sends it as a new message.
+
+agentRoutes.post("/:worldId/agent/steer", async (c) => {
+  const currentUser = c.get("user");
+  const worldId = c.req.param("worldId");
+  const body = await c.req.json<{ runId?: string; id?: string; message?: string }>().catch(() => null);
+  const text = typeof body?.message === "string" ? stripNul(body.message).trim() : "";
+  if (typeof body?.runId !== "string" || !body.runId || typeof body.id !== "string" || !body.id || body.id.length > 64 || !text) {
+    return c.json({ error: "runId, id and message are required" }, 400);
+  }
+  if (text.length > MAX_STEER_CHARS) return c.json({ error: "Message too long", code: "TOO_LONG" }, 400);
+  const [run] = await db
+    .select({ status: agentRuns.status })
+    .from(agentRuns)
+    .where(and(eq(agentRuns.id, body.runId), eq(agentRuns.userId, currentUser.id), eq(agentRuns.worldId, worldId)))
+    .limit(1);
+  if (!run) return c.json({ error: "Run not found" }, 404);
+  if (run.status !== "running") return c.json({ error: "The run is not working", code: "NOT_RUNNING" }, 409);
+  if (!await queueSteer(body.runId, { id: body.id, text })) {
+    return c.json({ error: "Too many messages waiting for the assistant", code: "TOO_MANY" }, 429);
+  }
+  return c.json({ ok: true });
+});
+
 /** A model's price as Studio settles it: the agent markup, not the model's
  *  own (chat) markup — estimates shown to the creator must match the charge. */
 function priceAtStudioMarkup<T extends { markupMultiplier: number }>(price: T | null | undefined): T | null {
@@ -1480,9 +1722,37 @@ function estimateTokens(msg: ChatMessage): number {
 
 // Reserve ~60% of context for history (rest = system prompt + tools + response budget)
 const MIN_RECENT_MESSAGES = 6; // Always keep at least 3 user-assistant pairs
+/** The creator's words a summary keeps verbatim (at most 20% of the budget). */
+const CREATOR_WORDS_KEPT_TOKENS = 20_000;
+/** Told to the model once, when a run's earlier steps are first summarized. */
+const COMPACTION_NOTE = "Your earlier steps in this request were summarized to fit the context: the summary at the top keeps the creator's words, your checklist and which tools you called, not the results. What you read before is no longer here in full. To see exact content again, grep_world for it or read_entities a line range; do not re-read whole entities you already worked through, and do not redo writes the summary lists.";
+
+/** Real windows from the model catalog. The name rules below were written for
+ *  older models: DeepSeek V4 (1M window) was held to 50K, Sonnet 5 and
+ *  Opus 5.5 to 120K, and 104 of the 130 runs compacted in 30 days (to
+ *  2026-10-30) were DeepSeek on that 50K. */
+const CATALOG_WINDOWS = new Map(YUMINA_MODELS.flatMap((m) => m.contextWindow ? [[m.id, m.contextWindow] as const] : []));
+/** A catalog model's budget stops here: longer prompts cost every step and
+ *  read worse. Models the rules already give more (600K) keep it. */
+const CATALOG_BUDGET_CAP = 200_000;
+/** The fixed system prompt and tool schemas, rounded up (about 30K today). */
+const FIXED_PROMPT_TOKENS = 40_000;
 
 /** Derive context budget from model ID. Uses ~60% of the model's known context window. */
-function getContextBudget(modelId: string): number {
+export function getContextBudget(modelId: string): number {
+  const byName = contextBudgetByName(modelId);
+  const window = CATALOG_WINDOWS.get(modelId);
+  if (!window) return byName;
+  const usable = Math.floor(window * 0.6);
+  // History may only grow into what the window has left after the reply, the
+  // preloaded card (45% of the name budget, see resolveContext) and the fixed
+  // prompt. A 262K window would otherwise take 157K of history and overflow.
+  const room = window - MAX_OUTPUT - Math.ceil(byName * 0.45) - FIXED_PROMPT_TOKENS;
+  return Math.min(usable, Math.max(byName, Math.min(usable, room, CATALOG_BUDGET_CAP)));
+}
+
+/** The budget from the model's name: custom endpoints and models the catalog does not size. */
+function contextBudgetByName(modelId: string): number {
   const id = modelId.toLowerCase();
   // Gemini models: 1M+ context
   if (id.includes("gemini")) return 600_000;
@@ -1552,14 +1822,35 @@ export function buildWindowedMessages(messages: ChatMessage[], modelId = ""): Ch
   const older = messages.slice(0, splitIdx);
   const recent = messages.slice(splitIdx);
 
+  // The creator's own words stay word for word, newest first, up to a share of
+  // the budget (Codex keeps 20K tokens of them). Cut to 120 characters, a long
+  // paste was lost, and the request that followed was often only "继续，要求不变"
+  // (30 runs in 30 days were compacted at their very first step that way).
+  const textOf = (msg: ChatMessage) => typeof msg.content === "string" ? msg.content
+    : msg.content.map((part) => part.type === "text" ? part.text : "[image]").join(" ");
+  const verbatim = new Map<ChatMessage, string>();
+  let wordsLeft = Math.min(CREATOR_WORDS_KEPT_TOKENS, Math.floor(budget * 0.2));
+  for (let i = older.length - 1; i >= 0 && wordsLeft > 0; i--) {
+    const msg = older[i]!;
+    if (msg.role !== "user" || isHarnessTurn(msg)) continue;
+    const text = textOf(msg);
+    const tokens = estimateTextTokens(text);
+    if (tokens <= wordsLeft) {
+      verbatim.set(msg, text);
+      wordsLeft -= tokens;
+    } else {
+      const keep = Math.floor(text.length * (wordsLeft / tokens));
+      if (keep > 120) verbatim.set(msg, `${text.slice(0, keep)}… [${text.length - keep} more characters not kept]`);
+      wordsLeft = 0;
+    }
+  }
+
   // Build deterministic summary of older turns (no LLM call)
   const actions: string[] = [];
   for (const msg of older) {
     if (msg.role === "user") {
-      const text = typeof msg.content === "string"
-        ? msg.content.slice(0, 120)
-        : "[multimodal message]";
-      actions.push(`- User: "${text}"`);
+      if (isHarnessTurn(msg)) continue;
+      actions.push(`- User: "${verbatim.get(msg) ?? textOf(msg).slice(0, 120)}"`);
     } else if (msg.role === "assistant" && "tool_calls" in msg && msg.tool_calls?.length) {
       const toolNames = msg.tool_calls.map((tc) => tc.function.name).join(", ");
       const text = typeof msg.content === "string" && msg.content.trim()
@@ -1572,7 +1863,13 @@ export function buildWindowedMessages(messages: ChatMessage[], modelId = ""): Ch
 
   if (actions.length === 0) return messages;
 
-  const summary = `[Earlier conversation — ${older.length} messages summarized]\n${actions.join("\n")}`;
+  // The checklist the model was working through, if its last version is in
+  // the part summarized away: without it a long job loses where it was.
+  const toolCallsOf = (list: ChatMessage[]) => list.flatMap((m) => m.role === "assistant" && "tool_calls" in m ? m.tool_calls ?? [] : []);
+  const plan = latestPlan(toolCallsOf(recent)) ? null : latestPlan(toolCallsOf(older));
+
+  const summary = `[Earlier conversation — ${older.length} messages summarized]\n${actions.join("\n")}`
+    + (plan ? `\n\nYour checklist (update_plan) as you last left it:\n${describePlan(plan)}` : "");
 
   return [
     { role: "user" as const, content: summary },
@@ -1759,7 +2056,7 @@ function toolCallActions(calls: ToolCall[]): Array<{ op: string; target?: string
     let target: string | undefined;
     try {
       const a = parseToolArgs(tc.function.arguments) as Record<string, unknown>;
-      const direct = a.name ?? a.id ?? a.entryId ?? a.query;
+      const direct = a.name ?? a.id ?? a.entryId ?? a.query ?? a.url;
       if (typeof direct === "string" && direct.trim() !== "") target = direct;
       else if (Array.isArray(a.ids)) target = a.ids.filter((x): x is string => typeof x === "string").join("、");
       const variant = variantArg(a);
@@ -1791,6 +2088,8 @@ export interface AgentLoopParams {
     jobApproved?: boolean;
     mode?: "build" | "advise";
     buildProposal?: StudioBuildProposal;
+    /** The creator's 联网 switch; absent means on. */
+    web?: boolean;
   };
   iteration: number;
   maxIterations: number;
@@ -1913,6 +2212,10 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
       tools,
     } = params;
     if (!isImageBatchEnabled()) tools = tools.filter(tool => tool.function.name !== IMAGE_BATCH_TOOL_NAME);
+    // Live characters: only where they are open to this creator (LIVE_CHARACTERS); otherwise the tool and every
+    // mention of it stay out of the prompt.
+    const liveAllowed = await liveCharactersForUser(userId).catch(() => false);
+    if (!liveAllowed) tools = tools.filter(tool => tool.function.name !== "make_live_character");
     // 自定义生图 is only advertised where it can run: provider configured and
     // at least one platform base model ready. Otherwise the schema stays smart-only.
     const customImageStyles = isCustomGenerationEnabled() ? await readyPlatformStyles() : [];
@@ -1923,6 +2226,18 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
       .catch(() => ({ language: null, siblings: [] }));
     if (languageVariants.siblings.length > 0) tools = withVariantParam(tools);
     if (context?.mode === "advise") tools = advisorTools(tools);
+    // The web: off for everyone with STUDIO_WEB=off, off for this conversation
+    // when the creator switched 联网 off; searching also needs the platform key.
+    if (!webToolsEnabled() || context?.web === false) tools = tools.filter(tool => !WEB_TOOL_NAMES.has(tool.function.name));
+    else if (!webSearchEnabled()) tools = tools.filter(tool => tool.function.name !== "web_search");
+    const webBlock = tools.some(tool => WEB_TOOL_NAMES.has(tool.function.name)) ? describeWebAccess() : "";
+    // Per request: enough to look up a whole cast, not enough to crawl a site.
+    const webBudget = { searches: 0, pages: 0 };
+    const MAX_WEB_SEARCHES = 12, MAX_WEB_PAGES = 24;
+    // Started from the advisor's confirmation sheet: the creator already said go,
+    // so a job proposal must not park the run for a second Start (Lavan,
+    // 2026-11-04: 101 of 968 sheet builds in 14 days asked again).
+    const confirmedPlan = context?.mode === "build" && isStudioBuildProposal(context.buildProposal) ? context.buildProposal : null;
     const unlimited = params.unlimited ?? false;
     const creditRecovery = studioCreditRecoveryEnabled() && !isByok && (!unlimited || !!params.creditResume);
     const creditScope = { runId, worldId: params.worldId, userId };
@@ -2051,6 +2366,54 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
       }
       return db.update(agentRuns).set({ ...set, updatedAt: new Date() })
         .where(ownedRunWhere());
+    };
+    /** web_search: quoted against the balance first, paid after from what
+     *  OpenRouter reports, at the Studio markup — on the creator's Yumina
+     *  balance also when the assistant runs on their own key. */
+    const executeWebSearch = async (callId: string, args: Record<string, unknown>): Promise<ToolResult> => {
+      const fail = (error: string): ToolResult => ({ tool_call_id: callId, name: "web_search", status: "error", result: null, error });
+      const query = typeof args.query === "string" ? args.query.trim().slice(0, 300) : "";
+      if (!query) return fail("Give a query.");
+      if (webBudget.searches >= MAX_WEB_SEARCHES) return fail(`This request already ran ${MAX_WEB_SEARCHES} searches, the most one request may. Work with what you found, or tell the creator what is still unknown.`);
+      const billable = !unlimited;
+      if (billable) {
+        const { availableCredits } = await getAvailableCredits(userId);
+        if (availableCredits < WEB_SEARCH_QUOTE_CREDITS) return fail(`A web search costs about ${WEB_SEARCH_QUOTE_CREDITS} mushies from the creator's Yumina balance${isByok ? " (also when the assistant runs on their own API key)" : ""}, and the balance is too low. Continue without searching and say which facts you could not check.`);
+      }
+      webBudget.searches++;
+      const maxResults = Math.max(1, Math.min(8, Math.floor(Number(args.max_results) || 6)));
+      const domains = Array.isArray(args.domains)
+        ? args.domains.filter((d): d is string => typeof d === "string" && /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(d.trim())).map(d => d.trim().toLowerCase()).slice(0, 5)
+        : [];
+      try {
+        const outcome = await runWebSearch(userId, query, { maxResults, domains, worldId: params.worldId });
+        const credits = billable ? webSearchCredits(outcome.costUsd, STUDIO_AGENT_MARKUP) : 0;
+        if (credits > 0) {
+          await deductCreditsUpToBalance(userId, credits, `web-search:${runId}:${callId}`, `Web search — ${query.slice(0, 80)}`);
+          runStats.credits += credits;
+          await sendCreditBalance(credits).catch(() => {});
+        }
+        return { tool_call_id: callId, name: "web_search", status: "success", result: webSearchResult(query, outcome) };
+      } catch (e) {
+        return fail(e instanceof WebSearchError ? e.message : "The search failed.");
+      }
+    };
+    /** read_web_page: only an address already in the conversation (see
+     *  webPageAllowed), so a page cannot steer the assistant to an address
+     *  it made up. Free: the server fetches it. */
+    const executeReadWebPage = async (callId: string, args: Record<string, unknown>): Promise<ToolResult> => {
+      const fail = (error: string): ToolResult => ({ tool_call_id: callId, name: "read_web_page", status: "error", result: null, error });
+      const url = typeof args.url === "string" ? args.url.trim() : "";
+      if (!url) return fail("Give the page's url.");
+      // The assistant's own words do not count: a page could have talked it
+      // into writing an address. The creator's messages and tool results do.
+      const seen = messages.filter(m => m.role !== "assistant").map(m => typeof m.content === "string" ? m.content : JSON.stringify(m.content ?? "")).join("\n");
+      if (!webPageAllowed(url, seen)) return fail("Only pages whose address is already in this conversation can be read: one the creator wrote, one a web_search returned, or a link list_links showed on a page you read. Search for it first.");
+      if (webBudget.pages >= MAX_WEB_PAGES) return fail(`This request already read ${MAX_WEB_PAGES} pages, the most one request may. Work with what you have.`);
+      webBudget.pages++;
+      const result = await readWebPage(args);
+      const error = typeof result.error === "string" ? result.error : undefined;
+      return { tool_call_id: callId, name: "read_web_page", status: error ? "error" : "success", result: error ? null : result, error };
     };
     const sendCreditBalance = async (cost?: number) => {
       const balances = await getAvailableCredits(userId);
@@ -2216,29 +2579,15 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
     const MAX_CONSECUTIVE_TRUNCATIONS = 2;
     let consecutiveTruncations = 0;
 
-    // An editor save landed while this step was in flight: the 60s autosave
-    // after any edit, the "Merged with agent changes → save again" round trip,
-    // or a manual save while the model was still thinking. The step's result
-    // was computed from the older world and is never applied over that save,
-    // but until 2026-09-21 the whole run parked as a STALE_WORLD pause whose
-    // only button was Refresh (15 runs / 9 creators in one week, rage clicks
-    // in PostHog). Nothing was billed for the dropped result, so restart the
-    // step against the current world instead. Bounded, so a creator who keeps
-    // saving cannot make the run spin; past the bound it pauses with the reason.
-    const MAX_STALE_RESTARTS = 2;
-    let staleRestarts = 0;
-    const restartStaleStep = async (phase: "preflight" | "generated"): Promise<boolean> => {
-      if (staleRestarts >= MAX_STALE_RESTARTS) return false;
-      staleRestarts++;
-      console.log(`[Agent] Run ${runId} iteration ${iteration}: world changed during ${phase}; restarting the step (${staleRestarts}/${MAX_STALE_RESTARTS}).`);
-      if (reservationId) {
-        await releaseStudioCreditReservation(userId, reservationId).catch(() => {});
-        reservationId = undefined;
-      }
-      // The client drops whatever this attempt streamed; the retry streams fresh.
-      await safeSend("step_restarted", JSON.stringify({ runId, iteration, reason: "STALE_WORLD" }));
-      return true;
-    };
+    // An editor save lands while a step is in flight all the time: autosave
+    // runs two seconds after any edit, and collaborators save too. Until
+    // 2026-10 the step was thrown away and regenerated (twice at most, then
+    // the run paused), so typing during a run stalled it. Now the step is
+    // journaled at the current world and each of its writes merges onto the
+    // stored copy like the non-recovery path: `creditStored` is the stored
+    // copy this run's in-memory world was read from or written as (null when
+    // unknown, e.g. replaying a journaled step — those writes stay strict).
+    let creditStored: Record<string, unknown> | null = null;
 
     // Server-owned log of committed assistant text turns. Each entry = one persistent chat
     // bubble on the client. This is the SINGLE source of truth for "has this text been
@@ -2298,6 +2647,35 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
       }));
     }
 
+    // The checklist the assistant keeps for this request (update_plan). Shown
+    // live, and kept on the run so a reconnecting or reloading client sees it.
+    const showPlan = async (plan: PlanStep[]) => {
+      await safeSend("plan", JSON.stringify({ runId, plan }));
+      // Merged into context in SQL: the run's other context writes read it first.
+      await db.update(agentRuns)
+        .set({ context: sql`jsonb_set(coalesce(${agentRuns.context}, '{}'::jsonb), '{plan}', ${JSON.stringify(plan)}::jsonb)` })
+        .where(ownedRunWhere())
+        .catch(() => {});
+    };
+
+    // What the creator sent while this run was working (lib/studio-steer.ts).
+    // Taken before a step's model call, as the creator's own turn after the
+    // last tool results; kept on the run so the next request's history has it.
+    // Appended in SQL: an approval or a credit resume re-enters this loop on
+    // the same run, and what was taken before that must stay.
+    const takeSteered = async (): Promise<ChatMessage[]> => {
+      const waiting = await takeSteers(runId).catch(() => [] as Steer[]);
+      if (waiting.length === 0) return [];
+      noteProgress();
+      await safeSend("steer_applied", JSON.stringify({ runId, iteration, ids: waiting.map((s) => s.id) }));
+      await db.update(agentRuns)
+        .set({ context: sql`jsonb_set(coalesce(${agentRuns.context}, '{}'::jsonb), '{steers}',
+          coalesce(${agentRuns.context}->'steers', '[]'::jsonb) || ${JSON.stringify(waiting.map((s) => ({ ...s, iteration })))}::jsonb)` })
+        .where(ownedRunWhere())
+        .catch(() => {});
+      return Promise.all(waiting.map((s) => expandAssetRefs({ role: "user" as const, content: s.text }, { userId, worldId: params.worldId }, { model })));
+    };
+
     // Read-progress tracker: per entity id, which requests have already been issued.
     // Repetition is judged on the request (slice / grep query), not the id, so paging
     // through a large file isn't mistaken for a loop. Cleared after any write — the
@@ -2317,6 +2695,8 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
     // "described but didn't do it" stall — so we don't nudge it (the nudge would
     // otherwise pester every successful run and persist "already done" echo turns).
     let anyToolExecuted = false;
+    /** Pictures view_asset has added in this request (asset-vision MAX_VIEWS_PER_RUN). */
+    let assetViewsThisRun = 0;
 
     // Build system prompt once — only read-only iterations happen within this loop,
     // so the world doesn't change and the prompt stays valid. The approve handler
@@ -2339,6 +2719,7 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
      *  the inventory again shows what this request made (its results are gone). */
     let forceWorldRebuild = false;
     let lastWindowCut = 0;
+    let compactionNoted = false;
     /** Entities this request changed whose copy in the world block is now stale (noted once each). */
     const staleNoted = new Set<string>();
 
@@ -2355,14 +2736,15 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
     let syncedWorld: WorldDefinition | null = null;
     let syncedUpdatedAt: number | null = null;
     const refreshWorkingWorld = async () => {
-      const [stamp] = await db.select({ updatedAt: worlds.updatedAt }).from(worlds)
-        .where(and(eq(worlds.id, params.worldId), eq(worlds.creatorId, userId))).limit(1);
+      const editable = await editableWorld(userId, params.worldId);
+      if (!editable) return;
+      const [stamp] = await db.select({ updatedAt: worlds.updatedAt }).from(worlds).where(editable).limit(1);
       if (!stamp) return;
       if (syncedWorld && (stamp.updatedAt?.getTime() ?? null) === syncedUpdatedAt) return;
       const [row] = await db.select({ schema: worlds.schema, status: worlds.status, updatedAt: worlds.updatedAt })
-        .from(worlds).where(and(eq(worlds.id, params.worldId), eq(worlds.creatorId, userId))).limit(1);
+        .from(worlds).where(editable).limit(1);
       if (!row) return;
-      const working = await resolveWorkingSchema(params.worldId, row.status, row.schema as unknown as Record<string, unknown>);
+      const working = await resolveWorkingSchema(params.worldId, row.status, row.schema as unknown as Record<string, unknown>, userId);
       world = migrateWorldDefinition(working as unknown as WorldDefinition);
       syncedWorld = world;
       syncedUpdatedAt = row.updatedAt?.getTime() ?? null;
@@ -2375,8 +2757,7 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
       const brief = context?.mode === "build" && isStudioBuildProposal(context.buildProposal)
         ? context.buildProposal.brief : await loadBrief(userId, params.worldId);
       if (context?.mode === "advise") {
-        const lastAsk = [...messages].reverse().find((m) => m.role === "user" && !isHarnessTurn(m));
-        const askText = lastAsk && typeof lastAsk.content === "string" ? lastAsk.content : "";
+        const language = creatorLanguage(messages.filter((m) => m.role === "user" && !isHarnessTurn(m)), languageVariants.language);
         const sources = await listSources(userId, params.worldId).catch(() => []);
         // A canon reference's index (names as the book writes them) rides along; its contents stay behind read_source.
         const references = await Promise.all(sources.filter((src) => src.name.endsWith(BIBLE_SUFFIX)).slice(0, 2).map(async (src) => ({
@@ -2384,9 +2765,9 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
         })));
         const advised = advisorPrompt({
           world, brief, sources, references,
-          language: askText ? describeLanguage(askText) : "Chinese",
+          language, liveCharacter: liveAllowed,
         });
-        const variantsBlock = describeLanguageVariants(languageVariants);
+        const variantsBlock = `${describeLanguageVariants(languageVariants)}${webBlock}`;
         cachedSystemPrompt = variantsBlock ? { ...advised, world: `${advised.world ?? ""}${variantsBlock}` } : advised;
         return cachedSystemPrompt;
       }
@@ -2402,9 +2783,10 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
       // The creator's own request, never a loop-authored nudge: after one,
       // "[System: …]" became the preload keywords and churned the world block.
       const lastUserMsg = [...messages].reverse().find((m) => m.role === "user" && !isHarnessTurn(m));
-      const requestText = lastUserMsg && typeof lastUserMsg.content === "string"
-        ? lastUserMsg.content
-        : "";
+      // With pictures the creator's words are the first part.
+      const requestText = !lastUserMsg ? ""
+        : typeof lastUserMsg.content === "string" ? lastUserMsg.content
+        : lastUserMsg.content[0]?.type === "text" ? lastUserMsg.content[0].text : "";
 
       const resolved = await resolveContext(world, requestText, {
         userId,
@@ -2418,14 +2800,20 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
         // this for Layer 2 preload. For Sonnet 4.6 (1M window, 600K budget) this yields
         // ~270K for preloaded custom UI content, so the agent can skip read_entities for
         // most components. Default 120K budget still maps to ~54K preload (no regression).
-        contextWindow: getContextBudget(model),
+        // The name rules, not the catalog window: that one decides when to compact,
+        // and sizing the preload by it would grow every step of every run on a big card.
+        contextWindow: contextBudgetByName(model),
       });
       const built = buildSystemPrompt(resolved, {
         activePanel: context?.activePanel,
         jobApproved: context?.jobApproved === true,
+        ...(confirmedPlan ? { confirmedPlan: { summary: confirmedPlan.summary, steps: confirmedPlan.steps } } : {}),
         // Only a mid-request rebuild lists this request's own writes in the inventory.
         madeThisRun: !stablePrompt || builtPrompt ? madeThisRun : undefined,
         stableInventory: stablePrompt,
+        // What the card's text is written in: its language field, else the creator's words.
+        cardLanguage: cardLanguageName(languageVariants.language)
+          ?? creatorLanguage(messages.filter((m) => m.role === "user" && !isHarnessTurn(m)), null),
         selectedEntity: context?.selectedElementId
           ? { id: context.selectedElementId, type: context.selectedElementType }
           : undefined,
@@ -2433,7 +2821,7 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
       // The card's source texts, by name only — the assistant looks inside
       // them with search_source / read_source.
       const sourcesBlock = describeSources(await listSources(userId, params.worldId).catch(() => []));
-      const extraWorld = `${sourcesBlock}${describeLanguageVariants(languageVariants)}${briefBlock(brief)}`;
+      const extraWorld = `${sourcesBlock}${webBlock}${describeLanguageVariants(languageVariants)}${briefBlock(brief)}`;
       cachedSystemPrompt = extraWorld ? { ...built, world: `${built.world ?? ""}${extraWorld}` } : built;
       builtPrompt = { parts: cachedSystemPrompt, worldKey: key };
       forceWorldRebuild = false;
@@ -2457,10 +2845,18 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
       while (iteration < maxIterations) {
         if (controller.signal.aborted) break;
         noteProgress();
+        // A result being replayed was generated from the transcript as it was; it stays that way.
+        if (!replayGenerated) {
+          const added = await takeSteered();
+          if (added.length > 0) messages = [...messages, ...added];
+        }
         const sourceRevision = creditRecovery ? await captureStudioCreditWorldRevision(creditScope) : null;
         if (sourceRevision && !replayGenerated) {
           world = migrateWorldDefinition(sourceRevision.schema as unknown as WorldDefinition);
+          creditStored = sourceRevision.schema;
           cachedSystemPrompt = null;
+        } else {
+          creditStored = null;
         }
         if (!creditRecovery) {
           // A failed read keeps the in-memory world and the last sync point;
@@ -2473,13 +2869,25 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
         // Compress large tool results from earlier iterations to save context
         const compressedMessages = compressOldToolResults(messages, stablePrompt ? COMPRESS_BATCH : 1);
         // Sliding window: keep recent messages raw, summarize older ones (budget varies by model)
-        const windowedMessages = buildWindowedMessages(compressedMessages, model);
+        let windowedMessages = buildWindowedMessages(compressedMessages, model);
         // Earlier steps summarized away: their results (what this request made)
         // are gone, so rebuild the world block once to show the card as it is.
         const windowCut = windowedMessages.length < compressedMessages.length ? compressedMessages.length - windowedMessages.length : 0;
         if (stablePrompt && windowCut !== lastWindowCut) {
           lastWindowCut = windowCut;
           if (windowCut > 0) { forceWorldRebuild = true; cachedSystemPrompt = null; }
+        }
+        // The first time this run's earlier steps are summarized, say so in the
+        // newest tool result (never the system prompt, which sits before the
+        // conversation and would drop it from the cache): compacted runs re-read
+        // the same file three times as often as runs of the same length.
+        if (windowCut > 0 && !compactionNoted) {
+          compactionNoted = true;
+          captureServerEvent(userId, "studio_agent_compacted", { run_id: runId, world_id: params.worldId, model, iteration, messages_summarized: windowCut, byok: isByok });
+          if (messages.at(-1)?.role === "tool" && windowedMessages.at(-1)?.role === "tool") {
+            messages = withToolNote(messages, COMPACTION_NOTE);
+            windowedMessages = withToolNote(windowedMessages, COMPACTION_NOTE);
+          }
         }
 
         // Three-tier system prompt. TTLs never increase along tools→system→
@@ -2499,6 +2907,14 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
           ...(promptParts.world ? [{ type: "text" as const, text: promptParts.world, cache_control: { type: "ephemeral", ttl: "5m" } as const }] : []),
           ...(promptParts.dynamic ? [{ type: "text" as const, text: promptParts.dynamic }] : []),
         ];
+        // The creator's own pictures in this chat are not in their library and have no @asset ref; on testing
+        // (2026-11-01) the model told the creator to upload one by hand, then called that a platform limit.
+        if (context?.mode !== "advise" && liveAllowed) {
+          const attached = attachedPictureKeys(messages, userId).length;
+          if (attached > 0) {
+            systemContent.push({ type: "text", text: `The creator attached ${attached === 1 ? "a picture" : `${attached} pictures`} in this chat. They are not in the library, and the creator does not need to upload them: make_live_character takes picture "attached" for the latest one.` });
+          }
+        }
 
         const llmMessages: ChatMessage[] = [
           { role: "system", content: systemContent },
@@ -2536,12 +2952,11 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
           };
           if (!budget.ok) { await pauseForCredits(preflight, budget.reason); return; }
           outputBudget = budget.maxTokens;
-          const staged = await stageStudioCreditIteration(creditScope, preflight, creditClaimId, { staleWorld: "reject" });
+          // A save between capturing the revision and journaling it is fine:
+          // this step's writes merge onto it.
+          const staged = await stageStudioCreditIteration(creditScope, preflight, creditClaimId, { staleWorld: creditStored ? "adopt" : "reject" });
           if (!staged.ok) {
             if (staged.code === "STALE_WORLD") {
-              // A save between capturing the revision and journaling it:
-              // nothing was generated, so re-read the world and rebuild the prompt.
-              if (await restartStaleStep("preflight")) continue;
               await pauseForCredits(preflight, "STALE_WORLD");
               return;
             }
@@ -2752,14 +3167,11 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
                   version: 1, phase: "generated", messages, iteration, worldRevision: sourceRevision.revision, requiredCredits: cost,
                   generated: { textContent, reasoningContent, toolCalls, usage: iterationUsage, cost, usageLogId, stopReason: iterationStopReason },
                 };
-                const staged = await stageStudioCreditIteration(creditScope, generatedCheckpoint, creditClaimId, { staleWorld: "reject" });
+                // The world moved while the model was generating (someone
+                // typed): keep the result, its writes merge onto that save.
+                const staged = await stageStudioCreditIteration(creditScope, generatedCheckpoint, creditClaimId, { staleWorld: creditStored ? "adopt" : "reject" });
                 if (!staged.ok) {
                   if (staged.code === "STALE_WORLD") {
-                    // The world moved while the model was generating. This
-                    // result is unpaid and must not land on the newer save:
-                    // regenerate against it. Past the bound, keep the result
-                    // for inspection and pause with the reason.
-                    if (await restartStaleStep("generated")) continue;
                     await pauseForCredits(generatedCheckpoint, "STALE_WORLD");
                     return;
                   }
@@ -2775,7 +3187,8 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
                   if (reservationId) await settleStudioCreditReservation(userId, reservationId, cost, usageLogId, `${model} — ${pTokens + cTokens} tokens (agent)`, tx);
                   else await deductCredits(userId, cost, usageLogId, `${model} — ${pTokens + cTokens} tokens (agent)`, tx);
                   return { value: null, checkpoint: { ...checkpoint, requiredCredits: 0, generated: { ...checkpoint.generated, settled: true } } };
-                });
+                  // Settling writes nothing to the card: a save meanwhile is no conflict.
+                }, { rebase: true });
                 creditCheckpoint = settled.checkpoint;
                 reservationId = undefined;
                 await sendCreditBalance(cost);
@@ -2918,6 +3331,20 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
             { role: "assistant" as const, content: textContent },
           ];
 
+          // The creator wrote while this reply was being generated: answer that
+          // in the same run rather than end with their message unread.
+          if (iteration < maxIterations - 1) {
+            const added = await takeSteered();
+            if (added.length > 0) {
+              await commitTextTurn(iteration, textContent, { lane: "answer" });
+              messages = [...messages, ...added];
+              await finishCreditIteration(messages, iteration + 1);
+              iteration++;
+              lastTextContent = textContent;
+              continue;
+            }
+          }
+
           console.log(`[Agent] Text-only response (no tool calls). Completing. Text: ${textContent.slice(0, 100)}...`);
 
           if (answersNudge && lastTextContent.trim()) {
@@ -2974,6 +3401,19 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
           continue;
         }
         const controlCalls = toolCalls.filter((tc) => CONTROL_TOOL_NAMES.has(tc.function.name));
+        // playtest and digest_source turn their companions away, but the
+        // checklist is told to ride along with a round's tools: it still shows.
+        const planAnswers = new Map<string, { status: "success" | "error"; result: unknown; error?: string }>();
+        if (controlCalls.some((tc) => tc.function.name === "playtest" || tc.function.name === "digest_source" || tc.function.name === "make_live_character")) {
+          for (const tc of toolCalls.filter((call) => call.function.name === PLAN_TOOL_NAME)) {
+            const plan = normalizePlan(parseToolArgs(tc.function.arguments));
+            if (plan) await showPlan(plan);
+            planAnswers.set(tc.id, plan ? { status: "success", result: { shown: true } }
+              : { status: "error", result: null, error: "Give plan: 1-10 steps, each { step, status } with status pending, in_progress or completed." });
+          }
+        }
+        const notRunAlone = (call: ToolCall, tool: string) => ({ tool_call_id: call.id, name: call.function.name,
+          ...(planAnswers.get(call.id) ?? { status: "error" as const, result: null, error: `Call ${tool} alone. This call was not run.` }) });
         const ask = controlCalls.find((tc) => tc.function.name === "ask_user");
         if (ask) {
           const askArgs = parseToolArgs(ask.function.arguments);
@@ -3059,8 +3499,7 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
             ...buildToolResultMessages(toolCalls.map((call) => call.id === play.id
               ? { tool_call_id: call.id, name: call.function.name, status: failed ? "error" as const : "success" as const,
                   result: failed ? null : summary, ...(failed ? { error: summary } : {}) }
-              : { tool_call_id: call.id, name: call.function.name, status: "error" as const, result: null,
-                  error: "Call playtest alone. This call was not run." })),
+              : notRunAlone(call, "playtest"))),
           ];
           await commitTextTurn(iteration, textContent, { lane: "step" });
           await finishCreditIteration(messages, iteration + 1);
@@ -3072,6 +3511,103 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
         // Reading a whole book into a canon reference (lib/studio-source-digest.ts).
         // Not yet started: it asks like a big job, with its own time and cost.
         // Started: it runs here, parts in parallel, reporting each one.
+        // A live character from a picture: priced and started like a job, then
+        // watched to the end (the job itself outlives the turn: if the creator
+        // leaves, the pack still lands in their library).
+        const live = controlCalls.find((tc) => tc.function.name === "make_live_character");
+        if (live) {
+          const liveArgs = parseToolArgs(live.function.arguments);
+          let pictureId = typeof liveArgs.picture === "string" ? liveArgs.picture.trim().replace(/^@asset:/, "") : "";
+          // "attached": the picture the creator attached in this conversation (the latest), copied into their library
+          let attachError: string | null = null;
+          if (/^attached\b/i.test(pictureId)) {
+            const keys = attachedPictureKeys(messages, userId);
+            const key = keys[keys.length - 1];
+            pictureId = "";
+            if (!key) attachError = "No picture is attached in this conversation: ask the creator to attach one, or give an @asset ref from their library.";
+            else {
+              try { pictureId = await libraryAssetForAttachment(userId, key); }
+              catch (error) {
+                console.error("[rig] could not keep the attached picture:", error);
+                attachError = "The attached picture could not be read; ask the creator to attach it again.";
+              }
+            }
+          }
+          const name = typeof liveArgs.name === "string" ? liveArgs.name : undefined;
+          const plan = Array.isArray(liveArgs.plan) ? (liveArgs.plan as unknown[]).filter((l): l is string => typeof l === "string").slice(0, 4) : [];
+          const [picture] = pictureId ? await db.select({ id: userAssets.id, type: userAssets.type }).from(userAssets)
+            .where(and(eq(userAssets.id, pictureId), eq(userAssets.userId, userId))) : [];
+          // Already being made from this picture (an earlier turn whose watch ended), or made and kept: follow or
+          // reuse it, with no second quote and no second charge.
+          const existing = picture?.type === "image" && liveAllowed ? await existingRigJob(userId, picture.id) : null;
+          let summary: string;
+          let failed = true;
+          if (!liveAllowed) {
+            summary = "Live characters are not available right now.";
+          } else if (attachError) {
+            summary = attachError;
+          } else if (!picture || picture.type !== "image") {
+            summary = "No such picture: give \"attached\" for the one the creator attached here, or an @asset ref of an image in their library.";
+          } else if (!existing && context?.jobApproved !== true) {
+            messages = [...messages, assistantToolCallMessage(textContent, toolCalls, reasoningContent)];
+            // mushies is the hold; the quote shows what one usually comes to (the hold quoted alone read 2.5x the real price)
+            const payload = { runId, toolCallId: live.id, plan, minutes: RIG_MINUTES, mushies: RIG_HOLD_MUSHIES, mushiesRange: [...RIG_TYPICAL_MUSHIES] as [number, number], metered: true, byKey: false };
+            const [savedRun] = await db.select({ context: agentRuns.context }).from(agentRuns).where(eq(agentRuns.id, runId));
+            await commitTextTurn(iteration, textContent, { lane: "answer", allowEmpty: true });
+            await finalizeRun({
+              status: "awaiting_user",
+              messages: messages as unknown as Array<Record<string, unknown>>,
+              context: { ...savedRun?.context, jobProposal: payload },
+              textContent,
+              iteration,
+            });
+            await safeSend("job_proposal", JSON.stringify(payload));
+            await safeSend("done", JSON.stringify({ runId, status: "awaiting_user" }));
+            return;
+          } else {
+            try {
+              // One charge per picture per run, however often it is called.
+              const job = existing ?? await submitRigJob(userId, { pictureAssetId: picture.id, name, requestId: `agent:${runId}:${picture.id}` });
+              // The split alone runs past the 3-minute stall watchdog without a step changing: the job is alive
+              // as long as its own deadline says, so keep telling the watchdog.
+              const keepAlive = setInterval(noteProgress, 20_000);
+              let ended: Awaited<ReturnType<typeof watchRigJob>>;
+              try {
+                ended = await watchRigJob(job.id, controller.signal, async (p) => {
+                  noteProgress();
+                  await safeSend("rig_progress", JSON.stringify({ runId, ...p }));
+                });
+              } finally { clearInterval(keepAlive); }
+              await safeSend("rig_progress", JSON.stringify({ runId, stage: "finish", done: 0, total: 0, finished: true,
+                ...(ended.status === "succeeded" ? {} : { error: ended.errorMessage ?? "failed" }) }));
+              if (ended.status === "succeeded" && ended.assetId) {
+                failed = false;
+                summary = `The live character is ready: @rig:${job.id} (${existing ? "made from this picture earlier; nothing charged this time" : `charged for what it used: ${(ended.params as { billing?: { charge?: number } }).billing?.charge ?? ended.costMushies} mushies`}). It is in the creator's library. To show it, put it on her character entry: write_entry with portraitLive "@rig:${job.id}" (role 'character'). The card's chat then shows her beside the conversation and her face follows each reply by itself, no code. Only a card with its own interface (custom code) shows her with <RigCharacter pack="@rig:${job.id}" /> instead (load_skill('tsx'): ctl for faces and mood, onTouch). @rig names the character, so whatever the creator later adjusts or redraws for it on the generation page (feel, mood, expressions, their own expressions) shows in the card without editing it. Tell the creator in a sentence or two what it can do, and that they can fine-tune it from the live character's card on the AI generation page.`;
+              } else {
+                summary = `It could not be made (${ended.errorCode ?? "error"}: ${ended.errorMessage ?? "unknown"}). The mushies were refunded. A clearer picture of one character, front-facing, on a plain background works best.`;
+              }
+            } catch (error) {
+              if (error instanceof RigSubmissionError) summary = `Not started: ${error.message} (${error.code}).`;
+              else if (controller.signal.aborted) summary = "The turn ended; the character keeps being made and lands in the creator's library.";
+              else throw error;
+            }
+          }
+          messages = [
+            ...messages,
+            assistantToolCallMessage(textContent, toolCalls, reasoningContent),
+            ...buildToolResultMessages(toolCalls.map((call) => call.id === live.id
+              ? { tool_call_id: call.id, name: call.function.name, status: failed ? "error" as const : "success" as const,
+                  result: failed ? null : summary, ...(failed ? { error: summary } : {}) }
+              : notRunAlone(call, "make_live_character"))),
+          ];
+          anyToolExecuted = true;
+          await commitTextTurn(iteration, textContent, { lane: "step" });
+          await finishCreditIteration(messages, iteration + 1);
+          iteration++;
+          lastTextContent = textContent;
+          continue;
+        }
+
         const digest = controlCalls.find((tc) => tc.function.name === "digest_source");
         if (digest) {
           const digestArgs = parseToolArgs(digest.function.arguments);
@@ -3137,8 +3673,7 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
             ...buildToolResultMessages(toolCalls.map((call) => call.id === digest.id
               ? { tool_call_id: call.id, name: call.function.name, status: failed ? "error" as const : "success" as const,
                   result: failed ? null : summary, ...(failed ? { error: summary } : {}) }
-              : { tool_call_id: call.id, name: call.function.name, status: "error" as const, result: null,
-                  error: "Call digest_source alone. This call was not run." })),
+              : notRunAlone(call, "digest_source"))),
           ];
           // The digest was work done: the summary that follows is an answer, not a plan to nudge.
           anyToolExecuted = true;
@@ -3152,6 +3687,22 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
         // A big job: the assistant says its plan, the platform adds the time and
         // cost, and the run waits for the creator to start it — like ask_user.
         const job = controlCalls.find((tc) => tc.function.name === "propose_job");
+        // Inside the job the creator started, a second proposal parked the run
+        // for another Start (28 of 391 started jobs in the 30 days to
+        // 2026-10-30). The go-ahead was given: say so and let it carry on. The
+        // tool stays in the list, which keeps the prompt prefix cached.
+        if (job && (context?.jobApproved || confirmedPlan)) {
+          messages = [...messages, assistantToolCallMessage(textContent, toolCalls, reasoningContent),
+            ...buildToolResultMessages(toolCalls.map((call) => ({ tool_call_id: call.id, name: call.function.name, status: "error" as const, result: null,
+              error: call.id === job.id
+                ? "The creator already approved this work. Do not propose it again: call update_plan with your steps if you have not, then do the work now."
+                : "Not run: this response also proposed the job again. Make the call again." })))];
+          await commitTextTurn(iteration, textContent, { lane: "step" });
+          await finishCreditIteration(messages, iteration + 1);
+          iteration++;
+          lastTextContent = textContent;
+          continue;
+        }
         if (job) {
           const jobArgs = parseToolArgs(job.function.arguments);
           const plan = ((Array.isArray(jobArgs.plan) ? jobArgs.plan : []) as unknown[])
@@ -3278,6 +3829,52 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
           return;
         }
 
+        // run_media_tool — a workbench tool (fal) the model may only PROPOSE, like
+        // generate_image: the run parks in "awaiting_approval" and the creator
+        // presses Run (or declines) on the card; /agent/run-media-tool resumes.
+        const mediaCall = controlCalls.find((tc) => tc.function.name === RUN_MEDIA_TOOL_NAME);
+        if (mediaCall) {
+          const checked = normalizeMediaToolArgs(parseToolArgs(mediaCall.function.arguments));
+          let quote: Awaited<ReturnType<typeof estimateMediaTool>> | null = null;
+          let problem = "error" in checked ? checked.error
+            : !mediaToolAvailable(checked.tool) ? "That media tool is not available right now. Tell the creator; do not retry." : null;
+          if (!problem && !("error" in checked)) {
+            try { quote = await estimateMediaTool(userId, checked.tool, checked.inputs); }
+            catch (error) {
+              if (!(error instanceof MediaToolError)) throw error;
+              problem = `${error.code}: ${error.message}. Fix the inputs (media are the creator's own @asset refs; see list_assets) or tell the creator.`;
+            }
+          }
+          if (problem || !quote || "error" in checked) {
+            messages = [...messages, assistantToolCallMessage(textContent, toolCalls, reasoningContent),
+              ...buildToolResultMessages(toolCalls.map((call) => ({ tool_call_id: call.id, name: call.function.name, status: "error" as const, result: null,
+                error: call.id === mediaCall.id ? (problem ?? "Invalid inputs.") : "Not run: call run_media_tool alone." })))];
+            await commitTextTurn(iteration, textContent, { lane: "step" });
+            await finishCreditIteration(messages, iteration + 1);
+            iteration++;
+            lastTextContent = textContent;
+            continue;
+          }
+          // Park the checked inputs: the card and the charge read the same ones.
+          const parkedCall: ToolCall = { ...mediaCall, function: { ...mediaCall.function,
+            arguments: JSON.stringify({ tool: checked.tool, inputs: checked.inputs }) } };
+          await commitTextTurn(iteration, textContent, { lane: "answer" });
+          await finalizeRun({
+            status: "awaiting_approval",
+            messages: messages as unknown as Array<Record<string, unknown>>,
+            pendingToolCalls: [parkedCall] as unknown as Array<Record<string, unknown>>,
+            readToolResults: [],
+            textContent,
+            iteration,
+          });
+          const spec = mediaTool(checked.tool)!;
+          await safeSend("media_tool_proposal", JSON.stringify({
+            runId, toolCallId: mediaCall.id, textContent, tool: checked.tool, inputs: checked.inputs, output: spec.output,
+            seconds: spec.seconds, amount: quote.amount, priceUsd: quote.priceUsd, estimatedMushies: quote.mushies,
+          }));
+          return;
+        }
+
         // Calls naming a language variant: resolve each once. A variant that means
         // this card is dropped; a sibling's is rewritten to its key, so the
         // transcript and the change card name the version the same way.
@@ -3304,6 +3901,12 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
 
         // Step 1: Split read vs write tools
         const readCalls = toolCalls.filter((tc) => READ_TOOL_NAMES.has(tc.function.name));
+        // What view_asset opened this step, shown after the step's tool results.
+        const stepAssetLooks: AssetLook[] = [];
+        // Screenshots the assistant took this step ride in the same turn.
+        const stepShots: ContentPart[] = [];
+        const withAssetViews = (list: ChatMessage[]) => (stepAssetLooks.some((look) => look.ok) || stepShots.length > 0
+          ? [...list, assetViewTurn([...lookParts(stepAssetLooks.filter((look) => look.ok)), ...stepShots])] : list);
         const writeCalls = toolCalls.filter((tc) => WRITE_TOOL_NAMES.has(tc.function.name));
         if (readCalls.length > 0 || writeCalls.length > 0) anyToolExecuted = true;
         const allResults: ToolResult[] = [];
@@ -3320,6 +3923,63 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
             if (tc.function.name === "list_assets") {
               allResults.push({ tool_call_id: tc.id, name: tc.function.name, status: "success",
                 result: await loadAssetCatalog(userId, params.worldId, args) });
+            } else if (tc.function.name === "view_asset") {
+              // A tool result is text on every provider path here; the pictures
+              // follow the step's results as one turn (assetViewTurn below).
+              const view = await viewAssets(args, { userId, worldId: params.worldId }, { model, viewedThisRun: assetViewsThisRun });
+              const shown = view.looks.filter((look) => look.ok);
+              assetViewsThisRun += shown.length;
+              stepAssetLooks.push(...view.looks);
+              allResults.push({ tool_call_id: tc.id, name: tc.function.name, status: view.error ? "error" : "success",
+                result: view.error ? null : {
+                  looks: view.looks.map(lookLabel),
+                  ...(shown.length > 0 && { note: "The pictures follow right after this step's tool results." }),
+                },
+                error: view.error });
+            } else if (tc.function.name === "screenshot_ui") {
+              // The picture goes to the model after this step's results, and to the creator's chat.
+              let error: string | undefined;
+              let text: unknown = null;
+              if (modelSeesImages(model) === false) error = "This model cannot see pictures, so a screenshot would tell you nothing. Say so, and ask the creator to check the screen.";
+              else if (assetViewsThisRun >= MAX_VIEWS_PER_RUN) error = `You have looked at ${MAX_VIEWS_PER_RUN} pictures in this request already. Work from what you saw.`;
+              else {
+                const shot = await runScreenshot({ userId, worldId: params.worldId, input: args });
+                if (!shot.ok || !shot.image) error = shot.error ?? "The screenshot could not be taken.";
+                else {
+                  const key = `studio-chat/${userId}/shot-${crypto.randomUUID()}.png`;
+                  await putObject(key, Buffer.from(shot.image.data, "base64"), shot.image.mimeType);
+                  const url = resolveImageCdn(key);
+                  if (!url) error = "The screenshot could not be stored.";
+                  else {
+                    assetViewsThisRun++;
+                    stepShots.push(...screenshotParts(String(shot.result), url));
+                    await safeSend("screenshot", JSON.stringify({ runId, toolCallId: tc.id, key, url, device: args.device === "mobile" ? "mobile" : "desktop" }));
+                    text = { summary: shot.result, note: "The picture follows right after this step's tool results. The creator sees it in the chat." };
+                  }
+                }
+              }
+              allResults.push({ tool_call_id: tc.id, name: tc.function.name, status: error ? "error" : "success", result: text, error });
+            } else if (tc.function.name === "list_voices") {
+              allResults.push({ tool_call_id: tc.id, name: tc.function.name, status: "success",
+                result: await listVoicesForAssistant(userId, args) });
+            } else if (tc.function.name === "set_cover") {
+              // The cover is a field of the card row, not of the draft the write
+              // tools edit, so it is set at once; the open editor is told to re-read it.
+              const cover = await runSetCover({ userId, worldId: params.worldId, input: args });
+              if (cover.ok) publishWorldEvent(params.worldId, { kind: "external-write", actor: "Yumina", tool: "set_cover", args: {}, ok: true, at: new Date().toISOString() });
+              allResults.push({ tool_call_id: tc.id, name: tc.function.name, status: cover.ok ? "success" : "error",
+                result: cover.result ?? null, error: cover.error });
+            } else if (tc.function.name === "list_loras") {
+              allResults.push({ tool_call_id: tc.id, name: tc.function.name, status: "success", result: await listLorasResult(userId) });
+            } else if (tc.function.name === LIST_MEDIA_TOOLS_NAME) {
+              allResults.push({ tool_call_id: tc.id, name: tc.function.name, status: "success", result: listMediaToolsResult() });
+            } else if (tc.function.name === TRANSLATE_CARD_TOOL_NAME) {
+              const r = await runTranslateCardTool(userId, params.worldId, args);
+              allResults.push({ tool_call_id: tc.id, name: tc.function.name, status: r.ok ? "success" : "error", result: r.result ?? null, error: r.error });
+            } else if (tc.function.name === GET_MEDIA_JOB_NAME) {
+              const job = await mediaJobResult(userId, args.jobId);
+              allResults.push({ tool_call_id: tc.id, name: tc.function.name, status: job.ok ? "success" : "error",
+                result: job.result ?? null, error: job.error });
             } else if (tc.function.name === "load_skill") {
               // Load on-demand skill content (tsx, rules, audio, front-ui, lore)
               const skillContent = getSkillContent(args.name);
@@ -3371,7 +4031,11 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
             } else if (tc.function.name === "save_brief") {
               // The advisor's one write: the brief the build mode reads (lib/studio-advisor.ts).
               const proposal = createBuildProposal(args.brief, args.summary, args.steps);
-              const saved = proposal ? await saveBrief(userId, params.worldId, proposal.brief)
+              // The sheet is read by the creator: it has to be in their language.
+              const sheetProblem = proposal ? sheetLanguageProblem(proposal.summary, proposal.steps,
+                creatorLanguage(messages.filter((m) => m.role === "user" && !isHarnessTurn(m)), languageVariants.language)) : null;
+              const saved = sheetProblem ? { error: sheetProblem }
+                : proposal ? await saveBrief(userId, params.worldId, proposal.brief)
                 : { error: "Provide a non-empty brief (up to 6000 characters), summary (up to 200), and 1–5 scope steps (up to 160 each)." };
               const saveError = "error" in saved ? saved.error : undefined;
               if (!saveError && proposal) await commitTextTurn(iteration, textContent, { lane: "answer", allowEmpty: true, buildProposal: proposal });
@@ -3396,6 +4060,20 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
                 result: sourceResult,
                 error: sourceError,
               });
+            } else if (tc.function.name === "web_search") {
+              allResults.push(await executeWebSearch(tc.id, args));
+            } else if (tc.function.name === "read_web_page") {
+              allResults.push(await executeReadWebPage(tc.id, args));
+            } else if (tc.function.name === "check_rules") {
+              // Plays the card's rules file in a worker thread (lib/rules-check).
+              const check = await executeCheckRules(readWorld, args);
+              allResults.push({
+                tool_call_id: tc.id,
+                name: tc.function.name,
+                status: check.ok ? "success" : "error",
+                result: check.ok ? check.result : null,
+                error: check.ok ? undefined : check.error,
+              });
             } else if (tc.function.name === "simulate_behaviors") {
               const simulation = executeSimulateBehaviors(readWorld, args);
               runStats.simulations++;
@@ -3405,6 +4083,16 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
                 status: simulation.error ? "error" : "success",
                 result: simulation,
                 error: simulation.error,
+              });
+            } else if (tc.function.name === PLAN_TOOL_NAME) {
+              const plan = normalizePlan(args);
+              if (plan) await showPlan(plan);
+              allResults.push({
+                tool_call_id: tc.id,
+                name: tc.function.name,
+                status: plan ? "success" : "error",
+                result: plan ? { shown: true } : null,
+                error: plan ? undefined : "Give plan: 1-10 steps, each { step, status } with status pending, in_progress or completed.",
               });
             } else if (tc.function.name === "analyze_token_cost") {
               // On-demand per-turn cost analysis — surfaces the keyword-lore pool
@@ -3512,6 +4200,7 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
           }
           const readOnlyNote = unresolved.note();
           if (readOnlyNote) messages = withToolNote(messages, readOnlyNote);
+          messages = withAssetViews(messages);
           await finishCreditIteration(messages, iteration + 1);
           iteration++;
           lastTextContent = textContent;
@@ -3526,19 +4215,23 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
         const hasValidChanges = parsedCalls.some((p) => p.change);
         console.log(`[Agent] Parsed ${ownWriteCalls.length} write tools → ${parsedCalls.filter((p) => p.change).length} valid, ${parsedCalls.filter((p) => p.error).length} errors`);
 
-        // Snapshot ONCE before all writes (for batch undo)
+        // Snapshot ONCE before all writes (for batch undo). Each write adds
+        // what it changed itself, so a rollback undoes only that.
+        let stepSnapshot: { id: string } | null = null;
         if (hasValidChanges && !(creditCheckpoint?.phase === "generated" && Object.keys(creditCheckpoint.generated.progress ?? {}).length)) {
           if (controller.signal.aborted) break;
           const worldId = params.worldId;
           const toolNames = ownWriteCalls.map((tc) => tc.function.name).join(", ");
           try {
-            await db.insert(worldSnapshots).values({
+            const [snap] = await db.insert(worldSnapshots).values({
               worldId,
               userId,
               agentRunId: runId,
               schemaData: world as unknown as Record<string, unknown>,
               label: `Before: ${toolNames}`.slice(0, 200),
-            });
+              edits: [],
+            }).returning();
+            stepSnapshot = snap ? { id: snap.id } : null;
           } catch (snapshotErr) {
             console.error("[Agent] Snapshot insert failed:", snapshotErr instanceof Error ? snapshotErr.message : snapshotErr);
           }
@@ -3603,7 +4296,10 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
             : null;
           const existedBefore = metaBefore !== null;
 
-          // Apply this single change
+          // Apply this single change. What it changes on its own (from
+          // `writeBefore`) is what its restore point records — never an editor
+          // save merged into `world` earlier in the step.
+          const writeBefore = world;
           const singleResult = executeApplyChanges(world, [change]);
 
           if (singleResult.success) {
@@ -3645,19 +4341,42 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
             try {
               const saveResult = allResults[allResults.length - 1]!;
               if (creditClaimId) {
-                const saved = await withStudioCreditClaimTransaction(creditScope, creditClaimId, async (tx, checkpoint) => {
+                const base = creditStored;
+                let written: Record<string, unknown> | null = null;
+                let merged: ReturnType<typeof rebaseAgentWrite> | null = null;
+                const saved = await withStudioCreditClaimTransaction(creditScope, creditClaimId, async (tx, checkpoint, stored) => {
                   if (checkpoint.phase !== "generated") throw new Error("Missing generated credit checkpoint");
                   if (!checkpoint.generated.progress?.[progressKey]) {
-                    await writeStudioWorldSchema({ worldId, creatorId: params.userId, schema: world as unknown as Record<string, unknown>, database: tx });
+                    let schema = world as unknown as Record<string, unknown>;
+                    // Someone saved since this run read the card: merge onto it.
+                    if (base && !deepEqual(stored, base)) {
+                      merged = rebaseAgentWrite(base, stored, schema);
+                      schema = merged.schema;
+                    }
+                    await writeStudioWorldSchema({ worldId, actorId: params.userId, schema, database: tx });
+                    if (stepSnapshot) await recordSnapshotEdits(stepSnapshot.id, writeBefore, world, tx);
+                    written = schema;
                   }
                   return { value: null, checkpoint: { ...checkpoint, generated: { ...checkpoint.generated, progress: { ...checkpoint.generated.progress, [progressKey]: saveResult } } } };
-                });
+                }, base ? { rebase: true } : undefined);
                 creditCheckpoint = saved.checkpoint;
+                if (written) creditStored = written;
+                const rebased = merged as ReturnType<typeof rebaseAgentWrite> | null;
+                if (rebased) {
+                  world = migrateWorldDefinition(rebased.schema as unknown as WorldDefinition);
+                  writeMergedSave = true;
+                  console.log(`[Agent] Run ${runId}: merged a concurrent editor save (${rebased.conflicts.length} conflict(s)).`);
+                  if (rebased.conflicts.length > 0) {
+                    allResults[allResults.length - 1] = {
+                      ...saveResult, status: "error", error: describeAgentWriteConflicts(rebased.conflicts),
+                    };
+                  }
+                }
               } else {
-                const saved = await writeStudioWorldSchema({
-                  worldId, creatorId: params.userId, schema: world as unknown as Record<string, unknown>,
+                const saved = await writeStudioStep({
+                  worldId, actorId: params.userId, schema: world as unknown as Record<string, unknown>,
                   ...(syncedWorld ? { base: { schema: syncedWorld as unknown as Record<string, unknown>, updatedAt: syncedUpdatedAt } } : {}),
-                });
+                }, { snapshotId: stepSnapshot?.id, before: writeBefore, after: world });
                 if (saved.rebased && saved.schema) {
                   // The creator saved mid-step: continue from the merged world,
                   // and tell the model which of its edits their save overrode.
@@ -3711,6 +4430,7 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
         // is held, never live). This card's in-memory `world` is not touched.
         const replayingWrites = creditCheckpoint?.phase === "generated" && Object.keys(creditCheckpoint.generated.progress ?? {}).length > 0;
         const snapshottedVariants = new Set<string>();
+        const variantSnapshotIds = new Map<string, string>();
         for (const tc of writeCalls) {
           const target = variantTargets.get(tc.id);
           if (!target) continue;
@@ -3738,16 +4458,20 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
             if (!snapshottedVariants.has(sibling.id) && !replayingWrites) {
               snapshottedVariants.add(sibling.id);
               try {
-                await db.insert(worldSnapshots).values({
+                const [snap] = await db.insert(worldSnapshots).values({
                   worldId: sibling.id, userId, agentRunId: runId,
                   schemaData: variant.world as unknown as Record<string, unknown>,
                   label: `Before: [${key}] ${tc.function.name}`.slice(0, 200),
-                });
+                  edits: [],
+                }).returning();
+                if (snap) variantSnapshotIds.set(sibling.id, snap.id);
               } catch (snapshotErr) {
                 console.error("[Agent] Variant snapshot insert failed:", snapshotErr instanceof Error ? snapshotErr.message : snapshotErr);
               }
             }
             let nextWorld = applied.world;
+            const variantBefore = variant.world;
+            const variantOwnWrite = applied.world;
             const resultId = applied.results[0]?.id ?? change.id ?? "unknown";
             const note = applied.results[0]?.note;
             const meta = change.action !== "delete" ? extractEntityMeta(nextWorld, change.entityType, resultId) : null;
@@ -3764,22 +4488,32 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
             try {
               if (creditClaimId) {
                 let result = outcome(false);
+                // The version's own save token decides; the main card's revision
+                // says nothing about it, so the claim doesn't pin it.
                 const saved = await withStudioCreditClaimTransaction(creditScope, creditClaimId, async (tx, checkpoint) => {
                   if (checkpoint.phase !== "generated") throw new Error("Missing generated credit checkpoint");
                   if (!checkpoint.generated.progress?.[progressKey]) {
-                    const written = await writeStudioWorldSchema({ worldId: sibling.id, creatorId: params.userId, schema: nextWorld as unknown as Record<string, unknown>, database: tx });
+                    const written = await writeStudioWorldSchema({
+                      worldId: sibling.id, actorId: params.userId, schema: nextWorld as unknown as Record<string, unknown>, database: tx,
+                      base: { schema: variant.raw, updatedAt: variant.updatedAt },
+                    });
+                    await recordSnapshotEdits(variantSnapshotIds.get(sibling.id), variantBefore, variantOwnWrite, tx);
                     result = outcome(written.held);
+                    if (written.rebased && written.schema) {
+                      nextWorld = migrateWorldDefinition(written.schema as unknown as WorldDefinition);
+                      if (written.rebased.conflicts.length > 0) result = failed(`[${key}] ${describeAgentWriteConflicts(written.rebased.conflicts)}`);
+                    }
                     variant.updatedAt = written.updatedAt?.getTime() ?? variant.updatedAt;
                   }
                   return { value: null, checkpoint: { ...checkpoint, generated: { ...checkpoint.generated, progress: { ...checkpoint.generated.progress, [progressKey]: result } } } };
-                });
+                }, { rebase: true });
                 creditCheckpoint = saved.checkpoint;
                 allResults.push(result);
               } else {
-                const saved = await writeStudioWorldSchema({
-                  worldId: sibling.id, creatorId: params.userId, schema: nextWorld as unknown as Record<string, unknown>,
+                const saved = await writeStudioStep({
+                  worldId: sibling.id, actorId: params.userId, schema: nextWorld as unknown as Record<string, unknown>,
                   base: { schema: variant.raw, updatedAt: variant.updatedAt },
-                });
+                }, { snapshotId: variantSnapshotIds.get(sibling.id), before: variantBefore, after: variantOwnWrite });
                 let result = outcome(saved.held);
                 if (saved.rebased && saved.schema) {
                   // The creator saved that version meanwhile: continue from the merge.
@@ -3905,6 +4639,7 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
         }
         lastWriteToolKey = toolKey;
         if (controller.signal.aborted) break;
+        messages = withAssetViews(messages);
         await finishCreditIteration(messages, iteration + 1);
         iteration++;
         lastTextContent = textContent;
@@ -3974,7 +4709,11 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
       }
       if (reservationId) await releaseStudioCreditReservation(userId, reservationId).catch(() => {});
       clearInterval(heartbeat);
-      if (activeAgentRuns.get(runId) === controller) activeAgentRuns.delete(runId);
+      if (activeAgentRuns.get(runId) === controller) {
+        activeAgentRuns.delete(runId);
+        // Nothing reads this run's queue now; the client returns what it sent to the input.
+        await clearSteers(runId).catch(() => {});
+      }
       unregisterStream();
     }
   });

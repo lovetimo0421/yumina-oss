@@ -14,6 +14,8 @@
  */
 import React from "react";
 import { LucideScope } from "./lucide-scope";
+import { loadThree } from "./load-three";
+import { loadWorld } from "./load-world";
 import { createCodeDiagnostic, type CodeDiagnostic } from "./diagnostics";
 
 export interface CompileResult {
@@ -36,6 +38,8 @@ export interface CompileRuntimeScope {
   LorePanel?: React.ComponentType<Record<string, unknown>>;
   LoreGroup?: React.ComponentType<Record<string, unknown>>;
   LoreSwitch?: React.ComponentType<Record<string, unknown>>;
+  RigCharacter?: React.ComponentType<Record<string, unknown>>;
+  RoomParty?: React.ComponentType<Record<string, unknown>>;
 }
 
 /** Wraps ALREADY-TRANSFORMED JS code in a `new Function(...)` with the runtime
@@ -120,6 +124,10 @@ export function buildComponent(
       "LorePanel",
       "LoreGroup",
       "LoreSwitch",
+      "RigCharacter",
+      "RoomParty",
+      "loadThree",
+      "loadWorld",
       "exports",
       "module",
       wrappedCode
@@ -138,6 +146,8 @@ export function buildComponent(
     const safeLorePanel = runtimeScope.LorePanel ?? (() => null);
     const safeLoreGroup = runtimeScope.LoreGroup ?? (() => null);
     const safeLoreSwitch = runtimeScope.LoreSwitch ?? (() => null);
+    const safeRigCharacter = runtimeScope.RigCharacter ?? (() => null);
+    const safeRoomParty = runtimeScope.RoomParty ?? (() => null);
     const Component = factory(
       React,
       safeHook,
@@ -155,6 +165,10 @@ export function buildComponent(
       safeLorePanel,
       safeLoreGroup,
       safeLoreSwitch,
+      safeRigCharacter,
+      safeRoomParty,
+      loadThree,
+      loadWorld,
       exports,
       module,
     );

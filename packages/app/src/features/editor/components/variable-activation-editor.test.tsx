@@ -102,14 +102,14 @@ test("the same inspector controls preserve multiple typed conditions and all/any
 test("empty conditions and openings explain actual behavior and opening choices remain editable", async () => {
   await withEditor(vars[0]!, [opening("town"), opening("mine")], async ({ container, mode, current, click }) => {
     await mode("Conditions");
-    assert.match(container.querySelector('[role="status"]')?.textContent ?? "", /no restriction/);
+    assert.match(container.querySelector('[role="status"]')?.textContent ?? "", /always active/);
     await click([...container.querySelectorAll("button")].find((button) => button.textContent === "Add condition")!);
     const added = current().activation;
     assert.ok(added?.mode === "conditions");
     assert.equal(added.conditions.length, 1);
     assert.equal(container.querySelector('[role="status"]'), null);
     await mode("Openings");
-    assert.match(container.querySelector('[role="status"]')?.textContent ?? "", /stay inactive/);
+    assert.match(container.querySelector('[role="status"]')?.textContent ?? "", /at least one opening/);
     const mine = [...container.querySelectorAll("label")].find((label) => label.textContent?.includes("mine"))!.querySelector("input")!;
     await click(mine);
     assert.deepEqual(current().activation, { mode: "greeting", greetingIds: ["mine"] });
@@ -123,7 +123,8 @@ test("manual default switches stay recoverable in other modes and drafts do not 
   await withEditor({ ...vars[0]!, enabled: false, activation: { mode: "greeting", greetingIds: ["deleted-opening"] } }, [], async ({ container, mode, current, click, replace }) => {
     assert.match(container.textContent ?? "", /Missing opening: deleted-opening/);
     await mode("Always");
-    assert.match(container.textContent ?? "", /initial switch is off/);
+    // The why is on hover now; the switch itself has to stay reachable.
+    assert.match(container.querySelector("label[title]")?.getAttribute("title") ?? "", /initial switch is off/);
     await click(container.querySelector('input[type="checkbox"]')!);
     assert.equal(current().enabled, undefined);
     await mode("Conditions");

@@ -1,11 +1,12 @@
 import { createHash, randomBytes } from "node:crypto";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull, type SQL } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { worldAccessTokens } from "../db/schema.js";
 
 /**
  * World access tokens: what a creator pastes into Claude Code / Codex / Cursor
- * so an outside AI can work on ONE card. `ymn_` + 32 random bytes, shown once;
+ * so an outside AI can work on ONE card, or (no card) an account token for an
+ * AI that cannot sign in, which works as a signed-in AI does. `ymn_` + 32 random bytes, shown once;
  * only its SHA-256 is stored, so a leaked database leaks no usable token.
  */
 
@@ -33,7 +34,7 @@ const info = (row: typeof worldAccessTokens.$inferSelect): AccessTokenInfo => ({
   expiresAt: row.createdAt ? new Date(row.createdAt.getTime() + LIFETIME_MS).toISOString() : null,
 });
 
-export async function createAccessToken(args: { userId: string; worldId: string; name: string }): Promise<{ token: string; info: AccessTokenInfo }> {
+export async function createAccessToken(args: { userId: string; worldId: string | null; name: string }): Promise<{ token: string; info: AccessTokenInfo }> {
   const token = PREFIX + randomBytes(32).toString("base64url");
   const [row] = await db.insert(worldAccessTokens).values({
     userId: args.userId,
@@ -45,9 +46,11 @@ export async function createAccessToken(args: { userId: string; worldId: string;
   return { token, info: info(row!) };
 }
 
-export async function listAccessTokens(userId: string, worldId: string): Promise<AccessTokenInfo[]> {
+/** A card's tokens, or with no card the account tokens. */
+export async function listAccessTokens(userId: string, worldId: string | null): Promise<AccessTokenInfo[]> {
+  const scope: SQL = worldId ? eq(worldAccessTokens.worldId, worldId) : isNull(worldAccessTokens.worldId);
   const rows = await db.select().from(worldAccessTokens)
-    .where(and(eq(worldAccessTokens.userId, userId), eq(worldAccessTokens.worldId, worldId), isNull(worldAccessTokens.revokedAt)))
+    .where(and(eq(worldAccessTokens.userId, userId), scope, isNull(worldAccessTokens.revokedAt)))
     .orderBy(desc(worldAccessTokens.createdAt));
   return rows.map(info);
 }
@@ -59,7 +62,8 @@ export async function revokeAccessToken(userId: string, id: string): Promise<boo
   return rows.length > 0;
 }
 
-export interface TokenAuth { tokenId: string; userId: string; worldId: string; name: string }
+/** worldId null: an account token. */
+export interface TokenAuth { tokenId: string; userId: string; worldId: string | null; name: string }
 
 const lastTouched = new Map<string, number>();
 

@@ -68,6 +68,17 @@ export interface ResolveCapabilitiesContext {
    * A handler can keep such a run to what the card asked for.
    */
   defaultActivated?: boolean;
+  /** The turn's recap inputs: the player's explicit share (undefined when
+   *  never chosen) and the story memory it is a share of. */
+  recap?: TurnRecapInputs;
+}
+
+/** What a turn knows about the player's recap choice (shared/src/recap.ts). */
+export interface TurnRecapInputs {
+  chosenShare?: unknown;
+  storyMemory: number;
+  /** The player's choice of how many turns session memory waits (resolveMemoryEvery). */
+  memoryEvery?: unknown;
 }
 
 export interface PromptBlockContext extends ResolveCapabilitiesContext {
@@ -107,6 +118,7 @@ export interface PromptOverflowContext {
   maxContext: number;
   /** The raw-history token budget this prompt overflowed. */
   finalPromptRawTokenLimit: number;
+  recap?: TurnRecapInputs;
   pathLabel: "send" | "regenerate" | "continue";
   /** The only sanctioned way to edit the in-flight prompt. */
   blocks: PromptBlockController;
@@ -127,6 +139,7 @@ export interface TurnCompleteContext {
   contextTokenLimit: number;
   /** The turn's prompt raw history and its budget, when the prompt path measured them. */
   rawHistory?: { budget: number; tokens: number };
+  recap?: TurnRecapInputs;
 }
 
 export type InvalidateReason =
@@ -190,6 +203,7 @@ export interface ExtensionInvalidation {
 export interface DefaultActivationContext {
   /** The viewer-authorized world for this turn, before extension overlays. */
   world?: WorldDefinition;
+  recap?: TurnRecapInputs;
 }
 
 export interface ExtensionHookHandlers {
@@ -199,7 +213,7 @@ export interface ExtensionHookHandlers {
    * Default-activated keys are reported in TurnHookDispatch.defaultActivated
    * and get no resolveOutputModel (the default runs on the platform's terms).
    */
-  activeByDefault?: (ctx: DefaultActivationContext) => boolean;
+  activeByDefault?: (ctx: DefaultActivationContext) => boolean | "chosen";
   /** Trusted final instructions, reserved outside the trimmable history. */
   turnOutputInstructions?: (ctx: Pick<TurnOutputContext, "world" | "state">) => string;
   /** Awaited, fail-closed, before effects/reactions. Returns data only. */
@@ -208,6 +222,12 @@ export interface ExtensionHookHandlers {
   /** null disables this extension for this turn (settings snapshot). */
   resolveCapabilities?: (ctx: ResolveCapabilitiesContext) => string[] | null | Promise<string[] | null>;
   resolveOutputModel?: (ctx: ResolveCapabilitiesContext) => string | null;
+  /**
+   * The model the player picked for this extension's AI across all chats
+   * (Generation Config). Used when the session names none, and it also takes a
+   * default-activated run off the platform's terms: the player chose to pay.
+   */
+  resolvePlayerOutputModel?: (ctx: ResolveCapabilitiesContext) => Promise<string | null>;
   /** Session-local, deterministic world overlays resolved before lore matching. */
   transformWorldDefinition?: (
     ctx: WorldDefinitionTransformContext,
@@ -291,18 +311,24 @@ export async function resolveTurnHooks(ctx: ResolveCapabilitiesContext & Default
   for (const [key, handlers] of registeredHooks) {
     let viaDefault = false;
     if (!installed.has(key)) {
-      if (!handlers.activeByDefault?.({ world })) continue;
+      const active = handlers.activeByDefault?.({ world, recap: ctx.recap });
+      if (!active) continue;
       // An explicit uninstall is the player's opt-out; never-installed is not.
-      uninstalled ??= await uninstalledLookup(ctx.ownerUserId);
-      if (uninstalled.has(key)) continue;
+      // A part the player switched on by name in their settings ("chosen")
+      // is a newer, more specific choice than that uninstall.
+      if (active !== "chosen") {
+        uninstalled ??= await uninstalledLookup(ctx.ownerUserId);
+        if (uninstalled.has(key)) continue;
+      }
       viaDefault = true;
     }
     const caps = handlers.resolveCapabilities ? await handlers.resolveCapabilities({ ...capabilityCtx, defaultActivated: viaDefault }) : [];
     if (caps === null) continue;
     activeExtensions.set(key, new Set(caps));
-    if (viaDefault) { defaultActivated.add(key); continue; }
-    const model = handlers.resolveOutputModel?.(capabilityCtx);
+    const own = viaDefault ? null : handlers.resolveOutputModel?.(capabilityCtx);
+    const model = own || await handlers.resolvePlayerOutputModel?.(capabilityCtx) || null;
     if (model) outputModels.set(key, model);
+    else if (viaDefault) defaultActivated.add(key);
   }
   return { activeExtensions, outputModels, defaultActivated };
 }

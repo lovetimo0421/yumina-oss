@@ -31,7 +31,7 @@ import { resolveImageCdn } from "../lib/cdn-url.js";
 import { buildClipGraph, buildH3Graph, CLIP_MODELS, type ClipModel } from "../lib/realtime-video/clip-workflows.js";
 import {
   canAffordFilm, CLIP_ESTIMATE_CREDITS, TURN_CLIP_ESTIMATE_CREDITS, TURN_SHOT_ESTIMATE_CREDITS, COMFY_USD_PER_GPU_SECOND, FAL_MIN_SECONDS, FAL_USD_PER_SECOND,
-  FILM_MARKUP, filmOptedIn, realtimeFilmEnabled, takeFilmCredits, type FilmEndpoint,
+  FILM_MARKUP, filmOptedIn, realtimeFilmEnabled, refundFilm, takeFilmCredits, type FilmEndpoint,
 } from "../lib/realtime-video/film-billing.js";
 import { providerCostUsdToCredits } from "../lib/provider-cost.js";
 import { checkBalance } from "../lib/credit-service.js";
@@ -52,6 +52,11 @@ import { asCamera, describedCast, matchPortraits, namedCharacters, playerEntries
 import { messageContentUpdate } from "../lib/message-edit.js";
 import { getObjectBuffer, putObject } from "../lib/s3.js";
 import { acquireConcurrency, releaseConcurrency } from "../middleware/rate-limit.js";
+import { filmPartnerShotPrice, isFilmPartnerVideoModel, type FilmPartnerVideoModel } from "@yumina/shared";
+import { filmPartnerAvailable, renderPartnerShot } from "../lib/realtime-video/partner-shot.js";
+import { loadPlayerAiConfig } from "../lib/player-ai-config.js";
+import { scriptBeats, scriptValue } from "../lib/realtime-video/script-stream.js";
+import { FAL_PICTURE_USD, FalRefused, cutsIn, falFilmEnabled, falImageFromBytes, falPicture, falShot, lastFrame, FAL_TURBO_USD_PER_SECOND } from "../lib/realtime-video/fal-film.js";
 
 const realtimeVideoRoutes = new Hono<AppEnv>();
 realtimeVideoRoutes.use("/realtime-video/*", authMiddleware);
@@ -93,6 +98,15 @@ const DIRECTOR_MODEL = process.env.REALTIME_DIRECTOR_MODEL || "google/gemini-3.1
  *  lite model skipped most of a reply and wrote shots out of order (2026-10-08), so scripts use
  *  a stronger one; it runs once per reply. */
 const SCRIPT_DIRECTOR_MODEL = process.env.REALTIME_SCRIPT_DIRECTOR_MODEL || "google/gemini-3.8-flash";
+/** It thinks at "low": the same script (shots, scenes, coverage) on two Poison replies in 15–22 s
+ *  instead of 24–37 s (2026-11-06); every film waits on its script first. */
+const SCRIPT_DIRECTOR_REASONING = process.env.REALTIME_SCRIPT_DIRECTOR_REASONING || "low";
+/** Who directs when the director refuses a scene. Gemini answers an adult reply with "I cannot
+ *  fulfill…" every time (2026-11-01: three refusals in a row, charged, no film), so asking it
+ *  again is pointless; this one films adult scenes and keeps its JSON valid. */
+const REFUSAL_DIRECTOR_MODEL = process.env.REALTIME_REFUSAL_DIRECTOR_MODEL || "x-ai/grok-4.7";
+/** The director answered in words, not JSON: a refusal, which the same model repeats. */
+class DirectorRefused extends Error {}
 // The opening breakdown is one long structured answer; this model keeps its JSON valid.
 const OPENING_MODEL = process.env.REALTIME_OPENING_MODEL || "google/gemini-3.1-flash-lite";
 
@@ -116,8 +130,9 @@ type SceneCard = { id: string; sheet: string };
 const STYLES: Record<string, string> = {
   source: "Visual style: keep exactly the art style, character designs and colour palette of the first frame.",
   live: "Visual style: live-action Japanese film, photorealistic, shot on 35mm, real actors, natural skin texture, muted desaturated colour grade, cinematic depth of field. Not animation, not illustration.",
-  anime: "Visual style: high-quality anime film, detailed backgrounds, cinematic lighting.",
-  painted: "Visual style: dark semi-realistic painted illustration, mature realistic proportions, painterly shading, muted palette, cinematic lighting. Not chibi, not moe.",
+  // "High-quality anime film" alone came out as 3D-looking semi-real CG on fal (2026-11-07).
+  anime: "Visual style: 2D Japanese anime film, hand-drawn cel animation, clean line art, cel shading with flat colours and soft gradients, anime character designs, painted anime background art, cinematic lighting. Not 3D, not CGI, not photorealistic.",
+  painted: "Visual style: dark semi-realistic painted illustration with visible brush strokes, mature realistic proportions, painterly shading, muted palette, cinematic lighting. Not a photograph, not 3D, not chibi, not moe.",
 };
 
 const falProxy = createRouteHandler({ resolveApiKey: async () => process.env.FAL_KEY });
@@ -151,9 +166,16 @@ function characterNotes(schema: unknown): string {
 
 type UserContent = string | ({ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } })[];
 
-async function callDirector(system: string, user: UserContent, maxTokens: number, model = DIRECTOR_MODEL, bill?: FilmBill) {
-  const run = async () => {
+/** Streaming a director's answer: `onText` gets the text so far as it arrives; once `committed()`
+ *  (the caller acted on part of it) a failed answer is not asked again. */
+type DirectorStream = { onText: (soFar: string) => void; committed: () => boolean };
+
+/** `reasoning`: OpenRouter reasoning effort for `model` (not for a refusal's stand-in director). */
+async function callDirector(system: string, user: UserContent, maxTokens: number, model = DIRECTOR_MODEL, bill?: FilmBill, reasoning?: string, stream?: DirectorStream) {
+  const thinker = model;
+  const run = async (model: string) => {
     const started = Date.now();
+    const streaming = !!stream && model === thinker;
     const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: { Authorization: `Bearer ${env.YUMINA_OPENROUTER_KEY}`, "Content-Type": "application/json" },
@@ -164,11 +186,42 @@ async function callDirector(system: string, user: UserContent, maxTokens: number
         temperature: 0.7,
         max_tokens: maxTokens,
         usage: { include: true },
+        ...(reasoning && model === thinker ? { reasoning: { effort: reasoning } } : {}),
+        ...(streaming ? { stream: true } : {}),
       }),
-      signal: AbortSignal.timeout(60_000),
+      signal: AbortSignal.timeout(streaming ? 120_000 : 60_000),
     });
-    const data = (await r.json()) as { choices?: { message?: { content?: string } }[]; usage?: { cost?: number; prompt_tokens?: number; completion_tokens?: number } };
-    if (!r.ok) throw new Error(JSON.stringify(data).slice(0, 400));
+    type Usage = { cost?: number; prompt_tokens?: number; completion_tokens?: number };
+    let data: { choices?: { message?: { content?: string } }[]; usage?: Usage };
+    if (streaming && r.ok && r.body) {
+      // Server-sent events: content deltas, then a last chunk carrying the usage.
+      let soFar = "";
+      let usage: Usage | undefined;
+      let pending = "";
+      const decoder = new TextDecoder();
+      for await (const chunk of r.body as unknown as AsyncIterable<Uint8Array>) {
+        pending += decoder.decode(chunk, { stream: true });
+        let grew = false;
+        for (let nl = pending.indexOf("\n"); nl >= 0; nl = pending.indexOf("\n")) {
+          const line = pending.slice(0, nl).trim();
+          pending = pending.slice(nl + 1);
+          if (!line.startsWith("data:")) continue;
+          const payload = line.slice(5).trim();
+          if (!payload || payload === "[DONE]") continue;
+          let j: { choices?: { delta?: { content?: string } }[]; usage?: Usage; error?: unknown };
+          try { j = JSON.parse(payload); } catch { continue; }
+          if (j.error) throw new Error(JSON.stringify(j.error).slice(0, 400));
+          const piece = j.choices?.[0]?.delta?.content;
+          if (piece) { soFar += piece; grew = true; }
+          if (j.usage) usage = j.usage;
+        }
+        if (grew) stream!.onText(soFar);
+      }
+      data = { choices: [{ message: { content: soFar } }], usage };
+    } else {
+      data = (await r.json()) as typeof data;
+      if (!r.ok) throw new Error(JSON.stringify(data).slice(0, 400));
+    }
     // Every answer costs, parsed or not.
     if (bill) {
       bill.credits += await chargeFilm({
@@ -180,7 +233,8 @@ async function callDirector(system: string, user: UserContent, maxTokens: number
     }
     const text = data.choices?.[0]?.message?.content ?? "";
     const m = text.match(/\{[\s\S]*\}/);
-    const raw = m ? m[0] : text;
+    if (!m) throw new DirectorRefused(`${model}: ${text.slice(0, 160)}`);
+    const raw = m[0];
     try {
       return JSON.parse(raw) as Record<string, unknown>;
     } catch {
@@ -189,11 +243,20 @@ async function callDirector(system: string, user: UserContent, maxTokens: number
     }
   };
   let lastError: unknown;
+  let use = model;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      return await run();
+      return await run(use);
     } catch (e) {
       lastError = e;
+      // Part of a streamed answer is already filming: asking again would film the reply twice.
+      if (stream?.committed()) break;
+      // A refusal is asked once more, of a director that films it; never of the same one.
+      if (e instanceof DirectorRefused) {
+        if (use === REFUSAL_DIRECTOR_MODEL) break;
+        console.log(`[Film] director refused (${e.message.slice(0, 80)}); asking ${REFUSAL_DIRECTOR_MODEL}`);
+        use = REFUSAL_DIRECTOR_MODEL;
+      }
     }
   }
   throw lastError;
@@ -217,7 +280,7 @@ const SHOT_FORMATS: Record<string, string> = {
   // that picture: the video model pulled back to a full-body shot to show the listed shoes and socks,
   // and painted "ears blazing red" as a glowing red patch (2026-10-19, same frame and seed with and
   // without the looks). A shot that has to render from text alone gets the cast's looks pasted in.
-  shot: `- Then: who is on screen, by name only (never just "a girl" for someone in the cast, and never their looks or clothing: the picture already shows them), the one action of this shot with its expression, the framing and camera angle, and its sound (ambience, or the one line spoken in it).
+  shot: `- Then: who is on screen, by name only (never just "a girl" for someone in the cast, and never their looks or clothing: the picture already shows them), each with whatever they are holding ("Kishimoto, holding the yellow taser"; the player's own things are in "your" hands), the one action of this shot with its expression, the framing and camera angle, and its sound (ambience, or the one line spoken in it). Objects stay with whoever holds them in the story: never hand someone another person's weapon or tool.
 - 40–80 words, English, literal and physical, no metaphors. About five seconds of film: one action, not a sequence.`,
 };
 
@@ -234,7 +297,7 @@ ${SHOT_FORMATS[format] ?? SHOT_FORMATS.temporal}
 - Only what can be seen and heard. No inner thoughts.
 - The player ("you") is always first-person POV; never draw the player as a person, and never name them in a shot or a scene state: they are "you", the camera. The player has no reflection: no mirror, window or water ever shows "you".
 - Keep location and lighting continuous unless the story clearly moves.
-- No readable text, captions or titles on screen.
+- No readable text, captions or titles on screen. Never film writing up close: no close-up of a blackboard, page, sign, label or screen with words on it (a video model writes them as gibberish); show the person reading or writing instead. Bottles, boxes and signs are plain and unlabelled.
 - A blush is only ever a faint blush: never colour anyone's skin, face or ears red, crimson or scarlet.
 - Every spoken line is Japanese, written in Japanese inside 「」 (e.g. she whispers in Japanese: 「逃げて」). Never write dialogue in English or any other language.`;
 
@@ -414,8 +477,14 @@ function castFrom(list: unknown, portraits?: string[]): CastMember[] {
     .map((p) => ({ name: p.name, look: p.look, ...(typeof p.entry === "string" && portraits?.includes(p.entry) ? { entry: p.entry } : {}) }));
 }
 
-/** Turn one story reply into camera directions (/shot, and the clip per message). */
-async function directTurn(body: DirectInput, bill: FilmBill): Promise<{ beats: DirectedBeat[]; newCast: CastMember[]; state?: string; states: Record<string, string> }> {
+/** What a live script knows when one of its shots goes out (directTurn's `live`). */
+type LiveScript = { states: Record<string, string>; state?: string; newCast: CastMember[] };
+
+/** Turn one story reply into camera directions (/shot, and the clip per message). `live` (script
+ *  mode): each shot is handed over as soon as the streaming director has written it. */
+async function directTurn(
+  body: DirectInput, bill: FilmBill, live?: (beat: DirectedBeat, script: LiveScript) => void,
+): Promise<{ beats: DirectedBeat[]; newCast: CastMember[]; state?: string; states: Record<string, string> }> {
   const partNote = body.part === "start"
     ? "\n\n(The story reply is still being written; this is its beginning. Film its first visible moment.)"
     : body.part === "rest"
@@ -441,6 +510,52 @@ SHOTS: count shots by visible action, not by sentence. A spoken line, a sound, a
     ? "film it in exactly 1 shot of about ten seconds: its key visible moment (the main event the reply is about, as far as it has gone) with the action that leads into it. Do not try to show everything."
     : `cut it into exactly ${maxBeats} consecutive shot${maxBeats > 1 ? "s" : ""} in story order that together show everything visible that happens in it${maxBeats > 1 ? ", splitting the reply into " + maxBeats + " consecutive passages of similar length" : ""}. Each shot films its own passage of the reply, in that passage's order, and does not jump ahead to later events. Shots in the same place are one continuous take: each starts where the previous one ended.`;
   const model = await pickModel(bill.userId, body.model, body.script ? SCRIPT_DIRECTOR_MODEL : DIRECTOR_MODEL);
+  // Shots as the director writes them: the same reading as the finished script's below, one at a time.
+  let scene = body.currentScene ?? null;
+  const known = new Set(scenes.map((sc) => sc.id));
+  const isDirection = (t: unknown) => typeof t === "string" && /^\s*(Visual style|Hard cut to|Cut back to|Fade in from black)/i.test(t);
+  const toBeat = (raw: Record<string, unknown> | null | undefined): DirectedBeat | null => {
+    if (!raw) return null;
+    // A model that wrote the direction into the passage field: recover it.
+    const b = !(typeof raw.shot === "string" && raw.shot.trim()) && isDirection(raw.passage ?? raw.text) ? { ...raw, shot: raw.passage ?? raw.text, passage: "", text: "" } : raw;
+    if (!(typeof b.shot === "string" && b.shot.trim())) return null;
+    const transition = b.transition === "cut" || b.transition === "return" ? b.transition : "continue";
+    // A cut to a place already in the list is a return.
+    let id = typeof b.scene === "string" && b.scene ? b.scene : transition === "cut" ? `S${known.size + 1}` : scene;
+    if (transition === "cut" && id && known.has(id) && id !== scene) id = `S${known.size + 1}`;
+    if (id) known.add(id);
+    scene = id;
+    const passage = typeof b.passage === "string" ? b.passage : typeof b.text === "string" ? b.text : "";
+    return { text: isDirection(passage) ? "" : passage, shot: String(b.shot), transition, scene: id, sheet: transition === "cut" && typeof b.sheet === "string" ? b.sheet : null, take: b.take === "same" ? "same" : "new" };
+  };
+  const newCastOf = (value: unknown) => castFrom(value, body.portraits)
+    // One cast member per portrait: a later film named her 「德拉科妮娅·马尔福」 after the first had
+    // named her Draconia Malfoy, and she got a second look.
+    .filter((p) => !(body.cast ?? []).some((k) => k.name === p.name || (!!p.entry && k.entry === p.entry)))
+    .slice(0, 6);
+  const statesOf = (value: unknown) => {
+    const states: Record<string, string> = {};
+    if (value && typeof value === "object") {
+      for (const [id, v] of Object.entries(value as Record<string, unknown>)) if (typeof v === "string" && v.trim()) states[id] = v.trim().slice(0, 2000);
+    }
+    return states;
+  };
+  // A live script (renderTurnClip): every shot goes out as soon as the director has written it.
+  const sent: DirectedBeat[] = [];
+  let read = 0;
+  const send = (text: string, raws: Record<string, unknown>[]) => {
+    while (read < raws.length && sent.length < maxBeats) {
+      const b = toBeat(raws[read++]);
+      if (!b) continue;
+      b.shot = withVoice(withStyle(b.shot, body.style, look));
+      sent.push(b);
+      const state = scriptValue(text, "state");
+      live!(b, { states: statesOf(scriptValue(text, "states")), state: typeof state === "string" && state.trim() ? state.trim().slice(0, 2000) : undefined, newCast: newCastOf(scriptValue(text, "newCast")) });
+    }
+  };
+  const stream: DirectorStream | undefined = live && body.script
+    ? { onText: (text) => send(text, scriptBeats(text)), committed: () => sent.length > 0 }
+    : undefined;
   const ask = (extra = "") => callDirector(
     `You direct a realtime video stream that follows an interactive story, like a film editor who can intercut storylines. The story just advanced by one turn. Film this turn: ${filming}
 
@@ -477,11 +592,15 @@ ${body.aiText.slice(0, 6000)}${partNote}`,
     body.script ? 9000 : 5000,
     model,
     bill,
+    body.script && model === SCRIPT_DIRECTOR_MODEL ? SCRIPT_DIRECTOR_REASONING : undefined,
+    extra ? undefined : stream,
   );
   let out = await ask();
-  // A script that skips most of the reply (fewer shots than it needs) is sent back once.
+  // A script that skips most of the reply (fewer shots than it needs) is sent back once; one
+  // already filming (live) is not, or the reply would be filmed twice.
   const shotCount = (o: Record<string, unknown>) => (Array.isArray(o.beats) ? o.beats.length : 0);
-  if (body.script && shotCount(out) < minShots) {
+  if (sent.length && shotCount(out) < minShots) console.log(`[TurnClip] live director script short: ${shotCount(out)} shots, needed ${minShots}`);
+  if (body.script && !sent.length && shotCount(out) < minShots) {
     const first = shotCount(out);
     const again = await ask(`
 
@@ -491,37 +610,24 @@ Your last answer had only ${first} shot${first === 1 ? "" : "s"} and skipped mos
   }
   // Older single-shot answers ({shot, transition, …}) still count as one beat.
   const raw = (Array.isArray(out.beats) ? out.beats : [out]) as Record<string, unknown>[];
-  let scene = body.currentScene ?? null;
-  const known = new Set(scenes.map((sc) => sc.id));
-  const isDirection = (t: unknown) => typeof t === "string" && /^\s*(Visual style|Hard cut to|Cut back to|Fade in from black)/i.test(t);
-  const beats: DirectedBeat[] = raw.map((b) => {
-    if (!b) return b;
-    // A model that wrote the direction into the passage field: recover it.
-    if (!(typeof b.shot === "string" && b.shot.trim()) && isDirection(b.passage ?? b.text)) return { ...b, shot: b.passage ?? b.text, passage: "", text: "" };
-    return b;
-  }).filter((b) => b && typeof b.shot === "string" && b.shot.trim()).slice(0, maxBeats).map((b) => {
-    const transition = b.transition === "cut" || b.transition === "return" ? b.transition : "continue";
-    // A cut to a place already in the list is a return.
-    let id = typeof b.scene === "string" && b.scene ? b.scene : transition === "cut" ? `S${known.size + 1}` : scene;
-    if (transition === "cut" && id && known.has(id) && id !== scene) id = `S${known.size + 1}`;
-    if (id) known.add(id);
-    scene = id;
-    const passage = typeof b.passage === "string" ? b.passage : typeof b.text === "string" ? b.text : "";
-    return { text: isDirection(passage) ? "" : passage, shot: String(b.shot), transition, scene: id, sheet: transition === "cut" && typeof b.sheet === "string" ? b.sheet : null, take: b.take === "same" ? "same" : "new" };
-  });
+  let beats: DirectedBeat[];
+  if (sent.length) {
+    // Live: the shots already sent are the film; any the stream had not finished go out now.
+    send(JSON.stringify(out), raw);
+    beats = sent;
+  } else {
+    beats = raw.map((b) => toBeat(b)).filter((b): b is DirectedBeat => !!b).slice(0, maxBeats);
+  }
   if (!beats.length) throw new Error(`the director wrote no shot: ${JSON.stringify(out).slice(0, 600)}`);
-  const newCast = castFrom(out.newCast, body.portraits)
-    // One cast member per portrait: a later film named her 「德拉科妮娅·马尔福」 after the first had
-    // named her Draconia Malfoy, and she got a second look.
-    .filter((p) => !(body.cast ?? []).some((k) => k.name === p.name || (!!p.entry && k.entry === p.entry)))
-    .slice(0, 6);
+  const newCast = newCastOf(out.newCast);
   const everyone = [...(body.cast ?? []), ...newCast];
   // A script's shots name people without their looks (SHOT_FORMATS.shot); renderShot pastes them
   // in only for a shot that renders from text alone.
   for (const b of beats) b.shot = withVoice(withStyle(body.script ? b.shot : pinLooks(b.shot, everyone), body.style, look));
   // A script plays in story order whatever order the director wrote it in: each shot sits where
   // its passage is in the reply (a reordered take can no longer carry on the shot before it).
-  if (body.script && beats.length > 1) {
+  // A live script's shots are already filming in the order written.
+  if (body.script && beats.length > 1 && !sent.length) {
     // Letters and digits only: a passage's quotes, dashes and asterisks often differ from the reply's.
     const norm = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
     const story = norm(body.aiText);
@@ -538,11 +644,7 @@ Your last answer had only ${first} shot${first === 1 ? "" : "s"} and skipped mos
   }
   // The scene state (script mode): where things stand, carried to the next reply.
   const state = typeof out.state === "string" && out.state.trim() ? out.state.trim().slice(0, 2000) : undefined;
-  const states: Record<string, string> = {};
-  if (out.states && typeof out.states === "object") {
-    for (const [id, v] of Object.entries(out.states as Record<string, unknown>)) if (typeof v === "string" && v.trim()) states[id] = v.trim().slice(0, 2000);
-  }
-  return { beats, newCast, state, states };
+  return { beats, newCast, state, states: statesOf(out.states) };
 }
 
 realtimeVideoRoutes.post("/realtime-video/shot", async (c) => {
@@ -891,6 +993,11 @@ const TURN_SHOT_POOL_DEADLINE_MS = 480_000;
  *  still booting counts its model loading as running (a 3-shot film was charged 1,267 mushies
  *  instead of ~400 on prod, 2026-10-08). The cold boot is ours, not the player's. */
 const TURN_SHOT_BILLED_MS_MAX = 150_000;
+/** One fal shot (a 5.7 s clip at most) and its two candidate keyframes, checked before each shot. */
+const FAL_SHOT_ESTIMATE_CREDITS = providerCostUsdToCredits(5.7 * FAL_TURBO_USD_PER_SECOND["768P"] + 2 * FAL_PICTURE_USD, FILM_MARKUP);
+/** A fal shot or picture that has not come back in this long goes to the Comfy path instead. */
+const FAL_SHOT_DEADLINE_MS = 90_000;
+const FAL_PICTURE_DEADLINE_MS = 45_000;
 const SHOT_TAG_RE = /<shot>([\s\S]*?)<\/shot>/i;
 
 /** A tiny clip that only wakes a film-deployment worker (it loads the models). */
@@ -909,6 +1016,7 @@ realtimeVideoRoutes.get("/realtime-video/turn-clip/:messageId", async (c) => {
     // Its server died (a deploy replaced it mid-film): the shots it finished still land.
     const landed = job.status === "rendering" ? await salvageFilm(messageId, job).catch(() => null) : null;
     if (landed) return c.json(landed);
+    if (job.status === "rendering") await giveBackLostFilm(messageId, job);
     return c.json({ status: "failed", userId: job.userId, reason: "unavailable" });
   }
   return c.json(job);
@@ -967,6 +1075,7 @@ realtimeVideoRoutes.post("/realtime-video/turn-clip/:messageId", async (c) => {
   if (running?.status === "rendering" && running.userId === userId) {
     const landed = await salvageFilm(messageId, running).catch(() => null);
     if (landed) return c.json(landed);
+    await giveBackLostFilm(messageId, running);
   }
   if (!(await canAffordFilm(userId, TURN_CLIP_ESTIMATE_CREDITS))) return c.json({ status: "failed", reason: "credits" });
   // Two clips at once per player: a reply that lands while the last one renders still gets its own.
@@ -974,15 +1083,17 @@ realtimeVideoRoutes.post("/realtime-video/turn-clip/:messageId", async (c) => {
   if (!(await acquireConcurrency(slot, 2, 2400))) return c.json({ status: "failed", reason: "busy" });
   const startedAt = Date.now();
   const sig = storyFingerprint(msg.content);
+  // What this film has charged so far; given back if it ends without a film.
+  const bill: FilmBill = { userId, sessionId: msg.sessionId, credits: 0 };
   let progress: TurnClipProgress = { shots: 0, done: 0 };
-  const report = () => setTurnClipJob(messageId, { status: "rendering", userId, startedAt, beat: Date.now(), sig, ...progress });
+  const report = () => setTurnClipJob(messageId, { status: "rendering", userId, startedAt, beat: Date.now(), sig, charged: bill.credits, ...progress });
   await report();
   // The heartbeat says this server is still on it (see turnClipLost); it also carries the progress.
   const beat = setInterval(() => { void report(); }, TURN_CLIP_BEAT_MS);
   // The film's look: the cover's ("source", the default) or one the player picked.
   const asked = ((await c.req.json().catch(() => ({}))) as { style?: unknown }).style;
   const style = typeof asked === "string" && STYLES[asked] ? asked : "source";
-  void renderTurnClip(userId, msg, (p) => { progress = p; void report(); }, style)
+  void renderTurnClip(userId, msg, (p) => { progress = p; void report(); }, style, bill)
     .then((done) => {
       clearInterval(beat);
       console.log(`[TurnClip] film landed: ${messageId} · ${progress.done}/${progress.shots} shots · ${Math.round((Date.now() - startedAt) / 1000)}s · ${done.credits} credits`);
@@ -990,9 +1101,11 @@ realtimeVideoRoutes.post("/realtime-video/turn-clip/:messageId", async (c) => {
     })
     .catch(async (e) => {
       clearInterval(beat);
-      const reason: TurnClipFailure = e instanceof TurnClipError ? e.reason : /timed out|timeout/i.test(String(e)) ? "timeout" : "unavailable";
-      console.warn("[TurnClip] failed:", messageId, reason, e instanceof TurnClipError ? "" : e instanceof Error ? e.message : e);
+      const reason: TurnClipFailure = e instanceof TurnClipError ? e.reason : e instanceof DirectorRefused ? "refused" : /timed out|timeout/i.test(String(e)) ? "timeout" : "unavailable";
+      console.warn("[TurnClip] failed:", messageId, reason, e instanceof TurnClipError ? "" : e instanceof Error ? e.message : e, `· refunding ${bill.credits}`);
       await setTurnClipJob(messageId, { status: "failed", userId, reason });
+      // No film, no charge: the director's script, pictures and any shot rendered for it.
+      await refundFilm(userId, bill.credits, filmRefundRef(messageId, startedAt));
     })
     .finally(() => releaseConcurrency(slot));
   return c.json({ status: "rendering" });
@@ -1000,6 +1113,15 @@ realtimeVideoRoutes.post("/realtime-video/turn-clip/:messageId", async (c) => {
 
 class TurnClipError extends Error {
   constructor(readonly reason: TurnClipFailure) { super(reason); }
+}
+
+/** One refund per film (a film is one POST: its message and when it started). */
+const filmRefundRef = (messageId: string, startedAt: number) => `film-refund:${messageId}:${startedAt}`;
+
+/** A film whose server died with nothing to land: give back what its last heartbeat says it
+ *  charged (a spend after that beat is lost with the server). */
+async function giveBackLostFilm(messageId: string, job: Extract<TurnClipJob, { status: "rendering" }>): Promise<void> {
+  await refundFilm(job.userId, job.charged ?? 0, filmRefundRef(messageId, job.startedAt));
 }
 
 type PlannedShot = {
@@ -1011,16 +1133,24 @@ type PlannedShot = {
 };
 type RenderedShot = { key: string; assetId?: string; depth: number; scene: string | null; shot: string; text: string };
 
+/** The partner video model the player picked for films (Generation Config), if it can run here. */
+async function playerFilmPartner(userId: string): Promise<FilmPartnerVideoModel | null> {
+  const picked = (await loadPlayerAiConfig(userId)).roleModels?.video;
+  return isFilmPartnerVideoModel(picked) && filmPartnerAvailable(picked) ? picked : null;
+}
+
 async function renderTurnClip(
   userId: string,
   msg: { id: string; sessionId: string; content: string; createdAt: Date | null },
   onProgress: (p: TurnClipProgress) => void,
-  style = "source",
+  style: string,
+  bill: FilmBill,
 ): Promise<{ content: string; credits: number }> {
   const sessionId = msg.sessionId;
-  const bill: FilmBill = { userId, sessionId, credits: 0 };
   const world = await loadWorldSchema(userId, sessionId);
   if (!world) throw new TurnClipError("unavailable");
+  // The video model the player picked in Generation Config, when it is a partner model that can run.
+  const partner = await playerFilmPartner(userId);
   const reply = storyText(msg.content);
   if (!reply) throw new TurnClipError("stale");
 
@@ -1042,40 +1172,31 @@ async function renderTurnClip(
   // A card that films itself wrote its own direction, which the director follows.
   const ownShot = SHOT_TAG_RE.exec(msg.content)?.[1]?.trim();
   const names = await characterNames(world.schema, bill);
-  const directed = await directTurn({
-    sessionId, style, look, cast: film.cast, userText, aiText: reply, prevShot: film.prevShot || undefined, prevState: film.state,
-    scenes: film.scenes, currentScene: film.currentScene ?? undefined, recent, maxBeats: TURN_FILM_MAX_SHOTS, format: "shot",
-    script: ownShot ? { ownShot } : {},
-    ...(film.cast.length ? {} : { notes: characterNotes(world.schema) }),
-    portraits: portraitEntries(world.schema).map((e) => e.name),
-    portraitNames: names,
-  }, bill);
   // The player is the camera: named in a shot or a scene state, pictures drew him in.
   const player = playerEntries(world.schema).flatMap((e) => names[e.name] ?? []);
-  if (player.length) {
-    for (const b of directed.beats) b.shot = asCamera(b.shot, player);
-    for (const id of Object.keys(directed.states)) directed.states[id] = asCamera(directed.states[id]!, player);
-    if (directed.state) directed.state = asCamera(directed.state, player);
-  }
-  const cast = [...film.cast, ...directed.newCast];
+  const camera = (text: string) => (player.length ? asCamera(text, player) : text);
   const prev = film.lastClip;
   // A shot that carries on another renders on the deployment, where the clip it continues lives.
   // While no worker is warm the whole film is new angles on the shared pool (each with its
   // keyframe), rather than a continuation waiting minutes for a worker to boot.
-  const canContinue = filmDeployWarm();
-  const plan: PlannedShot[] = directed.beats.map((beat, i) => {
-    if (beat.take !== "same" || !canContinue) return { beat, after: null, guideKey: null };
-    if (i > 0) return { beat, after: i - 1, guideKey: null };
-    // The first shot carries on the previous message's last clip in the same scene.
-    const continues = prev && prev.messageId !== msg.id && prev.scene === beat.scene && prev.depth < TURN_CLIP_MAX_CHAIN;
-    return { beat, after: null, guideKey: continues ? prev.key : null };
-  });
+  // On fal a shot carries on another from that clip's last frame, in seconds, wherever it rendered.
+  const canContinue = falFilmEnabled() || filmDeployWarm();
+  // Where the script stands and who is in it; a live script fills these in as the director writes.
+  const script: { states: Record<string, string>; state?: string } = { states: {} };
+  const cast: CastMember[] = [...film.cast];
+  const adopt = (s: LiveScript) => {
+    for (const [id, v] of Object.entries(s.states)) script.states[id] = camera(v);
+    if (s.state) script.state = camera(s.state);
+    for (const p of s.newCast) if (!cast.some((k) => k.name === p.name)) cast.push(p);
+  };
+
   // Each shot's state, path and passage, reported as they change.
-  const cells: NonNullable<TurnClipProgress["cells"]> = plan.map(() => "queued");
-  const clips: (string | null)[] = plan.map(() => null);
-  const texts = plan.map((p) => p.beat.text.slice(0, 600));
+  const plan: PlannedShot[] = [];
+  const cells: NonNullable<TurnClipProgress["cells"]> = [];
+  const clips: (string | null)[] = [];
+  const texts: string[] = [];
   let done = 0;
-  const progress = () => onProgress({ shots: plan.length, done, cells: [...cells], clips: [...clips], texts });
+  const progress = () => onProgress({ shots: plan.length, done, cells: [...cells], clips: [...clips], texts: [...texts] });
   progress();
 
   // Shots render side by side, TURN_FILM_LANES at a time; one that carries on another waits
@@ -1086,22 +1207,45 @@ async function renderTurnClip(
   const lane = async () => { while (free === 0) await new Promise<void>((r) => waiting.push(r)); free--; };
   const leave = () => { free++; waiting.shift()?.(); };
   let broke = false;
+  let scriptDone = false;
   const tasks: Promise<RenderedShot | null>[] = [];
-  const keyframes = filmKeyframes(userId, sessionId, plan, directed, style, look, bill, cast, resolveImageCdn(world.thumbnailUrl));
-  plan.forEach((p, i) => {
+  const keyframe = filmKeyframer(userId, sessionId, script, style, look, bill, cast, resolveImageCdn(world.thumbnailUrl));
+  /** One shot of the script into the film: planned, its keyframe drawn, filmed. */
+  const start = (beat: DirectedBeat) => {
+    beat.shot = camera(beat.shot);
+    const i = plan.length;
+    let p: PlannedShot;
+    if (beat.take !== "same" || !canContinue) p = { beat, after: null, guideKey: null };
+    else if (i > 0) p = { beat, after: i - 1, guideKey: null };
+    else {
+      // The first shot carries on the previous message's last clip in the same scene.
+      // Not across a change of look: the clip it would carry on is in the old one.
+      const continues = prev && prev.messageId !== msg.id && prev.scene === beat.scene && prev.depth < TURN_CLIP_MAX_CHAIN && (prev.style ?? "source") === style;
+      p = { beat, after: null, guideKey: continues ? prev.key : null };
+    }
+    plan.push(p);
+    cells.push("queued");
+    clips.push(null);
+    texts.push(beat.text.slice(0, 600));
+    const frameAt = keyframe(p);
     tasks.push((async () => {
       const parent = p.after != null ? await tasks[p.after]! : null;
-      const frame = await keyframes[i]!;
+      const frame = await frameAt;
       const parentDepth = parent ? parent.depth : p.guideKey && prev ? prev.depth : -1;
       // Too deep a chain, or its parent is missing: a new angle instead.
       const guide = (parent || p.guideKey) && parentDepth < TURN_CLIP_MAX_CHAIN ? { assetId: parent?.assetId, key: parent ? parent.key : p.guideKey! } : null;
       await lane();
       try {
-        if (broke || !(await canAffordFilm(userId, TURN_SHOT_ESTIMATE_CREDITS))) { broke = true; cells[i] = "failed"; return null; }
+        const shotEstimate = partner ? filmPartnerShotPrice(partner) : Math.max(TURN_SHOT_ESTIMATE_CREDITS, FAL_SHOT_ESTIMATE_CREDITS);
+        if (broke || !(await canAffordFilm(userId, shotEstimate))) { broke = true; cells[i] = "failed"; return null; }
         cells[i] = "rendering";
         progress();
-        const keepForNext = plan.some((q) => q.after === i);
-        const out = await renderShot(userId, sessionId, p.beat, style, look, cast, guide, keepForNext, bill, guide ? null : frame);
+        // While the script is still being written the next shot may yet carry this one on.
+        const keepForNext = plan.some((q) => q.after === i) || (!scriptDone && canContinue);
+        // Partner models cannot continue a clip: every shot starts from its own keyframe.
+        const out = partner
+          ? await renderShot(userId, sessionId, p.beat, style, look, cast, null, false, bill, frame, partner)
+          : await renderShot(userId, sessionId, p.beat, style, look, cast, guide, keepForNext, bill, guide ? null : frame);
         const key = `users/${userId}/${TURN_VIDEO_DIR}/${filmId}-${i}.mp4`;
         await putObject(key, Buffer.from(out.bytes), "video/mp4");
         cells[i] = "done";
@@ -1117,7 +1261,29 @@ async function renderTurnClip(
         progress();
       }
     })());
+    progress();
+  };
+
+  // The director writes the script: how many shots, where, and which carry on the one before.
+  // A card that films itself wrote its own direction, which the director follows. Each shot
+  // starts filming as soon as it is written (~7 s in, against ~20 s for the whole script).
+  const directed = await directTurn({
+    sessionId, style, look, cast: film.cast, userText, aiText: reply, prevShot: film.prevShot || undefined, prevState: film.state,
+    scenes: film.scenes, currentScene: film.currentScene ?? undefined, recent, maxBeats: TURN_FILM_MAX_SHOTS, format: "shot",
+    script: ownShot ? { ownShot } : {},
+    ...(film.cast.length ? {} : { notes: characterNotes(world.schema) }),
+    portraits: portraitEntries(world.schema).map((e) => e.name),
+    portraitNames: names,
+  }, bill, (beat, live) => { adopt(live); start(beat); }).catch((e) => {
+    // A script cut off after some of its shots went out (the stream broke): those shots are the film.
+    if (!plan.length) throw e;
+    console.warn("[TurnClip] director stopped mid-script; filming the shots it wrote:", msg.id, plan.length, e instanceof Error ? e.message : e);
+    return { beats: plan.map((p) => p.beat), newCast: [], states: {}, state: undefined };
   });
+  scriptDone = true;
+  adopt({ states: directed.states, state: directed.state, newCast: directed.newCast });
+  // A script that came whole (not streamed) is filmed now.
+  if (!plan.length) for (const beat of directed.beats) start(beat);
   const shots = (await Promise.all(tasks)).filter((s): s is RenderedShot => !!s);
   if (!shots.length) throw new TurnClipError(broke ? "credits" : "unavailable");
 
@@ -1132,8 +1298,8 @@ async function renderTurnClip(
   }
   const last = shots[shots.length - 1]!;
   await setFilmState(sessionId, {
-    look: film.look, cast: cast.slice(0, 24), scenes: scenes.slice(-20), currentScene: last.scene, prevShot: last.shot, state: directed.state ?? film.state,
-    lastClip: { key: last.key, messageId: msg.id, scene: last.scene, depth: last.depth },
+    look: film.look, cast: cast.slice(0, 24), scenes: scenes.slice(-20), currentScene: last.scene, prevShot: last.shot, state: script.state ?? film.state,
+    lastClip: { key: last.key, messageId: msg.id, scene: last.scene, depth: last.depth, style },
   });
   return { content, credits: bill.credits };
 }
@@ -1156,12 +1322,60 @@ async function platePlan(
   const faces = (await portraitRefs(userId, sessionId, `${state} ${who}`, false, cast).catch(() => [])).slice(0, 3);
   const others = describedCast(cast, `${state} ${who}`);
   if (faces.length) {
-    const prompt = plateRefPrompt(styleLine, state, false, faces.map((f) => f.name), others);
+    const prompt = plateRefPrompt(styleLine, state, false, faces.map((f) => f.name), others, style !== "source");
     return { graph: (seed) => plateRefGraph(faces.map((f) => f.image), prompt, seed), faces };
   }
   const cover = style === "source" ? await coverRef(coverUrl) : null;
   if (cover) return { graph: (seed) => plateRefGraph([cover], plateRefPrompt(styleLine, state, true, [], others), seed), faces: [] };
   return { graph: (seed) => plateGraph(platePrompt(styleLine, state, others), seed), faces: [] };
+}
+
+// Portrait/cover URL -> the picture as fal takes it, fetched once per server.
+const falRefs = new Map<string, Promise<string | null>>();
+/** A card picture for fal. Only our own CDN is fetched (as for Comfy); it goes inline, so fal never
+ *  needs to reach the server (which a dev server on localhost could not offer). */
+function falRefImage(url: string): Promise<string | null> {
+  if (!ownCdnUrl(url)) return Promise.resolve(null);
+  let ref = falRefs.get(url);
+  if (!ref) {
+    if (falRefs.size > 300) falRefs.clear();
+    ref = (async () => {
+      const res = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(20_000) });
+      const type = res.headers.get("content-type")?.split(";")[0] ?? "";
+      if (!res.ok || !type.startsWith("image/")) return null;
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      return bytes.length > REF_MAX_BYTES ? null : falImageFromBytes(bytes, type);
+    })().catch(() => null);
+    falRefs.set(url, ref);
+    void ref.then((r) => { if (!r) falRefs.delete(url); });
+  }
+  return ref;
+}
+
+/** portraitRefs for fal: who with a portrait the prompt names, with their picture inline. */
+async function falPortraits(userId: string, sessionId: string, prompt: string, cast: CastMember[] = []): Promise<{ name: string; image: string; url: string }[]> {
+  const world = await loadWorldSchema(userId, sessionId);
+  if (!world) return [];
+  const names = await characterNames(world.schema);
+  const out: { name: string; image: string; url: string }[] = [];
+  for (const { entry, name } of matchPortraits(portraitEntries(world.schema), prompt, cast, names)) {
+    const url = resolveImageCdn(entry.portrait);
+    const image = url ? await falRefImage(url) : null;
+    if (url && image) out.push({ name, image, url });
+  }
+  return out;
+}
+
+/** platePlan for fal: the same prompts, with the portraits (or the cover) as fal's images. */
+async function falPlatePlan(
+  userId: string, sessionId: string, style: string, styleLine: string, state: string, who: string, cast: CastMember[], coverUrl: string | null,
+): Promise<{ prompt: string; refs: string[]; faces: { name: string; url: string }[] }> {
+  const faces = (await falPortraits(userId, sessionId, `${state} ${who}`, cast).catch(() => [])).slice(0, 3);
+  const others = describedCast(cast, `${state} ${who}`);
+  if (faces.length) return { prompt: plateRefPrompt(styleLine, state, false, faces.map((f) => f.name), others, style !== "source"), refs: faces.map((f) => f.image), faces };
+  const cover = style === "source" && coverUrl ? await falRefImage(coverUrl) : null;
+  if (cover) return { prompt: plateRefPrompt(styleLine, state, true, [], others), refs: [cover], faces: [] };
+  return { prompt: platePrompt(styleLine, state, others), refs: [], faces: [] };
 }
 
 /** Which of a scene's candidate plates to keep. A plate drawn from portraits still draws someone
@@ -1177,11 +1391,28 @@ async function pickPlate(plates: Uint8Array[], faces: { name: string; url: strin
     ...plates.map((b) => ({ type: "image_url" as const, image_url: { url: `data:image/png;base64,${Buffer.from(b).toString("base64")}` } })),
   ];
   const out = await callDirector(
-    `You choose the establishing picture of a film scene, seen through the player's own eyes. For each candidate check: does each person from the reference pictures appear exactly once (not twice, not as a reflection or a second copy); is anyone there whom the scene does not name (an extra person, or someone seen from behind in the foreground as if they were the camera); does each of them look like their reference picture (face, hair length and colour, clothing); no text, no broken hands or faces. Keep the candidate with the fewest problems. Output JSON only: {"best": <candidate number>}`,
+    `You choose the establishing picture of a film scene, seen through the player's own eyes. For each candidate check: does each person from the reference pictures appear exactly once (not twice, not as a reflection or a second copy); is anyone there whom the scene does not name (an extra person, or someone seen from behind in the foreground as if they were the camera); The player is the camera and is never in the picture as a person: when the scene is the player facing someone (a talk, a duel), only that someone is there, with at most the player's own hands in the foreground; a second fighter or a figure facing them is the player drawn by mistake; does each of them look like their reference picture (face, hair length and colour, clothing); no text, no broken hands or faces. Keep the candidate with the fewest problems. Output JSON only: {"best": <candidate number>}`,
     content, 200, DIRECTOR_MODEL, bill,
   ).catch((e) => { console.warn("[TurnClip] plate pick failed:", e instanceof Error ? e.message : e); return null; });
   const best = Number(out?.best);
   return Number.isInteger(best) && best >= 0 && best < plates.length ? best : 0;
+}
+
+/** Which of a shot's candidate keyframes to keep (the shot starts on it): the one that shows the
+ *  moment as written. 0 when unsure. */
+async function pickKeyframe(frames: Uint8Array[], shot: string, bill: FilmBill): Promise<number> {
+  if (frames.length < 2) return 0;
+  const content: UserContent = [
+    { type: "text", text: `The shot: ${shot}` },
+    { type: "text", text: `Candidates, in order, numbered from 0 to ${frames.length - 1}:` },
+    ...frames.map((b) => ({ type: "image_url" as const, image_url: { url: `data:image/png;base64,${Buffer.from(b).toString("base64")}` } })),
+  ];
+  const out = await callDirector(
+    `You choose the first frame of a film shot, seen through the player's own eyes. For each candidate check: is it a clear, well-lit picture (not black, blank, washed out or blurred); does it show what the shot describes, with every object exactly as named (a katana is a long Japanese sword, not a knife; a taser is not a gun) and in the hands the shot puts it in; does each named person appear exactly once, with nobody extra; The player is the camera and is never in the picture as a person: when the scene is the player facing someone (a talk, a duel), only that someone is there, with at most the player's own hands in the foreground; a second fighter or a figure facing them is the player drawn by mistake; no text, letters or speech bubbles; no broken hands or faces. Keep the candidate with the fewest problems. Output JSON only: {"best": <candidate number>}`,
+    content, 200, DIRECTOR_MODEL, bill,
+  ).catch((e) => { console.warn("[TurnClip] keyframe pick failed:", e instanceof Error ? e.message : e); return null; });
+  const best = Number(out?.best);
+  return Number.isInteger(best) && best >= 0 && best < frames.length ? best : 0;
 }
 
 /** A keyframe or plate on the shared pool; past this the shot renders from text instead. */
@@ -1193,26 +1424,55 @@ const KEYFRAME_DEADLINE_MS = 150_000;
  * none (it starts from that shot's last frames). Null where anything failed: that shot renders from
  * text as before. REALTIME_FILM_KEYFRAMES=0 turns it off.
  */
-function filmKeyframes(
-  userId: string, sessionId: string, plan: PlannedShot[], directed: { state?: string; states: Record<string, string> },
+function filmKeyframer(
+  userId: string, sessionId: string, directed: { state?: string; states: Record<string, string> },
   style: string, look: string | null, bill: FilmBill, cast: CastMember[] = [], coverUrl: string | null = null,
-): Promise<Uint8Array | null>[] {
-  if (process.env.REALTIME_FILM_KEYFRAMES === "0") return plan.map(() => Promise.resolve(null));
+): (p: PlannedShot) => Promise<Uint8Array | null> {
+  if (process.env.REALTIME_FILM_KEYFRAMES === "0") return () => Promise.resolve(null);
   const styleLine = styleSentence(style, look);
   const noStyle = (shot: string) => withoutStyle(shot, styleLine);
-  const lastScene = plan[plan.length - 1]?.beat.scene ?? null;
   const charge = async (out: { execMs: number; promptId: string }, what: string) => {
     bill.credits += await chargeFilm({
       userId, sessionId, endpoint: "film-clip", model: "comfy/qwen-image", costUsd: (out.execMs / 1000) * COMFY_USD_PER_GPU_SECOND,
       referenceId: `film-key:${out.promptId}`, description: `Scene video — ${what} ${(out.execMs / 1000).toFixed(1)} GPU s`,
     });
   };
-  const plates = new Map<string, Promise<{ name: string; bytes: Uint8Array; portraits: string[] } | null>>();
+  const chargePicture = async (ms: number, what: string) => {
+    bill.credits += await chargeFilm({
+      userId, sessionId, endpoint: "film-clip", model: "fal/flux-2-klein", costUsd: FAL_PICTURE_USD,
+      referenceId: `film-key:fal:${crypto.randomUUID()}`, description: `Scene video — ${what} (${(ms / 1000).toFixed(1)} s)`, ms,
+    });
+  };
+  // `name`: the plate as a Comfy input (uploaded only when a keyframe falls back to Comfy);
+  // `fal`: the plate as fal takes it.
+  type Plate = { name: string | null; bytes: Uint8Array; portraits: string[]; fal?: string };
+  const plates = new Map<string, Promise<Plate | null>>();
   const plateFor = (scene: string | null, firstShot: string) => {
     const key = scene ?? "-";
     if (!plates.has(key)) {
-      plates.set(key, (async () => {
-        const state = (scene && directed.states[scene]) || (scene === lastScene ? directed.state : undefined) || noStyle(firstShot);
+      plates.set(key, (async (): Promise<Plate | null> => {
+        // A scene the director gave no state of: the state the reply ends in (it is that scene's,
+        // when the film has one place), else the shot itself.
+        const state = (scene && directed.states[scene]) || (Object.keys(directed.states).length <= 1 ? directed.state : undefined) || noStyle(firstShot);
+        // fal: two candidates in ~2 s, the better one kept (the same pick as Comfy's).
+        if (falFilmEnabled()) {
+          try {
+            const plan = await falPlatePlan(userId, sessionId, style, styleLine, state, noStyle(firstShot), cast, coverUrl);
+            const drawn = (await Promise.all([0, 1].map((k) =>
+              falPicture(plan.prompt, plan.refs, Math.floor(Math.random() * 1e9) + k, Date.now() + FAL_PICTURE_DEADLINE_MS).catch((e) => {
+                console.warn("[TurnClip] fal plate failed:", e instanceof Error ? e.message : e);
+                return null;
+              }),
+            ))).filter((o) => o !== null);
+            for (const out of drawn) await chargePicture(out.ms, "scene plate");
+            if (drawn.length) {
+              const best = drawn[await pickPlate(drawn.map((o) => o.bytes), plan.faces, state, bill)]!;
+              return { name: null, bytes: best.bytes, portraits: plan.faces.map((f) => f.url), fal: best.url };
+            }
+          } catch (e) {
+            console.warn("[TurnClip] fal plate failed, drawing on Comfy:", e instanceof Error ? e.message : e);
+          }
+        }
         const plan = await platePlan(userId, sessionId, style, styleLine, state, noStyle(firstShot), cast, coverUrl);
         const drawn = (await Promise.all([0, 1].map(() =>
           renderOnPool(plan.graph(Math.floor(Math.random() * 1e9)), Date.now() + KEYFRAME_DEADLINE_MS, ".png").catch((e) => {
@@ -1230,20 +1490,36 @@ function filmKeyframes(
   };
   // The first new shot of a scene starts on the plate itself (an establishing frame): the film's
   // first picture comes one edit (~20 s) sooner.
-  const opening = new Set<number>();
+  // Shots come in story order (one at a time from a live script), so the first one asked for in a
+  // scene is its first.
   const seen = new Set<string>();
-  plan.forEach((p, i) => {
-    if (p.after != null || p.guideKey) return;
-    const key = p.beat.scene ?? "-";
-    if (!seen.has(key)) { seen.add(key); opening.add(i); }
-  });
-  return plan.map((p, i) => {
+  return (p) => {
     if (p.after != null || p.guideKey) return Promise.resolve(null);
+    const sceneKey = p.beat.scene ?? "-";
+    const opening = !seen.has(sceneKey);
+    seen.add(sceneKey);
     return (async () => {
       const plateOut = await plateFor(p.beat.scene, p.beat.shot);
       if (!plateOut) return null;
-      if (opening.has(i)) return plateOut.bytes;
-      const plate = plateOut.name;
+      if (opening) return plateOut.bytes;
+      const plateFal = plateOut.fal;
+      if (plateFal) {
+        try {
+          const joining = (await falPortraits(userId, sessionId, p.beat.shot, cast)).filter((f) => !plateOut.portraits.includes(f.url)).slice(0, 2);
+          const people = describedCast(cast, p.beat.shot, 3, true).filter((d) => !joining.some((f) => f.name === d.name));
+          const prompt = keyframePrompt(noStyle(p.beat.shot), joining.map((f) => f.name), people);
+          // Two side by side, the better one kept: one fal keyframe in ~15 came back almost black,
+          // another drew the player's katana as a knife (2026-11-06), and the shot copies it.
+          const drawn = (await Promise.all([0, 1].map((k) =>
+            falPicture(prompt, [plateFal, ...joining.map((f) => f.image)], Math.floor(Math.random() * 1e9) + k, Date.now() + FAL_PICTURE_DEADLINE_MS).catch(() => null),
+          ))).filter((o) => o !== null);
+          for (const out of drawn) await chargePicture(out.ms, "keyframe");
+          if (drawn.length) return drawn[await pickKeyframe(drawn.map((o) => o.bytes), silentShot(noStyle(p.beat.shot)), bill)]!.bytes;
+        } catch (e) {
+          console.warn("[TurnClip] fal keyframe failed, drawing on Comfy:", e instanceof Error ? e.message : e);
+        }
+      }
+      const plate = plateOut.name ?? (plateOut.name = await uploadToComfy(plateOut.bytes, "image/png", `rtv-plate-${crypto.randomUUID()}.png`));
       // The plate has its people's faces; only someone it lacks brings a portrait (keyframePrompt).
       const joining = (await portraitRefs(userId, sessionId, p.beat.shot, false, cast).catch(() => [])).filter((f) => !plateOut.portraits.includes(f.url)).slice(0, 2);
       const people = describedCast(cast, p.beat.shot, 3, true).filter((d) => !joining.some((f) => f.name === d.name));
@@ -1252,7 +1528,7 @@ function filmKeyframes(
       await charge(out, "keyframe");
       return new Uint8Array(out.bytes);
     })().catch((e) => { console.warn("[TurnClip] keyframe failed:", e instanceof Error ? e.message : e); return null; });
-  });
+  };
 }
 
 /** Scene plates for fal streams, by session and scene (pool image names; an hour is plenty). */
@@ -1320,7 +1596,52 @@ const DEPLOY_WARM_MACHINES = Math.max(1, Number(process.env.REALTIME_FILM_DEPLOY
 async function renderShot(
   userId: string, sessionId: string, beat: DirectedBeat, style: string, look: string | null, cast: CastMember[],
   guide: { assetId?: string; key: string } | null, keep: boolean, bill: FilmBill, frame: Uint8Array | null = null,
+  partner: FilmPartnerVideoModel | null = null,
 ): Promise<{ bytes: ArrayBuffer; assetId?: string; continued: boolean }> {
+  if (partner) {
+    // Partner models speak the lines as written: no Japanese pass (that is for H3).
+    const shot = frame ? beat.shot : pinLooks(beat.shot, cast);
+    const prompt = softBlush(style ? withStyle(shot, style, cleanLook(look)) : shot);
+    const portraits = frame ? [] : await portraitRefs(userId, sessionId, prompt, false, cast).catch(() => []);
+    const out = await renderPartnerShot({ model: partner, prompt, frame, portraits, deadlineAt: Date.now() + TURN_SHOT_POOL_DEADLINE_MS });
+    bill.credits += await chargeFilm({
+      userId, sessionId, endpoint: "film-clip", model: `comfy-router/${partner}`,
+      costUsd: out.costUsd, referenceId: `film-clip:${out.jobId}`,
+      description: `Scene video — ${partner}`,
+    });
+    return { bytes: out.bytes, continued: false };
+  }
+  // fal first: seconds instead of minutes. A shot carrying on another starts on that clip's last
+  // frame. What fal refuses or fails goes on to Comfy below, which films it the slow way.
+  if (falFilmEnabled()) {
+    try {
+      const start = guide ? await lastFrame(new Uint8Array((await getObjectBuffer(guide.key)).buffer)) : frame;
+      // fal speaks lines in whatever language they are written and puts them in Japanese itself.
+      // fal rewrites a prompt before filming (its "balanced" expansion), and the rewrite cut 8 of 24
+      // shots into two or three; the cuts drew a second Sakura and a second Ais. Asking for one take
+      // left 0 of 24 cut and kept the action (2026-11-06, Poison, Naruto, DanMachi).
+      const prompt = `${softBlush(withVoice(withStyle(start ? beat.shot : pinLooks(beat.shot, cast), style, cleanLook(look))))} ${ONE_TAKE}`;
+      const shoot = async (expansion: "balanced" | "disabled") => {
+        const out = await falShot({ prompt, frame: start ? falImageFromBytes(start) : null, expansion, deadlineAt: Date.now() + FAL_SHOT_DEADLINE_MS });
+        bill.credits += await chargeFilm({
+          userId, sessionId, endpoint: "film-clip", model: "fal/h3-max-turbo", costUsd: out.usd, ms: out.ms,
+          referenceId: `film-clip:fal:${out.requestId}`, description: `Scene video — ${out.seconds.toFixed(1)} s shot`,
+        });
+        return out;
+      };
+      let out = await shoot("balanced");
+      // A shot that cut into another anyway is filmed once more without fal's prompt rewrite (which
+      // is what writes the extra shots); that take never cut in the 2026-11-06 tests.
+      if ((await cutsIn(out.bytes).catch(() => 0)) > 0) {
+        console.log("[TurnClip] fal shot cut mid-take; filming it again without prompt rewrite");
+        out = await shoot("disabled").catch(() => out);
+      }
+      const bytes = out.bytes.buffer.slice(out.bytes.byteOffset, out.bytes.byteOffset + out.bytes.byteLength) as ArrayBuffer;
+      return { bytes, continued: !!guide };
+    } catch (e) {
+      console.warn(`[TurnClip] fal shot ${e instanceof FalRefused ? "refused" : "failed"}, filming on Comfy:`, e instanceof Error ? e.message.slice(0, 300) : e);
+    }
+  }
   // A shot that starts from a picture (keyframe, or the frames it continues) takes its looks from
   // it; only a shot rendering from text alone gets the cast's looks written in (SHOT_FORMATS.shot).
   const fromPicture = !!frame || !!guide;
@@ -1379,6 +1700,9 @@ async function renderShot(
   });
   return { bytes: clip.bytes, assetId: clip.assetId, continued: clip.continued };
 }
+
+/** Every fal shot ends with this (see renderShot). */
+const ONE_TAKE = "One continuous take: the camera never cuts to another shot; the same people keep the same faces, hair and clothes from start to end.";
 
 /** Seconds of fal stream one meter tick may bill (the client ticks every 15 s). */
 const FAL_TICK_MAX_SECONDS = 20;

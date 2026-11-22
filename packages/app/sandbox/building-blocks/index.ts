@@ -12,6 +12,10 @@
 
 // High-level compound component — the full chat experience
 export { Chat } from "./chat";
+
+// The people at a story room's table, for a card that draws its own screen.
+export { RoomParty } from "./room-party";
+export type { RoomPartyProps } from "./room-party";
 export type { ChatProps, BubbleProps } from "./chat";
 
 // Granular chat components — for when <Chat> is too constraining
@@ -26,3 +30,7 @@ export { ModelPickerModal, ModelTrigger } from "../chat/model-picker-modal";
 // Session memory — same modal as the official chat composer Context button.
 // Requires the session-memory-summary extension (api.memorySummaryEnabled).
 export { SessionMemoryModal } from "../extensions/session-memory/session-memory-modal";
+
+// A live character from one picture (a .rig6 pack): breathes, blinks, talks, reacts.
+export { RigCharacter } from "./rig-character";
+export type { RigCharacterProps, RigControls, RigCue, RigMood } from "./rig-character";

@@ -20,10 +20,12 @@ export const PICKER_MODEL_FAMILIES: readonly PickerModelFamily[] = [
   { name: "Claude Opus", members: [["anthropic/claude-opus-5", "5"], ["anthropic/claude-opus-4.8", "4.8"], ["anthropic/claude-opus-4.7", "4.7"], ["anthropic/claude-opus-4.6", "4.6"], ["anthropic/claude-opus-4.5", "4.5"]] },
   { name: "Claude Sonnet", members: [["anthropic/claude-sonnet-5.5", "5.5"], ["anthropic/claude-sonnet-5", "5"]] },
   { name: "Claude Sonnet", members: [["anthropic/claude-sonnet-4.6", "4.6"], ["anthropic/claude-sonnet-4.5", "4.5"]] },
-  { name: "GPT Sol", members: [["openai/gpt-6.1-sol", "6.1"], ["openai/gpt-6-sol", "6"], ["openai/gpt-5.6-sol", "5.6"]] },
+  // GPT-5.6 Sol costs twice as much as 6 / 6.1 upstream ($4 / $20), so it has its own row.
+  { name: "GPT Sol", members: [["openai/gpt-6.2-sol", "6.2"], ["openai/gpt-6.1-sol", "6.1"], ["openai/gpt-6-sol", "6"]] },
   { name: "Grok", members: [["x-ai/grok-4.7", "4.7"], ["x-ai/grok-4.6", "4.6"], ["x-ai/grok-4.5", "4.5"]] },
   { name: "Grok", members: [["x-ai/grok-4.3", "4.3"], ["x-ai/grok-4.20", "4.20"]] },
   { name: "Gemini Flash", members: [["google/gemini-3.7-flash", "3.7"], ["google/gemini-3.6-flash", "3.6"]] },
+  { name: "Aion", members: [["aion-labs/aion-3.5", "3.5"], ["aion-labs/aion-3.0", "3"]] },
 ];
 
 /** What grouping reads: Studio-only models have no tier or plan, which compare equal. */

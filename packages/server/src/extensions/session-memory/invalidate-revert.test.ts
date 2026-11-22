@@ -18,7 +18,9 @@ import { registerSessionMemoryExtension } from "./hooks.js";
 //   1,800-message session burned its daily compaction budget in 15 minutes
 //   and showed a blank "failed" summary for the rest of the day (hhltwz
 //   report, 2026-09-04).
-// - Layered summary: keep-when-valid on its own compaction flag.
+// - Layered summary (the recap): always kept; when a removed message was
+//   folded into it, runAfter drops only the chapters that covered deleted
+//   messages (trimRecapAfterRewind). An in-flight run is stopped either way.
 // - Session memory: kept whenever its processed pointer SURVIVES the revert,
 //   even mid-flight: the in-flight job set the pointer to the turn it is
 //   folding, so a surviving pointer proves the stored (older) memory holds no
@@ -64,7 +66,8 @@ describe("session-memory invalidate: coverage-aware revert", () => {
     assert.ok(!("summary" in sessionFields), "story summary kept");
     assert.ok(!("summaryCoversUntilMessageId" in sessionFields));
     assert.ok(!("sessionMemory" in sessionFields), "session memory kept");
-    assert.ok(!("summaryceptionSourceHash" in sessionFields), "layered summary kept");
+    assert.ok(!("summaryceptionCoversUntilMessageId" in sessionFields), "layered summary kept");
+    assert.equal(sessionFields.summaryceptionSourceHash, null, "an in-flight recap run that read the deleted tail is stopped");
   });
 
   it("drops the story summary when a removed message was compacted into it", () => {
@@ -109,10 +112,11 @@ describe("session-memory invalidate: coverage-aware revert", () => {
     assert.equal(sessionFields.summary, null);
   });
 
-  it("drops the layered summary when a removed message was layer-compacted", () => {
+  it("keeps the layered summary's other chapters when a removed message was layer-compacted", () => {
     const { sessionFields } = revert([{ id: "m-after", compacted: false, summaryceptionCompacted: true }]);
     assert.equal(sessionFields.summaryceptionStatus, "idle");
-    assert.ok("summaryceptionSourceHash" in sessionFields);
+    assert.equal(sessionFields.summaryceptionSourceHash, null);
+    assert.ok(!("summaryceptionCoversUntilMessageId" in sessionFields), "not a full reset: only covering chapters are trimmed");
     assert.ok(!("sessionMemory" in sessionFields), "session memory kept");
     assert.ok(!("summary" in sessionFields), "story summary kept");
   });

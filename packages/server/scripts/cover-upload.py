@@ -38,7 +38,12 @@ def fail(code):
 def set_limits():
     if os.name != "nt":
         import resource
-        resource.setrlimit(resource.RLIMIT_AS, (512 * 1024**2, 512 * 1024**2))
+        # Bound the memory a decoder can actually take (heap and anonymous
+        # mappings), not its address space: FFmpeg 8 on Ubuntu 26.04 maps more
+        # than 768 MiB of shared libraries before it decodes a single frame.
+        # The address-space cap stays only as a far backstop.
+        resource.setrlimit(resource.RLIMIT_DATA, (512 * 1024**2, 512 * 1024**2))
+        resource.setrlimit(resource.RLIMIT_AS, (4 * 1024**3, 4 * 1024**3))
         resource.setrlimit(resource.RLIMIT_CPU, (75, 75))
         resource.setrlimit(resource.RLIMIT_FSIZE, (16 * 1024**2, 16 * 1024**2))
         resource.setrlimit(resource.RLIMIT_NOFILE, (64, 64))

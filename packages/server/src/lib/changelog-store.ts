@@ -18,6 +18,7 @@ import {
   CHANGELOG_ID_RE,
   ChangelogFormatError,
   compareEntries,
+  entryView,
   getChangelogEntries,
   validateChangelogFields,
   type ChangelogEntry,
@@ -291,6 +292,24 @@ export function createChangelogStore(deps: {
 }
 
 export type ChangelogStore = ReturnType<typeof createChangelogStore>;
+
+let shared: ChangelogStore | null = null;
+
+/** The one store the API, the /updates prerender, the feed and the sitemap read from, so they share its cache. */
+export function sharedChangelogStore(): ChangelogStore {
+  return (shared ??= createChangelogStore());
+}
+
+/** What one viewer may see. Hidden and internal entries reach admins only;
+ *  unrestricted entries also reach 解除限制-eligible accounts. */
+export function visibleEntries(entries: MergedChangelogEntry[], viewer: { isAdmin: boolean; unrestricted?: boolean }, lang: string | null | undefined) {
+  return entries
+    .filter((e) => viewer.isAdmin || (!e.hidden && (e.audience === "public" || (e.audience === "unrestricted" && viewer.unrestricted === true))))
+    .map((e) => {
+      const view = entryView(e, lang);
+      return viewer.isAdmin ? { ...view, admin: { hasFile: e.hasFile, fromWeb: e.fromWeb, hidden: e.hidden, revision: e.revision } } : view;
+    });
+}
 
 /** Every language of an entry (for the editor), empty strings where missing. */
 export function allLanguages(record: Partial<Record<ChangelogLang, string>>): Record<ChangelogLang, string> {

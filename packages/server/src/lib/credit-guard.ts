@@ -2,19 +2,25 @@
 // Centralized pre-generation validation for all AI endpoints.
 // Single module replaces the copy-pasted check logic in every route.
 
+import { and, desc, eq, gt, isNotNull, sql } from "drizzle-orm";
+import { readOwn } from "../db/index.js";
+import { usageLogs } from "../db/schema.js";
 import { recordWallHit } from "./wall-events.js";
 import {
   checkBalance,
   validateModelAccess,
   ensureWallet,
   getModelCostRates,
-  estimateCreditsFromChars,
   estimateTokensFromChars,
 } from "./credit-service.js";
 import type { CreditWallet, ModelCostRates } from "./credit-service.js";
+import { calibrateFromLastTurn, estimateTurnCredits } from "./credit-estimate.js";
+import type { PromptCostCalibration } from "./credit-estimate.js";
+import { getModelPrice } from "./model-price-cache.js";
 import { PLANS } from "./plan-config.js";
 import type { PlanId, PlanConfig } from "./plan-config.js";
 import { checkRateLimit, acquireConcurrency, releaseConcurrency } from "../middleware/rate-limit.js";
+import { isZeroCostPlayModel, isZeroCostRates } from "./llm/fallback-models.js";
 
 // ─── Pre-Generation Guard ──────────────────────────────────────────
 
@@ -77,7 +83,8 @@ export async function guardGeneration(
     }
   }
 
-  if (!planConfig.unlimited && !balanceResult.ok) {
+  // An empty wallet stops paid models only; a free model costs it nothing.
+  if (!planConfig.unlimited && !balanceResult.ok && !isZeroCostPlayModel(model)) {
     recordWallHit({ userId, plan, planVersion: balanceResult.wallet.planVersion, balance: 0, model, endpoint: "guard", stage: "preflight" });
     return { ok: false, status: 402, body: { error: "You've used all your credits for this period. Purchase additional credits or upgrade your plan.", code: "NO_CREDITS", balance: 0 } };
   }
@@ -107,38 +114,107 @@ export async function releaseGuard(userId: string, ctx: GuardContext): Promise<v
   if (ctx.concurrencyHeld) await releaseConcurrency(userId);
 }
 
+// ─── Last-turn calibration ──────────────────────────────────────────
+// One indexed read per turn: the newest billed story turn on this session and
+// model. Its real provider cost makes the estimate cache-aware (see
+// credit-estimate.ts). Anything unusable → null → the conservative estimate.
+
+/** A turn older than this says little about the current prompt or price. */
+export const CALIBRATION_WINDOW_MS = 72 * 60 * 60 * 1000;
+
+export async function loadPromptCostCalibration(opts: {
+  userId: string;
+  sessionId: string;
+  model: string;
+  rates: ModelCostRates;
+}): Promise<PromptCostCalibration | null> {
+  try {
+    const database = await readOwn(opts.userId);
+    // The endpoint list and completion filter are SQL literals rather than
+    // bound parameters so the planner can prove usage_play_turns_idx's partial
+    // predicate and walk (user_id, created_at) backwards to the first match.
+    // usage_logs_session_endpoint_idx (session_id, endpoint) also serves it.
+    const [row] = await database
+      .select({
+        providerCostUsd: usageLogs.providerCostUsd,
+        promptTokens: usageLogs.promptTokens,
+        completionTokens: usageLogs.completionTokens,
+      })
+      .from(usageLogs)
+      .where(and(
+        eq(usageLogs.userId, opts.userId),
+        sql`${usageLogs.endpoint} IN ('send', 'regenerate', 'continue')`,
+        sql`${usageLogs.completionTokens} > 0`,
+        gt(usageLogs.createdAt, new Date(Date.now() - CALIBRATION_WINDOW_MS)),
+        eq(usageLogs.sessionId, opts.sessionId),
+        eq(usageLogs.model, opts.model),
+        isNotNull(usageLogs.providerCostUsd),
+        // Only turns the platform paid for: a BYOK turn's cost came from the
+        // player's own provider deal, and a zero-cost row would teach a free rate.
+        sql`${usageLogs.providerCostUsd} > 0`,
+        sql`${usageLogs.apiKeyTier} IS DISTINCT FROM 'byok'`,
+        gt(usageLogs.promptTokens, 0),
+      ))
+      .orderBy(desc(usageLogs.createdAt))
+      .limit(1);
+    if (!row) return null;
+    const price = await getModelPrice(opts.model);
+    return calibrateFromLastTurn(opts.rates, price?.markupMultiplier ?? 1, {
+      providerCostUsd: Number(row.providerCostUsd),
+      promptTokens: row.promptTokens,
+      completionTokens: row.completionTokens,
+    });
+  } catch (err) {
+    // The gate still works without it, just conservatively.
+    console.warn("[CreditGuard] last-turn calibration unavailable:", err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
 // ─── Mid-Stream Cost Tracker ────────────────────────────────────────
 // Tracks estimated cost during SSE streaming. Zero DB queries during
-// streaming — uses pre-loaded cost rates for local estimation.
+// streaming — uses pre-loaded cost rates (and the session's last-turn
+// calibration) for local estimation.
 
 export class MidStreamTracker {
   private rates: ModelCostRates | null;
   private startBalance: number;
   private pChars: number;
+  private calibration: PromptCostCalibration | null;
 
   streamedChars = 0;
   creditAborted = false;
 
-  private constructor(rates: ModelCostRates | null, startBalance: number, pChars: number) {
+  private constructor(rates: ModelCostRates | null, startBalance: number, pChars: number, calibration: PromptCostCalibration | null = null) {
     this.rates = rates;
     this.startBalance = startBalance;
     this.pChars = pChars;
+    this.calibration = calibration;
   }
 
   /**
    * Create a tracker. Loads cost rates for protected non-unlimited plans.
    * For BYOK/unlimited, returns an inert tracker that never aborts.
+   * With a sessionId, the estimate is calibrated from that session's last
+   * billed turn on the same model (one indexed read).
    */
   static async create(opts: {
     ctx: GuardContext;
     model: string;
     promptChars: number;
+    sessionId?: string;
   }): Promise<MidStreamTracker> {
     if (!opts.ctx.protected || opts.ctx.planConfig.unlimited) {
       return new MidStreamTracker(null, Infinity, 0);
     }
     const rates = await getModelCostRates(opts.model, estimateTokensFromChars(opts.promptChars));
-    return new MidStreamTracker(rates, opts.ctx.wallet.balance, opts.promptChars);
+    // A free model's estimate stays 0, and "0 >= a 0 balance" read as broke:
+    // the turn was refused before it started. It cannot run the wallet dry.
+    if (isZeroCostRates(rates)) return new MidStreamTracker(null, Infinity, 0);
+    const calibration = opts.sessionId
+      ? await loadPromptCostCalibration({ userId: opts.ctx.wallet.userId, sessionId: opts.sessionId, model: opts.model, rates })
+      : null;
+    return new MidStreamTracker(rates, opts.ctx.wallet.balance, opts.promptChars, calibration);
   }
 
   /** Track output chunk. Returns true if stream should abort (credits exhausted). */
@@ -147,7 +223,7 @@ export class MidStreamTracker {
     if (!this.rates) return false;
     // Check every ~500 output chars
     if (this.streamedChars % 500 < chunkLen) {
-      if (estimateCreditsFromChars(this.rates, this.pChars, this.streamedChars) >= this.startBalance) {
+      if (estimateTurnCredits(this.rates, this.pChars, this.streamedChars, this.calibration) >= this.startBalance) {
         this.creditAborted = true;
         return true;
       }
@@ -158,12 +234,17 @@ export class MidStreamTracker {
   /** Estimated cost for what was streamed so far. */
   get estimatedCost(): number {
     if (!this.rates || this.streamedChars === 0) return 0;
-    return estimateCreditsFromChars(this.rates, this.pChars, this.streamedChars);
+    return estimateTurnCredits(this.rates, this.pChars, this.streamedChars, this.calibration);
   }
 
   /** Balance at the start of this turn (mushies). */
   get balance(): number {
     return this.startBalance;
+  }
+
+  /** True when the estimate learned from a billed turn on this session. */
+  get calibrated(): boolean {
+    return this.calibration !== null;
   }
 
   /**
@@ -174,7 +255,7 @@ export class MidStreamTracker {
    */
   exceedsAtStart(): boolean {
     if (!this.rates) return false;
-    return estimateCreditsFromChars(this.rates, this.pChars, 0) >= this.startBalance;
+    return estimateTurnCredits(this.rates, this.pChars, 0, this.calibration) >= this.startBalance;
   }
 
   /** Whether this tracker is actively monitoring (false for BYOK/unlimited). */

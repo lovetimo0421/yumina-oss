@@ -4,6 +4,18 @@ import { messages, playSessions } from "../db/schema.js";
 
 export const MEMORY_CLAIM_TTL_MS = 15 * 60 * 1000;
 
+/** The recap's status as the player should see it. A run stamps
+ *  summaryceptionUpdatedAt at every step, so an "updating" older than the
+ *  claim TTL is a run that died with its server (a deploy mid-fill,
+ *  2026-11-18): it showed 整理中 forever and 补上 answered "already being
+ *  folded". It reads as idle, and the next run may claim it. */
+export function recapRunStatus<S extends string>(row: { summaryceptionStatus?: S | null; summaryceptionUpdatedAt?: Date | null }, now = Date.now()): S | "idle" {
+  const status = row.summaryceptionStatus || "idle";
+  if (status !== "updating") return status;
+  const at = row.summaryceptionUpdatedAt?.getTime();
+  return at != null && at > now - MEMORY_CLAIM_TTL_MS ? status : "idle";
+}
+
 export type MemoryJobSnapshot = Pick<typeof playSessions.$inferSelect,
   "sessionMemorySourceHash" | "sessionMemoryProcessedMessageId" | "sessionMemoryUpdatedAt"
   | "sessionMemoryStaleAt" | "sessionMemoryModel" | "summaryLanguage" | "sessionMemoryIncluded"

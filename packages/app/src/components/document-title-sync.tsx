@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useLocation } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
-import { TAB_TITLE_EN, titleKeyForPath, useDocumentTitleOverride } from "@/lib/document-title";
+import { TAB_TITLE_EN, genreTitleForPath, titleKeyForPath, useDocumentTitleOverride } from "@/lib/document-title";
 
 /** Keeps the browser tab named after what is on screen, in the UI language. Renders nothing. */
 export function DocumentTitleSync() {
@@ -10,7 +10,7 @@ export function DocumentTitleSync() {
   const { t } = useTranslation("common");
 
   const key = titleKeyForPath(pathname);
-  const sectionTitle = t(`tabTitle.${key}`, { defaultValue: TAB_TITLE_EN[key] });
+  const sectionTitle = genreTitleForPath(pathname) ?? t(`tabTitle.${key}`, { defaultValue: TAB_TITLE_EN[key] });
 
   useEffect(() => {
     if (typeof document === "undefined") return;

@@ -9,7 +9,10 @@ import { createLearningTracker } from "./learning-analytics";
 import { useLearningWorkspace } from "./learning-workspace";
 import { TourSpotlight, visibleTourElement } from "./tour-spotlight";
 import { isStarterOpening } from "@/lib/world-templates";
-import { LEARNING_CANCEL_EVENT, LEARNING_LESSONS, LEARNING_OPEN_EVENT, LEARNING_PANEL_EVENT, LEARNING_RELEASE, LEARNING_REVEAL_EVENT, LEARNING_SHOW_EVENT, LEARNING_STEP_EVENT,
+import i18n from "@/lib/i18n";
+import { STUDIO_ASK_EVENT, type StudioAskDetail } from "../lib/block-ask";
+import { templateBlanks } from "../lib/template-blanks";
+import { LEARNING_CANCEL_EVENT, LEARNING_LESSONS, LEARNING_OPEN_EVENT, LEARNING_PANEL_EVENT, LEARNING_PHONE_OPEN_EVENT, LEARNING_RELEASE, LEARNING_REVEAL_EVENT, LEARNING_SHOW_EVENT, LEARNING_STEP_EVENT,
   lessonById, lessonFocus, lessonStage, lessonTaken, lessonUnlocked, lessonsOf, nextLesson, readLearningProgress, requiredDone, writeLearningProgress,
   type LearningLesson, type LearningProgress, type LearningStepId } from "./learning-catalog";
 
@@ -93,7 +96,6 @@ const BEATS: Partial<Record<LearningStepId, ReadonlyArray<Beat>>> = {
   atmosphere: [{ id: "image", target: ['[data-onboarding="scene-images"]'] }],
   card: [
     { id: "cover", asks: true, target: ['[data-learn="card-cover"]'], after: [
-      { id: "variants", target: ['[data-learn="card-variants"]'] },
       { id: "cover", target: ['[data-learn="ov-cover"]'] },
       { id: "gallery", target: ['[data-learn="ov-gallery"]'] },
       { id: "language", target: ['[data-learn="ov-language"]'] },
@@ -132,13 +134,19 @@ const DONE: ReadonlyArray<{ id: string; target: string[] }> = [{ id: "done", tar
 const PHONE_TARGETS: Partial<Record<LearningStepId, string[]>> = {
   opening: ['[data-tour="fm-content"] textarea', '[data-tour="fm-empty-cta"]'],
   setting: ['[data-tour="entries-detail"] textarea', '[data-tour="entries-add"]'],
-  knowledge: ['[data-tour="entries-detail"] textarea', '[data-tour="entries-add"]'],
+  knowledge: ['[data-learn="entry-delivery"]', '[data-tour="entries-detail"] textarea'],
   state: ['[data-tour="vars-list"]', '[data-tour="vars-form"]', '[data-tour="vars-add"]'],
   behavior: ['[data-tour="behaviors-list"]', '[data-tour="behaviors-add"]'],
   atmosphere: ['[data-tour="audio-list"]', '[data-tour="audio-add"]'],
   assistant: ['[data-onboarding="assistant"]', '[data-ai-composer]'],
+  canvas: ['[data-phone-board-toolbar]', '[data-mobile-board]'],
   ship: ['[data-onboarding="playtest"]', '[data-onboarding="save"]'],
 };
+/** Where a lesson happens on a phone when its catalog panel is not it. The
+ *  phone board is a real canvas now: when-it-is-sent is read on an entry's
+ *  page there (the settings list's editor has no such field), and the last
+ *  lesson points at 试玩 rather than starting a paid playtest itself. */
+const PHONE_PANEL: Partial<Record<LearningStepId, string>> = { knowledge: "board", ship: "board" };
 
 /** A beat's control can sit inside a row that opened in place and scrolls
  *  within itself (a variable's 每次最多加/减 is below that row's fold). The
@@ -179,6 +187,26 @@ function BlueprintTour({ account }: { account: string }) {
   // still ahead. The catalog is for after the required three.
   // The screen-first prototype opens on the player's screen; this tour teaches the board.
   const [autoStart] = useState(() => greet && !quietTourRequested() && !isScreenFirst());
+  // A first card started from a template gets no lessons (their first one
+  // writes an opening over the template's), and for most newcomers that was
+  // no guidance at all: 11/05, 545 of 801 first canvas cards left exactly as
+  // the template made them. What does work for a newcomer is the assistant
+  // — those who used it ran it eleven times on average — so this visit opens
+  // with the request already in its box, waiting for the one line only they
+  // can write: the idea. Filled, not sent; nothing is spent until they send.
+  const [handToAssistant] = useState(() => greet && quietTourRequested() && !phone && !readOnly);
+  useEffect(() => {
+    if (!handToAssistant) return;
+    const state = useEditorStore.getState();
+    if (templateBlanks(state.worldDraft.entries ?? []).length === 0) return;
+    const timer = window.setTimeout(() => {
+      const editor = useEditorStore.getState();
+      window.dispatchEvent(new CustomEvent<StudioAskDetail>(STUDIO_ASK_EVENT, {
+        detail: { prompt: i18n.t("editor:studio.aiChat.suggestLoreFill"), worldId: editor.serverWorldId ?? editor.worldDraft.id },
+      }));
+    }, 600);
+    return () => window.clearTimeout(timer);
+  }, [handToAssistant]);
   const [screen, setScreen] = useState<Screen>(null);
   /** The lesson just finished, when the catalog is where it landed. */
   const [finished, setFinished] = useState<LearningStepId | null>(null);
@@ -263,6 +291,9 @@ function BlueprintTour({ account }: { account: string }) {
     const draft = store.worldDraft;
     const show = (objectId: string, mode: "row" | "inspect") => {
       if (!phone) window.setTimeout(() => window.dispatchEvent(new CustomEvent(LEARNING_SHOW_EVENT, { detail: { objectId, mode } })), 200);
+      // On a phone only the delivery lesson opens its sample on the board: the
+      // others teach on their own list pages.
+      else if (lesson.id === "knowledge") window.setTimeout(() => window.dispatchEvent(new CustomEvent(LEARNING_PHONE_OPEN_EVENT, { detail: { objectId } })), 200);
     };
     /** The sample variable: the one the variables lesson shows and the one
      *  the behaviour lesson's rule reads, made by whichever comes first. A
@@ -347,7 +378,7 @@ function BlueprintTour({ account }: { account: string }) {
    *  canvas resolves its own target; nothing here selects or creates. */
   const locate = useCallback((lesson: LearningLesson) => {
     const onCanvas = lesson.panel === "ai-chat" || lesson.panel === "playtest" ? lesson.panel : "blueprint";
-    window.dispatchEvent(new CustomEvent(LEARNING_PANEL_EVENT, { detail: { panelId: phone ? lesson.panel : onCanvas,
+    window.dispatchEvent(new CustomEvent(LEARNING_PANEL_EVENT, { detail: { panelId: phone ? PHONE_PANEL[lesson.id] ?? lesson.panel : onCanvas,
       ...(phone && "canvasTarget" in lesson ? { canvasTarget: lesson.canvasTarget } : {}) } }));
   }, [phone]);
 

@@ -69,8 +69,11 @@ test("history read access does not grant update-edit permission", async (t) => {
     const route = transform(source.slice(routeStart, routeEnd), { transforms: ["typescript"] }).code;
     const dependencies = {
       worldRoutes, optionalAuthMiddleware,
+      db: database,
       readOwn: async () => database,
       readDb: async () => database,
+      readPublic: () => database,
+      readForEdit: async () => database,
       worlds: schema.worlds, follows: schema.follows, worldUpdates: schema.worldUpdates, user: schema.user,
       worldPendingEdits: schema.worldPendingEdits,
       and, desc, eq, sql,

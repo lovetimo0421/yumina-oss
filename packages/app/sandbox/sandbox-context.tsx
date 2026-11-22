@@ -13,9 +13,11 @@ import type {
   LiveCanonEntryInput,
 } from "@yumina/shared";
 import type { ReplyRule } from "@yumina/engine";
-import type { SandboxCapabilities, SandboxEntry, SandboxLoreUiBinding, SandboxWorldbook, SandboxMode, SandboxState, LocalBridgeChannelData, TtsChannelData, VoiceInputChannelData, VoicePlaybackFrame } from "./protocol";
+import type { MessageButtonColor, SandboxCapabilities, SandboxEntry, SandboxLoreUiBinding, SandboxWorldbook, SandboxMode, SandboxState, LocalBridgeChannelData, TtsChannelData, VoiceInputChannelData, VoicePlaybackFrame, HostWindowChannelData, StoryRoomChannelData } from "./protocol";
 import { wrapMessage, postToParentWindow, type ApiCallMessage } from "./protocol";
 import { renderMarkdown } from "./chat/markdown";
+import { cleanComposeOutput, composeAssistMessages, COMPOSE_MAX_TOKENS } from "./chat/compose-assist";
+import { editReplyAction, restoreTurnNote, takeTurnNote } from "./chat/player-note-draft";
 import type { SessionImage } from "../src/lib/session-media";
 import type { SessionStoredValue, SessionStorageWriteOptions } from "../src/lib/session-storage";
 import type { VoiceAPI } from "./voice-types";
@@ -29,6 +31,16 @@ export type { SandboxEntry } from "./protocol";
 /** Tracks names we've already warned about so a single render loop doesn't
  *  spam the console with the same missing-entry warning. */
 const warnedMissingEntries = new Set<string>();
+
+/** What a player asks of one reply's picture (api.illustrateMessage). */
+export interface IllustrateOptions {
+  note?: string;
+  fine?: boolean;
+  /** A passage of that reply's own text (up to 1200 characters): its moment is drawn. */
+  focus?: string;
+  /** The player's own description of the picture (up to 1000 characters). */
+  prompt?: string;
+}
 
 /**
  * A single node in the branch tree, as seen by the current user.
@@ -145,7 +157,10 @@ export interface SandboxedYuminaAPI {
 
   // ── Game actions (fire-and-forget) ──
   pickChatImage: () => Promise<import("@yumina/shared").ChatImageInput | null>;
-  sendMessage: (text: string, attachments?: import("@yumina/shared").ChatImageInput[]) => void;
+  /** `options.note`: 给 AI 的话, a direction the AI follows for this reply only.
+   *  It is not story text and the player's bubble shows it as a small line.
+   *  A note the player has open in the composer goes along too (and closes). */
+  sendMessage: (text: string, attachments?: import("@yumina/shared").ChatImageInput[], options?: { note?: string }) => void;
   /**
    * 现场 — tell the AI what the game shows right now. Read by the next AI call
    * (a reply, a regenerate, a quiet station's turn) as its own block; not
@@ -218,6 +233,16 @@ export interface SandboxedYuminaAPI {
 
   // ── UI controls (fire-and-forget) ──
   toggleImmersive: () => void;
+  /** Leave fullscreen / immersive mode; never enters it. The "Exit full
+   *  screen" item of a game's Escape menu. */
+  exitFullscreen: () => void;
+  /** Leave the card for Yumina, as the play page's back button does
+   *  (fullscreen ends first). The "Back to Yumina" item of a game's Escape
+   *  menu. No-op in the Studio preview. */
+  backToYumina: () => void;
+  /** Whether the play page is in fullscreen / immersive mode right now. Ask
+   *  when your menu opens, to label its fullscreen item. */
+  isFullscreen: () => Promise<boolean>;
   /** Open the player's persona manager (switch / edit / create personas) as a
    *  parent-app overlay. In play, selection changes this session's saved
    *  Persona; global defaults apply when creating a new session. A card that
@@ -335,20 +360,45 @@ export interface SandboxedYuminaAPI {
   editMessage: (messageId: string, content: string, options?: { swipeIndex?: number | null }) => Promise<boolean>;
   /** Delete a message (async, with parent-side confirmation bypass) */
   deleteMessage: (messageId: string) => Promise<boolean>;
-  /** Draw (or redraw) the illustration for one assistant reply */
-  /** Draw (or redraw) a reply's picture; `note` is the player's ask for the redraw ("keep the black sweater"). */
-  illustrateMessage: (messageId: string, note?: string, fine?: boolean) => Promise<boolean>;
+  /** Draw (or redraw) a reply's picture. Options: `note`, the player's ask for the redraw
+   *  ("keep the black sweater"); `fine`, the full schedule; `focus`, a passage of that
+   *  reply's text to draw instead of its end; `prompt`, the player's own description of
+   *  the picture. The older form (messageId, note, fine) still works. */
+  illustrateMessage: (messageId: string, options?: IllustrateOptions | string, fine?: boolean) => Promise<boolean>;
   cancelTurnImage: (messageId: string) => Promise<boolean>;
+  /** Pictures the card itself asks for: an NPC's portrait, a scene for its own panel.
+   *  `subject` is a character's name (their look comes from the card), `look`
+   *  overrides it, `scene` is what is happening. Drawn like a reply's picture and
+   *  billed to the player like one; the first paid picture asks the player in
+   *  Yumina's dialog, which only a click in the card can open (otherwise the
+   *  answer is reason "consent": show a button). Resolves with the picture's
+   *  `url` (keep it in sessionStorage to show it again), or `ok:false` and a
+   *  reason: "consent" | "declined" | "credits" | "busy" | "limit" | "nothing" |
+   *  "cancelled" | "off" | "unavailable" | "invalid". */
+  images: {
+    generate: (request: { subject?: string; look?: string; scene?: string; drawId?: string }) => Promise<{ ok: boolean; url?: string; reason?: string; charged?: number; freeLeft?: number; price?: number }>;
+    /** Stop a picture still drawing (the `drawId` you passed to generate); its mushies come back. */
+    cancel: (drawId: string) => Promise<boolean>;
+  };
+  /** Show another of the pictures drawn for a reply (`key` from the embed's
+   *  version list) and keep it as the reply's picture. `swipeIndex` names the
+   *  variant it was picked on; false when the switch was refused. */
+  selectTurnImage: (messageId: string, key: string, swipeIndex?: number | null) => Promise<boolean>;
+  /** Offer a reply's picture (its `/cdn/key/…` path) to the gallery (生图广场). Resolves true once posted. */
+  publishTurnImage?: (messageId: string, imageUrl: string) => Promise<boolean>;
   /** Whether per-turn illustration is available to this player (server flag + their experimental opt-in), and their auto switch */
-  getTurnImageSettings: () => Promise<{ available: boolean; auto: boolean; price?: number; freeLeft?: number; unlimited?: boolean; fine?: boolean } | null>;
+  getTurnImageSettings: () => Promise<{ available: boolean; auto: boolean; price?: number; freeLeft?: number; unlimited?: boolean; fine?: boolean; style?: string; styles?: string[] } | null>;
   /** Open the host's mushie top-up popup. */
   openCreditTopUp: () => void;
   /** Turn "illustrate every reply" on or off for this player */
   setAutoTurnImages: (on: boolean) => Promise<boolean>;
-  /** Regenerate the last assistant message */
+  /** Pick how this player's illustrations are drawn ("default", "detailed" or "vivid") */
+  setTurnImageStyle: (style: string) => Promise<boolean>;
+  /** Regenerate the last assistant message. It follows the note the turn was
+   *  sent with, or the one the player has open in the composer now. */
   regenerateMessage: (messageId: string) => void;
-  /** Continue generating from the last message */
-  continueLastMessage: () => void;
+  /** Continue generating from the last message. `options.note`: 给 AI 的话 for that reply. */
+  continueLastMessage: (options?: { note?: string }) => void;
   /** Stop the current generation */
   stopGeneration: () => void;
   /** Clear all messages and restart */
@@ -375,6 +425,11 @@ export interface SandboxedYuminaAPI {
    *  "enter" = Enter sends / Shift+Enter newline; "mod-enter" = Ctrl/⌘+Enter
    *  sends / Enter newline. Custom composers should honor it too. */
   composerSendKey: "enter" | "mod-enter";
+  /** Browser-local reading preference, applied by the stock Chat component. */
+  playColorMode: "dark" | "light";
+  messageButtonColor: MessageButtonColor;
+  setMessageButtonColor: (color: MessageButtonColor) => void;
+  setPlayColorMode: (mode: "dark" | "light") => void;
   /** Bumped by the host on every terminally-failed send — including toast-only
    *  failures that never set `error`. Watch it to restore swallowed input. */
   sendFailureNonce: number;
@@ -391,6 +446,13 @@ export interface SandboxedYuminaAPI {
   isLoadingEarlier: boolean;
   /** Fetch the previous page of history; rows are prepended to `messages`. */
   loadEarlierMessages: () => Promise<boolean>;
+  /** Place of messages[0] in the whole session (1 = the opening). The number
+   *  of messages[i] is firstMessageNumber + i. */
+  firstMessageNumber: number;
+  /** Keyword search over this session's whole history (loaded or not), newest
+   *  first. Each hit carries the message id and its session position; pass
+   *  `before` = the last hit's position for the next page. */
+  searchMessages: (query: string, options?: { before?: number }) => Promise<ChatSearchResult>;
 
   // ── Model picker ──
   selectedModel: string;
@@ -400,6 +462,8 @@ export interface SandboxedYuminaAPI {
   userPlan: string;
   /** Whether the session-memory-summary extension is installed for the user. */
   memorySummaryEnabled: boolean;
+  /** The player's regex rules that change what is shown. Platform chat applies them; a card may too. */
+  playerRegexRules: ReadonlyArray<import("@yumina/shared").RegexRule>;
   preferredProvider: "official" | "private";
   /** The player's own machine as a model source — null unless this browser
    *  turned the local bridge on. Its `models` are selectable through `setModel`
@@ -436,6 +500,12 @@ export interface SandboxedYuminaAPI {
   removeFromPool: (modelId: string) => void;
   setPoolWeight: (modelId: string, weight: number) => void;
   togglePoolLock: (modelId: string) => void;
+  /** The player's thinking level ("none" = off, "minimal" | "low" | "medium" |
+   *  "high") and whether replies stream — the same values as AI settings. */
+  reasoningEffort: string;
+  streaming: boolean;
+  /** Change either one; it is saved to the player's AI settings. */
+  setGenerationPref: (pref: { reasoningEffort?: string; streaming?: boolean }) => void;
 
   // ─── Player prompts (platform chat UI) ───────────────────────────────────
   /** The player's own prompt summary, pushed by the host. Null for guests or
@@ -444,6 +514,8 @@ export interface SandboxedYuminaAPI {
   playerPrompts: import("./protocol").PlayerPromptsChannelData | null;
   /** Switch one of the player's own prompts on/off. */
   togglePlayerPrompt: (promptId: string, enabled: boolean) => Promise<{ ok: boolean }>;
+  /** Forget this world's own prompt switches (follow Settings again). */
+  resetWorldPrompts: () => Promise<{ ok: boolean }>;
   /** Open the host's "write your own prompt" dialog. The sandbox never writes
    *  the prompt itself: the player types and saves in host UI. Fire-and-forget. */
   openPromptComposer: () => void;
@@ -451,6 +523,26 @@ export interface SandboxedYuminaAPI {
   // ─── Session memory ────────────────────────────────────────────────────
   getStateGuardSettings: () => Promise<import("@yumina/shared").StateGuardSettings>;
   setStateGuardSettings: (patch: Partial<import("@yumina/shared").StateGuardSettings>) => Promise<import("@yumina/shared").StateGuardSettings>;
+  /** Core memory, every player: how far back the AI reads, and the pinned
+   *  notes. No memory extension needed. */
+  getMemoryOverview: () => Promise<import("@yumina/shared").MemoryOverview>;
+  /** Save the pinned notes (free, never auto-edited). `null` clears. */
+  savePinnedNotes: (pinned: string | null) => Promise<import("@yumina/shared").MemoryOverview>;
+  /** The player's answer when the recap has a long backlog: fold it all now
+   *  ("all", billed like any recap work) or start the recap from here ("skip"). */
+  recapBackfill: (mode: "all" | "skip") => Promise<import("@yumina/shared").MemoryOverview>;
+  /** Stop the recap run in progress; chapters written so far stay. */
+  stopRecap: () => Promise<import("@yumina/shared").MemoryOverview>;
+  /** How many turns session memory waits before it updates (the player's AI setting; null = never chosen). */
+  getMemoryEvery: () => Promise<number | null>;
+  /** "Never show this again": add the selected words as a regex rule (the host checks and saves it). */
+  addRegexRule: (text: string) => Promise<boolean>;
+  /** Change it from the memory panel (1 to 50). Resolves to the value now saved. */
+  setMemoryEvery: (turns: number) => Promise<number | null>;
+  /** Platform one-time tips (e.g. "remember-pin"): seen once per browser on
+   *  the host page, across every card. Unknown names read as seen. */
+  hintSeen: (name: string) => Promise<boolean>;
+  markHintSeen: (name: string) => void;
   getSessionMemory: () => Promise<SessionMemoryPayload>;
   saveSessionMemory: (memory: SessionMemory, model?: string) => Promise<SessionMemoryPayload>;
   /** Player-pinned notes: never rewritten by the updater, always injected. `null` clears. */
@@ -482,6 +574,14 @@ export interface SandboxedYuminaAPI {
   ) => Promise<SessionSummaryCompactionPayload>;
   /** Edit the text of a single Summaryception snippet (any layer). */
   updateSummaryceptionSnippet: (snippetId: string, text: string) => Promise<SessionSummaryPayload>;
+  /** Delete one recap chapter. The newest one's messages go back to word for
+   *  word; an older one is only forgotten. */
+  deleteSummaryceptionSnippet: (snippetId: string) => Promise<{ summary: SessionSummaryPayload; restoredMessages: number }>;
+  /** What folding the oldest `count` unfolded messages into the recap takes. */
+  estimateRecapFold: (count: number) => Promise<import("@yumina/shared").RecapFoldEstimate>;
+  /** Fold the oldest `count` unfolded messages (the host confirms a paid run).
+   *  Null when the player declined. */
+  recapFold: (count: number) => Promise<{ summary: SessionSummaryPayload; messages: number } | null>;
 
   // ─── Lore Shift ───────────────────────────────────────────────────────
   getLiveCanon: () => Promise<LiveCanonApiResult>;
@@ -537,6 +637,13 @@ export interface SandboxedYuminaAPI {
        *   plus any keyword hits — leaner, but content depends on wording.
        */
       includeLorebook?: boolean | "all" | "matched";
+      /**
+       * How hard the model thinks before it answers, for this call only.
+       * Omitted: the model's own default. Reasoning models get slower and
+       * costlier as this goes up; "none" switches thinking off where the
+       * model allows it.
+       */
+      reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high";
     }) => Promise<string>;
   };
 
@@ -560,6 +667,9 @@ export interface SandboxedYuminaAPI {
     sendInput: (body: Record<string, unknown>) => void;
     /** Discrete validated action (dock, buy, fire-mode…). Ack'd by the module. */
     sendCommand: (name: string, body?: unknown) => Promise<{ ok: boolean; body?: unknown }>;
+    /** Rules tables (`rules:<CODE>`): play a move, same as sendCommand("act", { action }).
+     *  Snapshots arrive on onFrame as {t:"snap", body:{phase, you, seats, turn, view, result}}. */
+    act: (action: unknown) => Promise<{ ok: boolean; body?: unknown }>;
     /** Subscribe to raw frames: snap | delta | event | presence | status. Returns unsubscribe. */
     onFrame: (cb: (frame: Record<string, unknown>) => void) => () => void;
     /** Table voice between the humans seated in the room (parent owns the mic).
@@ -567,7 +677,47 @@ export interface SandboxedYuminaAPI {
      *  "listen" (bool) | "hint" (vocabulary for transcripts). Events arrive on
      *  onFrame as {t:"voice", kind: joined|join|leave|talk|mic|listen|speaking|transcript|...}. */
     voice: (action: string, value?: unknown) => Promise<{ ok: boolean; reason?: string }>;
+    /** Open Yumina's invite sheet (link, short code, friends with one-tap invite).
+     *  - `{ roomId: "rules:CODE" }`: a rules table. The link is the card's page
+     *    with `?table=CODE`; a friend who opens it and presses Play finds the
+     *    code in `pendingTable()`.
+     *  - no roomId: this chat's story room, opened on first use. Only on a card
+     *    the author turned on in story mode (`reason: "multiplayer-off"` otherwise).
+     *  Call it from a click. */
+    invite: (opts?: { roomId?: string }) => Promise<{ ok: boolean; reason?: string }>;
+    /** The table code this player was invited to, read once (null when none).
+     *  On load: `const code = await api.room.pendingTable(); if (code) await api.room.join("rules:" + code)`. */
+    pendingTable: () => Promise<string | null>;
   };
+  /** The card's own high-score boards, the way Steam does leaderboards: name a
+   *  board, submit scores, read slices; draw the board yourself. Each player
+   *  keeps their best per board; every language version of the card shares
+   *  the boards. Signed-in players only (`reason: "sign-in"` otherwise).
+   *  - `submit("最高分", 1280)`: higher is better. A fastest-time board:
+   *    `submit("用时", 92.4, { order: "asc" })` (the first score sets the order).
+   *    `details` (≤500 chars of JSON) rides along, e.g. `{ ball: "steel" }`.
+   *  - `get("最高分", { range: "top" | "around" | "friends", limit: 10 })`. */
+  leaderboard: {
+    submit: (board: string, score: number, opts?: { details?: unknown; order?: "desc" | "asc" }) => Promise<
+      | { ok: true; best: number; rank: number; total: number; improved: boolean; order: "desc" | "asc" }
+      | { ok: false; reason: string }
+    >;
+    get: (board: string, opts?: { range?: "top" | "around" | "friends"; limit?: number }) => Promise<
+      | {
+          ok: true;
+          order: "desc" | "asc";
+          total: number;
+          entries: Array<{ rank: number; name: string; image: string | null; score: number; details: unknown; me: boolean }>;
+          me: { rank: number; score: number } | null;
+        }
+      | { ok: false; reason: string }
+    >;
+  };
+  /** The story room on this chat (friends playing it together), or null:
+   *  who is in it, who has acted this round. Platform chat UI reads it; a card may too. */
+  storyRoom: StoryRoomChannelData | null;
+  /** True when this player can open a story room on this chat. */
+  storyRoomOffer: boolean;
 
   // ── Voice readout (TTS) ──
   /** Speak a message (or arbitrary card text) aloud through the platform's
@@ -586,13 +736,22 @@ export interface SandboxedYuminaAPI {
      *  playback-blocked, playback-error, cancelled and timeout (150s host limit).
      *  Omit it to return when playback is queued, as ordinary readouts do. */
     speak: (opts: { messageId?: string; text?: string; key?: string; voice?: string; waitForEnd?: boolean }) => Promise<{ ok: boolean; reason?: string }>;
+    /** Synthesize a line now without playing it. A later `speak` with the same
+     *  text and voice is a cache hit that starts at once and costs nothing
+     *  more — call it for the next sentence while the current one plays.
+     *  Billed like `speak` (once). Older hosts do not implement it. */
+    prefetch: (opts: { text: string; voice?: string }) => Promise<{ ok: boolean; reason?: string }>;
     stop: () => void;
     /** Measured output frames (~15Hz). Match key/generation to the active
      * line; audible alone is not an amplitude measurement. Unsubscribe on
      * unmount. Older hosts do not implement this additive capability. */
     onPlaybackFrame: (cb: (frame: VoicePlaybackFrame) => void) => () => void;
     /** Update the player's voice-readout preferences (in-chat voice panel).
-     *  Persists to the account; the new values flow back via `ttsState`. */
+     *  Persists to the account; the new values flow back via `ttsState`.
+     *  While readout is off, `{ enabled: true }` sent from the player's click
+     *  (a "turn on her voice" button) opens Yumina's own dialog asking the
+     *  player; only their yes turns it on, and `ttsState.enabled` then flips.
+     *  A "no" is not asked again for a minute; without a click nothing happens. */
     setPrefs: (prefs: {
       enabled?: boolean;
       autoPlay?: boolean;
@@ -607,6 +766,9 @@ export interface SandboxedYuminaAPI {
     /** Play a short sample of a voice ("" = the auto voice). Billed like any
      *  synth on first listen, cached for everyone after. */
     preview: (voice: string) => Promise<{ ok: boolean; reason?: string }>;
+    /** Read one speaker ("narrator" for narration) in a voice the player picked,
+     *  in this chat only; null gives them back to the card. */
+    setSpeakerVoice: (speaker: string, voice: string | null) => void;
   };
   /** Voice readout prefs + live playback (pushed by the host). `enabled` is
    *  false outside real sessions (guest preview, replay) — hide speaker UI. */
@@ -626,8 +788,10 @@ export interface SandboxedYuminaAPI {
      *  No recording, transcription or paid synthesis. */
     prepare: (opts?: { requireLevels?: boolean }) => Promise<{ ok: boolean; reason?: string }>;
     /** Automatic VAD should set requireLevels; a blocked/unavailable analyser
-     *  then returns levels-unavailable instead of silently waiting for speech. */
-    record: (opts?: { onLevel?: (level: number) => void; requireLevels?: boolean }) => Promise<{ ok: boolean; text?: string; reason?: string }>;
+     *  then returns levels-unavailable instead of silently waiting for speech.
+     *  `hint`: the names and made-up words players will say, comma separated
+     *  ("牧濑红莉栖, 冈部伦太郎, Amadeus"); the transcriber spells them right. */
+    record: (opts?: { onLevel?: (level: number) => void; requireLevels?: boolean; hint?: string }) => Promise<{ ok: boolean; text?: string; reason?: string }>;
     stop: () => void;
     cancel: () => void;
     /** In-chat voice panel: `mode` "" = follow the card's default. */
@@ -635,6 +799,21 @@ export interface SandboxedYuminaAPI {
   };
   /** Voice-input availability and prefs (pushed by the host). */
   voiceInputState: VoiceInputChannelData;
+
+  // ── Floating window ──
+  /** Draw the card in a small window that stays above every other app, so a
+   *  companion character keeps the player company after they leave the tab.
+   *  Chrome / Edge on desktop only (`hostWindowState.canFloat`). Call it from
+   *  a click: the browser only opens it in answer to the player. The card is
+   *  loaded again in the new window (and again when it comes back), so keep
+   *  what must survive in storage or variables and read
+   *  `hostWindowState.floating` on mount to pick the layout. */
+  hostWindow: {
+    float: (opts?: { width?: number; height?: number }) => Promise<{ ok: boolean; reason?: string }>;
+    /** Close the floating window; the card returns to the page. */
+    dock: () => void;
+  };
+  hostWindowState: HostWindowChannelData;
 
   // ── Context injection (one-shot context for next main chat turn) ──
   /** Inject a one-shot context message into the next main chat AI turn.
@@ -648,6 +827,23 @@ export interface SandboxedYuminaAPI {
    *  interaction board's 主动聊聊). Fires a sandbox-local event — same iframe
    *  only, no parent round-trip. */
   setComposerDraft: (text: string) => void;
+
+  // ── 帮我写 ──
+  /** False when the card turned 帮我写 off (settings.composeAssist). */
+  composeAssistAllowed: boolean;
+  /** The model 帮我写 runs on: the player's pick, else their story model. */
+  composeModel: string;
+  /** Let the player pick the 帮我写 model (opens the host's model picker). */
+  openComposeModelPicker: () => void;
+  /**
+   * Write the player's next message with AI. With `text`, expand that draft
+   * (keeping its intent); without, write a fitting next move. Only the
+   * player's own character, never other characters or what happens next.
+   * Resolves with the finished text; nothing is sent. Billed to the player
+   * like `ai.complete`, on `composeModel` unless `model` is given.
+   * `onDelta` gets the text so far while it streams.
+   */
+  composeAssist: (options?: { text?: string; model?: string; onDelta?: (textSoFar: string) => void }) => Promise<string>;
 }
 
 // ── Default no-op API ───────────────────────────────────────────────
@@ -771,6 +967,8 @@ const guestPreviewCapabilities: SandboxCapabilities = {
   requiresAuth: true,
 };
 
+const NO_HOST_WINDOW: HostWindowChannelData = { canFloat: false, floating: false };
+
 const NO_VOICE_INPUT: VoiceInputChannelData = {
   available: false, enabled: false, mode: "confirm", cardMode: "confirm", playerMode: "", key: "Space",
 };
@@ -797,6 +995,10 @@ const defaultAPI: SandboxedYuminaAPI = {
   getEntry: () => null,
   pickChatImage: async () => null,
   sendMessage: () => {},
+  composeAssistAllowed: false,
+  composeModel: "",
+  openComposeModelPicker: () => {},
+  composeAssist: () => Promise.reject(new Error("Unavailable")),
   setScene: () => {},
   onStoryEvent: () => () => {},
   social: { get: () => noopPromise(null), action: () => noopPromise(null), generate: () => noopPromise(null) },
@@ -828,6 +1030,9 @@ const defaultAPI: SandboxedYuminaAPI = {
   listSessions: () => noopPromise([]),
   navigate: () => {},
   toggleImmersive: () => {},
+  exitFullscreen: () => {},
+  backToYumina: () => {},
+  isFullscreen: () => noopPromise(false),
   openPersonaManager: () => {},
   openModelPicker: () => {},
   getPersonaProfile: () => noopPromise(null),
@@ -865,10 +1070,14 @@ const defaultAPI: SandboxedYuminaAPI = {
   editMessage: () => noopPromise(false),
   deleteMessage: () => noopPromise(false),
   illustrateMessage: () => noopPromise(false),
+  images: { generate: () => noopPromise({ ok: false, reason: "unavailable" }), cancel: () => noopPromise(false) },
   cancelTurnImage: () => noopPromise(false),
+  selectTurnImage: () => noopPromise(false),
+  publishTurnImage: () => noopPromise(false),
   getTurnImageSettings: () => noopPromise(null),
   openCreditTopUp: () => {},
   setAutoTurnImages: () => noopPromise(false),
+  setTurnImageStyle: () => noopPromise(false),
   regenerateMessage: () => {},
   continueLastMessage: () => {},
   stopGeneration: () => {},
@@ -882,6 +1091,10 @@ const defaultAPI: SandboxedYuminaAPI = {
   showToast: () => {},
   pendingChoices: [],
   error: null,
+  playColorMode: "dark",
+  messageButtonColor: "default",
+  setMessageButtonColor: () => {},
+  setPlayColorMode: () => {},
   composerSendKey: "enter",
   sendFailureNonce: 0,
   errorCode: null,
@@ -895,12 +1108,15 @@ const defaultAPI: SandboxedYuminaAPI = {
   hasEarlierMessages: false,
   isLoadingEarlier: false,
   loadEarlierMessages: () => noopPromise(false),
+  firstMessageNumber: 1,
+  searchMessages: () => Promise.reject(new Error("No active session")),
   selectedModel: "",
   modelFallback: null,
   resolveModelFallback: () => noopPromise(undefined),
   cancelModelFallback: () => noopPromise(undefined),
   userPlan: "free",
   memorySummaryEnabled: false,
+  playerRegexRules: [],
   preferredProvider: "official",
   localBridge: null,
   reconnectLocalBridge: () => noopPromise(undefined),
@@ -917,11 +1133,24 @@ const defaultAPI: SandboxedYuminaAPI = {
   addToPool: () => {},
   removeFromPool: () => {},
   setPoolWeight: () => {},
+  reasoningEffort: "low",
+  streaming: true,
+  setGenerationPref: () => {},
   playerPrompts: null,
   togglePlayerPrompt: () => noopPromise({ ok: false }),
+  resetWorldPrompts: () => noopPromise({ ok: false }),
   openPromptComposer: () => {},
   getStateGuardSettings: () => Promise.reject(new Error("No active session")),
   setStateGuardSettings: () => Promise.reject(new Error("No active session")),
+  getMemoryOverview: () => Promise.reject(new Error("No active session")),
+  savePinnedNotes: () => Promise.reject(new Error("No active session")),
+  recapBackfill: () => Promise.reject(new Error("No active session")),
+  stopRecap: () => Promise.reject(new Error("No active session")),
+  getMemoryEvery: () => Promise.resolve(null),
+  addRegexRule: () => Promise.resolve(false),
+  setMemoryEvery: () => Promise.reject(new Error("No active session")),
+  hintSeen: () => Promise.resolve(true),
+  markHintSeen: () => {},
   getSessionMemory: () =>
     noopPromise(emptySessionMemoryPayload()),
   saveSessionMemory: (_memory, _model) =>
@@ -970,6 +1199,9 @@ const defaultAPI: SandboxedYuminaAPI = {
     noopPromise(emptySessionSummaryCompactionPayload()),
   updateSummaryceptionSnippet: (_snippetId, _text) =>
     defaultAPI.getSessionSummary(),
+  deleteSummaryceptionSnippet: () => Promise.reject(new Error("No active session")),
+  estimateRecapFold: () => Promise.reject(new Error("No active session")),
+  recapFold: () => Promise.reject(new Error("No active session")),
   getLiveCanon: () => noopPromise(unavailableLiveCanon()),
   updateLiveCanonState: () => noopPromise(unavailableLiveCanon()),
   saveLiveCanonBaseEntry: () => noopPromise(unavailableLiveCanon()),
@@ -988,15 +1220,26 @@ const defaultAPI: SandboxedYuminaAPI = {
     leave: () => {},
     sendInput: () => {},
     sendCommand: () => noopPromise({ ok: false }),
+    act: () => noopPromise({ ok: false }),
     onFrame: () => () => {},
     voice: () => noopPromise({ ok: false, reason: "unavailable" }),
+    invite: () => noopPromise({ ok: false, reason: "unavailable" }),
+    pendingTable: () => noopPromise(null),
   },
+  leaderboard: {
+    submit: () => noopPromise({ ok: false, reason: "unavailable" }),
+    get: () => noopPromise({ ok: false, reason: "unavailable" }),
+  },
+  storyRoom: null,
+  storyRoomOffer: false,
   tts: {
     speak: () => noopPromise({ ok: false, reason: "unavailable" }),
+    prefetch: () => noopPromise({ ok: false, reason: "unavailable" }),
     stop: () => {},
     onPlaybackFrame: () => () => {},
     setPrefs: () => {},
     preview: () => noopPromise({ ok: false, reason: "unavailable" }),
+    setSpeakerVoice: () => {},
   },
   ttsState: { available: false, enabled: false, voice: "", mode: "full", autoPlay: false, volume: 100, playback: null },
   voice: {
@@ -1007,9 +1250,14 @@ const defaultAPI: SandboxedYuminaAPI = {
     setPrefs: () => {},
   },
   voiceInputState: NO_VOICE_INPUT,
+  hostWindow: {
+    float: () => noopPromise({ ok: false, reason: "unavailable" }),
+    dock: () => {},
+  },
+  hostWindowState: NO_HOST_WINDOW,
   realtimeVideo: {
     start: () => Promise.resolve({ error: "Video is unavailable in this view." }),
-    stop: () => {}, release: () => {}, skip: () => {}, rewind: () => {}, retake: () => {}, openWindow: () => {}, setSlot: () => {}, direct: () => {}, setMuted: () => {},
+    stop: () => {}, release: () => {}, skip: () => {}, rewind: () => {}, retake: () => {}, setStyle: () => {}, openWindow: () => {}, setSlot: () => {}, direct: () => {}, setMuted: () => {},
     onEvent: () => () => {},
   },
   realtimeVoice: {
@@ -1017,7 +1265,7 @@ const defaultAPI: SandboxedYuminaAPI = {
     finish: async () => ({ status: 'unsupported', reason: 'no-scoped-relay-call', providerState: 'unconfirmed', accounting: 'unknown' }),
     prepare: () => Promise.reject(new Error("Voice is unavailable in this view.")),
     start: () => Promise.reject(new Error("Voice is unavailable in this view.")),
-    stop: () => {}, interrupt: () => {}, setMuted: () => {}, updateContext: () => {}, updateInstructions: () => {}, reactToScene: () => {}, cancelSceneReaction: () => {}, resolveTool: () => {}, resolveDelegation: () => {}, setSpatial: () => {},
+    stop: () => {}, interrupt: () => {}, setMuted: () => {}, markActive: () => {}, updateContext: () => {}, updateInstructions: () => {}, reactToScene: () => {}, cancelSceneReaction: () => {}, resolveTool: () => {}, resolveDelegation: () => {}, setSpatial: () => {},
     onEvent: () => () => {},
   },
   injectContext: () => {},
@@ -1121,6 +1369,9 @@ export interface RealtimeVideoAPI {
   rewind(): void;
   /** Shoot the latest shot again. Shorts: film the newest reply again (its new film replaces the old). */
   retake(): void;
+  /** The look the next shots are filmed in, while the film runs: "source" (the card's own), "live",
+   *  "anime" or "painted". Shorts: from the next reply on. state.style says which is on. */
+  setStyle(style: string): void;
   /** Open the host's own film window (where a card without a film stage shows the film). */
   openWindow(): void;
   stop(): void;
@@ -1147,6 +1398,29 @@ export const ROOM_FRAME_EVENT = "yumina:room-frame";
  *  `window` by component-host when the parent play-controls bar asks for it;
  *  the host-level panel mount listens (see MemoryPanelHostMount). */
 export const OPEN_MEMORY_PANEL_EVENT = "yumina:open-memory-panel";
+
+/** Sandbox-local event: open the chat-history search (ChatSearchHostMount).
+ *  From the composer's menu, or the parent play-controls bar. */
+export const OPEN_CHAT_SEARCH_EVENT = "yumina:open-chat-search";
+
+/** Sandbox-local event: scroll the platform transcript to a message and mark
+ *  it briefly. detail: { messageId }. The message must already be loaded. */
+export const JUMP_TO_MESSAGE_EVENT = "yumina:jump-to-message";
+
+/** Sandbox-local event: open a session at a message that may not be loaded
+ *  yet (OpenAtMessageHost). detail: { sessionId, messageId, position, query }. */
+export const OPEN_AT_MESSAGE_EVENT = "yumina:open-at-message";
+
+export interface ChatSearchHit {
+  id: string;
+  role: "user" | "assistant" | "system";
+  createdAt: string;
+  position: number;
+  snippet: string;
+  clippedStart: boolean;
+  clippedEnd: boolean;
+}
+export interface ChatSearchResult { hits: ChatSearchHit[]; hasMore: boolean }
 
 export const YuminaContext = createContext<SandboxedYuminaAPI>(defaultAPI);
 
@@ -1245,11 +1519,21 @@ export function receiveStreamChunk(callId: string, delta: string, done: boolean,
   }
 }
 
-/** Resolve @asset:{id} → CDN URL (pure string transform, no network) */
+const ASSET_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Resolve @asset:{id} → CDN path (pure string transform, no network).
+ * A UUID goes to `/cdn/{id}/original`, the no-transform route: on the plain
+ * path Cloudflare Polish hands WebP-accepting browsers a lossy WebP of a PNG,
+ * which smears pixel art. Mirrors `assetOriginalPath` in src/lib/asset-url.ts.
+ */
 function resolveAssetUrl(ref: string): string {
   if (!ref) return ref;
   if (ref.startsWith("http://") || ref.startsWith("https://")) return ref;
-  if (ref.startsWith("@asset:")) return `/cdn/${ref.slice(7)}`;
+  if (ref.startsWith("@asset:")) {
+    const id = ref.slice(7);
+    return ASSET_UUID_RE.test(id) ? `/cdn/${id}/original` : `/cdn/${id}`;
+  }
   return ref;
 }
 
@@ -1263,6 +1547,10 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
   const promptAuth = () => {
     if (capabilities.requiresAuth) postToParent("sendMessage", [""]);
   };
+  // 给 AI 的话 (chat/player-note-draft.ts): every send below takes the note
+  // the player has open in the composer, but only when the host will actually
+  // start the turn; otherwise the note stays open for the send that does.
+  const turnStarts = sessionApisAvailable && !state.readOnly && !state.isStreaming && !state.modelFallback && !state.storyRoom;
   const guardedCall = <T,>(fallback: T, prompt = false): Promise<T> => {
     if (prompt) promptAuth();
     return noopPromise(fallback);
@@ -1289,6 +1577,7 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
     loreUiBindings: state.loreUiBindings ?? [],
     worldbooks: state.worldbooks ?? [],
     replyRules: state.replyRules ?? [],
+    speakerBubbles: state.speakerBubbles === true,
     getEntry: (name: string) => {
       const list = state.entries ?? [];
       for (const e of list) if (e.name === name) return e;
@@ -1310,7 +1599,32 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
 
     // Game actions (fire-and-forget)
     pickChatImage: () => sessionApisAvailable ? callParent("pickChatImage", [], 600_000) : Promise.resolve(null),
-    sendMessage: (text, attachments) => postToParent("sendMessage", [text, attachments]),
+    sendMessage: (text, attachments, options) => {
+      const note = takeTurnNote(options?.note, turnStarts && (!!text?.trim() || !!attachments?.length));
+      postToParent("sendMessage", [text, attachments, note ? { note } : undefined]);
+    },
+    composeAssistAllowed: sessionApisAvailable && !state.readOnly && state.composeAssistOff !== true,
+    composeModel: state.composeModel || state.selectedModel || "",
+    openComposeModelPicker: () => { if (sessionApisAvailable) postToParent("openComposeModelPicker", []); },
+    composeAssist: async (options) => {
+      if (!sessionApisAvailable || state.readOnly) throw new Error("Unavailable in this view");
+      if (state.composeAssistOff === true) throw new Error("This card turned 帮我写 off");
+      const playerName = state.user?.name ?? "";
+      let soFar = "";
+      const raw = await callParentStreaming(
+        "ai.complete",
+        [{
+          messages: composeAssistMessages({ history: state.messages ?? [], draft: options?.text, playerName }),
+          model: options?.model || state.composeModel || state.selectedModel || undefined,
+          maxTokens: COMPOSE_MAX_TOKENS,
+          context: "session",
+          includeLorebook: "matched",
+          reasoningEffort: "none",
+        }],
+        (delta: string) => { soFar += delta; options?.onDelta?.(soFar); },
+      );
+      return cleanComposeOutput(typeof raw === "string" ? raw : soFar, playerName);
+    },
     setScene: (scene, options) => postToParent("setScene", [scene ?? null, options?.events ?? []]),
     onStoryEvent: (cb) => {
       // An AI's words for an interface channel and a behaviour's code ride
@@ -1384,6 +1698,9 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
 
     // UI controls
     toggleImmersive: () => postToParent("toggleImmersive", []),
+    exitFullscreen: () => postToParent("leaveImmersive", []),
+    backToYumina: () => postToParent("backToYumina", []),
+    isFullscreen: () => callParent("isFullscreen", []),
     openPersonaManager: () => postToParent("openPersonaManager", []),
     openModelPicker: (options) => postToParent("openModelPicker", options?.purpose === "side-completion" ? [{purpose: "side-completion"}] : []),
     getPersonaProfile: () => callParent("getPersonaProfile", []),
@@ -1458,20 +1775,52 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
     },
 
     // Chat actions (universal canvas)
-    editMessage: (messageId, content, options) => sessionApisAvailable
-      ? callParent("editMessage", typeof options?.swipeIndex === "number" ? [messageId, content, { swipeIndex: options.swipeIndex }] : [messageId, content])
-      : guardedCall(false, true),
+    editMessage: (messageId, content, options) => {
+      if (!sessionApisAvailable) return guardedCall(false, true);
+      // A rewritten player line is answered again, so it is a turn too.
+      const note = takeTurnNote(undefined, turnStarts && editReplyAction(state.messages as ReadonlyArray<{ id?: unknown; role?: unknown }>, messageId) !== null);
+      const editOptions = {
+        ...(typeof options?.swipeIndex === "number" ? { swipeIndex: options.swipeIndex } : {}),
+        ...(note ? { note } : {}),
+      };
+      const saved = callParent<boolean>("editMessage", Object.keys(editOptions).length ? [messageId, content, editOptions] : [messageId, content]);
+      if (!note) return saved;
+      return saved.then((ok) => { if (!ok) restoreTurnNote(); return ok; }, (error) => { restoreTurnNote(); throw error; });
+    },
     deleteMessage: (messageId) => sessionApisAvailable ? callParent("deleteMessage", [messageId]) : guardedCall(false, true),
     // Rendering + upload can take a while on a cold GPU.
-    illustrateMessage: (messageId, note, fine) => sessionApisAvailable
-      ? callParent("illustrateMessage", fine ? [messageId, note ?? "", true] : note ? [messageId, note] : [messageId], 120_000)
+    illustrateMessage: (messageId, options, fine) => sessionApisAvailable
+      ? callParent("illustrateMessage", options && typeof options === "object"
+        ? [messageId, { ...(options.note ? { note: options.note } : {}), ...(options.fine ? { fine: true } : {}), ...(options.focus ? { focus: options.focus } : {}), ...(options.prompt ? { prompt: options.prompt } : {}) }]
+        : fine ? [messageId, options ?? "", true] : options ? [messageId, options] : [messageId], 120_000)
       : guardedCall(false, true),
     getTurnImageSettings: () => sessionApisAvailable ? callParent("getTurnImageSettings", []) : Promise.resolve(null),
+    // A cold GPU, the pay dialog and the drawing together can take minutes.
+    images: {
+      generate: (request) => sessionApisAvailable
+        ? callParent("images.generate", [request ?? {}], 600_000)
+        : guardedCall({ ok: false, reason: "unavailable" }, true),
+      cancel: (drawId) => sessionApisAvailable ? callParent("images.cancel", [drawId], 35_000) : guardedCall(false, true),
+    },
     cancelTurnImage: (messageId) => sessionApisAvailable ? callParent("cancelTurnImage", [messageId], 35_000) : guardedCall(false, true),
+    selectTurnImage: (messageId, key, swipeIndex) => sessionApisAvailable
+      ? callParent("selectTurnImage", typeof swipeIndex === "number" ? [messageId, key, swipeIndex] : [messageId, key], 25_000)
+      : guardedCall(false, true),
+    // The player fills in a dialog: no short timeout.
+    publishTurnImage: (messageId, imageUrl) => sessionApisAvailable ? callParent("publishTurnImage", [messageId, imageUrl], 30 * 60_000) : guardedCall(false, true),
     openCreditTopUp: () => { if (sessionApisAvailable) void callParent("openCreditTopUp", []); },
     setAutoTurnImages: (on) => sessionApisAvailable ? callParent("setAutoTurnImages", [on]) : guardedCall(false, true),
-    regenerateMessage: (messageId) => { if (sessionApisAvailable) postToParent("regenerateMessage", [messageId]); else promptAuth(); },
-    continueLastMessage: () => { if (sessionApisAvailable) postToParent("continueLastMessage", []); else promptAuth(); },
+    setTurnImageStyle: (style) => sessionApisAvailable ? callParent("setTurnImageStyle", [style]) : guardedCall(false, true),
+    regenerateMessage: (messageId) => {
+      if (!sessionApisAvailable) { promptAuth(); return; }
+      const note = takeTurnNote(undefined, turnStarts);
+      postToParent("regenerateMessage", note ? [messageId, { note }] : [messageId]);
+    },
+    continueLastMessage: (options) => {
+      if (!sessionApisAvailable) { promptAuth(); return; }
+      const note = takeTurnNote(options?.note, turnStarts);
+      postToParent("continueLastMessage", note ? [{ note }] : []);
+    },
     stopGeneration: () => { if (sessionApisAvailable) postToParent("stopGeneration", []); },
     restartChat: () => { if (sessionApisAvailable) postToParent("restartChat", []); else promptAuth(); },
     clearPendingChoices: () => { if (sessionApisAvailable) postToParent("clearPendingChoices", []); },
@@ -1485,6 +1834,10 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
     // Canvas state reads
     pendingChoices: state.pendingChoices ?? [],
     error: state.error ?? null,
+    playColorMode: state.playColorMode === "light" ? "light" : "dark",
+    messageButtonColor: state.messageButtonColor ?? "default",
+    setMessageButtonColor: (color) => postToParent("setMessageButtonColor", [state.sessionId, color]),
+    setPlayColorMode: (mode) => postToParent("setPlayColorMode", [mode]),
     composerSendKey: state.composerSendKey ?? "enter",
     sendFailureNonce: state.sendFailureNonce ?? 0,
     errorCode: state.errorCode ?? null,
@@ -1496,6 +1849,10 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
     hasEarlierMessages: state.hasEarlierMessages ?? false,
     isLoadingEarlier: state.isLoadingEarlier ?? false,
     loadEarlierMessages: () => sessionApisAvailable ? callParent("loadEarlierMessages", []) : guardedCall(false),
+    firstMessageNumber: state.firstMessageNumber ?? 1,
+    searchMessages: (query, options) => sessionApisAvailable
+      ? callParent<ChatSearchResult>("searchMessages", [query, options ?? {}], 20_000)
+      : Promise.reject(new Error("No active session")),
 
     // Model picker
     selectedModel: state.selectedModel ?? "",
@@ -1504,6 +1861,7 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
     cancelModelFallback: (id) => callParent("cancelModelFallback", [id]),
     userPlan: state.userPlan ?? "free",
     memorySummaryEnabled: state.memorySummaryEnabled ?? false,
+    playerRegexRules: state.playerRegexRules ?? [],
     preferredProvider: state.preferredProvider ?? "official",
     localBridge: state.localBridge ?? null,
     reconnectLocalBridge: () => callParent("reconnectLocalBridge", []),
@@ -1520,14 +1878,43 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
     addToPool: (modelId) => postToParent("addToPool", [modelId]),
     removeFromPool: (modelId) => postToParent("removeFromPool", [modelId]),
     setPoolWeight: (modelId, weight) => postToParent("setPoolWeight", [modelId, weight]),
+    reasoningEffort: state.reasoningEffort ?? "low",
+    streaming: state.streaming ?? true,
+    setGenerationPref: (pref) => postToParent("setGenerationPref", [pref]),
     playerPrompts: state.playerPrompts ?? null,
     togglePlayerPrompt: (promptId, enabled) =>
       sessionApisAvailable
         ? callParent<{ ok: boolean }>("togglePlayerPrompt", [promptId, enabled], 20_000).catch(() => ({ ok: false }))
         : Promise.resolve({ ok: false }),
+    resetWorldPrompts: () =>
+      sessionApisAvailable
+        ? callParent<{ ok: boolean }>("resetWorldPrompts", [], 20_000).catch(() => ({ ok: false }))
+        : Promise.resolve({ ok: false }),
     openPromptComposer: () => { if (sessionApisAvailable) postToParent("openPromptComposer", []); },
     getStateGuardSettings: () => sessionApisAvailable ? callParent("getStateGuardSettings", []) : Promise.reject(new Error("No active session")),
     setStateGuardSettings: (patch) => sessionApisAvailable ? callParent("setStateGuardSettings", [patch]) : Promise.reject(new Error("No active session")),
+    getMemoryOverview: () =>
+      sessionApisAvailable
+        ? callParent<import("@yumina/shared").MemoryOverview>("getMemoryOverview", [])
+        : Promise.reject(new Error("No active session")),
+    savePinnedNotes: (pinned) =>
+      sessionApisAvailable
+        ? callParent<import("@yumina/shared").MemoryOverview>("savePinnedNotes", [pinned])
+        : Promise.reject(new Error("No active session")),
+    recapBackfill: (mode) =>
+      sessionApisAvailable
+        ? callParent<import("@yumina/shared").MemoryOverview>("recapBackfill", [mode])
+        : Promise.reject(new Error("No active session")),
+    stopRecap: () =>
+      sessionApisAvailable
+        ? callParent<import("@yumina/shared").MemoryOverview>("stopRecap", [])
+        : Promise.reject(new Error("No active session")),
+    getMemoryEvery: () => sessionApisAvailable ? callParent<number | null>("getMemoryEvery", []).catch(() => null) : Promise.resolve(null),
+    addRegexRule: (text) => sessionApisAvailable ? callParent<boolean>("addRegexRule", [text]).catch(() => false) : Promise.resolve(false),
+    setMemoryEvery: (turns) =>
+      sessionApisAvailable ? callParent<number | null>("setMemoryEvery", [turns]) : Promise.reject(new Error("No active session")),
+    hintSeen: (name) => callParent<boolean>("hintSeen", [name]).catch(() => true),
+    markHintSeen: (name) => { void callParent("markHintSeen", [name]).catch(() => {}); },
     getSessionMemory: () =>
       sessionApisAvailable
         ? callParent<SessionMemoryPayload>("getSessionMemory", [])
@@ -1624,6 +2011,19 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
       sessionApisAvailable
         ? callParent<SessionSummaryPayload>("updateSummaryceptionSnippet", [snippetId, text])
         : guardedCall(emptySessionSummaryPayload(), true),
+    deleteSummaryceptionSnippet: (snippetId) =>
+      sessionApisAvailable
+        ? callParent<{ summary: SessionSummaryPayload; restoredMessages: number }>("deleteSummaryceptionSnippet", [snippetId])
+        : Promise.reject(new Error("No active session")),
+    estimateRecapFold: (count) =>
+      sessionApisAvailable
+        ? callParent<import("@yumina/shared").RecapFoldEstimate>("estimateRecapFold", [count])
+        : Promise.reject(new Error("No active session")),
+    // Long: the host may wait on the player's confirmation first.
+    recapFold: (count) =>
+      sessionApisAvailable
+        ? callParent<{ summary: SessionSummaryPayload; messages: number } | null>("recapFold", [count], 180_000)
+        : Promise.reject(new Error("No active session")),
     getLiveCanon: () =>
       sessionApisAvailable
         ? callParent<LiveCanonApiResult>("getLiveCanon", [])
@@ -1682,6 +2082,7 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
                 worldbookIds: params.worldbookIds,
                 includeLorebook: params.includeLorebook,
                 responseFormat: params.responseFormat,
+                reasoningEffort: params.reasoningEffort,
               }],
               params.onDelta ?? (() => {}),
             )
@@ -1697,6 +2098,7 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
       skip: () => postToParent("realtimeVideo.skip", []),
       rewind: () => postToParent("realtimeVideo.rewind", []),
       retake: () => postToParent("realtimeVideo.retake", []),
+      setStyle: (style) => postToParent("realtimeVideo.setStyle", [String(style).slice(0, 20)]),
       openWindow: () => postToParent("realtimeVideo.openWindow", []),
       setSlot: (rect) => postToParent("realtimeVideo.setSlot", [rect ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height, radius: rect.radius } : null]),
       direct: (prompt) => postToParent("realtimeVideo.direct", [String(prompt).slice(0, 4000)]),
@@ -1717,13 +2119,22 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
       leave: () => postToParent("room.leave", []),
       sendInput: (body) => postToParent("room.input", [body]),
       sendCommand: (name, body) => callParent("room.cmd", [name, body]),
+      act: (action) => callParent("room.cmd", ["act", { action }]),
       onFrame: (cb) => {
         const handler = (e: Event) => cb((e as CustomEvent).detail as Record<string, unknown>);
         window.addEventListener(ROOM_FRAME_EVENT, handler);
         return () => window.removeEventListener(ROOM_FRAME_EVENT, handler);
       },
       voice: (action, value) => callParent("room.voice", [action, value], 20_000),
+      invite: (opts) => callParent("room.invite", [opts ?? {}], 20_000),
+      pendingTable: () => callParent("room.pendingTable", []),
     },
+    leaderboard: {
+      submit: (board, score, opts) => callParent("leaderboard.submit", [board, score, opts ?? {}], 15_000),
+      get: (board, opts) => callParent("leaderboard.get", [board, opts ?? {}], 15_000),
+    },
+    storyRoom: state.storyRoom ?? null,
+    storyRoomOffer: state.storyRoomOffer === true,
 
     // Voice readout (TTS) — synthesis happens parent-side (sandbox can't
     // fetch); playback runs on the parent audio store; state comes back via
@@ -1734,6 +2145,11 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
           ? callParent<{ ok: boolean; reason?: string }>("tts.speak", [opts], opts.waitForEnd ? 180_000 : 60_000)
             .catch(() => ({ ok: false as const, reason: "timeout" }))
           : guardedCall({ ok: false as const, reason: "unavailable" }, true),
+      prefetch: (opts) =>
+        sessionApisAvailable
+          ? callParent<{ ok: boolean; reason?: string }>("tts.prefetch", [opts], 60_000)
+            .catch(() => ({ ok: false as const, reason: "timeout" }))
+          : guardedCall({ ok: false as const, reason: "unavailable" }, true),
       stop: () => postToParent("tts.stop", []),
       onPlaybackFrame: (cb) => {
         const handler = (event: Event) => cb((event as CustomEvent<VoicePlaybackFrame>).detail);
@@ -1741,6 +2157,7 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
         return () => window.removeEventListener(VOICE_PLAYBACK_FRAME_EVENT, handler);
       },
       setPrefs: (prefs) => postToParent("tts.setPrefs", [prefs]),
+      setSpeakerVoice: (speaker, voice) => postToParent("tts.setSpeakerVoice", [speaker, voice]),
       preview: (voice) =>
         sessionApisAvailable
           ? callParent<{ ok: boolean; reason?: string }>("tts.preview", [voice], 60_000)
@@ -1758,7 +2175,8 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
         : guardedCall({ ok: false as const, reason: "unavailable" }, true),
       record: (opts) => {
         if (!sessionApisAvailable) return guardedCall({ ok: false as const, reason: "unavailable" }, true);
-        return callParentStreaming("voice.record", [{ requireLevels: opts?.requireLevels === true }], (delta) => {
+        const hint = typeof opts?.hint === "string" ? opts.hint.slice(0, 400) : undefined;
+        return callParentStreaming("voice.record", [{ requireLevels: opts?.requireLevels === true, hint }], (delta) => {
           const level = Number(delta);
           if (Number.isFinite(level)) opts?.onLevel?.(level);
         })
@@ -1776,6 +2194,14 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
       setPrefs: (prefs) => postToParent("voice.setPrefs", [prefs]),
     },
     voiceInputState: state.voiceInput ?? NO_VOICE_INPUT,
+
+    hostWindow: {
+      float: (opts) =>
+        callParent<{ ok: boolean; reason?: string }>("hostWindow.float", [opts ?? {}], 20_000)
+          .catch(() => ({ ok: false as const, reason: "timeout" })),
+      dock: () => postToParent("hostWindow.dock", []),
+    },
+    hostWindowState: state.hostWindow ?? NO_HOST_WINDOW,
 
     // Context injection (one-shot for next main chat turn)
     injectContext: (message, options) =>

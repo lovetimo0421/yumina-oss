@@ -1,3 +1,8 @@
+---
+title: "Player interface"
+description: "The player interface is the screen players see. Start from ready-made templates for title screens, status panels, inventories and maps, and wire up buttons, no code needed."
+---
+
 # Player Interface
 
 The player interface is the screen players actually see while they play. If you leave it alone, it's the default chat interface. If you want to give your card an opening page, a status panel, an inventory or a map, this is where you build them, **no code needed**.
@@ -13,7 +18,7 @@ Click **Templates** at the top to open **Pick a template**.
 ![Pick a template](./images/canvas/templates.webp)
 There are 22 ready-made templates, already wired up with variables, buttons and instructions for the AI. Add one and it plays.
 
-**Whole screen**: swaps out the look of the whole card in one go
+**Whole screen**: swaps out the look of the whole card in one go. There are twelve, and these four cover most cards
 
 | Template | Good for |
 |---|---|
@@ -30,33 +35,19 @@ Every whole-screen template tells you "Adds these variables to the card". Stat p
 
 There's also a **Blank page** with nothing on it, for laying things out yourself.
 
-On the canvas, **Add → Opening pages, inventory, map…** and **A setup screen (name, cast, start)** open this same template library.
+On the canvas, the **＋** on **Player interface** (**Add a page**) opens this same template library.
 
 ## Pages
 
-The column on the left holds every page in the card, like slides:
-
-![The page column](./images/canvas/page-strip.webp)
-
-- Click a page to edit it, drag to reorder, double-click to rename, right-click for duplicate, delete and so on
-- **New page** also picks from the templates
-- If a page has no button that leads away from it, it gets a **No way out** warning, so players don't get stuck
-- On a card with only one page, this column starts folded away
+The column on the left holds every page in the card, like slides. **New page** picks from the same templates. A page with no button leading away from it gets a **No way out** warning, so players never get stuck.
 
 ## Edit right on the screen
 
-While **Edit** at the top is on, click something on the screen to select it, drag it to move it, and pull a corner to resize it. Turn **Edit** off to press buttons like a player would and see what they do. This is a preview: it doesn't call the AI and doesn't cost credits.
+While **Edit** at the top is on, click a part to select it, drag it to move it, and pull a corner to resize it. Turn **Edit** off to press buttons like a player would. This is a preview: it does not call the AI and costs nothing.
 
-**Desktop** and **Phone** switch the preview width. Each width has its own positions and sizes, and you're editing whichever one you're looking at. Some parts can be set to show **Desktop only** or **Phone only**.
+**Desktop** and **Phone** switch the preview width. Each width keeps its own positions and sizes, and you are editing whichever one you are looking at, so check both before you finish. Some parts can be set to show on one of them only.
 
-Select a part and its settings appear on the right as **This part**:
-
-- The text and what it shows: you can **Insert a variable's value…**, like "Day {current day}"
-- **Position, arrangement and style**: colour, font size, alignment, rounded corners and so on
-- **Add a part**: Text, Button, Image, Panel, Meter, List, Card picker, Form field, Popup
-- **Layers**: every part on this page. Click a name to select it. The easiest way to find something hidden behind something else
-
-With nothing selected, the right side lists what this page uses.
+Select a part and its settings open on the right. Text can **Insert a variable's value…**, like "Day {current day}". **Add a part** offers Text, Button, Image, Panel, Meter, List, Card picker, Form field and Popup. **Layers** lists every part on the page, which is the easiest way to find something hidden behind something else.
 
 ### How the conversation looks
 
@@ -82,7 +73,26 @@ Select a button, and under **When pressed, do in order** you can line up several
 
 ## Writing your own interface code
 
-When templates and parts aren't enough, you can build it all yourself. Interface code lives in **Panels → Front End Code**. Write it by hand, or have the Creation assistant write and edit it for you. Details in [Advanced: Custom UI Deep Dive](/creator/advanced/custom-ui-deep).
+When templates and parts aren't enough, you can build it all yourself. Interface code lives in **Panels → Interface code**. Write it by hand, or have the Creation assistant write and edit it for you. Details in the [Custom UI guide](/creator/advanced/custom-ui-deep).
+
+## Write for me and Note to the AI
+
+The default chat's input box gives players two tools:
+
+- **Write for me** (in the + menu): with the box empty, the AI writes the player's next move; with text in it, it expands that line into a fuller message. It writes only the player's own character, never other characters, and never moves the plot on. The result only fills the box, so the player edits and sends it. It runs on the player's chosen model and costs one call.
+- **Note to the AI** (in the + menu): a direction for the next reply only, like "slow down, let her speak first". It is not story text and never goes into the recap or memory. A small line on the player's message shows it.
+
+For cards where the player's own wording is the game (riddles, passwords), click the card on the canvas and turn **Write for me** off under **Player input**. In your own interface code, use `api.composeAssist()` and `api.sendMessage(text, attachments, { note })`; see the [API reference](/creator/advanced/08-api-reference).
+
+## Common questions
+
+**How do I change the theme (colours, fonts)?** Each layout in **Switch interface** comes with its own colours. To change them, click **Edit** on the Player interface block, select a part, and set its colour, font and corners. You can also tell the Creation assistant, for example "make the accent dark red and use a serif font".
+
+**Where is the code?** Click **Code** on the Player interface block (it shows when the card has interface code), or open **Panels → Interface code**. Typing "code" or "theme" in the canvas search box also takes you there.
+
+**Can I save my own setup as a template?** Yes. Open **⋮ → Save as template or pack**, choose **Template**, tick what to include and save it to your library. Use it again from **Resource market → My Library**, on this card or a new one.
+
+**Can I add a leaderboard?** Yes. Tell the Studio assistant "add a leaderboard" and it draws one in the card's current style, showing the player's rank when a run ends. Change its look however you like. See [Leaderboards](./advanced/recipes/leaderboard.md).
 
 ## When you're done
 

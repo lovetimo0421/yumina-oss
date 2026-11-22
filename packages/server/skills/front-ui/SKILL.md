@@ -68,7 +68,7 @@ To take over the viewport entirely — no platform chat at all — simply don't 
 | Hidden element | What the component must do instead |
 |---|---|
 | MessageList | Read `api.messages` and render messages yourself |
-| MessageInput | Provide your own `<input>` / `<textarea>`, call `api.sendMessage(text)` |
+| MessageInput | Provide your own `<input>` / `<textarea>`, call `api.sendMessage(text)`. Players expect the built-in input's two tools there too: Write for me (`await api.composeAssist({ text })` fills your box, never sends; hide it when `!api.composeAssistAllowed`) and Note to the AI (`api.sendMessage(text, undefined, { note })`) |
 | Composer "Context" button (Session Memory & Story Summary) | Dropping the built-in composer removes it. If `api.memorySummaryEnabled`, re-add a button that opens `<SessionMemoryModal open onClose />` — see the tsx skill's **Pattern: Session Memory Button**. Do NOT rebuild it from `api.injectContext`. |
 | Greeting display | The greeting is `api.messages[0]` (first assistant message) — render it. Multiple greetings are built-in: create multiple `role: "greeting"` entries and use `api.switchGreeting(index)` to navigate |
 | Streaming text | Check `api.isStreaming`, render `api.streamingContent` |
@@ -167,9 +167,34 @@ All of these persist on/off in a `__lore_{slotId}` game variable, so a player's 
 
 ### Fullscreen / immersive mode is automatic
 
-Every rootComponent world auto-enters immersive mode on session load — browser Fullscreen API + hidden sidebar/header, in one go. ESC exits (first press drops immersive, second navigates away). Do NOT call `document.documentElement.requestFullscreen()`, `element.requestFullscreen()`, or track fullscreen state yourself from TSX — you will fight the platform's own state machine and cause the "video stops when I click" / "audio leaks after exit" class of bugs.
+Every rootComponent world auto-enters immersive mode on session load — browser Fullscreen API + hidden sidebar/header, in one go. Do NOT call `document.documentElement.requestFullscreen()`, `element.requestFullscreen()`, or track fullscreen state yourself from TSX — you will fight the platform's own state machine and cause the "video stops when I click" / "audio leaks after exit" class of bugs.
 
-If a custom button in your UI needs to toggle immersive mode, call `window.__yuminaToggleImmersive?.()` — this is the platform-blessed path. Don't add your own "enter fullscreen" button unless the user explicitly asked for one.
+### The Escape key and the game menu (the Yumina game standard)
+
+In fullscreen the platform hands **Escape** to the card; players leave fullscreen by *holding* Escape, as the browser tells them. Held-key repeats are dropped before your listeners, so one hold is one press. Every card that takes over the screen follows the same contract, so a player who learned it on one card knows it on all of them:
+
+1. **Escape opens and closes the game menu (pause / settings). Nothing else.** Do not bind Escape to closing a drawer, cancelling a text box, or backing out of a dialog. Those get their own close button (and a key of their own if you like). Inside the menu, Escape steps back from a sub-page, then closes the menu. Call `preventDefault()` on the Escape you handle.
+2. **The menu always has these two items**, at the bottom, in this order:
+   - **Exit full screen** → `api.exitFullscreen()`. Ask `await api.isFullscreen()` when the menu opens; when it is false, show **Full screen** → `api.toggleImmersive()` instead.
+   - **Back to Yumina** → `api.backToYumina()`. It leaves fullscreen and goes back to where the player came from. Save first if your card keeps its own progress.
+3. A card with no menu at all should not touch Escape: an Escape no listener claims leaves fullscreen, as the browser would.
+
+```tsx
+const [fs, setFs] = React.useState(false);
+React.useEffect(() => { if (menuOpen) api.isFullscreen().then(setFs); }, [menuOpen]);
+React.useEffect(() => {
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key !== "Escape" || e.isComposing) return;
+    e.preventDefault();
+    setMenuOpen((open) => !open);
+  };
+  window.addEventListener("keydown", onKey);
+  return () => window.removeEventListener("keydown", onKey);
+}, []);
+// …inside the menu:
+<button onClick={() => (fs ? api.exitFullscreen() : api.toggleImmersive())}>{fs ? "Exit full screen" : "Full screen"}</button>
+<button onClick={() => api.backToYumina()}>Back to Yumina</button>
+```
 
 ### Binary assets: `api.fetchAsset()`, and why images are different
 

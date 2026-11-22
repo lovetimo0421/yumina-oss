@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { removeTurnImage, splitTurnImages } from "../../../sandbox/chat/turn-image-embeds";
+import { readTurnImageVersions } from "@yumina/shared";
+import { removeTurnImage, selectTurnImageInText, splitTurnImages } from "../../../sandbox/chat/turn-image-embeds";
 
 const key = (path: string) => Buffer.from(path).toString("base64url");
 const turnEmbed = `[image:/cdn/key/${key("users/u1/turn-images/abc.jpg")}|alt=scene]`;
@@ -64,4 +65,67 @@ ${own}  `);
 ${own}`, own), `地图
 
 ${own}`);
+});
+
+const k = (name: string) => key(`users/u1/turn-images/${name}.jpg`);
+const redrawn = `[image:/cdn/key/${k("c")}|alt=scene|versions=${k("a")},${k("b")},${k("c")}]`;
+
+test("a picture drawn before versions existed reads as its one version", () => {
+  const embed = splitTurnImages(`正文
+
+${turnEmbed}`).embeds[0]!;
+  assert.equal(readTurnImageVersions(embed)?.keys.length, 1);
+  assert.equal(embed, turnEmbed);
+});
+
+test("a redrawn picture shows the picked version and lists them all", () => {
+  const [embed] = splitTurnImages(`正文
+
+${redrawn}`).embeds;
+  assert.equal(embed, redrawn);
+  // What everything that shows the picture reads: the address in front.
+  assert.ok(embed!.startsWith(`[image:/cdn/key/${k("c")}|`));
+  assert.deepEqual(readTurnImageVersions(embed!), { keys: [k("a"), k("b"), k("c")], index: 2, options: ["alt=scene"] });
+  // The card's renderer never sees it, versions and all.
+  assert.equal(splitTurnImages(`正文
+
+${redrawn}`).text, "正文");
+});
+
+test("stepping back rewrites only the picture's address, and the album/gallery read the picked one", () => {
+  const own = `[image:/cdn/key/${key("users/u1/assets/map.png")}|size=full]`;
+  const text = `地图
+${own}
+
+正文
+
+${redrawn}`;
+  const back = selectTurnImageInText(text, k("a"))!;
+  assert.equal(back, `地图
+${own}
+
+正文
+
+[image:/cdn/key/${k("a")}|alt=scene|versions=${k("a")},${k("b")},${k("c")}]`);
+  const shown = splitTurnImages(back).embeds[0]!;
+  assert.ok(shown.startsWith(`[image:/cdn/key/${k("a")}|`));
+  assert.equal(readTurnImageVersions(shown)?.index, 0);
+  // "Remove picture" still removes it, every version with it.
+  assert.equal(removeTurnImage(back, shown), `地图
+${own}
+
+正文`);
+});
+
+test("a version that isn't the reply's is not picked", () => {
+  assert.equal(selectTurnImageInText(`正文
+
+${redrawn}`, k("zzz")), null);
+  assert.equal(selectTurnImageInText("没有图", k("a")), null);
+  // Picking the shown one is a no-op.
+  assert.equal(selectTurnImageInText(`正文
+
+${redrawn}`, k("c")), `正文
+
+${redrawn}`);
 });

@@ -1,6 +1,7 @@
 import type { Context, Next } from "hono";
 import { env } from "../lib/env.js";
 import { redis } from "../lib/redis.js";
+import { clientIpFrom } from "../lib/client-ip.js";
 import { LOGIN_STEPUP_THRESHOLD, LOGIN_FAIL_TTL_S, extractLoginIdentifier } from "./login-abuse.js";
 
 /**
@@ -120,10 +121,7 @@ export async function turnstileMiddleware(c: Context, next: Next) {
       ? (await getLoginFailureCount(identifier)) >= LOGIN_STEPUP_THRESHOLD
       : false;
 
-  const ip =
-    c.req.header("cf-connecting-ip") ??
-    c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ??
-    "";
+  const ip = clientIpFrom((name) => c.req.header(name)) ?? "";
 
   const token = body["cf-turnstile-response"] as string | undefined;
 

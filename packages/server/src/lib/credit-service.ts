@@ -23,6 +23,7 @@ import {
   normalizeProviderCostUsd,
   providerCostUsdToCredits,
 } from "./provider-cost.js";
+import type { ModelCostRates } from "./credit-estimate.js";
 
 import { bonusCompatibilityEnabled, cyclePlanConfig, expireWalletBonus, prepareWalletSpend, recordSpendAllocation, recordCyclePolicy } from "./free-credit-policy.js";
 import { isV2Signup, shouldMigrateToV2 } from "./plan-config-v2.js";
@@ -529,10 +530,14 @@ export async function validateModelAccess(
 
 // ─── Cost Estimation (for mid-stream tracking) ─────────────────────
 
-export interface ModelCostRates {
-  inputPricePerM: number;
-  outputPricePerM: number;
-}
+// Pure estimate math lives in credit-estimate.ts (no DB, unit-testable);
+// re-exported here so existing imports keep working.
+export {
+  CONSERVATIVE_CHARS_PER_TOKEN,
+  estimateTokensFromChars,
+  estimateCreditsFromChars,
+} from "./credit-estimate.js";
+export type { ModelCostRates } from "./credit-estimate.js";
 
 /**
  * Pre-load model pricing for use during streaming. Call ONCE before the stream
@@ -556,39 +561,6 @@ export async function getModelCostRates(
   // Apply markup multiplier (premium models charge above raw upstream)
   const m = price.markupMultiplier ?? 1.0;
   return { inputPricePerM: inputPrice * m, outputPricePerM: outputPrice * m };
-}
-
-/**
- * Conservative token-per-character ratio for cost estimation.
- * Used only when the done chunk is unavailable (abort, cancel, error).
- * Normal completions always use exact token counts from the provider.
- *
- * 2.0 chars/token is deliberately conservative:
- * - CJK text: ~1.5-2 chars/token → estimation is roughly accurate
- * - English text: ~4 chars/token → we over-estimate by ~2x
- *
- * Over-estimating is intentional: we'd rather charge slightly more on
- * rare aborts than under-charge and lose money. The 2.5x margin on
- * credit purchases means even a 2x over-estimate on aborts still
- * leaves positive margin.
- */
-export const CONSERVATIVE_CHARS_PER_TOKEN = 2.0;
-
-/** Estimate token count from character count (conservative — never under-counts). */
-export function estimateTokensFromChars(chars: number): number {
-  return Math.ceil(chars / CONSERVATIVE_CHARS_PER_TOKEN);
-}
-
-/** Estimate credits from character counts. Used for mid-stream tracking and abort fallback. */
-export function estimateCreditsFromChars(
-  rates: ModelCostRates,
-  promptChars: number,
-  outputChars: number,
-): number {
-  const estimatedPromptTokens = estimateTokensFromChars(promptChars);
-  const estimatedOutputTokens = estimateTokensFromChars(outputChars);
-  const costDollars = (estimatedPromptTokens * rates.inputPricePerM + estimatedOutputTokens * rates.outputPricePerM) / 1_000_000;
-  return Math.ceil(costDollars * 1000 * 10) / 10;
 }
 
 // ─── Cost Calculation ───────────────────────────────────────────────

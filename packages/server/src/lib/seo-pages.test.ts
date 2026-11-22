@@ -7,11 +7,12 @@ const template = readFileSync(new URL("../../../app/index.html", import.meta.url
 
 // Owner-authored copy (2026-09-30). These assertions pin the exact words.
 const PAGES: Array<[string, string, string]> = [
-  ["/", "Yumina", "Open-source world engine and community turning entertainment interactive."],
+  ["/", "Yumina: Play Free AI Games & AI Roleplay - Sign Up to Play!", "Play and create AI driven games, visual novels, anime characters and simulators. Built on open-source AI game engine. Free to play."],
   ["/app/hub", "Discover", "Find your favorite stories and become part of what happens."],
   ["/app/community", "Community", "Make friends here and share whatever you want."],
   ["/app/bundles", "Bundles", "Download or share community made resource packs to help you build your worlds easier!"],
   ["/app/worlds", "Create", "Turn your story into a playable world, and invite us in."],
+  ["/updates", "Updates", "What's new in Yumina: features, improvements and fixes, newest first."],
   ["/login", "Sign in", "Welcome back to Yumina - hope to make you happy today."],
   ["/register", "Create account", "Join Yumina and find a world you feel at home in, or make the one you've been looking for."],
 ];
@@ -22,8 +23,9 @@ test("site pages carry the owner's titles and descriptions, word for word", asyn
     assert.equal(meta.title, title, path);
     assert.equal(meta.description, description, path);
     const html = injectMeta(template, meta);
-    assert.ok(html.includes(`<title>${title}</title>`), `${path} tab title`);
-    assert.ok(html.includes(`<meta property="og:title" content="${title}" />`), `${path} share title`);
+    const safeTitle = title.replace(/&/g, "&amp;");
+    assert.ok(html.includes(`<title>${safeTitle}</title>`), `${path} tab title`);
+    assert.ok(html.includes(`<meta property="og:title" content="${safeTitle}" />`), `${path} share title`);
     assert.ok(html.includes(`<meta name="description" content="${description}" />`), `${path} description`);
   }
 });
@@ -36,8 +38,8 @@ test("no page title ends in a brand suffix", async () => {
 });
 
 test("the template's own defaults match the home page", () => {
-  assert.ok(template.includes("<title>Yumina</title>"));
-  assert.ok(template.includes('content="Open-source world engine and community turning entertainment interactive."'));
+  assert.ok(template.includes("<title>Yumina: Play Free AI Games &amp; AI Roleplay - Sign Up to Play!</title>"));
+  assert.ok(template.includes('content="Play and create AI driven games, visual novels, anime characters and simulators. Built on open-source AI game engine. Free to play."'));
   assert.ok(template.includes('content="A burning anchor, in watercolor, above the word Yumina."'));
 });
 

@@ -6,7 +6,7 @@ import { useEditorStore } from "@/stores/editor";
  *  `script` is not a kind anyone picks: it is a call the interface code makes
  *  on its own, drawn on the board so it is not invisible. */
 export type AiType = "turn" | "ui" | "event" | "custom";
-export type AiRowType = AiType | "script" | "game";
+export type AiRowType = AiType | "script" | "game" | "platform";
 
 /** Asks the board to add an AI of a kind to the card and open it: the card's
  *  own AI is always the one replying, so its type switch is the way to the

@@ -46,7 +46,7 @@ test("choice-only side decisions validate and isolate each authenticated request
     await db.insert(apiKeys).values({ userId, provider: "openrouter", encryptedKey: key.encrypted, keyIv: key.iv, keyTag: key.tag });
     let creatorId = userId;
     if (protectedWorld) { creatorId = crypto.randomUUID(); await db.insert(user).values({ id: creatorId, name: "Creator", email: `${creatorId}@test.local` }); }
-    await db.insert(worlds).values({ id: worldId, creatorId, name: "Stage", status: "draft", allowCustomApi: !protectedWorld, schema: {} });
+    await db.insert(worlds).values({ id: worldId, creatorId, name: "Stage", status: "published", allowCustomApi: !protectedWorld, schema: {} });
     const state = { variables: { scene: "unchanged" }, turnCount: 4 };
     const [session] = await db.insert(playSessions).values({ userId, worldId, state }).returning();
     const app = new Hono<AppEnv>();

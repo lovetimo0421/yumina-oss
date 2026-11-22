@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { diffGraphs, toGraph, type CardGraph, type GraphDiff, type ToGraphOptions, type WorldDefinition } from "@yumina/engine";
 import { feedback } from "@/lib/feedback";
+import { turnNarrowedTo, turnOnlyDiff } from "./turn-narrow";
 import i18n from "@/lib/i18n";
 import { draftFromStoredSchema, useEditorStore } from "@/stores/editor";
 import { useStudioStore } from "@/stores/studio";
@@ -55,6 +56,8 @@ export function useTurnDiff(graph: CardGraph, worldId: string | null, graphOptio
   turn: TurnDiff | null;
   dismiss: () => void;
   restore: () => void;
+  /** Take back one object the turn added or changed; false when it cannot be. */
+  restoreOne: (nodeId: string) => boolean;
 } {
   const chatMessages = useStudioStore((s) => s.chatMessages);
   // The text and defaults the graph leaves out, so a turn that only rewrote
@@ -86,6 +89,8 @@ export function useTurnDiff(graph: CardGraph, worldId: string | null, graphOptio
    *  the run: the snapshot can arrive before the refresh does, and a draft
    *  taken then is the card without the turn's writes. */
   const afterTurn = useRef<{ runId: string; world: WorldDefinition } | null>(null);
+  /** The same, as state: the banner's list is drawn from it. */
+  const [afterTurnWorld, setAfterTurnWorld] = useState<{ runId: string; world: WorldDefinition } | null>(null);
   const [dismissedRunId, setDismissedRunId] = useState<string | null>(null);
   const fetchedFor = useRef<string | null>(null);
 
@@ -95,6 +100,7 @@ export function useTurnDiff(graph: CardGraph, worldId: string | null, graphOptio
     const unsubscribe = useEditorStore.subscribe((s) => {
       if (!s._baseSchema || s._baseSchema === held || afterTurn.current?.runId === runId) return;
       afterTurn.current = { runId, world: s._baseSchema };
+      setAfterTurnWorld(afterTurn.current);
       unsubscribe();
     });
     return unsubscribe;
@@ -149,6 +155,23 @@ export function useTurnDiff(graph: CardGraph, worldId: string | null, graphOptio
     }
   }, [baseline]);
 
+  const restoreOne = useCallback((nodeId: string) => {
+    if (!baseline) return false;
+    const editor = useEditorStore.getState();
+    const end = afterTurn.current?.runId === baseline.runId
+      ? afterTurn.current.world
+      : editor._baseSchema ?? editor.worldDraft;
+    const narrowed = turnNarrowedTo(baseline.world, end, nodeId);
+    if (!narrowed) return false;
+    const { reverted, kept } = editor.revertAssistantTurn(baseline.world, narrowed);
+    if (kept > 0) {
+      feedback.notice(reverted
+        ? i18n.t("blueprint.turn.undoKeptYours", { ns: "editor", count: kept })
+        : i18n.t("blueprint.turn.undoAllKept", { ns: "editor" }));
+    }
+    return reverted;
+  }, [baseline]);
+
   // Every derived value here has to be referentially stable: the canvas feeds
   // the turn marks into its node-rebuild effect, so a fresh object per render
   // is an infinite update loop, not a wasted allocation.
@@ -158,12 +181,20 @@ export function useTurnDiff(graph: CardGraph, worldId: string | null, graphOptio
   );
   const turn = useMemo(() => {
     if (!active) return null;
-    const diff = diffGraphs(toGraph(active.world, graphOptions), graph, {
+    const beforeGraph = toGraph(active.world, graphOptions);
+    const live = diffGraphs(beforeGraph, graph, {
       before: active.world,
       after: { entries: liveEntries, variables: liveVariables },
     });
+    const end = afterTurnWorld?.runId === active.runId ? afterTurnWorld.world : null;
+    const diff = end
+      ? turnOnlyDiff(live, diffGraphs(beforeGraph, toGraph(end, graphOptions), {
+        before: active.world,
+        after: { entries: end.entries, variables: end.variables },
+      }))
+      : live;
     return diff.isEmpty ? null : { runId: active.runId, snapshotId: active.snapshotId, diff };
-  }, [active, graph, graphOptions, liveEntries, liveVariables]);
+  }, [active, graph, graphOptions, liveEntries, liveVariables, afterTurnWorld]);
 
-  return { turn, dismiss, restore };
+  return { turn, dismiss, restore, restoreOne };
 }

@@ -26,8 +26,8 @@ export function GameInterfaceGroup() {
   return (
     <Group title={t("blueprint.gameIface.title")} hint={t("blueprint.gameIface.hint")}>
       {iface && !iface.declared ? (
-        <p className="text-[11.5px] leading-relaxed text-foreground/70" data-game-iface-builtin="">
-          {t("blueprint.gameIface.builtin", { game: gameNameOf(iface, t as Translate), inputs: iface.inputs.size, outputs: iface.outputs.size })}
+        <p className="text-[11.5px] leading-relaxed text-foreground/70" data-game-iface-builtin="" title={t("blueprint.gameIface.builtin", { game: gameNameOf(iface, t as Translate), inputs: iface.inputs.size, outputs: iface.outputs.size })}>
+          {t("blueprint.gameIface.builtinShort", { game: gameNameOf(iface, t as Translate), inputs: iface.inputs.size, outputs: iface.outputs.size })}
         </p>
       ) : (
         <>
@@ -48,8 +48,8 @@ export function GameInterfaceGroup() {
                   className={inputClass}
                 />
               </Field>
-              <p className="text-[11px] leading-relaxed text-foreground/55">
-                {t("blueprint.gameIface.counts", { inputs: iface.inputs.size, outputs: iface.outputs.size })}
+              <p className="text-[11px] leading-relaxed text-foreground/55" title={t("blueprint.gameIface.counts", { inputs: iface.inputs.size, outputs: iface.outputs.size })}>
+                {t("blueprint.gameIface.countsShort", { inputs: iface.inputs.size, outputs: iface.outputs.size })}
               </p>
             </div>
           )}

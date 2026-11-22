@@ -435,3 +435,42 @@ test("explicit failed writes do not bypass writable permissions or candidate lim
   assert.ok(!ids.includes("secret"));
   assert.equal(ids[0], "bare");
 });
+
+test("a flagged text variable reaches the repair model with its row format and the card's own notes", async () => {
+  const w = world();
+  w.variables.push({ id: "relationship-events", name: "Relationship events", type: "string", defaultValue: "", description: "Relationship changes this turn" } as WorldDefinition["variables"][number]);
+  w.entries = [
+    { id: "e1", name: "Channels", content: "Write each relationship change to relationship-events as one row: Name | trust +N | event=what happened.", enabled: true, alwaysSend: true, role: "system", keywords: [], conditions: [], conditionLogic: "all", position: 0, section: "system-presets" },
+    { id: "e2", name: "Keyworded", content: "relationship-events secret", enabled: true, alwaysSend: false, role: "lore", keywords: ["x"], conditions: [], conditionLogic: "all", position: 1, section: "system-presets" },
+  ] as WorldDefinition["entries"];
+  const state = new GameStateManager(w).getSnapshot();
+  state.variables["relationship-events"] = "Aiko | trust +3 | event=walked her home\nRen | trust -1 | event=skipped practice";
+  const calls = { decide: 0, repair: 0 };
+  let sent = "";
+  const d = deps({ "relationship-events": 0.95 }, "", calls);
+  d.resolveModel = (async () => ({ provider: { async *generateStream(req: { messages: Array<{ content: string }> }) {
+    calls.repair++; sent = req.messages.map(m => m.content).join("\n");
+    yield* chunks('{"narrative":"","status":"updated","stateChanges":[{"variableId":"relationship-events","operation":"append","value":"\\nMio | trust +2 | event=lent a pen"}]}');
+  }, async listModels() { return []; } }, apiKeyTier: "regular", model: "test", maxContext: 28_608 })) as unknown as MissedUpdateDeps["resolveModel"];
+  const out = await repairMissedUpdates(args({ world: w, state, replyText: "Mio lends you a pen with a shy smile." }), d);
+  assert.equal(calls.repair, 1);
+  assert.match(sent, /"formatSample":"Aiko \| trust \+3 \| event=walked her home\\nRen \| trust -1 \| event=skipped practice"/);
+  assert.match(sent, /"authorNotes":\{"relationship-events":\["Write each relationship change to relationship-events as one row/);
+  assert.doesNotMatch(sent, /relationship-events secret/);
+  assert.match(sent, /exactly that row grammar/);
+  assert.match(sent, /start the appended value with a newline/);
+  assert.deepEqual(out.effects, [{ variableId: "relationship-events", operation: "append", value: "\nMio | trust +2 | event=lent a pen" }]);
+});
+
+test("without a text variable flagged the repair prompt has no row-format rule", async () => {
+  const calls = { decide: 0, repair: 0 };
+  let sent = "";
+  const d = deps({ fallen: 0.95 }, "", calls);
+  d.resolveModel = (async () => ({ provider: { async *generateStream(req: { messages: Array<{ content: string }> }) {
+    calls.repair++; sent = req.messages.map(m => m.content).join("\n");
+    yield* chunks('{"narrative":"","status":"none","stateChanges":[]}');
+  }, async listModels() { return []; } }, apiKeyTier: "regular", model: "test", maxContext: 28_608 })) as unknown as MissedUpdateDeps["resolveModel"];
+  await repairMissedUpdates(args(), d);
+  assert.equal(calls.repair, 1);
+  assert.doesNotMatch(sent, /row grammar|formatSample|authorNotes/);
+});

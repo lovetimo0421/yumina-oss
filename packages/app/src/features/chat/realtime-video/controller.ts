@@ -124,6 +124,11 @@ export interface VideoState {
   optedIn?: boolean;
   /** Engines a card may offer the player here (start with { engine, playerChoice: true }). */
   engines?: VideoEngine[];
+  /** The look films are shot in ("source" the card's own, "live", "anime", "painted"); setStyle changes it. */
+  style?: string;
+  /** A card shows the film on its own stage right now (setSlot): the host's film window stays out
+   *  of the way and the stage carries the host's cost and stop. */
+  cardStage?: boolean;
   clips: number;
   /** Comfy chain: the next clip is still rendering and the player holds the last frame.
    *  Shorts: no film is playing right now (the last frame holds). */
@@ -199,7 +204,10 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 
 /** Engine the player picked in the floating player's settings; a card cannot override it. */
 export const FILM_SETTINGS_KEY = "yumina:rtv-settings";
-export const DEFAULT_ENGINE: VideoEngine = "fal";
+/** Short films by default (2026-11-06): on fal they film a reply in ~20 s at a fraction of the
+ *  live stream's price, which billed 60 s up front and ran 39 of 50 sessions only that minute.
+ *  The live stream stays one pick away in the player's settings. */
+export const DEFAULT_ENGINE: VideoEngine = "shorts";
 /** Engines this player can use here: fal where the server holds a fal key, and short films.
  *  The Comfy clip chains are closed: their picture was not good enough (owner, 2026-10-07). */
 function enginesOffered(): VideoEngine[] {
@@ -527,6 +535,20 @@ export class RealtimeVideoController {
   getState(): VideoState {
     return this.state;
   }
+  /** The look picked while the film runs: the next reply is filmed in it. */
+  /** A card put the film on its own stage (or took it away); the film window would only take the
+   *  picture from it. */
+  setCardStage(on: boolean) {
+    if (!!this.state.cardStage !== on) this.set({ cardStage: on });
+  }
+
+  setStyle(style: string) {
+    if (!style || style === this.opts.style) return;
+    this.opts = { ...this.opts, style };
+    this.set({ style });
+    // Coming back carries on in the look picked last, not the one the films started in.
+    if (this.state.engine === "shorts" && shortsOn(this.sessionId)) shortsOn(this.sessionId, true, style);
+  }
   get lastShot(): string {
     return this.prevShot;
   }
@@ -771,7 +793,7 @@ export class RealtimeVideoController {
     this.deferred = [];
     this.earlyWork = null;
     this.pendingReply = false;
-    this.set({ status: "starting", engine, elapsed: 0, cost: 0, credits: 0, clips: 0, waiting: false, currentShot: "", currentStatus: null, error: undefined, steps: [], scenes: [], currentScene: null, cut: null, short: null });
+    this.set({ status: "starting", engine, style: this.opts.style, elapsed: 0, cost: 0, credits: 0, clips: 0, waiting: false, currentShot: "", currentStatus: null, error: undefined, steps: [], scenes: [], currentScene: null, cut: null, short: null });
     if (engine === "shorts") return this.startShorts();
     try {
       const msgs = useChatStore.getState().messages;

@@ -53,7 +53,13 @@ test("world lists isolate scopes, coalesce background requests, and discard stal
 
   const direct = state().fetchWorlds({ ...options, worldId: "linked-world" });
   assert.equal(new URL(pending[4]!.url, "https://yumina.test").searchParams.get("worldId"), "linked-world");
+  pending[4]!.finish(Response.json({ data: [{ id: "representative" }], linkedWorld: { id: "linked-world" } }));
+  await direct;
+  assert.equal(state().linkedWorld?.id, "linked-world");
+  assert.deepEqual(state().worlds.map(world => world.id), ["representative"]);
+  const previousAccount = state().fetchWorlds({ ...options, worldId: "another-world" });
   state().clear();
-  respond(4, "previous-account"); await direct;
+  respond(5, "previous-account"); await previousAccount;
+  assert.equal(state().linkedWorld, null);
   assert.deepEqual(state().worlds, [], "an in-flight response must not restore signed-out data");
 });

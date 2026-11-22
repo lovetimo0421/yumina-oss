@@ -12,12 +12,12 @@ const messageInputSource = readFileSync(
   "utf8",
 );
 
-test("play zoom does not scale the composer chrome", () => {
+test("the play header scale does not reach the composer chrome", () => {
   const composerRules = [...globalsCss.matchAll(/\.play-composer-inner\s*\{([^}]*)\}/g)];
   assert.ok(composerRules.length >= 2, "expected desktop and mobile composer rules");
 
   for (const [, declarations] of composerRules) {
-    assert.doesNotMatch(declarations, /--play-ui-scale|\bzoom\s*:/);
+    assert.doesNotMatch(declarations, /--play-header-scale|\bzoom\s*:/);
   }
 
   assert.match(globalsCss, /width:\s*min\(100%,\s*var\(--play-surface-max\)\)/);

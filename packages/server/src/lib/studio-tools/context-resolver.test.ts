@@ -262,3 +262,12 @@ test("buildInventory tells the assistant which variables a declared game owns", 
   (world as { game?: unknown }).game = null;
   assert.doesNotMatch(buildInventory(world, []), /GAME INTERFACE/);
 });
+
+test("buildInventory shows only the opening of a very long description", () => {
+  const long = "A".repeat(10_000);
+  const inv = buildInventory({ ...blackboardWorld(), name: "Long", description: long }, []);
+  assert.match(inv, /Description \(first 4000 of 10000 chars\)/);
+  assert.ok(!inv.includes("A".repeat(4001)));
+  const short = buildInventory({ ...blackboardWorld(), name: "Short", description: "hello" }, []);
+  assert.match(short, /Description: hello/);
+});

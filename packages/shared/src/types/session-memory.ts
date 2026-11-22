@@ -1,3 +1,4 @@
+import type { RecapShare } from '../recap.js';
 export type SessionMemoryStatus = "idle" | "updating" | "failed";
 export type SessionSummaryStatus = "idle" | "updating" | "failed";
 export type SessionSummaryMode = "threshold" | "overflow";
@@ -158,7 +159,8 @@ export interface SessionSummaryRawChatProgress {
 export type SummaryCompactionNoOpCode =
   | "fits-within-raw-tail" // whole transcript still fits the kept-raw tail; nothing older to compact
   | "batch-already-compacted" // the targeted Layered Summary batch is already compacted
-  | "session-apis-unavailable"; // sandbox has no live session APIs
+  | "session-apis-unavailable" // sandbox has no live session APIs
+  | "backfill-needs-approval"; // older history is too long to fold automatically; the player decides
 
 export interface SessionSummaryCompactionMetadata {
   compactedCount: number;
@@ -263,4 +265,88 @@ export function normalizeSessionSummaryLanguage(value: unknown): SessionSummaryL
   return (SESSION_SUMMARY_LANGUAGES as readonly string[]).includes(value as string)
     ? (value as SessionSummaryLanguage)
     : "auto";
+}
+
+/**
+ * One session's memory at a glance, for the player: how much of the chat the
+ * AI reads word for word, how much is folded into a recap, how much it no
+ * longer sees at all, and the player's own pinned notes. Served without the
+ * memory extension (GET /api/sessions/:id/memory-overview).
+ */
+/** Folding the oldest N unfolded messages into the recap (memory panel). */
+export interface RecapFoldEstimate {
+  /** Most messages a fold can take now (the newest reply always stays). */
+  available: number;
+  /** What this fold takes; it ends on a reply, so it can differ by one. */
+  messages: number;
+  tokens: number;
+  /** Mushies on the official key; null on the player's own key or an unlimited plan. */
+  estimatedCredits: number | null;
+  throughMessageId: string | null;
+  /** The last folded message's place in the whole story. */
+  throughOrdinal: number | null;
+  model: string;
+}
+
+/** The recap's error when a model on the player's own API (or machine)
+ *  thought through its whole reply and wrote nothing. The memory panels show
+ *  it in the player's language. */
+export const RECAP_ALL_THINKING_ERROR =
+  "The recap model spent its whole reply thinking and wrote no recap. Choose a model that does not think for the recap.";
+
+export interface MemoryOverview {
+  /** Messages in the session that count as history (failed ones excluded). */
+  totalMessages: number;
+  /** The story-memory setting the estimate used, in tokens. */
+  storyMemoryTokens: number;
+  /** How many of the newest messages fit in that story memory. */
+  recentMessages: number;
+  /** Their size, tokens. The recap starts folding on its own once this
+   *  nears story memory. */
+  recentTokens?: number;
+  /** Older messages folded into the story summary. */
+  summarizedMessages: number;
+  /** Older messages folded into the layered summary. */
+  layeredMessages: number;
+  /** Older messages that are in neither recap nor the recent window: the AI
+   *  does not see them at all. */
+  unseenMessages: number;
+  /** Of those, the ones the player chose not to fold ("start from here"). */
+  skippedMessages: number;
+  /** Average tokens per message over the recent window, for estimating
+   *  other story-memory values. */
+  avgMessageTokens: number;
+  /** The player's pinned notes (free, never auto-edited). */
+  pinned: string | null;
+  pinnedMaxChars: number;
+  /** The memory extension is active for this session (installed, or switched
+   *  on by the card), and which of its parts are on. */
+  extensionActive: boolean;
+  summaryOn: boolean;
+  layeredOn: boolean;
+  autoMemoryOn: boolean;
+  /** The recap of older scenes ("前情提要"), when it is on for this story. */
+  recap: {
+    share: RecapShare;
+    /** Largest it may grow, tokens (0 when off). */
+    budgetTokens: number;
+    /** The model that writes it (AI settings, under Recap); null when off. */
+    model?: string | null;
+    /** Its size now, tokens: sent with every reply. */
+    tokens: number;
+    status: "idle" | "updating" | "failed";
+    error: string | null;
+    /** Older history the recap has not reached yet, and what folding it costs. */
+    backfill: {
+      messages: number;
+      tokens: number;
+      /** Too long to fold on its own: the player chooses. */
+      needsApproval: boolean;
+      /** Mushies on the official key; null on the player's own key or an unlimited plan. */
+      estimatedCredits: number | null;
+      /** Part of the story was set aside: folding it means rebuilding the
+       *  whole recap from the first message (what the price covers). */
+      rebuild: boolean;
+    } | null;
+  };
 }

@@ -20,7 +20,9 @@ type Job = { status: "none" } | ({ status: "rendering" } & Progress) | { status:
 
 const apiBase = import.meta.env.VITE_API_URL || "";
 const SHOWN_REASONS = new Set<string>(["busy", "credits", "timeout", "unavailable"]);
-const POLL_MS = 4000;
+/** fal films a shot in ~5 s (2026-11-06): a 4 s poll left each finished shot waiting up to 4 s
+ *  more before it could play. One status read a second is a Redis GET. */
+const POLL_MS = 1000;
 /** A film machine started from nothing boots for 2-10 min before a 6-8 min render, and a failed
  *  deployment falls back to the shared pool (20 + 12 min at most on the server); past this the
  *  film is given up. */

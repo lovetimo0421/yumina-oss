@@ -5,6 +5,11 @@
 // 【去向】 as choice buttons and drops long lines — so the picture vanished
 // with no error. We peel these embeds off before the card sees the text and
 // draw them under the card's bubble instead.
+//
+// A redraw keeps the earlier pictures in the same embed (`|versions=…`); the
+// address in front is the one shown.
+
+import { selectTurnImageVersion } from "@yumina/shared";
 
 const EMBED_RE = /\n*\[\s*image:\s*\/cdn\/key\/([A-Za-z0-9_-]+)[^\]\n]*\]/g;
 
@@ -52,6 +57,23 @@ export function removeTurnImage(text: string, embed: string): string {
     return "";
   });
   return removed ? next.trimEnd() : text;
+}
+
+/**
+ * The reply showing another version of its picture (`key`, a storage key from
+ * the embed's version list, @yumina/shared turn-image-versions.ts), the text
+ * around it untouched. Same pick as the server's (the reply's last picture),
+ * so the step shows before the save answers. Null when there is no such version.
+ */
+export function selectTurnImageInText(text: string, key: string): string | null {
+  let found: { start: number; end: number; embed: string } | null = null;
+  for (const match of text.matchAll(EMBED_RE)) {
+    if (isTurnImageKey(match[1]!)) found = { start: match.index!, end: match.index! + match[0].length, embed: match[0].trim() };
+  }
+  if (!found) return null;
+  const next = selectTurnImageVersion(found.embed, key);
+  if (!next) return null;
+  return text.slice(0, found.start) + text.slice(found.start, found.end).replace(found.embed, next) + text.slice(found.end);
 }
 
 // A reply's short film rides the same way, a `[video:/cdn/key/<…/turn-videos/….mp4>|sound]` per

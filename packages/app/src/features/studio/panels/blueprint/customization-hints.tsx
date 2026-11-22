@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { Sparkles } from "lucide-react";
+import { InfoTip } from "@/components/ui/info-tip";
 
 /**
  * One line per opening, shown only inside a 自定义 panel.
@@ -26,23 +26,9 @@ export function requestOpenCode(file: string, line = 1): void {
 export function CustomizationHints({ area }: { area: HintArea }) {
   const { t } = useTranslation("editor");
   return (
-    <div data-customization-hints={area} className="mt-3 rounded-lg border border-white/[0.06] bg-white/[0.025] px-2.5 py-2">
-      <p className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold text-foreground/60">
-        <Sparkles className="h-3.5 w-3.5 text-violet-300/80" />
-        {t("blueprint.hints.title")}
-      </p>
-      <ul className="space-y-1">
-        {HINTS[area].map((key) => (
-          <li key={key} className="flex items-start gap-2 text-[11px] leading-relaxed text-foreground/65">
-            <span className="mt-[7px] h-1 w-1 shrink-0 rounded-full bg-violet-300/60" />
-            <span className="min-w-0">
-              <span className="font-medium text-foreground/85">{t(`blueprint.hints.${area}.${key}.title` as never) as string}</span>
-              {" · "}
-              {t(`blueprint.hints.${area}.${key}.body` as never) as string}
-            </span>
-          </li>
-        ))}
-      </ul>
-    </div>
+    <p data-customization-hints={area} className="mt-3 flex items-center gap-1.5 text-[11px] text-foreground/50">
+      {t("blueprint.hints.title")}
+      <InfoTip text={HINTS[area].map((key) => `${t(`blueprint.hints.${area}.${key}.title` as never) as string} · ${t(`blueprint.hints.${area}.${key}.body` as never) as string}`).join("\n")} />
+    </p>
   );
 }

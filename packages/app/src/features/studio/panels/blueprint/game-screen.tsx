@@ -57,7 +57,7 @@ function GamePage({ screen, worldName, playerName, language }: { screen: Extract
           <Gamepad2 className="h-5 w-5" />{t("blueprint.gameScreen.tag")}
         </span>
         <h3 className="text-[44px] font-bold leading-tight text-white drop-shadow">{worldName}</h3>
-        <p className="max-w-[760px] text-[22px] leading-relaxed text-white/85">{t("blueprint.gameScreen.pageLead")}</p>
+
         <div className="flex items-center gap-3">
           <button type="button" onClick={() => setPlaying(true)} data-game-play
             className="flex items-center gap-2.5 rounded-xl bg-primary px-7 py-3.5 text-[22px] font-semibold text-primary-foreground shadow-lg hover:bg-primary/90">
@@ -105,13 +105,12 @@ function GameNpc({ screen, worldName, entries, variables }: { screen: Extract<Ga
   return (
     <div className="flex h-full w-full flex-col gap-7 bg-[radial-gradient(ellipse_at_top,#2a2140,#0d0b12_70%)] px-12 py-10 text-white" data-game-npc>
       <div className="flex flex-col gap-2">
-        <span className="flex w-fit items-center gap-2 rounded-full bg-white/10 px-4 py-1.5 text-[19px] font-semibold text-white/85">
+        <span title={t("blueprint.gameScreen.modLead", { game, npc: worldName })} className="flex w-fit items-center gap-2 rounded-full bg-white/10 px-4 py-1.5 text-[19px] font-semibold text-white/85">
           <Gamepad2 className="h-5 w-5" />{t("blueprint.gameScreen.modTag", { game })}
         </span>
-        <p className="text-[24px] leading-relaxed text-white/80">{t("blueprint.gameScreen.modLead", { game, npc: worldName })}</p>
       </div>
       <div className="grid min-h-0 flex-1 grid-cols-[1fr_auto_1fr_auto_1fr] items-stretch gap-4">
-        <Column tone="in" title={t("blueprint.gameScreen.inputs", { game })}>
+        <Column tone="in" title={t("blueprint.gameScreen.inputs", { game })} hint={t("blueprint.gameScreen.modFoot", { game })}>
           {inputs.slice(0, SHOWN).map((v) => (
             <div key={v.id} title={said(v) || undefined} className="flex items-baseline justify-between gap-3 text-[19px]">
               <span className="truncate text-white/85">{v.name}</span>
@@ -135,22 +134,21 @@ function GameNpc({ screen, worldName, entries, variables }: { screen: Extract<Ga
           {outputs.map((v) => (
             <div key={v.id} className="flex flex-col gap-0.5">
               <span className="text-[21px] font-medium">{v.name}</span>
-              {outputLine(v) && <span className="line-clamp-2 text-[16px] leading-snug text-amber-100/70">{outputLine(v)}</span>}
+              {outputLine(v) && <span className="line-clamp-2 text-[16px] leading-snug text-white/60">{outputLine(v)}</span>}
             </div>
           ))}
         </Column>
       </div>
-      <p className="text-[18px] leading-relaxed text-white/55">{t("blueprint.gameScreen.modFoot", { game })}</p>
     </div>
   );
 }
 
-function Column({ tone, title, children }: { tone: "in" | "ai" | "out"; title: string; children: React.ReactNode }) {
+function Column({ tone, title, hint, children }: { tone: "in" | "ai" | "out"; title: string; hint?: string; children: React.ReactNode }) {
   const ring = tone === "in" ? "border-sky-400/40 bg-sky-400/[0.07]" : tone === "out" ? "border-amber-400/45 bg-amber-400/[0.07]" : "border-primary/50 bg-primary/[0.09]";
   const head = tone === "in" ? "text-sky-200" : tone === "out" ? "text-amber-200" : "text-primary";
   return (
     <div className={`flex min-w-0 flex-col gap-3 overflow-hidden rounded-2xl border-2 p-5 ${ring}`}>
-      <div className={`text-[20px] font-semibold ${head}`}>{title}</div>
+      <div className={`text-[20px] font-semibold ${head}`} title={hint}>{title}</div>
       {children}
     </div>
   );

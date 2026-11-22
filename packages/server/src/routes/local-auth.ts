@@ -3,7 +3,34 @@ import { setCookie } from "hono/cookie";
 import { eq } from "drizzle-orm";
 import { makeSignature } from "better-auth/crypto";
 import { auth } from "../lib/auth.js";
-import { AUTH_MODE } from "../lib/env.js";
+import { isIP } from "node:net";
+import { AUTH_MODE, env } from "../lib/env.js";
+
+function hostnameOf(value: string | undefined): string | null {
+  if (!value) return null;
+  try {
+    const hostname = new URL(value.includes("://") ? value : `http://${value}`).hostname.toLowerCase();
+    return hostname.startsWith("[") ? hostname.slice(1, -1) : hostname;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * True when the request was made by this install's own page: it is addressed to
+ * this machine by address, by "localhost", or by the name the install was
+ * configured with, and (when the browser says where the page is) the page is on
+ * that same host. Ports are not compared: the dev app and the API differ there.
+ */
+export function isOwnPageRequest(hostHeader: string | undefined, originHeader: string | undefined): boolean {
+  const host = hostnameOf(hostHeader);
+  if (!host) return false;
+  const configured = [hostnameOf(env.APP_URL), hostnameOf(env.BETTER_AUTH_URL)];
+  if (host !== "localhost" && !isIP(host) && !configured.includes(host)) return false;
+  if (originHeader === undefined) return true;
+  const origin = hostnameOf(originHeader);
+  return origin === host || (origin !== null && configured.includes(origin));
+}
 import { db } from "../db/index.js";
 import { user } from "../db/schema.js";
 
@@ -54,6 +81,14 @@ localAuthRoutes.get("/", (c) => {
 
 localAuthRoutes.post("/sign-in", async (c) => {
   if (AUTH_MODE !== "single-user") return c.json({ error: "Not found" }, 404);
+  // This route hands out a session with no password, so it must only answer
+  // the app itself. Another site's page can post here from the same browser:
+  // its Origin gives it away. And a hostile domain re-pointed at this machine
+  // (DNS rebinding) arrives under its own name, which is neither an address
+  // nor the name this install was set up with.
+  if (!isOwnPageRequest(c.req.header("host"), c.req.header("origin"))) {
+    return c.json({ error: "Not found" }, 404);
+  }
 
   try {
     const userId = await ensureLocalUser();

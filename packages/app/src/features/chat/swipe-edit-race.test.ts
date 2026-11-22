@@ -137,6 +137,21 @@ test("message list: edit waits for the swipe switch to land, then edits exactly 
     assert.doesNotMatch(document.body.textContent!, /Delete this message/);
     await render([user, reply(0)]);
     assert.equal(button("Delete").disabled, false);
+
+    // Reported 11/15: after a reply finished, Edit stayed grey on both messages until a reload. A message's
+    // action row only redraws on its own changes, so it kept the "generating" state from mid-reply.
+    await act(async () => root.render(createElement("div")));
+    const next = { id: "u2", sessionId: "s1", role: "user" as const, content: "Again", createdAt: "2026-09-25T00:00:02Z" };
+    const streamed = (status: string) => ({ id: "a2", sessionId: "s1", role: "assistant" as const, model: "test/model",
+      content: "Answer", status, createdAt: "2026-09-25T00:00:03Z" });
+    await render([next], true);
+    await render([next, streamed("streaming")], true);
+    await render([next, streamed("complete")], false);
+    const edits2 = () => [...container.querySelectorAll<HTMLButtonElement>('button[title="Edit"]')];
+    assert.equal(edits2().length, 2);
+    for (const b of edits2()) assert.equal(b.disabled, false, "Edit works again once the reply has finished");
+    await act(async () => edits2()[0]!.click());
+    assert.equal(container.querySelector("textarea")?.value, "Again");
   } finally {
     await act(async () => root.unmount());
     dom.window.close();

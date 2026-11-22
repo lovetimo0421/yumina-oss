@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState, useMemo } from "react";
-import { useYumina } from "../sandbox-context";
+import { ArrowDown } from "lucide-react";
+import { JUMP_TO_MESSAGE_EVENT, useYumina } from "../sandbox-context";
 import { MessageBubble } from "./message-bubble";
 import { RefusalBar, useRegisterTranscript, useRetryTrailingTurn } from "./player-prompts";
 import { MessageActions } from "./message-actions";
@@ -96,6 +97,10 @@ interface MessageListProps {
 
 const INITIAL_MESSAGE_WINDOW = 50;
 const AT_BOTTOM_THRESHOLD_PX = 80;
+/** Scrolled at least this far above the newest message: offer the way back. */
+const JUMP_TO_LATEST_PX = 400;
+/** How long a message reached from search stays marked. */
+const FOUND_HIGHLIGHT_MS = 2200;
 
 export function MessageList({ rendererComponent: ownRenderer, rendererEpoch, design, fontMap }: MessageListProps) {
   const api = useYumina();
@@ -182,6 +187,10 @@ export function MessageList({ rendererComponent: ownRenderer, rendererEpoch, des
   const [historyLoadRequested, setHistoryLoadRequested] = useState(false);
   const [historyLoadFailed, setHistoryLoadFailed] = useState(false);
   const [errorDismissed, setErrorDismissed] = useState(false);
+  /** Chat search asked to show this message; served once its row is mounted. */
+  const [jumpRequest, setJumpRequest] = useState<{ id: string; nonce: number } | null>(null);
+  const [foundId, setFoundId] = useState<string | null>(null);
+  const [showJumpLatest, setShowJumpLatest] = useState(false);
   const currentPositionState = useRef({ api, showAllMessages });
   currentPositionState.current = { api, showAllMessages };
 
@@ -189,11 +198,6 @@ export function MessageList({ rendererComponent: ownRenderer, rendererEpoch, des
   useEffect(() => { setErrorDismissed(false); }, [error]);
 
   // ── Scroll management ──
-  const scrollToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
-    const el = scrollContainerRef.current;
-    if (!el) return;
-    el.scrollTo({ top: el.scrollHeight, behavior });
-  }, []);
 
   // Reset on session change — fresh session starts with auto-scroll re-enabled.
   // The sandbox-wide scroll guard (component-host.tsx) also drops its
@@ -213,6 +217,9 @@ export function MessageList({ rendererComponent: ownRenderer, rendererEpoch, des
     setShowAllMessages(false);
     setHistoryLoadRequested(false);
     setHistoryLoadFailed(false);
+    setJumpRequest(null);
+    setFoundId(null);
+    setShowJumpLatest(false);
     const el = scrollContainerRef.current;
     if (el) el.scrollTop = 0;
     return () => {
@@ -369,10 +376,14 @@ export function MessageList({ rendererComponent: ownRenderer, rendererEpoch, des
       }
       return;
     }
-    if (!userScrolledUp.current && lastMsg?.role === "user") {
-      scrollToBottom("smooth");
+    if (!userScrolledUp.current && lastMsg?.role === "user" && el) {
+      // Marked and instant (the sent line is the only new height). A smooth
+      // scroll keeps firing unmarked scroll events after the reply follow
+      // takes over; handleScroll read those as the reader scrolling up, and no
+      // later send scrolled down again (WebKit, 2026-10-27).
+      setScrollTopRaw(el, el.scrollHeight);
     }
-  }, [api.sessionId, messages, isGuestPreview, scrollToBottom]);
+  }, [api.sessionId, messages, isGuestPreview]);
 
   useEffect(() => {
     const list = scrollContainerRef.current;
@@ -564,7 +575,9 @@ export function MessageList({ rendererComponent: ownRenderer, rendererEpoch, des
 
   const handleScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
     const el = event.currentTarget;
-    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < AT_BOTTOM_THRESHOLD_PX;
+    const fromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const atBottom = fromBottom < AT_BOTTOM_THRESHOLD_PX;
+    setShowJumpLatest(fromBottom > JUMP_TO_LATEST_PX);
     // Our own scrolls (the reply follow parks a long reply's start at the
     // top, short of the bottom) say nothing about where the reader wants to be.
     if (!isInitialTranscriptScroll(el)) {
@@ -574,6 +587,70 @@ export function MessageList({ rendererComponent: ownRenderer, rendererEpoch, des
     }
     maybeRequestEarlierHistory(el, el.scrollTop);
   }, [maybeRequestEarlierHistory, isStreaming]);
+
+  // ── Back to the newest message ──
+  const jumpToLatest = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    releaseInitialAnchorRef.current?.();
+    releaseInitialAnchorRef.current = null;
+    userScrolledUp.current = false;
+    // Mid-reply: keep following it from here, as reaching the bottom by hand does.
+    if (isStreaming) followReplyRef.current = true;
+    setShowJumpLatest(false);
+    setScrollTopRaw(el, el.scrollHeight);
+  }, [isStreaming]);
+
+  // ── Chat search: show one message ──
+  // The search panel loads the pages up to the message first (search-jump.ts);
+  // here it only has to be mounted (outside the 50-row window it needs the
+  // full list) and scrolled to, then marked for a moment.
+  useEffect(() => {
+    let nonce = 0;
+    const onJump = (event: Event) => {
+      const id = (event as CustomEvent<{ messageId?: unknown }>).detail?.messageId;
+      if (typeof id === "string" && id) setJumpRequest({ id, nonce: ++nonce });
+    };
+    window.addEventListener(JUMP_TO_MESSAGE_EVENT, onJump);
+    return () => window.removeEventListener(JUMP_TO_MESSAGE_EVENT, onJump);
+  }, []);
+  useLayoutEffect(() => {
+    if (!jumpRequest) return;
+    const index = messages.findIndex((m) => m.id === jumpRequest.id);
+    if (index < 0) return;
+    if (!showAllMessages && index < messages.length - INITIAL_MESSAGE_WINDOW) {
+      setShowAllMessages(true);
+      return;
+    }
+    const list = scrollContainerRef.current;
+    const row = list?.querySelector<HTMLElement>(`[data-mid="${CSS.escape(jumpRequest.id)}"]`);
+    if (!list || !row) return;
+    setJumpRequest(null);
+    releaseInitialAnchorRef.current?.();
+    releaseInitialAnchorRef.current = null;
+    // The reader chose where to be: no reply-follow or sent-line walk pulls them back.
+    userScrolledUp.current = true;
+    followReplyRef.current = false;
+    settleReplyRef.current = null;
+    revealingSentLineRef.current = false;
+    const viewport = findHistoryScrollContainer(row, list) ?? list;
+    const align = () => {
+      // A little room above, so the row reads as "here", not cut off.
+      const room = Math.min(96, viewport.clientHeight * 0.15);
+      const offset = row.getBoundingClientRect().top - viewport.getBoundingClientRect().top;
+      if (Math.abs(offset - room) > 1) setScrollTopRaw(viewport, Math.max(0, viewport.scrollTop + offset - room));
+    };
+    align();
+    // Rows above it may still be settling (images, fonts): correct once more.
+    requestAnimationFrame(() => requestAnimationFrame(align));
+    setShowJumpLatest(viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight > JUMP_TO_LATEST_PX);
+    setFoundId(jumpRequest.id);
+  }, [jumpRequest, messages, showAllMessages]);
+  useEffect(() => {
+    if (!foundId) return;
+    const timer = window.setTimeout(() => setFoundId(null), FOUND_HIGHLIGHT_MS);
+    return () => window.clearTimeout(timer);
+  }, [foundId]);
 
   // If the current page is too short to create a scrollbar, there is no user
   // scroll event and the marker never leaves the viewport. Re-check after each
@@ -658,13 +735,20 @@ export function MessageList({ rendererComponent: ownRenderer, rendererEpoch, des
   }, [messages, switchingSwipes]);
 
   // ── Edit handlers ──
+  // A bubble's action row only redraws when its actionsKey changes, so the onEditStart it holds can be one made
+  // mid-reply. Read generation, swipe and message state as they are now, never as they were when it was made:
+  // otherwise Edit stayed refused after a reply finished, until the page was reloaded.
+  const editLiveRef = useRef({ isStreaming: api.isStreaming, switching: switchingSwipes, messages });
+  editLiveRef.current = { isStreaming: api.isStreaming, switching: switchingSwipes, messages };
   const handleStartEdit = useCallback((message: SandboxMessage) => {
-    if (api.isStreaming) return;
-    if (!canStartEdit(message.id, new Set(switchingSwipes.keys()))) return;
-    editTargetRef.current = editTargetFor(message);
-    setEditingMessageId(message.id);
-    setEditContent(message.content);
-  }, [switchingSwipes, api.isStreaming]);
+    const live = editLiveRef.current;
+    if (live.isStreaming) return;
+    if (!canStartEdit(message.id, new Set(live.switching.keys()))) return;
+    const current = live.messages.find((m) => m.id === message.id) ?? message;
+    editTargetRef.current = editTargetFor(current);
+    setEditingMessageId(current.id);
+    setEditContent(current.content);
+  }, []);
 
   const handleCancelEdit = useCallback(() => {
     editTargetRef.current = null;
@@ -723,6 +807,8 @@ export function MessageList({ rendererComponent: ownRenderer, rendererEpoch, des
   // to any summarized turn. They now render identically to the rest of the
   // conversation. The windowing below still caps mounted rows for perf.
   const allActiveMessages = messages;
+  // A story room member reads the host's chat: no swipe, edit, regenerate or pin.
+  const roomMemberView = !!api.readOnly && !!api.storyRoom && !api.storyRoom.isHost;
 
   // Only mount the most recent messages in the React tree to reduce memory.
   // Avoid content-visibility here: its intrinsic fallback can reserve too
@@ -743,7 +829,7 @@ export function MessageList({ rendererComponent: ownRenderer, rendererEpoch, des
   if (messages.length === 0 && !isStreaming) {
     if (greetingContent) {
       return (
-        <div className="play-message-scroll flex-1 min-h-0 max-h-full overflow-y-auto">
+        <div data-message-button-color={api.messageButtonColor} className="play-message-scroll flex-1 min-h-0 max-h-full overflow-y-auto">
           {designStyle}
           <div className="play-message-stack">
             <MessageBubble
@@ -788,7 +874,7 @@ export function MessageList({ rendererComponent: ownRenderer, rendererEpoch, des
     <div
       ref={scrollContainerRef}
       onScroll={handleScroll}
-      className="play-message-scroll flex-1 min-h-0 max-h-full overflow-y-auto"
+      data-message-button-color={api.messageButtonColor} className="play-message-scroll flex-1 min-h-0 max-h-full overflow-y-auto"
     >
       {designStyle}
       <div className="play-message-stack">
@@ -836,13 +922,27 @@ export function MessageList({ rendererComponent: ownRenderer, rendererEpoch, des
           const swipeSwitching = switchingSwipes.has(message.id);
 
           return (
-            <div key={message.id} data-mid={message.id} className="play-message-row">
+            // The bubble is memoized on its message; becoming a room member must
+            // remount it so its swipe and action controls go away.
+            <div
+              key={roomMemberView ? `${message.id}:room` : message.id}
+              data-mid={message.id}
+              data-search-found={foundId === message.id ? "true" : undefined}
+              // The mark spreads past the row with a shadow, so the text keeps
+              // its place and does not touch the edge.
+              className={`play-message-row rounded-lg transition-[background-color,box-shadow] duration-700 ${
+                foundId === message.id
+                  ? "bg-primary/[0.07] shadow-[0_0_0_8px_color-mix(in_oklab,var(--color-primary)_7%,transparent)] outline outline-1 outline-offset-8 outline-primary/30"
+                  : ""
+              }`}
+            >
               <MessageBubble
                 message={message}
                 rendererComponent={rendererComponent}
                 rendererEpoch={isLastMessage || message.id === greetingId ? rendererEpoch : undefined}
                 variables={messageVars as Record<string, unknown>}
                 messageIndex={idx}
+                messageNumber={api.firstMessageNumber + hiddenCount + idx}
                 showRoleLabel={showRoleLabel}
                 isGreeting={message.id === greetingId}
                 isLastMessage={isLastMessage}
@@ -854,7 +954,7 @@ export function MessageList({ rendererComponent: ownRenderer, rendererEpoch, des
                 onSaveEdit={() => handleSaveEdit(message.id)}
                 onCancelEdit={handleCancelEdit}
                 swipeControls={
-                  message.role === "assistant" ? (
+                  message.role === "assistant" && !roomMemberView ? (
                     <SwipeControls
                       message={message}
                       locked={isEditingThis}
@@ -863,13 +963,16 @@ export function MessageList({ rendererComponent: ownRenderer, rendererEpoch, des
                   ) : undefined
                 }
               >
-                <MessageActions
-                  message={message}
-                  isLastAssistant={isLastAssistant}
-                  isLastMessage={isLastMessage}
-                  onEditStart={() => handleStartEdit(message)}
-                  editDisabled={swipeSwitching || api.isStreaming}
-                />
+                {!roomMemberView && (
+                  <MessageActions
+                    message={message}
+                    isLastAssistant={isLastAssistant}
+                    isLastMessage={isLastMessage}
+                    onEditStart={() => handleStartEdit(message)}
+                    // Generation is read by the action row itself; passing it here froze it at its mid-reply value.
+                    editDisabled={swipeSwitching}
+                  />
+                )}
               </MessageBubble>
             </div>
           );
@@ -932,6 +1035,24 @@ export function MessageList({ rendererComponent: ownRenderer, rendererEpoch, des
         )}
 
         <div ref={bottomRef} className="h-4" />
+
+        {/* Scrolled well above the newest message: one tap back down. Sticky
+            at the bottom of the transcript's own viewport, so it needs no
+            wrapper around the list a card may be styling. */}
+        {showJumpLatest && (
+          <div className="pointer-events-none sticky bottom-3 z-10 flex h-0 justify-center">
+            <button
+              type="button"
+              data-jump-to-latest=""
+              onClick={jumpToLatest}
+              aria-label={t("scrollToNewest")}
+              className="pointer-events-auto flex -translate-y-full items-center gap-1.5 rounded-full border border-border bg-[rgb(var(--cloudy-surface-rgb))] px-3.5 py-1.5 text-[12.5px] font-medium text-foreground/80 shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur transition-colors hover:text-foreground"
+            >
+              {t("scrollToNewest")}
+              <ArrowDown className="h-3.5 w-3.5" aria-hidden="true" />
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

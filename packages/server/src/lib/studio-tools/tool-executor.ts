@@ -6,6 +6,7 @@
  * and atomic validation (all-or-nothing on failure).
  */
 
+import { readBinding } from "../per-turn-image/loras.js";
 import type {
   WorldDefinition,
   WorldEntry,
@@ -22,6 +23,7 @@ import type {
 import type { EventPattern, EventMatchCondition, VariableActivation } from "@yumina/engine";
 import { AUTHOR_SAMPLING_LIMITS, STATION_MAX_TOKENS_LIMITS, STATION_TEMPERATURE_LIMITS, deriveSectionDefaults, deriveSectionDefaultsForEntry, isVariableBoundEntry, estimateTokens, moduleStationSchema, uiKnobGroupsSchema, withPreciseTrackingDefault, worldDefinitionSchema } from "@yumina/engine";
 import { BACKGROUND_FALLBACK_MODEL, catalogModelError, lookupCatalogModel, planDisplayName } from "./model-catalog.js";
+import { resolveMultiplayerArg } from "./multiplayer-setting.js";
 import { isValidTtsVoice } from "@yumina/shared";
 import crypto from "crypto";
 import { posix } from "node:path";
@@ -1178,6 +1180,9 @@ function applyEntryChange(draft: WorldDefinition, action: string, id: string, da
   const base = { index, action, entityType: "entry", id };
   const badVoice = invalidVoiceError("write_entry", id, "voice", data.voice);
   if (badVoice) return { ...base, status: "error", error: badVoice };
+  if (data.imageLora !== undefined && !loraRemoved(data.imageLora) && !readBinding(data.imageLora)) {
+    return { ...base, status: "error", error: "imageLora must be { modelId: \"<id from list_loras>\", weight?, trigger? } or null." };
+  }
 
   // Model output is untrusted even when the outer tool call is valid JSON.
   // Validate before create/upsert/update so malformed text never reaches lore.
@@ -1226,7 +1231,9 @@ function applyEntryChange(draft: WorldDefinition, action: string, id: string, da
       content: (data.content as string) ?? "",
       role: (data.role as WorldEntry["role"]) ?? "custom",
       portrait: typeof data.portrait === "string" ? data.portrait : undefined,
+      ...(liveRef(data.portraitLive) ? { portraitLive: liveRef(data.portraitLive) } : {}),
       voice: voiceArg(data.voice),
+      ...(readBinding(data.imageLora) ? { imageLora: readBinding(data.imageLora)! } : {}),
       alwaysSend: (data.alwaysSend as boolean) ?? defaults.alwaysSend,
       keywords: toStringArray(data.keywords),
       conditions: mapConditions(data.conditions),
@@ -1298,6 +1305,20 @@ function applyEntryChange(draft: WorldDefinition, action: string, id: string, da
   return { ...base, status: "error", error: `Unknown action: ${action}` };
 }
 
+/** A live character argument: "@rig:<id>" or "@asset:<id>" (a bare id is read as a character); anything else, "" included, removes it. */
+function liveRef(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const v = value.trim();
+  if (/^@(?:rig|asset):[0-9a-f-]{36}$/i.test(v)) return v;
+  if (/^[0-9a-f-]{36}$/i.test(v)) return `@rig:${v}`;
+  return undefined;
+}
+
+/** A LoRA binding argument that asks for removal: null, "", or { modelId: "" }. */
+function loraRemoved(value: unknown): boolean {
+  return value === null || value === "" || (!!value && typeof value === "object" && (value as { modelId?: unknown }).modelId === "");
+}
+
 function applyEntryUpdates(entry: WorldEntry, data: Record<string, unknown>): void {
   // Apply section FIRST so its defaults can be overridden by explicit fields below.
   // ForEntry variant: a variable-bound entry keeps alwaysSend=false — section
@@ -1312,7 +1333,9 @@ function applyEntryUpdates(entry: WorldEntry, data: Record<string, unknown>): vo
   if (data.content !== undefined) entry.content = data.content as string;
   if (data.role !== undefined) entry.role = data.role as WorldEntry["role"];
   if (typeof data.portrait === "string") entry.portrait = data.portrait;
+  if (typeof data.portraitLive === "string") entry.portraitLive = liveRef(data.portraitLive);
   if (typeof data.voice === "string") entry.voice = voiceArg(data.voice);
+  if (data.imageLora !== undefined) entry.imageLora = loraRemoved(data.imageLora) ? undefined : readBinding(data.imageLora) ?? entry.imageLora;
   if (data.keywords !== undefined) entry.keywords = toStringArray(data.keywords);
   if (data.conditions !== undefined) entry.conditions = mapConditions(data.conditions);
   if (data.conditionLogic !== undefined) entry.conditionLogic = data.conditionLogic as "all" | "any";
@@ -2398,15 +2421,27 @@ function applySettingsChange(draft: WorldDefinition, data: Record<string, unknow
     if (typeof data.speakerBubbles !== "boolean") invalid.push(`speakerBubbles must be true or false`);
     else updates.speakerBubbles = data.speakerBubbles || undefined;
   }
+  if (data.composeAssist !== undefined) {
+    if (typeof data.composeAssist !== "boolean") invalid.push(`composeAssist must be true or false`);
+    else updates.composeAssist = data.composeAssist ? undefined : false;
+  }
   // Voices and voice input (main): a bad fish.audio id is an error the model
   // sees, never a silently dropped write.
   const badVoice = invalidVoiceError("update_settings", "settings", "narratorVoice", data.narratorVoice);
   if (badVoice) invalid.push(badVoice);
   else if (typeof data.narratorVoice === "string") updates.narratorVoice = voiceArg(data.narratorVoice);
+  if (data.illustrationLora !== undefined) {
+    if (loraRemoved(data.illustrationLora)) updates.illustrationLora = undefined;
+    else if (readBinding(data.illustrationLora)) updates.illustrationLora = readBinding(data.illustrationLora);
+    else invalid.push(`illustrationLora must be { modelId: "<id from list_loras>", weight?, trigger? } or null`);
+  }
   if (data.voiceInputMode !== undefined) {
     if (data.voiceInputMode === "confirm" || data.voiceInputMode === "auto") updates.voiceInputMode = data.voiceInputMode;
     else invalid.push(`voiceInputMode must be "confirm" or "auto"`);
   }
+  // 联机: the card's multiplayer setting (multiplayer-setting.ts).
+  const multiplayer = data.multiplayer !== undefined ? resolveMultiplayerArg(draft, data.multiplayer) : null;
+  if (multiplayer && !multiplayer.ok) invalid.push(...multiplayer.errors);
   if (invalid.length > 0) {
     return { ...base, status: "error", error: `update_settings rejected, nothing was changed: ${invalid.join("; ")}.` };
   }
@@ -2417,7 +2452,7 @@ function applySettingsChange(draft: WorldDefinition, data: Record<string, unknow
   if (!draft.settings) draft.settings = {} as WorldDefinition["settings"];
   const settings = draft.settings as Record<string, unknown>;
   Object.assign(settings, updates);
-  for (const key of ["samplingPolicy", "recommendedModel"]) {
+  for (const key of ["samplingPolicy", "recommendedModel", "composeAssist"]) {
     if (key in updates && updates[key] === undefined) delete settings[key];
   }
   // Card sampling written while the card follows the player is stored but
@@ -2430,6 +2465,10 @@ function applySettingsChange(draft: WorldDefinition, data: Record<string, unknow
   }
   if ("maxTokens" in updates) {
     notes.push(`maxTokens is only a default: the player's own reply length always wins`);
+  }
+  if (multiplayer?.ok) {
+    settings.multiplayer = multiplayer.value;
+    notes.push(multiplayer.summary, ...multiplayer.notes);
   }
   // Smart tracking switches (the editor's 「智能追踪」).
   if (data.continuity && typeof data.continuity === "object" && !Array.isArray(data.continuity)) {

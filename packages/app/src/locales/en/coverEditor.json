@@ -1074,7 +1074,7 @@
     "saveTitle": "Save (Ctrl+S)",
     "saveTooltip": "Save (Ctrl+S)",
     "publish": "Publish",
-    "publishTooltip": "Publish to Discover",
+    "publishTooltip": "Publish settings",
     "publishUpdate": "Update",
     "publishUpdateTooltip": "Update published listing",
     "play": "Play",
@@ -1120,11 +1120,10 @@
     "audio": "Audio",
     "sceneImages": "Scene Images",
     "assets": "Assets",
-    "overview": "Overview",
+    "overview": "Card settings",
     "bundles": "Bundles",
-    "aiGeneration": "AI Generation",
-    "packs": "Mechanic packs",
-    "backgrounds": "Background"
+    "aiGeneration": "Atelier",
+    "backgrounds": "Chat background"
   },
   "kb": {
     "bindingsTab": "Frontend lore",
@@ -2480,7 +2479,7 @@
     "stage": {
       "tabBlueprint": "Story",
       "tabFrontend": "Player interface",
-      "tabGeneration": "AI generation",
+      "tabGeneration": "Atelier",
       "toStage": "Canvas workstation — the canvas fills the studio",
       "toClassic": "Switch to the classic panel layout",
       "collapse": "Collapse",
@@ -2548,15 +2547,14 @@
       "audio": "Audio",
       "sceneImages": "Scene Images",
       "assets": "Assets",
-      "overview": "Overview",
+      "overview": "Card settings",
       "previewControls": "Preview Controls",
       "canvas": "Interface preview",
       "aiAssistant": "Creation assistant",
       "playtest": "Playtest",
       "marketplace": "Marketplace",
-      "aiGeneration": "AI Generation",
-      "packs": "Mechanic packs",
-      "backgrounds": "Background"
+      "aiGeneration": "Atelier",
+      "backgrounds": "Chat background"
     },
     "layouts": {
       "blueprint": "Canvas",
@@ -2954,6 +2952,9 @@
         "update_settings": "Change settings",
         "load_skill": "Read a guide",
         "list_assets": "Browse assets",
+        "view_asset": "Look at a picture",
+        "set_cover": "Set the cover",
+        "list_voices": "Look up voices",
         "browse_assets": "Browse assets",
         "compile_tsx": "Check interface code",
         "generate_image": "Make a picture",
@@ -2962,7 +2963,8 @@
         "analyze_token_cost": "Estimate usage",
         "validate_ui_blueprint": "Check the interface",
         "list_templates": "Browse templates",
-        "other": "Other step"
+        "other": "Other step",
+        "screenshot_ui": "Look at the screen"
       },
       "field": {
         "name": "Name",
@@ -4835,7 +4837,7 @@
     "cropSize": "Crop size",
     "cardCover": "Card cover",
     "galleryPreview": "Gallery preview",
-    "detailHeroPreview": "Detail banner · 16:5",
+    "detailHeroPreview": "Detail banner · 21:9",
     "crop": {
       "hint": "Choose the crop for this artwork. The preview matches its Discover card.",
       "dragHint": "Drag or resize the crop box",
@@ -4845,7 +4847,11 @@
       "reset": "Reset current view",
       "save": "Save crop",
       "phone": "Portrait cards · 2:3",
-      "desktop": "Landscape artwork · 16:9",
+      "desktop": "Gallery display",
+      "galleryDesktop": "Desktop banner · 21:9",
+      "galleryMobile": "Mobile and gallery cards · 16:9",
+      "galleryDevice": "Gallery view",
+      "galleryHint": "Adjust each view separately. Desktop banners appear in story previews and Library details. Mobile previews and landscape cards use the mobile crop.",
       "framing": "Framing",
       "wholeImage": "Whole image",
       "fillFrame": "Fill frame",
@@ -4950,7 +4956,7 @@
       },
       "publish": {
         "title": "Publish your world",
-        "body": "When you're ready, click here at the top right to submit for publishing. Once approved it appears in the hub for everyone to play!"
+        "body": "Choose who can play, then submit your world for review."
       },
       "save": {
         "title": "Remember to save",
@@ -4978,7 +4984,7 @@
       },
       "publishM": {
         "title": "Publish your world",
-        "body": "When you are ready, tap here to submit for publishing. Once approved it appears in the hub for everyone to play!"
+        "body": "Choose who can play, then submit your world for review."
       },
       "menuOpen": {
         "title": "The section menu",
@@ -5038,7 +5044,7 @@
       },
       "sPublish": {
         "title": "Publish",
-        "body": "When you're happy, submit for publishing here. Once approved it appears on Discover for everyone to play."
+        "body": "Choose who can play, then submit your world for review."
       },
       "sAdvanced": {
         "title": "Need more power?",
@@ -5121,22 +5127,6 @@
     "before": "Original",
     "after": "Processed",
     "previewSentence": "The rain pressed the whole city low. She did not look back — she only tilted the umbrella your way."
-  },
-  "packs": {
-    "title": "Mechanic packs",
-    "blurb": "A working set of variables, behaviors and lore, added in one click. Everything it adds is ordinary card content — open it, read it, change it.",
-    "add": "Add to this card",
-    "addedAgain": "Added — add again",
-    "installed": "Added {{name}}",
-    "countVariables_one": "{{count}} variable",
-    "countVariables": "{{count}} variables",
-    "countBehaviors_one": "{{count}} behavior",
-    "countBehaviors": "{{count}} behaviors",
-    "countEntries_one": "{{count}} entry",
-    "countEntries": "{{count}} entries",
-    "deterministic": "Real variables — the engine applies them, so switching model changes nothing.",
-    "promptOnly": "Prompt only — the model decides whether to comply. Use variables when it has to be exact.",
-    "footnote": "Packs stack — affection and survival can live on the same card. Remove one from the Bundles page and everything it brought goes with it."
   },
   "reviewState": {
     "rejectReasons": {

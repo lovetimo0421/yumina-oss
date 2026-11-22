@@ -126,10 +126,10 @@ export function StoryNotes({ readOnly }: { readOnly: boolean }) {
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
+        title={t("studio.screenFirst.notesHint")}
         className="flex items-center gap-2 px-4 py-2 text-left"
       >
         <span className="text-xs font-semibold text-foreground">{t("studio.screenFirst.notesTitle")}</span>
-        <span className="text-[11px] text-muted-foreground">{t("studio.screenFirst.notesHint")}</span>
         <span className="ml-auto text-muted-foreground">{open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronUp className="h-3.5 w-3.5" />}</span>
       </button>
       {open && (
@@ -141,11 +141,11 @@ export function StoryNotes({ readOnly }: { readOnly: boolean }) {
             <button
               type="button"
               onClick={() => addEntry("custom", "system-presets", { content: "" })}
+              title={t("studio.screenFirst.addNoteHint")}
               className="flex h-[168px] w-[180px] shrink-0 flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-white/15 text-xs text-muted-foreground transition-colors hover:border-primary/60 hover:text-foreground"
             >
               <Plus className="h-4 w-4" />
               {t("studio.screenFirst.addNote")}
-              <span className="px-4 text-center text-[10.5px] text-muted-foreground/70">{t("studio.screenFirst.addNoteHint")}</span>
             </button>
           )}
         </div>

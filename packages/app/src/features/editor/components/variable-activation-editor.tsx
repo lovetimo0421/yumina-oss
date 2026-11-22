@@ -50,7 +50,7 @@ export function VariableActivationEditor({
       </div>
 
       {activation.mode === "conditions" && (
-        <div className="space-y-3 rounded-lg border border-sky-500/20 bg-sky-500/5 p-2.5 [&_select]:max-w-full">
+        <div className="space-y-3 rounded-lg border border-border p-2.5 [&_select]:max-w-full" title={t("variables.conditionsHint")}>
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground" role="group" aria-label={t("blueprint.insp.logicLabel")}>
             <span>{t("blueprint.insp.logicLabel")}</span>
             {(["all", "any"] as const).map((logic) => (
@@ -62,15 +62,13 @@ export function VariableActivationEditor({
             ))}
           </div>
           <ConditionEditor conditions={activation.conditions} variables={variables}
-            emptyHint={<span className="text-xs leading-relaxed text-amber-400" role="status">{t("variables.editing.emptyConditions", { defaultValue: "No condition has been added yet. This currently adds no restriction; add a condition below." })}</span>}
+            emptyHint={<span className="text-xs leading-relaxed text-amber-400" role="status">{t("variables.editing.emptyConditions", { defaultValue: "No conditions yet, so it is always active." })}</span>}
             onChange={(conditions) => onChange({ activation: { ...activation, conditions } })} />
-          <p className="text-[11px] leading-relaxed text-muted-foreground">{t("variables.conditionsHint")}</p>
         </div>
       )}
 
       {activation.mode === "greeting" && (
-        <div className="space-y-2 rounded-lg border border-violet-500/20 bg-violet-500/5 p-2.5">
-          <p className="text-[11px] leading-relaxed text-muted-foreground">{t("variables.greetingHint")}</p>
+        <div className="space-y-2 rounded-lg border border-border p-2.5" title={t("variables.greetingHint")}>
           {greetings.length === 0 ? <p className="text-xs text-amber-400">{t("blueprint.insp.noOpenings")}</p> : (
             <div className="space-y-1">
               {greetings.map((greeting, index) => (
@@ -78,13 +76,13 @@ export function VariableActivationEditor({
                   <input type="checkbox" checked={activation.greetingIds.includes(greeting.id)}
                     onChange={() => onChange({ activation: { ...activation, greetingIds: activation.greetingIds.includes(greeting.id)
                       ? activation.greetingIds.filter((id) => id !== greeting.id) : [...activation.greetingIds, greeting.id] } })}
-                    className="mt-0.5 shrink-0 accent-violet-400" />
-                  <span className="min-w-0 break-words text-foreground"><span className="mr-1.5 text-violet-300">#{index + 1}</span>{greeting.name || greeting.content.slice(0, 80) || "—"}</span>
+                    className="mt-0.5 shrink-0 accent-primary" />
+                  <span className="min-w-0 break-words text-foreground"><span className="mr-1.5 text-muted-foreground">#{index + 1}</span>{greeting.name || greeting.content.slice(0, 80) || "—"}</span>
                 </label>
               ))}
             </div>
           )}
-          {activation.greetingIds.length === 0 && <p className="text-xs leading-relaxed text-amber-400" role="status">{t("variables.editing.emptyGreetings", { defaultValue: "No opening is selected. This variable will stay inactive until you choose one." })}</p>}
+          {activation.greetingIds.length === 0 && <p className="text-xs leading-relaxed text-amber-400" role="status">{t("variables.editing.emptyGreetings", { defaultValue: "Pick at least one opening." })}</p>}
           {missingGreetings.map((id) => <label key={id} className="flex items-start gap-2 text-xs text-amber-400">
             <input type="checkbox" checked onChange={() => onChange({ activation: { ...activation, greetingIds: activation.greetingIds.filter((other) => other !== id) } })} className="mt-0.5 shrink-0 accent-amber-400" />
             <span className="min-w-0 break-all">{t("variables.editing.missingGreeting", { id, defaultValue: "Missing opening: {{id}}" })}</span>
@@ -92,16 +90,17 @@ export function VariableActivationEditor({
         </div>
       )}
 
-      {activation.mode === "always" && <p className="text-[11px] leading-relaxed text-muted-foreground">{t("variables.alwaysHint")}</p>}
       {(activation.mode === "manual" || variable.enabled === false) && (
         <div className="space-y-2 rounded-lg border border-border p-2.5">
-          <label className="flex items-center justify-between gap-3 text-xs">
+          <label
+            className="flex items-center justify-between gap-3 text-xs"
+            title={activation.mode === "manual"
+              ? t("variables.manualHint", { path: `@vars.enabled.${variable.id}` })
+              : t("variables.editing.disabledHint", { defaultValue: "The initial switch is off, so this variable stays inactive even when its activation rule matches." })}
+          >
             <span className="text-muted-foreground">{t("variables.enabledDefaultLabel")}</span>
             <input type="checkbox" checked={variable.enabled !== false} onChange={(event) => onChange({ enabled: event.target.checked ? undefined : false })} className="accent-primary" />
           </label>
-          <p className="text-[11px] leading-relaxed text-muted-foreground">{activation.mode === "manual"
-            ? t("variables.manualHint", { path: `@vars.enabled.${variable.id}` })
-            : t("variables.editing.disabledHint", { defaultValue: "The initial switch is off, so this variable stays inactive even when its activation rule matches." })}</p>
         </div>
       )}
     </div>

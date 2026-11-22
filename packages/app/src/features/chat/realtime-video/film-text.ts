@@ -33,7 +33,7 @@ export const rawText = (text: string): FilmText => ({ key: "step.text", params: 
 export const shotStatus = (state: ShotState, key: FilmKey, params?: Record<string, FilmParam>): ShotStatus => ({ state, ...ft(key, params) });
 
 /** Why a reply's short film was not made (turnVideo.reason) → its words. */
-export const SHORT_REASON_KEYS: Record<string, FilmKey> = { busy: "shortBusy", credits: "noCredits", timeout: "shortTimeout", unavailable: "unavailable" };
+export const SHORT_REASON_KEYS: Record<string, FilmKey> = { busy: "shortBusy", credits: "noCredits", timeout: "shortTimeout", unavailable: "unavailable", refused: "shortRefused" };
 export const shortReason = (reason: string | undefined): FilmText => ft(SHORT_REASON_KEYS[reason ?? ""] ?? "unavailable");
 
 /** A `t` bound to the chat namespace (react-i18next's, or i18n.t with ns "chat"). */

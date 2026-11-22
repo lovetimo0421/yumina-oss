@@ -1,8 +1,12 @@
+---
+title: "API reference"
+description: "The complete reference for a card's interface code API: every api.* call on useYumina(), the components, and the events your code can listen for."
+---
 # API Reference
 
 > Everything a card's interface code can use: sandbox globals, components, every field and method on `useYumina()`, type definitions, and the replacements for blocked browser APIs.
 
-Interface code lives in **Panels → Front End Code**. For an introduction, read the [Custom UI Guide](./custom-ui-deep.md) first; this page is for looking up signatures.
+Interface code lives in **Panels → Interface code**. For an introduction, read the [Custom UI Guide](./custom-ui-deep.md) first; this page is for looking up signatures.
 
 ---
 
@@ -115,7 +119,9 @@ aliases. Enumerating the bag does not add duplicate rows for the aliases.
 
 | Method | What it does |
 |--------|--------------|
-| `sendMessage(text, attachments?)` | Send a message as the player, triggering an AI reply. `attachments` is an optional array of images from `pickChatImage()`. Fire-and-forget |
+| `sendMessage(text, attachments?, { note }?)` | Send a message as the player, triggering an AI reply. `attachments` is an optional array of images from `pickChatImage()`. `note` is a Note to the AI: a direction for this reply only, not story text, never in the recap, kept when the reply is regenerated. Fire-and-forget |
+| `composeAssist({ text?, model?, onDelta? })` | Write for me: the AI writes the player's next message. With `text` it expands that draft; without, it writes a fitting next move. Only the player's own character. Resolves with the text and **never sends it**; `onDelta(textSoFar)` streams it. Billed on the player's model (`composeModel`, or the `model` you pass). Rejects when the card turned it off (`composeAssistAllowed` is false) |
+| `composeModel` / `openComposeModelPicker()` | The model Write for me runs on (the player's pick, else their story model), and a way to let them change it |
 | `pickChatImage()` | Open the host's image picker for a chat attachment. Resolves `{ type: "image", mimeType, name, data }` (`data` is base64) or `null` when cancelled or unavailable. Pass the result to `sendMessage(text, [image])` |
 | `setVariable(id, value, options?)` | Set a variable. `id` is the variable's ID, or its display name. Fire-and-forget: the value shows in `api.variables` right away and is saved in the background. `options` (`{ scope?, targetUserId? }`) is accepted for older cards; the host ignores it |
 | `patchVariables(values)` | Save several variables in one write: `values` is `{ variableId: value, ... }`, keyed by **ID** (display names aren't looked up here). Returns `Promise<void>` that resolves once the server has confirmed the write and rejects on failure (read-only views, a changed session, a server error). Use it when the next step depends on the value having been saved |
@@ -155,7 +161,7 @@ Everything the default chat bar can do, exposed so your custom UI can do it too.
 | `editMessage(messageId, content, options?)` | Edit an existing message. Returns `Promise<boolean>`; `true` on success. `options.swipeIndex` names the swipe the edit was opened on; the save is refused (`false`) if a different swipe is active by then |
 | `deleteMessage(messageId)` | Delete a message. Returns `Promise<boolean>` |
 | `regenerateMessage(messageId)` | Ask the AI to regenerate the given reply (fire-and-forget) |
-| `continueLastMessage()` | Continue generating from the last AI message (fire-and-forget) |
+| `continueLastMessage({ note }?)` | Continue generating from the last AI message (fire-and-forget). With `note`, it is a turn that carries only a Note to the AI |
 | `stopGeneration()` | Interrupt the current stream (fire-and-forget) |
 | `restartChat()` | Clear all messages, reset state, start fresh |
 | `swipeMessage(messageId, "left" \| "right")` | Switch between AI alternatives (swipes) for a message. Returns `Promise<Record<string, unknown>>` |
@@ -201,14 +207,14 @@ A checkpoint is a named snapshot inside the current session you can rewind to.
 
 Speak text aloud through the platform voice pipeline (Fish Audio via OpenRouter). Billed per character to the player; replaying the same text+voice is a free cache hit. One voice plays at a time. Inline `[whisper]` / `[excited]`-style tags in the text control the delivery.
 
-Voice readout is **opt-in**: players turn it on in Settings › Display. Until they do, `ttsState.enabled` is `false`, `tts.speak` / `tts.preview` resolve `{ ok: false, reason: "disabled" }` without synthesizing or charging, and `tts.setPrefs` changes nothing. Hide your voice UI while `enabled` is false.
+Voice readout is **opt-in**: players turn it on in Settings › Display / Language, or say yes when your card asks (below). Until they do, `ttsState.enabled` is `false`, `tts.speak` / `tts.preview` resolve `{ ok: false, reason: "disabled" }` without synthesizing or charging, and `tts.setPrefs` changes nothing. Hide your voice UI while `enabled` is false.
 
 | Method / field | What it does |
 |--------|--------------|
 | `tts.speak(opts)` | `opts`: `{ messageId?, text?, key?, voice?, waitForEnd? }`. Pass `messageId` to read a chat message (honors the player's reading-mode setting), or `text` for arbitrary card lines (`key` gives it a stable playback identity). `voice` optionally overrides the player's voice with a fish.audio marketplace id (32-hex) so cards can voice their own characters. With `waitForEnd: true`, success means all audio clips actually ended; cancellation, blocked playback, media error and timeout return `ok: false`. Without it, success means playback was queued. Returns `Promise<{ok, reason?}>` — `reason` is `"disabled"` (the player hasn't turned readout on), `"unavailable"` (preview/replay), `"insufficient"` (not enough mushies), `"rate-limited"`, `"empty"`, `"timeout"`, or an error |
 | `tts.stop()` | Stop the current readout (also cancels a pending synthesis and the auto read-along queue) |
 | `tts.onPlaybackFrame(cb)` | Subscribe to measured output frames (about 15 per second) while a line plays. Match the frame's key to the line you started. Returns an unsubscribe function; unsubscribe on unmount |
-| `tts.setPrefs(prefs)` | Update the player's readout preferences: `{ enabled?, autoPlay?, mode?, voice?, voicePool?, volume? }` (`mode` is `"full"` or `"dialogue"`; `volume` 0–100; `voicePool` is the list of voice ids AI casting may give characters, `[]` = all; `voice` sets a pool of one, "" = all). Persists to the account; new values flow back via `ttsState`. Only works once the player has opted in; `enabled: true` is ignored (only Settings turns readout on), `enabled: false` switches it off |
+| `tts.setPrefs(prefs)` | Update the player's readout preferences: `{ enabled?, autoPlay?, mode?, voice?, voicePool?, volume? }` (`mode` is `"full"` or `"dialogue"`; `volume` 0–100; `voicePool` is the list of voice ids AI casting may give characters, `[]` = all; `voice` sets a pool of one, "" = all). Persists to the account; new values flow back via `ttsState`. While readout is off, `enabled: true` sent from the player's click opens Yumina's own dialog asking them (readout costs mushies); only their yes turns it on, and `ttsState.enabled` then becomes true. A no isn't asked again for a minute, and without a click nothing happens. The other fields only work once readout is on. `enabled: false` switches it off |
 | `tts.preview(voice)` | Play a short sample of a voice (`""` = the auto voice). Billed like any synth on first listen, cached for everyone after. Returns `Promise<{ok, reason?}>` |
 | `ttsState` | Read-only: `{ available, enabled, voice, voicePool, mode, autoPlay, volume, playback }`. `available` is false outside real sessions (guest preview, replay) — hide ALL voice UI then; `enabled` is the player's opt-in (false until they turn readout on in Settings). `playback` is `{ key, status: "loading" \| "playing" \| "blocked", progress?, level? }` or `null` (`progress` 0–1 at ~2Hz), `playing` follows actual playback. `waitForEnd` conversations may include a real output `level` (0–1, about 15Hz); it is absent when unsupported. A custom UI can render per-line speaker states and progress rings |
 
@@ -219,13 +225,24 @@ Let the player speak instead of type. The platform records (the card never touch
 | Method / field | What it does |
 |--------|--------------|
 | `voice.prepare(opts?)` | Checks browser microphone permission, then releases the microphone without recording or transcription. Set `{ requireLevels: true }` for automatic silence detection; returns `{ ok: false, reason: "levels-unavailable" }` if the analyser cannot run. Call before paid speech so a blocked microphone does not strand the conversation. Cancel with `voice.cancel()`. |
-| `voice.record(opts?)` | Start recording — call it when your talk button goes down. Automatic silence detection should also set `opts.requireLevels: true`; ordinary hold-to-talk can omit it. `opts.onLevel(level)` gets the live input loudness (0–1, ~15×/s) for a waveform. Resolves after `voice.stop()` with `{ ok: true, text }`, or `{ ok: false, reason }` — `reason` is `"cancelled"`, `"too-short"` (a tap, not a hold), `"denied"` (microphone blocked), `"empty"`, `"rate-limited"`, `"unavailable"` (preview/replay), `"timeout"` or `"error"`. Pauses any voice readout so the AI isn't recorded |
+| `voice.record(opts?)` | Start recording — call it when your talk button goes down. Automatic silence detection should also set `opts.requireLevels: true`; ordinary hold-to-talk can omit it. `opts.onLevel(level)` gets the live input loudness (0–1, ~15×/s) for a waveform. `opts.hint` lists the names and made-up words players will say, comma separated (`"牧濑红莉栖, 冈部伦太郎, Amadeus"`), so the transcript spells them right. Resolves after `voice.stop()` with `{ ok: true, text }`, or `{ ok: false, reason }` — `reason` is `"cancelled"`, `"too-short"` (a tap, not a hold), `"denied"` (microphone blocked), `"empty"`, `"rate-limited"`, `"unavailable"` (preview/replay), `"timeout"` or `"error"`. Pauses any voice readout so the AI isn't recorded |
 | `voice.stop()` | Finish the clip and transcribe it (talk button released) |
 | `voice.cancel()` | Throw the clip away |
 | `voice.setPrefs(prefs)` | Update the player's voice-input preferences: `{ enabled?, mode?, key? }`. `mode` is `""` (follow the card), `"confirm"` or `"auto"`; `key` is the `KeyboardEvent.code` to hold |
 | `voiceInputState` | Read-only: `{ available, enabled, mode, cardMode, playerMode, key }`. `mode` is what the player wants on release — `"auto"` (send it as spoken) or `"confirm"` (let them review it). It is your card's `settings.voiceInputMode` unless the player overrode it. `key` is the `KeyboardEvent.code` they hold to talk |
 
 Set the default for your card in **Card settings → Sound → Player voice input**: **Review first** is `"confirm"`, **Send right away** is `"auto"`. In the world JSON it's `settings.voiceInputMode: "auto" | "confirm"`.
+
+### Recipe: a voice companion card
+
+What a card that talks to the player needs (the Amadeus card is built this way):
+
+1. **Sound check before the call.** If `ttsState.available && !ttsState.enabled`, show a "Turn on her voice" button that calls `api.tts.setPrefs({ enabled: true })` in its click handler. Yumina asks the player; when they say yes, `ttsState.enabled` turns true and the button can go. If it stays off, say where the switch is: Settings › Display / Language › Voice readout.
+2. **Test buttons.** "Hear her": `tts.speak({ text, voice, key, waitForEnd: true })` and show the result. "Test the mic": `voice.record({ requireLevels: true, onLevel })` for a few seconds with a level bar, then `voice.cancel()`; nothing is transcribed or billed.
+3. **Follow the mic switch.** Offer the mic only when `voiceInputState.available && voiceInputState.enabled`; `voice.setPrefs({ enabled })` turns it on or off.
+4. **Model choice.** A button that calls `api.openModelPicker()` lets players pick a faster model; `api.selectedModel` says which one they use.
+5. **A small window.** On desktop Chrome and Edge (`hostWindowState.canFloat`), `api.hostWindow.float({ width, height })` from a click moves the card into a small window above every app; the card loads again there with `hostWindowState.floating` true, and `api.hostWindow.dock()` brings it back. Elsewhere (phones, Safari), paint your character into a canvas, put `canvas.captureStream()` into a muted `<video playsinline>`, and call `video.requestPictureInPicture()` in the click. Set the video up before the click: a video that hasn't shown a frame yet is refused. iPhones and iPads (every browser there is Safari underneath) won't put a canvas stream into picture-in-picture: give them a recorded video file instead (an idle loop, plus a talking part you seek to while the character speaks) and switch it on with `video.webkitSetPresentationMode("picture-in-picture")` in the click. Once the phone puts the page to sleep, only the file keeps playing.
+6. **Say which browsers work** (in the card and its description). Voice and mic: Chrome, Edge, Safari and Firefox on computers and phones; pages opened inside chat or social apps often get no microphone. Floating window: desktop Chrome or Edge. Picture-in-picture: Chrome on Android, Safari on iPhone.
 
 ### Continuous live voice (OpenAI Realtime)
 
@@ -292,6 +309,9 @@ The SDK forwards only the notice ID and kind. Existing cards without an `unperso
 | Method | What it does |
 |--------|--------------|
 | `toggleImmersive()` | Toggle immersive (full-screen) mode |
+| `exitFullscreen()` | Leave fullscreen; never enters it. The **Exit full screen** item of your game menu |
+| `isFullscreen()` | `Promise<boolean>`: whether the play page is in fullscreen now. Ask when your menu opens, to label its fullscreen item (**Exit full screen** or **Full screen**) |
+| `backToYumina()` | Leave the card for Yumina, as the play page's back button does (fullscreen ends first). The **Back to Yumina** item of your game menu. Does nothing in the editor preview |
 | `openPersonaManager()` | Open the player's persona manager — switch / create / edit personas without leaving the world (the same panel the composer "+" menu opens). In play, a switch changes this session's saved persona and takes effect on the next message |
 | `getPersonaProfile()` | Read the session's selected persona when the player chooses to import it. Returns `Promise<{ name, appearance, personality, backstory, entries? } \| null>` (`entries` is `[{ title, content }]`); `null` when no persona is selected; failures reject. Private notes are never included. Save a copy in your own data if the identity must stay fixed for the run |
 | `openModelPicker(options?)` | Open the chat's model picker. Pass `{ purpose: "side-completion" }` when the choice is for your own `ai.complete` calls; chat-only trial models are left out then |
@@ -303,6 +323,12 @@ The SDK forwards only the notice ID and kind. Existing cards without an `unperso
 | `copyToClipboard(text)` | Copy to clipboard (replaces `navigator.clipboard.writeText`) |
 | `navigate(path)` | Ask the parent to route to a path like `"/app/hub"` (replaces `window.location = ...`) |
 | `showToast(message, type?)` | Show a toast in the parent UI. `type`: `"success"`, `"error"`, `"info"` (default) |
+
+**The Escape key and the game menu.** In fullscreen, Escape goes to your card and players leave fullscreen by *holding* Escape (the browser says so). A held key's repeats never reach your listeners. Every card that takes over the screen keeps the same contract, so a player learns it once:
+
+1. **Escape opens and closes the game menu (pause / settings), and nothing else.** Drawers, text boxes and dialogs close with their own button, not Escape. Inside the menu, Escape steps back from a sub-page, then closes the menu. Call `preventDefault()` on the Escape you handle.
+2. **The menu always ends with two items:** **Exit full screen** (`exitFullscreen()`; when `isFullscreen()` is false, show **Full screen** → `toggleImmersive()` instead) and **Back to Yumina** (`backToYumina()`; save your own progress first).
+3. A card with no menu leaves Escape alone: an Escape nobody claims leaves fullscreen.
 
 ### Browser-local storage (per-world)
 
@@ -343,6 +369,25 @@ Checkpoint restores that change JSON share these capacity and rate limits. Excee
 
 JSON and media references are captured together in checkpoints, same-account branches, and shared snapshots. Restoring a checkpoint restores both. Private live-session data is accessible only to its owner; being the world's creator does not grant access to it. A shared snapshot follows the existing visibility, world publication status, hidden/moderation status, and content-level rules. Under those rules, the sharer and the card's creator are privileged readers of the snapshot, including hidden, unpublished, or sensitive snapshots. Other viewers must pass the applicable checks; unlisted shares are accessible by link. Do not store secrets in records included in a share. There is no automatic migration of arbitrary browser-storage keys.
 
+### Leaderboards (`api.leaderboard`)
+
+The card's own high-score boards, the way Steam games do leaderboards: the card names a board and submits scores, the platform keeps each player's best and ranks them, and the card draws the board itself. Every language version of the card shares the same boards. Signed-in players only; otherwise you get `{ ok: false, reason: "sign-in" }`.
+
+| Method | What it does |
+|--------|--------------|
+| `leaderboard.submit(board, score, { details?, order? })` | Submits a score, keeps only the player's best, and returns their best and rank. `order: "asc"` means lower is better (a time, say); the board's first score sets it for good. `details` is up to 500 characters of JSON shown with that score |
+| `leaderboard.get(board, { range?, limit? })` | Reads the board. `range` is `"top"` (default), `"around"` (the places around you) or `"friends"` (you and your friends); `limit` is at most 50 |
+
+```tsx
+const r = await api.leaderboard.submit("最高分", 1280, { details: { ball: "steel" } });
+// r = { ok: true, best: 1280, rank: 3, total: 41, improved: true, order: "desc" }
+const board = await api.leaderboard.get("最高分", { range: "top", limit: 10 });
+// board.entries = [{ rank, name, image, score, details, me }], board.me = { rank, score } | null
+await api.leaderboard.submit("通关用时", 92.4, { order: "asc" }); // lower is better
+```
+
+Limits: board names are 1–40 characters, a card has at most 20 boards, and a player can submit 30 times a minute. Scores come from the card itself, so don't hand out rewards by rank. For designing the board, see the [Leaderboards recipe](./recipes/leaderboard.md).
+
 ### Player images (per-session)
 
 Use `api.media` for private player images. Creator assets still use `@asset:`. With server S3 storage configured, uploads are enabled for all worlds unless the operator pauses new uploads.
@@ -357,6 +402,28 @@ Use `api.media` for private player images. Creator assets still use `@asset:`. W
 Listed items include `{ id, entryId, filename, metadata, version, sizeBytes, url, thumbnailUrl, deleted }`; `id` is the media ID. Persist `entryId`/`mediaId` in JSON, never signed display URLs or base64 bytes. Refresh URLs with `list()` when reopening and before their five-minute expiry. Deleted items can have null URLs. Removing a session association does not permanently delete the file or release capacity while other references remain.
 
 Static JPEG/PNG/WebP input is limited to 16 MiB and 40 million decoded pixels. The server produces WebP display images up to 2048 pixels plus thumbnails; this is not an original-file backup. Images use the account's shared asset capacity. See the [player image recipe](./recipes/player-images.md) for persistence and migration guidance.
+
+### Pictures the card draws (`api.images`)
+
+Ask Yumina to draw a picture for your interface: an NPC's portrait for a gallery, a scene for your own panel. It is drawn the same way as a reply's picture (the card's characters and looks, original-work characters by name) and billed to the player the same way: 12 mushies a picture after the player's free ones.
+
+| Method | What it does |
+|--------|--------------|
+| `images.generate({ subject?, look?, scene?, drawId? })` | `subject`: a character's name (their look comes from your card). `look`: describe them yourself (an NPC your card never wrote). `scene`: what is happening. Resolves `{ ok: true, url }` or `{ ok: false, reason }` |
+| `images.cancel(drawId)` | Stops a picture still drawing (pass your own UUID as `drawId` to generate); the mushies come back |
+| `illustrateMessage(messageId, { note?, fine?, focus?, prompt? })` | Draws (or redraws) a reply's own picture. `focus`: a passage of that reply's text (up to 1200 characters) to draw instead of its end. `prompt`: the player's own description of the picture (up to 1000 characters). Same price as any reply picture; resolves `true` when it landed |
+
+A card's first picture asks the player in Yumina's own dialog (even while their pictures are free), and only a click in your card can open it: call `generate` from a button's `onClick`. Called on its own, the answer is `reason: "consent"`; show a "Draw" button then. If the player also leaves "Don't ask again" checked, your card draws without asking from then on; otherwise the next picture asks again, so keep every `generate` call in a click handler. Other reasons: `declined`, `credits` (the top-up opens), `busy`, `limit` (a save gets 40 pictures a day), `nothing`, `cancelled`, `off` (the player turned pictures off), `unavailable`, `invalid`.
+
+The `url` lasts; keep it in `api.sessionStorage` (not in a variable the AI reads) to show the picture again.
+
+```tsx
+const [portrait, setPortrait] = useState<string | null>(null);
+<button onClick={async () => {
+  const r = await api.images.generate({ subject: "Mira", scene: "standing at the tavern door, smiling" });
+  if (r.ok && r.url) setPortrait(r.url);
+}}>Draw Mira</button>
+```
 
 ### Lorebook lookups
 
@@ -393,6 +460,7 @@ const text = await api.ai.complete({
   maxTokens: 500,                                       // optional, default 2048, max 8192
   temperature: 0.7,                                     // optional
   includeLorebook: "matched",                           // optional — see below
+  reasoningEffort: "medium",                            // optional: none | minimal | low | medium | high
 })
 ```
 
@@ -951,7 +1019,8 @@ useYumina()
 │   ├── entries, worldbooks, loreUiBindings
 │   └── selectedModel, userPlan, preferredProvider, balance
 ├── Game actions
-│   ├── sendMessage(text, attachments?)
+│   ├── sendMessage(text, attachments?, { note }?)
+│   ├── composeAssist({ text?, model?, onDelta? }) → Promise<string>
 │   ├── pickChatImage() → Promise<image | null>
 │   ├── setVariable(id, value)
 │   ├── patchVariables(values) → Promise<void>
@@ -968,7 +1037,7 @@ useYumina()
 │   ├── editMessage(id, content, options?) → Promise<boolean>
 │   ├── deleteMessage(id) → Promise<boolean>
 │   ├── regenerateMessage(id)
-│   ├── continueLastMessage()
+│   ├── continueLastMessage({ note }?)
 │   ├── stopGeneration()
 │   ├── restartChat()
 │   ├── swipeMessage(id, direction) → Promise
@@ -1000,7 +1069,7 @@ useYumina()
 │       updateInstructions / reactToScene / cancelSceneReaction / resolveTool /
 │       setSpatial / onEvent
 ├── UI / navigation
-│   ├── toggleImmersive()
+│   ├── toggleImmersive(), exitFullscreen(), isFullscreen(), backToYumina()
 │   ├── openPersonaManager(), getPersonaProfile() → Promise
 │   ├── openModelPicker(options?), openSessionManager(), sharePlaythrough()
 │   ├── openSupport() → Promise<{opened, reason}>, openCreditTopUp()
@@ -1016,11 +1085,18 @@ useYumina()
 │   ├── sessionStorage.get(key) → Promise<{value, version, exists}>
 │   ├── sessionStorage.set(key, value, {expectedVersion}) → Promise<{value, version, exists}>
 │   └── sessionStorage.remove(key, {expectedVersion}) → Promise<{value, version, exists}>
+├── Leaderboards
+│   ├── leaderboard.submit(board, score, {details?, order?}) → Promise<{ok, best, rank, total, improved, order} | {ok: false, reason}>
+│   └── leaderboard.get(board, {range?, limit?}) → Promise<{ok, order, total, entries, me} | {ok: false, reason}>
 ├── Session images
 │   ├── media.list(offset?) → Promise<{items, hasMore, uploadsEnabled}>
 │   ├── media.pick(options?) → Promise<{mediaId, entryId} | null>
 │   ├── media.upload(file, options?) → Promise<{mediaId, entryId}>
 │   └── media.remove(entryId, version) → Promise<{removed}>
+├── Card pictures
+│   ├── images.generate({subject?, look?, scene?, drawId?}) → Promise<{ok, url?, reason?}>
+│   ├── images.cancel(drawId) → Promise<boolean>
+│   └── illustrateMessage(messageId, {note?, fine?, focus?, prompt?}) → Promise<boolean>
 ├── Lorebook
 │   ├── entries (ReadonlyArray<SandboxEntry>)  // sorted by position, enabled only
 │   ├── worldbooks

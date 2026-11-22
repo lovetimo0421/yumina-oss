@@ -4,9 +4,16 @@ import type { LedgerDatabase } from "./transaction-hash.js";
 import { VoiceConnectionError } from "./voice-realtime.js";
 
 /** Owner decision 2026-10-19: GPT-Live ($0.05/min) at the voice rate of 1,200 credits per
- * dollar, charged per started minute, at most 15 minutes a call. */
+ * dollar, charged per started minute. Owner 2026-10-24: a call ends when nobody is playing, not
+ * at a fixed clock; the ceiling below only bounds a billing or hangup bug. */
 export const LIVE_CREDITS_PER_MINUTE = 60;
-export const LIVE_MAX_MINUTES = 15;
+export const LIVE_MAX_MINUTES = 60;
+/** No player activity (speech, input, transcript) this long ends the call (reason 'idle'). */
+export const LIVE_IDLE_MS = 180_000;
+/** From here the player is warned; a new minute that comes due now is not charged, the call ends. */
+export const LIVE_IDLE_WARN_MS = 150_000;
+/** Largest idle report accepted from a browser (anything larger is clamped). */
+const MAX_IDLE_REPORT_MS = 3_600_000;
 /** The browser beats every 30 s; two missed beats and a margin mean the tab is gone. */
 export const LIVE_HEARTBEAT_STALE_MS = 75_000;
 export const LIVE_SWEEP_MS = 15_000;
@@ -27,7 +34,7 @@ export interface LiveCreditDeps {
   /** Idempotent by referenceId; throws Error("INSUFFICIENT_CREDITS") when the wallet cannot pay. */
   deduct(userId: string, credits: number, referenceId: string, description: string): Promise<unknown>;
   available(userId: string): Promise<number>;
-  /** The session plays the world this pricing is for. */
+  /** The session plays a card that may place a credits-paid call (lib/voice-services.ts isLiveVoiceSession). */
   isWorld(sessionId: string): Promise<boolean>;
   /** Hang up the provider call (404 counts as done). Throws when unconfirmed. */
   hangup(providerId: string): Promise<void>;
@@ -47,12 +54,17 @@ export interface LiveCreditConfig {
 
 interface Row {
   id: string; user_id: string; session_id: string; provider_id: string | null; state: string;
-  started_at: Date | string | null; last_heartbeat_at: Date | string | null; created_at: Date | string;
+  started_at: Date | string | null; last_heartbeat_at: Date | string | null; last_active_at?: Date | string | null; created_at: Date | string;
   paid_minutes: number; credits_per_minute: number; max_minutes: number;
 }
 const rowsOf = <T>(result: unknown): T[] => Array.isArray(result) ? result as T[] : ((result as { rows?: T[] }).rows ?? []);
 const ms = (value: Date | string | null) => value === null ? null : new Date(value).getTime();
 const insufficient = (error: unknown) => error instanceof Error && error.message === "INSUFFICIENT_CREDITS";
+
+export type LiveEndReason = "idle" | "balance" | "cap" | "ended";
+export interface LiveBeat { alive: boolean; lowBalance?: boolean; reason?: LiveEndReason }
+const endReason = (closeReason: string | null | undefined): LiveEndReason =>
+  closeReason === "idle" || closeReason === "balance" || closeReason === "cap" ? closeReason : "ended";
 
 /** Wall-clock billing for credits-paid GPT-Live calls. All state lives in voice_live_calls, so a
  * deploy or restart never leaves a paid call running: any instance's sweep finds it. */
@@ -92,7 +104,7 @@ export class LiveCreditCalls {
   /** The provider call exists: record it and take the first minute. False hangs it up. */
   async activate(id: string, providerId: string): Promise<boolean> {
     const rows = rowsOf<Row>(await this.deps.db.execute(sql`UPDATE voice_live_calls
-      SET provider_id = ${providerId}, state = 'active', started_at = ${this.at()}, last_heartbeat_at = ${this.at()}
+      SET provider_id = ${providerId}, state = 'active', started_at = ${this.at()}, last_heartbeat_at = ${this.at()}, last_active_at = ${this.at()}
       WHERE id = ${id} AND state = 'connecting' RETURNING *`));
     const row = rows[0];
     if (!row) return false;
@@ -109,10 +121,24 @@ export class LiveCreditCalls {
       WHERE id = ${id} AND state = 'active'`);
   }
 
-  async heartbeat(userId: string, sessionId: string): Promise<boolean> {
-    const rows = rowsOf<Row>(await this.deps.db.execute(sql`UPDATE voice_live_calls SET last_heartbeat_at = ${this.at()}
-      WHERE user_id = ${userId} AND session_id = ${sessionId} AND state = 'active' RETURNING id`));
-    return rows.length > 0;
+  /** The browser's beat. idleMs is how long the player has been inactive (a duration, so clock skew
+   * does not matter); activity only ever moves forward. A browser that sends no idleMs (an older app)
+   * counts as active, so it is ended only by a closed tab or the ceiling. */
+  async heartbeat(userId: string, sessionId: string, idleMs?: number): Promise<LiveBeat> {
+    const idle = typeof idleMs === "number" && Number.isFinite(idleMs) ? Math.min(MAX_IDLE_REPORT_MS, Math.max(0, Math.round(idleMs))) : 0;
+    const activeAt = this.at(-idle);
+    const rows = rowsOf<Row>(await this.deps.db.execute(sql`UPDATE voice_live_calls SET last_heartbeat_at = ${this.at()},
+        last_active_at = GREATEST(COALESCE(last_active_at, started_at, ${activeAt}::timestamptz), ${activeAt}::timestamptz)
+      WHERE user_id = ${userId} AND session_id = ${sessionId} AND state = 'active' RETURNING *`));
+    const row = rows[0];
+    if (!row) {
+      const ended = rowsOf<{ close_reason: string | null }>(await this.deps.db.execute(sql`SELECT close_reason FROM voice_live_calls
+        WHERE user_id = ${userId} AND session_id = ${sessionId} ORDER BY created_at DESC LIMIT 1`))[0];
+      return { alive: false, reason: endReason(ended?.close_reason) };
+    }
+    // Warn a minute ahead when the wallet cannot pay the next minute.
+    const lowBalance = await this.deps.available(userId).then(n => n < row.credits_per_minute).catch(() => false);
+    return { alive: true, lowBalance };
   }
 
   async stop(userId: string, sessionId: string): Promise<void> {
@@ -171,11 +197,17 @@ export class LiveCreditCalls {
           continue;
         }
         const started = ms(row.started_at)!, elapsed = now - started;
+        // A call that predates activity tracking (or whose first beat is pending) is as recent as its
+        // last beat, never its start: a deploy mid-call must not hang up everyone over three minutes in.
+        const idleFor = now - (ms(row.last_active_at ?? row.last_heartbeat_at ?? null) ?? started);
+        const due = row.paid_minutes < row.max_minutes && elapsed >= row.paid_minutes * 60_000 - CHARGE_AHEAD_MS;
         const reason = elapsed >= row.max_minutes * 60_000 ? "cap"
-          : now - (ms(row.last_heartbeat_at) ?? started) > LIVE_HEARTBEAT_STALE_MS ? "abandoned" : null;
+          : now - (ms(row.last_heartbeat_at) ?? started) > LIVE_HEARTBEAT_STALE_MS ? "abandoned"
+          // Idle long enough, or a new minute comes due while the player is already being warned:
+          // end it rather than charge a minute nobody is playing.
+          : idleFor >= LIVE_IDLE_MS || due && idleFor >= LIVE_IDLE_WARN_MS ? "idle" : null;
         if (reason) { await this.markClosing(row.id, reason); await this.finish({ ...row, state: "closing" }); continue; }
-        if (row.paid_minutes < row.max_minutes && elapsed >= row.paid_minutes * 60_000 - CHARGE_AHEAD_MS
-          && !await this.charge(row, row.paid_minutes + 1)) {
+        if (due && !await this.charge(row, row.paid_minutes + 1)) {
           await this.markClosing(row.id, "balance"); await this.finish({ ...row, state: "closing" });
         }
         // Done with this row for this pass: the next sweep (any instance) may take it at once.

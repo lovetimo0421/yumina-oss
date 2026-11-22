@@ -22,7 +22,7 @@ export function canReadWorldUpdateHistory({
 }): boolean {
   const canReadRestricted = isOwner || isAdmin || isFollower;
   if (status !== "published") return isOwner || isAdmin;
-  return visibility === "public" || canReadRestricted;
+  return visibility === "public" || visibility === "unlisted" || canReadRestricted;
 }
 
 export function hasMoreWorldUpdates(rowCount: number, offset: number): boolean {

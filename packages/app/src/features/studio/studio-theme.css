@@ -53,7 +53,7 @@
 
   /* ── Sash (resize handle) ─────────────────────────── */
   --dv-sash-color: transparent !important;
-  --dv-active-sash-color: var(--color-gold) !important;
+  --dv-active-sash-color: rgba(255, 255, 255, 0.22) !important;
   --dv-active-sash-transition-duration: 0.1s !important;
   --dv-active-sash-transition-delay: 0.5s !important;
 }
@@ -120,59 +120,30 @@
   background-color: transparent !important;
 }
 
+/* Between the board and the assistant: a hairline from top to bottom, the
+   same as every other edge in the Studio. It was a 3px gold bar with a grip
+   of dots, inset 16px at each end so it stopped short of both bars it ran
+   between — 「这个黄线很丑，间隔也很奇怪」 (owner, 11/15). It brightens
+   under the pointer, which is how a desktop app says it can be dragged. */
 .dockview-theme-yumina .dv-horizontal > .dv-sash-container > .dv-sash::before {
   content: "";
   position: absolute;
-  top: 16px;
-  bottom: 16px;
+  top: 0;
+  bottom: 0;
   left: 50%;
-  width: 3px;
+  width: 1px;
   transform: translateX(-50%);
-  border-radius: 999px;
-  background: var(--color-gold);
-  opacity: 0.78;
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.04),
-    0 0 18px rgba(201, 162, 94, 0.18);
+  background: rgba(255, 255, 255, 0.07);
   transition:
-    background-color 0.18s ease,
-    box-shadow 0.18s ease,
-    opacity 0.18s ease;
-  pointer-events: none;
-}
-
-.dockview-theme-yumina .dv-horizontal > .dv-sash-container > .dv-sash::after {
-  content: "";
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 10px;
-  height: 42px;
-  transform: translate(-50%, -50%);
-  border-radius: 999px;
-  background:
-    radial-gradient(circle, rgba(255, 255, 255, 0.34) 0 1px, transparent 1.5px)
-      center / 3px 11px repeat-y;
-  opacity: 0.7;
-  transition:
-    opacity 0.18s ease,
-    transform 0.18s ease;
+    background-color 0.15s ease,
+    width 0.15s ease;
   pointer-events: none;
 }
 
 .dockview-theme-yumina .dv-horizontal > .dv-sash-container > .dv-sash:not(.disabled):hover::before,
 .dockview-theme-yumina .dv-horizontal > .dv-sash-container > .dv-sash:not(.disabled):active::before {
-  background: var(--color-gold);
-  opacity: 1;
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.08),
-    0 0 22px rgba(201, 162, 94, 0.28);
-}
-
-.dockview-theme-yumina .dv-horizontal > .dv-sash-container > .dv-sash:not(.disabled):hover::after,
-.dockview-theme-yumina .dv-horizontal > .dv-sash-container > .dv-sash:not(.disabled):active::after {
-  opacity: 1;
-  transform: translate(-50%, -50%) scale(1.02);
+  width: 2px;
+  background: rgba(255, 255, 255, 0.22);
 }
 
 /* Blueprint: auto-layout reflow is animated so the graph visibly rearranges
@@ -200,10 +171,11 @@
 /* The wiring dots on every row's edges meant nothing to someone reading the
    card, and they were on every row. They show on the block under the pointer
    (which is where a wire starts or lands), on what is selected, and all of
-   them when the wires view is on. */
+   them when the wires view is on. No fade: a block of a hundred rows has
+   two hundred dots, and fading them all in as the pointer crossed into the
+   block restyled every one of them on every frame of the fade. */
 .studio-canvas:not(.bp-wires-shown) .react-flow__node .react-flow__handle {
   opacity: 0;
-  transition: opacity 150ms ease;
 }
 .studio-canvas .react-flow__node:hover .react-flow__handle,
 .studio-canvas .react-flow__node.selected .react-flow__handle,
@@ -216,7 +188,6 @@
 .react-flow__edge:hover .react-flow__edge-path {
   filter: brightness(1.35);
 }
-
 /* Blueprint block focus: the block the selection lives in stays lit, the rest
    step back. Only opacity moves — the layout must not shift under the zoom. */
 .bp-block-focus .react-flow__node[data-id^="block:"] {

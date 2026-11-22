@@ -7,7 +7,7 @@
 // so Traditional and Simplified viewers share one card pool. Keeping it a script
 // subtag (not `zh-TW`) makes that normalization automatic and lets browsers in
 // Taiwan/HK/Macau auto-route here.
-export const SUPPORTED_LANGUAGES = ["en", "zh", "zh-Hant", "es", "ja"] as const;
+export const SUPPORTED_LANGUAGES = ["en", "zh", "zh-Hant", "es", "ja", "ko", "id", "ru"] as const;
 export type SupportedLanguage = (typeof SUPPORTED_LANGUAGES)[number];
 
 export function clampLanguage(lang: string | null | undefined): SupportedLanguage {

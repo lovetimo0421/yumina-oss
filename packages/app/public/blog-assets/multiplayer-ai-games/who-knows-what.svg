@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="760" viewBox="0 0 1600 760" font-family="Nunito Sans, Segoe UI, Helvetica, Arial, sans-serif">
+  <defs>
+    <radialGradient id="g" cx="50%" cy="-20%" r="90%">
+      <stop offset="0" stop-color="#C9A25E" stop-opacity=".18"/>
+      <stop offset="1" stop-color="#121316" stop-opacity="0"/>
+    </radialGradient>
+    <marker id="a" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0,1 L9,5 L0,9 z" fill="#C9A25E"/>
+    </marker>
+  </defs>
+  <rect width="1600" height="760" fill="#121316"/>
+  <rect width="1600" height="760" fill="url(#g)"/>
+
+  <text x="80" y="78" font-size="34" font-weight="700" fill="#FFF5D6">One Avalon table: who knows what</text>
+  <text x="80" y="112" font-size="20" fill="#E8E2D2" fill-opacity=".62">Seven chairs. Some hold people, some hold AI players. The server decides who is told what.</text>
+
+  <!-- table -->
+  <ellipse cx="800" cy="300" rx="250" ry="105" fill="#1C1D22" stroke="#ffffff" stroke-opacity=".12"/>
+  <text x="800" y="292" text-anchor="middle" font-size="16" letter-spacing="3" fill="#C9A25E">THE SERVER</text>
+  <text x="800" y="318" text-anchor="middle" font-size="15" fill="#E8E2D2" fill-opacity=".75">deals roles with one seed · runs every countdown</text>
+  <text x="800" y="340" text-anchor="middle" font-size="15" fill="#E8E2D2" fill-opacity=".75">good players can only play success</text>
+
+  <!-- chairs -->
+  <g font-size="15" text-anchor="middle">
+    <g transform="translate(560,180)"><circle r="30" fill="#2A2B33" stroke="#C9A25E" stroke-opacity=".8" stroke-width="2"/><text y="5" fill="#FFF5D6">host</text></g>
+    <g transform="translate(700,150)"><circle r="30" fill="#2A2B33" stroke="#ffffff" stroke-opacity=".2"/><text y="5" fill="#E8E2D2">Amy</text></g>
+    <g transform="translate(900,150)"><circle r="30" fill="#2A2B33" stroke="#ffffff" stroke-opacity=".2"/><text y="5" fill="#E8E2D2">Ben</text></g>
+    <g transform="translate(1040,180)"><circle r="30" fill="#2A2B33" stroke="#ffffff" stroke-opacity=".2"/><text y="5" fill="#E8E2D2">Kai</text></g>
+    <g transform="translate(1040,420)"><circle r="30" fill="#3A2F1C" stroke="#C9A25E" stroke-opacity=".5" stroke-dasharray="4 3"/><text y="5" fill="#FFF5D6">AI</text></g>
+    <g transform="translate(800,450)"><circle r="30" fill="#3A2F1C" stroke="#C9A25E" stroke-opacity=".5" stroke-dasharray="4 3"/><text y="5" fill="#FFF5D6">AI</text></g>
+    <g transform="translate(560,420)"><circle r="30" fill="#3A2F1C" stroke="#C9A25E" stroke-opacity=".5" stroke-dasharray="4 3"/><text y="5" fill="#FFF5D6">AI</text></g>
+  </g>
+  <text x="800" y="500" text-anchor="middle" font-size="15" fill="#E8E2D2" fill-opacity=".6">dashed chairs are AI players; the host's browser speaks for them</text>
+
+  <!-- three boxes -->
+  <g>
+    <rect x="80" y="520" width="440" height="190" rx="14" fill="#1C1D22" stroke="#ffffff" stroke-opacity=".1"/>
+    <text x="104" y="552" font-size="15" letter-spacing="3" fill="#C9A25E">EVERYONE SEES</text>
+    <g font-size="16" fill="#E8E2D2" fill-opacity=".85">
+      <text x="104" y="584">who sits where, who leads, the team</text>
+      <text x="104" y="610">how many have voted, not how</text>
+      <text x="104" y="636">the last 40 speeches, who is composing</text>
+      <text x="104" y="662">the countdown</text>
+      <text x="104" y="690" fill-opacity=".55">never a role, until the game is over</text>
+    </g>
+  </g>
+  <g>
+    <rect x="580" y="520" width="440" height="190" rx="14" fill="#1C1D22" stroke="#ffffff" stroke-opacity=".1"/>
+    <text x="604" y="552" font-size="15" letter-spacing="3" fill="#C9A25E">EACH CHAIR IS TOLD IN PRIVATE</text>
+    <g font-size="16" fill="#E8E2D2" fill-opacity=".85">
+      <text x="604" y="584">its own role</text>
+      <text x="604" y="610">what that role may see of others</text>
+      <text x="604" y="636">sent again if you drop and return</text>
+      <text x="604" y="662">an AI chair's view goes only to the host</text>
+      <text x="604" y="690" fill-opacity=".55">the host may act only for AI chairs</text>
+    </g>
+  </g>
+  <g>
+    <rect x="1080" y="520" width="440" height="190" rx="14" fill="#1C1D22" stroke="#C9A25E" stroke-opacity=".55"/>
+    <text x="1104" y="552" font-size="15" letter-spacing="3" fill="#C9A25E">WHEN THE CLOCK RUNS OUT</text>
+    <g font-size="16" fill="#E8E2D2" fill-opacity=".85">
+      <text x="1104" y="584">propose: a fallback team</text>
+      <text x="1104" y="610">vote: missing votes filled in</text>
+      <text x="1104" y="636">quest: missing cards played</text>
+      <text x="1104" y="662">assassin: a random candidate</text>
+      <text x="1104" y="690" fill-opacity=".55">a slow model never stops the table</text>
+    </g>
+  </g>
+</svg>

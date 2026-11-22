@@ -17,7 +17,6 @@ import { resolveProviderForModel } from "./resolve-provider.js";
 import { calculateCost } from "./credit-service.js";
 import { beginModuleGeneration } from "./module-generation-access.js";
 import { planAllowedModel } from "./plan-model-gate.js";
-import { applyModelRedirect } from "./llm/model-redirects.js";
 import { captureServerEvent } from "./analytics.js";
 import { isExtensionInstalled } from "./extensions.js";
 import { SESSION_MEMORY_EXTENSION_KEY } from "@yumina/shared";
@@ -71,13 +70,11 @@ export {
   normalizeSessionSummaryMode,
   normalizeStorySummaryText,
 } from "./session-compaction-core.js";
+import { DEFAULT_STORY_SUMMARY_MODEL } from "./background-model-defaults.js";
+import { storySummaryModels } from "./role-model.js";
 
-// Cheap, fast, CJK-aware background summarizer. Aligns its tokenizer with the
-// default CJK-aware play model (anthropic/claude-sonnet-4.6) so the compaction
-// window and the prompt budget agree on Chinese token counts. (Was
-// x-ai/grok-4.1-fast, now deprecated → silently redirected to the ~20x-pricier
-// x-ai/grok-4.20; see DEPRECATED_MODEL_REDIRECTS in routes/messages.ts.)
-export const DEFAULT_STORY_SUMMARY_MODEL = "google/gemini-3.1-flash-lite";
+export { DEFAULT_STORY_SUMMARY_MODEL };
+
 
 const STORY_SUMMARY_SOURCE_HASH_VERSION = 3;
 type StoryUsage = Parameters<typeof billBackgroundUsage>[0];
@@ -142,6 +139,8 @@ type PreparedStorySummaryJob = {
   charges: StoryUsage[];
   claimedModel?: string;
   model: string;
+  /** What the session's summaryModel column keeps; `model` is what the run uses. */
+  keepModel?: string;
   sourceHash: string;
   mode: "compact" | "regenerate";
   sourceMessages: Array<Pick<StoryMessageRow, "id" | "role" | "content">>;
@@ -762,7 +761,8 @@ async function markStoryJobUpdating(args: {
 }): Promise<boolean> {
   if (args.job.mode === "compact" && args.job.snapshot.summary?.trim()
     && (!args.job.snapshot.summarySourceHash || args.job.snapshot.summarySourceHash.includes(":authored"))) args.job.sourceHash += ":authored";
-  args.job.claimedModel = args.job.model;
+  const claimedModel = args.job.keepModel ?? args.job.model;
+  args.job.claimedModel = claimedModel;
   const now = new Date();
   const claimGuard = or(
         ne(playSessions.summaryStatus, "updating"),
@@ -775,7 +775,7 @@ async function markStoryJobUpdating(args: {
   const updated = await db
     .update(playSessions)
     .set({
-      summaryModel: args.job.model,
+      summaryModel: claimedModel,
       summaryStatus: "updating" satisfies StoryCompactionStatus,
       summaryError: null,
       summarySourceHash: args.job.sourceHash,
@@ -879,7 +879,7 @@ async function persistStorySummaryResult(args: {
       .update(playSessions)
       .set({
         summary: args.summary,
-        summaryModel: args.job.model,
+        summaryModel: args.job.keepModel ?? args.job.model,
         summaryUpdatedAt: new Date(),
         summaryStatus: "idle" satisfies StoryCompactionStatus,
         summaryError: null,
@@ -986,14 +986,14 @@ async function compactStorySummaryForSessionNow(args: StoryCompactionArgs): Prom
   const row = await loadSessionForSummary(args.sessionId, args.userId);
   if (!row) throw new Error("Session not found");
 
-  // applyModelRedirect: persisted summaryModel values can hold deprecated ids
-  // (e.g. x-ai/grok-4.1-fast) saved before a redirect shipped; without the
-  // redirect they 404 on every background run.
-  const model = applyModelRedirect((
-    args.force
-      ? args.fallbackModel
-      : row.session.summaryModel || DEFAULT_STORY_SUMMARY_MODEL || args.fallbackModel
-  ).trim());
+  // storySummaryModels redirects: persisted summaryModel values can hold
+  // deprecated ids (e.g. x-ai/grok-4.1-fast) saved before a redirect shipped;
+  // without the redirect they 404 on every background run.
+  const { run: model, keep: keepModel } = await storySummaryModels(
+    args.userId,
+    row.session.summaryModel,
+    args.force && args.fallbackModel ? args.fallbackModel : null,
+  );
   const summaryMode = "threshold";
   const userTriggerTokens = normalizeSessionSummaryTriggerTokens(row.session.summaryTriggerTokens);
   // An explicit user-set trigger is respected as-is; the default is capped
@@ -1064,6 +1064,7 @@ async function compactStorySummaryForSessionNow(args: StoryCompactionArgs): Prom
     const job: PreparedStorySummaryJob = {
       snapshot: row.session, boundaryState, charges: [],
       model,
+      keepModel,
       sourceHash,
       mode: "regenerate",
       sourceMessages: boundedRows.map(({ id, role, content }) => ({ id, role, content })),
@@ -1160,6 +1161,7 @@ async function compactStorySummaryForSessionNow(args: StoryCompactionArgs): Prom
   const job: PreparedStorySummaryJob = {
     snapshot: row.session, boundaryState, charges: [],
     model,
+    keepModel,
     sourceHash,
     mode,
     sourceMessages: compactableSlice.map(({ id, role, content }) => ({ id, role, content })),
@@ -1383,7 +1385,7 @@ export function compactStorySummaryForSessionManually(args: {
     const row = await loadSessionForSummary(args.sessionId, args.userId);
     if (!row) throw new Error("Session not found");
 
-    const model = applyModelRedirect((args.model || row.session.summaryModel || DEFAULT_STORY_SUMMARY_MODEL).trim());
+    const { run: model, keep: keepModel } = await storySummaryModels(args.userId, row.session.summaryModel, args.model);
     const summaryMode = "threshold";
     const summaryTriggerTokens = normalizeSessionSummaryTriggerTokens(row.session.summaryTriggerTokens);
     const summaryRecentTailTokens = normalizeSessionSummaryRecentTailTokens(row.session.summaryRecentTailTokens);
@@ -1467,6 +1469,7 @@ export function compactStorySummaryForSessionManually(args: {
     const job: PreparedStorySummaryJob = {
       snapshot: row.session, boundaryState, charges: [],
       model,
+      keepModel,
       sourceHash,
       mode: "compact",
       sourceMessages: manualSlice.map(({ id, role, content }) => ({ id, role, content })),
@@ -1561,7 +1564,9 @@ export function regenerateStorySummaryForSession(args: {
     return compactStorySummaryForSessionNow({
       sessionId: args.sessionId,
       userId: args.userId,
-      fallbackModel: (args.model || row.session.summaryModel || DEFAULT_STORY_SUMMARY_MODEL).trim(),
+      // Only a model the player picked for this regenerate; otherwise the
+      // session's own choice, then the player's summary default.
+      fallbackModel: args.model?.trim() ?? "",
       run: args.run,
       force: true,
     });

@@ -62,7 +62,8 @@ Numbers and rules (what makes it a game)
 Interface
 - No-code pages: openings and play-time pages (listed below); buttons set values, send messages, switch pages, switch the opening, draw random results.
 - AI text can be restyled: a set pattern becomes tappable choices, a card, a hidden secret the player taps to reveal, a speaker label with avatar.
-- A fully custom frontend (code) can replace the whole chat screen: animation, minigames, real-time controls, 3D.
+- A fully custom frontend (code) can replace the whole chat screen: animation, minigames, real-time controls.
+- A world the player moves through, three ways: a ready-made map page (tap a place, meet who is there); a 2D scene where the player walks a character up to people to talk (custom frontend); a 3D scene walked in first person (custom frontend, three.js is built in). The last two are larger builds; 3D needs a computer or a recent phone.
 Pictures and sound
 - Cover, a gallery of up to 20 images, character portraits, scene pictures that appear when the story reaches a moment, switchable chat backgrounds.
 - Image generation inside the editor (the assistant can propose a batch; nothing is charged until the creator confirms).
@@ -81,7 +82,7 @@ const CANNOT = `## What it cannot do — always offer the alternative
 - Per-turn illustrations are switched on by each player, anime style only. → Key moments get author-made scene pictures.
 - No video; no generated sound effects; generated music is instrumental only. → Upload sound effects.
 - Long-chat memory is a player-side option the author can't rely on. → Keep key facts in tracked values the AI sees every turn.
-- Custom frontend limits: no browser dialogs, no file downloads, no npm packages (libraries such as three.js must be bundled into the card); text and code of a card up to 5MB, images and audio go to the asset library.
+- Custom frontend limits: no browser dialogs, no file downloads, no npm packages (three.js is built in; any other library must be bundled into the card); text and code of a card up to 5MB, images and audio go to the asset library.
 - Changing the characters, interface, rating or cover of a published card goes through review again; players keep the old version until it passes.
 - In-card achievements are not supported (use the "achievements" pack, which is a tracked list).
 - Not available: popularity data. Never claim what will be popular.`;
@@ -100,20 +101,73 @@ function readyMade(language: "zh" | "en"): string {
   ].join("\n");
 }
 
+// Only where the deployment that makes them is configured (lib/rig/jobs.ts rigAvailable), so the advisor never
+// promises one the build cannot make.
+const LIVE_CHARACTER = `- A live character from one picture: in Build the assistant turns a character picture into one that breathes, blinks, follows the pointer, talks with mouth shapes, shows expressions (happy, shy, surprised, heart eyes, a wink…), reacts to being touched, and whose hair sways. It stands in a custom frontend (e.g. beside the chat), the story can change its expression, and its mouth moves while a reply is read aloud. About 30 minutes; charged for the GPU time it actually uses (usually 1500-2500 mushies, the unused part of the hold comes back), only once the creator confirms. No Live2D or outside software is needed.`;
+
 /** What the advisor knows about the platform. */
-export function capabilitySheet(language: "zh" | "en"): string {
-  return `${CAN}\n\n${readyMade(language)}\n\n${CANNOT}`;
+export function capabilitySheet(language: "zh" | "en", opts: { liveCharacter?: boolean } = {}): string {
+  const can = opts.liveCharacter ? CAN.replace(/(- Each character can have their own reading voice[^\n]*)/, `${LIVE_CHARACTER}\n$1`) : CAN;
+  return `${can}\n\n${readyMade(language)}\n\n${CANNOT}`;
 }
 
-const ADVISOR_PROMPT = `You are the creative advisor in Yumina Studio (an AI interactive-fiction platform). The creator is working out what game they want to make. You talk it through with them; you do not build — nothing you do changes the card. Reply in the language of the creator's latest message.
+/**
+ * The brief's headings, in the creator's language. They used to be Chinese
+ * for everyone, so an English creator's brief came out in Chinese, and the
+ * build mode, reading it, named the card's variables and pages in Chinese
+ * (2026-10-30). Languages without their own set get the English one.
+ */
+export const BRIEF_HEADINGS: Record<"zh" | "en", string> = {
+  zh: "一句话 / 玩家是谁 / 每一轮做什么 / 会变的东西 / 地方和人 / 怎么结束 / 界面 / 做不了的和替代做法 / 还没想好的",
+  en: "In one line / Who the player is / What happens each turn / What changes / Places and people / How it ends / Interface / What can't be done and the workaround / Still undecided",
+};
+
+/**
+ * A brief saved before the headings followed the creator (2026-10-30) still
+ * carries the Chinese ones, and a model continuing that brief wrote the whole
+ * confirmation sheet in Chinese for an English creator (Lavan, 2026-11-04:
+ * "the confirmation is always in another language"). Shown to the advisor
+ * with its headings in the creator's language, it no longer pulls that way.
+ */
+export function localizeBriefHeadings(brief: string, sheet: "zh" | "en"): string {
+  if (sheet === "zh") return brief;
+  const zh = BRIEF_HEADINGS.zh.split(" / ");
+  const en = BRIEF_HEADINGS.en.split(" / ");
+  return brief.split("\n").map((line) => {
+    if (!/^#{1,6}\s/.test(line)) return line;
+    return zh.reduce((out, heading, i) => out.split(heading).join(en[i] ?? heading), line);
+  }).join("\n");
+}
+
+/**
+ * Whether the confirmation sheet came out in another language than the
+ * creator's: mostly Chinese characters for a creator writing English, Spanish
+ * or Japanese (Japanese has kana; Chinese has none). A few Chinese names in an
+ * English sheet are fine, so only a sheet that is mostly Han is refused.
+ */
+export function sheetLanguageProblem(summary: string, steps: readonly string[], language: string): string | null {
+  if (language === "Chinese") return null;
+  const text = [summary, ...steps].join(" ");
+  const letters = (text.match(/\p{L}/gu) ?? []).length;
+  const han = (text.match(/\p{Script=Han}/gu) ?? []).length;
+  const kana = (text.match(/[\u3040-\u30ff]/g) ?? []).length;
+  if (!letters || han / letters <= 0.3) return null;
+  if (language === "Japanese" && kana > 0) return null;
+  return `The confirmation sheet must be in ${language}, the language the creator writes in. Nothing was saved: call save_brief again with the brief, summary and steps all written in ${language}.`;
+}
+
+const advisorInstructions = (headings: string) => `You are the creative advisor in Yumina Studio (an AI interactive-fiction platform). The creator is working out what game they want to make. You talk it through with them; you do not build — nothing you do changes the card. Reply in the language of the creator's latest message.
 
 How to help
 - Start in discussion. Once the player role, core loop and first-version scope are concrete and there is no blocking decision, proactively call save_brief to offer building; do not wait for the creator to discover the mode menu. If they explicitly ask to start, prepare the brief and offer it immediately. Never decide readiness from the number of turns.
 - save_brief opens a confirmation sheet with your summary and 1–5 short, concrete build steps in the creator's language. Saving the brief does NOT authorize building. The creator chooses Start building or Keep brainstorming; never claim building has started. If they keep brainstorming, continue without repeating the same offer. Offer again only after a material change or when they ask.
 - You cannot change the card, so never end on "shall I?", "proceed?" or "要我改吗" and never say you are building. Whenever a reply settles on something concrete to do now — a fix you found, a feature agreed, "here is what I'd add" — call save_brief in that same reply with it as the steps, so the creator starts it with one press. A small fix on an existing card is a one-step brief. When the creator says yes, go ahead, 开始, 做吧 or similar to something you offered, call save_brief right away (again, if an earlier sheet was missed).
-- Write the brief under these headings: 一句话 / 玩家是谁 / 每一轮做什么 / 会变的东西 / 地方和人 / 怎么结束 / 界面 / 做不了的和替代做法 / 还没想好的. Keep it under one page. Include only decisions already discussed, distinguish optional future ideas, and update it when those decisions change.
+- A version of the card in English, Chinese, Spanish, Korean, Indonesian or Russian is not a build: it is translate_card, which makes a separate language version as a draft and leaves this card as it is. Get its price, tell the creator, and run it once they agree; do not offer a brief for it.
+- Write the brief under these headings: ${headings}. Keep it under one page. Include only decisions already discussed, distinguish optional future ideas, and update it when those decisions change.
 - Be a seasoned editor, not a form: short and concrete. No compliments, no restating their idea back to them, no flourishes or dashes for effect — open with the first useful thing. Keep a reply under about 200 Chinese characters (120 English words) unless you are playing the concept or the creator asked for detail. Ask at most two questions at a time, each with 2–4 short options and the one you'd pick.
 - Think in what the player experiences: who they play, what they do each turn, what changes and is worth watching, where they go and whom they meet, how it ends. Use the creator's words; avoid engine words (variable, behavior, entry, reaction) unless they use them.
+- When the creator asks for a world to walk around in, a "graphic" / visual / immersive / 3D world, or "a game" rather than a chat, they mean what the player sees and controls. Offer the three ways to move through a world (below) in their words and ask which; never answer it with status bars and tappable cards alone.
+- When the card outline already has what the creator asks for, say it is there and how to play it (Play at the top of the editor, or the card in their Library). A brief lists only what is not built yet.
 - Ground every suggestion in what Yumina can do (below). When an idea can't be done as described, say so in one plain line and give the alternative. Name ready-made pages and packs when they fit ("用现成的「地图前往」页").
 - When it helps, say how a piece would be made, in one line (e.g. "金币是一个数值，买卖时由规则加减，状态页上显示").
 - Try the idea before it's built: when the creator wants to (or agrees when you offer), play it right here as a short text game — a scene, then 2–4 numbered options, and the tracked numbers in one line like 「金币 200 · 忠诚 50 · 第 1 天」 (current values only, no arithmetic). After 2–4 turns, step out and say plainly what worked and what didn't, and what you'd change.
@@ -163,6 +217,35 @@ export function describeLanguage(text: string): string {
   return "English";
 }
 
+const CARD_LANGUAGE_NAMES: Record<string, string> = { zh: "Chinese", ja: "Japanese", es: "Spanish", en: "English" };
+
+/** A card's language code (worlds.language: "en", "zh-TW", …) named for the model; null when unset or unknown. */
+export function cardLanguageName(code: string | null | undefined): string | null {
+  return CARD_LANGUAGE_NAMES[(code ?? "").trim().toLowerCase().split(/[-_]/)[0] ?? ""] ?? null;
+}
+
+/**
+ * The language the advisor answers in: the creator's latest words. A message
+ * with an image is an array of parts, and an image-only turn has no words, so
+ * read the text parts and fall back to the creator's previous words, then to
+ * the card's own language. (It used to fall back straight to Chinese, so an
+ * English creator who attached a screenshot got Chinese replies and a Chinese
+ * brief: MegaMonkey2, 2026-10-27.)
+ */
+export function creatorLanguage(
+  asks: ReadonlyArray<{ content: unknown }>,
+  cardLanguage: string | null | undefined,
+): string {
+  for (let i = asks.length - 1; i >= 0; i -= 1) {
+    const content = asks[i]!.content;
+    const text = typeof content === "string" ? content
+      : Array.isArray(content) ? content.map((part) => (part && typeof part === "object" && (part as { type?: unknown }).type === "text" ? String((part as { text?: unknown }).text ?? "") : "")).join(" ")
+      : "";
+    if (/\p{L}/u.test(text)) return describeLanguage(text);
+  }
+  return cardLanguageName(cardLanguage) ?? "English";
+}
+
 /**
  * The people and sections of a canon reference (lib/studio-source-digest.ts):
  * the names as the book writes them, in a few hundred characters, so the
@@ -189,12 +272,15 @@ export function referenceIndex(text: string, max = 1_500): string {
 export function advisorPrompt(args: {
   world: WorldDefinition; sources: SourceMeta[]; brief: string | null; language: string;
   references?: Array<{ name: string; index: string }>;
+  /** Live characters can be made here (lib/rig/jobs.ts rigAvailable). */
+  liveCharacter?: boolean;
 }) {
   const references = (args.references ?? []).map((r) => `\nIndex of 「${r.name}」 (names exactly as the book writes them):\n${r.index}`).join("");
+  const sheet = args.language === "Chinese" ? "zh" : "en";
   return {
-    static: `${ADVISOR_PROMPT}\n\n${capabilitySheet(args.language === "Chinese" ? "zh" : "en")}`,
-    world: `<card-outline>\n${cardOutline(args.world, args.sources)}${references}\n</card-outline>${args.brief ? `\n<creative-brief>\n${args.brief}\n</creative-brief>` : ""}`,
-    dynamic: `The creator's latest message is in ${args.language}. Everything you write — answers, the brief, and the story when you play the idea — is in ${args.language}.`,
+    static: `${advisorInstructions(BRIEF_HEADINGS[sheet])}\n\n${capabilitySheet(sheet, { liveCharacter: args.liveCharacter })}`,
+    world: `<card-outline>\n${cardOutline(args.world, args.sources)}${references}\n</card-outline>${args.brief ? `\n<creative-brief>\n${localizeBriefHeadings(args.brief, sheet)}\n</creative-brief>` : ""}`,
+    dynamic: `The creator's latest message is in ${args.language}. Everything you write — answers, the brief, and the story when you play the idea — is in ${args.language}. The saved brief may still be in another language: whenever you save it, write all of it, the summary and the steps in ${args.language}.`,
   };
 }
 
@@ -222,7 +308,7 @@ export const SAVE_BRIEF_TOOL: ToolDefinition = {
 };
 
 /** Read-only tools the advisor may use, plus save_brief. */
-export const ADVISOR_READ_TOOLS = ["read_entities", "grep_world", "read_ui_doc", "search_source", "read_source", "simulate_behaviors"] as const;
+export const ADVISOR_READ_TOOLS = ["read_entities", "grep_world", "read_ui_doc", "search_source", "read_source", "simulate_behaviors", "web_search", "read_web_page", "view_asset", "list_loras", "translate_card"] as const;
 
 export function advisorTools(tools: ToolDefinition[]): ToolDefinition[] {
   return [...tools.filter(t => (ADVISOR_READ_TOOLS as readonly string[]).includes(t.function.name)), SAVE_BRIEF_TOOL];

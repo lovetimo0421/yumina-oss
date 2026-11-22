@@ -10,6 +10,8 @@ import {
   allowsTransientFallback,
   getOfficialProviderFallbackModels,
   isFreeRouterFallback,
+  isZeroCostPlayModel,
+  isZeroCostRates,
   turnNeedsVision,
 } from "./fallback-models.js";
 import {
@@ -260,4 +262,21 @@ test("a paid model swapped by the ToS fallback is not a free-router fallback", (
     isFreeRouterFallback("deepseek/deepseek-v3.2", OFFICIAL_PROVIDER_TOS_FALLBACK_MODEL),
     false,
   );
+});
+
+// ── An empty wallet and the free model ──
+
+test("Yumina Free and :free variants are zero-cost; priced models are not", () => {
+  assert.equal(isZeroCostPlayModel(FREE_ROUTER_MODEL), true);
+  assert.equal(isZeroCostPlayModel("meta-llama/llama-4-scout:free"), true);
+  assert.equal(isZeroCostPlayModel("z-ai/glm-5.3-flash"), false);
+  assert.equal(isZeroCostPlayModel("google/gemini-3.1-flash-lite"), false);
+});
+
+test("only all-zero prices count as zero-cost rates", () => {
+  assert.equal(isZeroCostRates({ inputPricePerM: 0, outputPricePerM: 0 }), true);
+  assert.equal(isZeroCostRates({ inputPricePerM: 0, outputPricePerM: 0.3 }), false);
+  assert.equal(isZeroCostRates({ inputPricePerM: 0.09, outputPricePerM: 0 }), false);
+  assert.equal(isZeroCostRates(null), false);
+  assert.equal(isZeroCostRates(undefined), false);
 });

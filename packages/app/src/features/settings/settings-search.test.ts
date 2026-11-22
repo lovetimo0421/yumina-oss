@@ -6,6 +6,7 @@ import {
   type SettingsSearchItem,
 } from "./settings-search";
 import { SETTINGS_SEARCH_TRANSLATORS } from "./settings-search-translations";
+import { SUPPORTED_LANGUAGES } from "../../lib/language-clamp";
 
 const items: SettingsSearchItem<"account" | "display" | "privacy">[] = [
   {
@@ -94,7 +95,7 @@ test("matches setting terminology from another supported UI language", () => {
 
   assert.equal(searchSettingsItems(englishIndex, "语言")[0]?.id, "language");
   assert.equal(searchSettingsItems(chineseIndex, "language")[0]?.id, "language");
-  assert.equal(localizedItemSets.length, 5);
+  assert.equal(localizedItemSets.length, SUPPORTED_LANGUAGES.length);
   assert.ok(
     localizedItemSets.every(
       ([item]) => item.title !== "display.language.title" && item.category !== "nav.display"

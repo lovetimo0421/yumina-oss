@@ -1,3 +1,8 @@
+---
+title: "Playtest"
+description: "A playtest runs a real game and shows, turn by turn, what the AI got, why each number changed, why a behavior did not fire, and what precise tracking decided."
+---
+
 # Playtest
 
 Click **Play** in the top bar (a new card needs to be saved once first). A playtest really starts a game with the model you picked, so it **uses up credits**. The right side writes out what happened behind every turn: what the AI got, why a number changed, why a behavior didn't run.
@@ -8,7 +13,7 @@ The playtest takes over the whole screen. On the left is what the player sees, o
 
 ![After one turn of playtesting](./images/canvas/pt-turn1.webp)
 
-If you change the card's settings mid-playtest, you'll see "Settings changed — restart the test to apply them". Just click **Restart**. To finish, click **Stop** in the top bar, or the ← in the top left to go back to the canvas.
+If you change the card's settings mid-playtest, a notice says the settings changed. Click **Restart** and they apply. To finish, click **Stop** in the top bar, or the ← in the top left to go back to the canvas.
 
 ### Playtest start
 
@@ -32,7 +37,7 @@ The prompt the AI actually received this turn, split into parts, each with its l
 
 ![The timeline and What the AI got](./images/canvas/pt-why-top.webp)
 
-At the very bottom is a line, **Not sent this time: N entries**. Those are entries whose keywords weren't mentioned, or that aren't in the current scenario. Whenever you're thinking "I definitely wrote that, so why doesn't the AI know?", check here first (｡•́︿•̀｡)
+At the very bottom is a line, **Not sent this time: N entries**. Those are entries whose keywords weren't mentioned, or that aren't in the current scenario. Whenever you're thinking "I definitely wrote that, so why doesn't the AI know?", check here first
 
 ### Now in
 
@@ -47,7 +52,7 @@ Whether each variable **Changed** or stayed **Unchanged** this turn, and why:
 - Changed: **AI changed it**, **Precise tracking** (with how confident it was), **Behavior**, **Button**, **Follow-on** (a formula variable recalculated from other numbers)
 - Unchanged: **Blocked** (the AI tried to change it, but it's set so the AI can only read it, or Precise tracking is in charge of it), **Malformed** (the AI's directive was written wrong, so the old value stays), **AI left it**, **Behaviors only**
 
-Precise tracking only changes a value when it's at least 80% sure. Below that, you'll see something like "thought it should become X, but was only 60% sure". If a number just won't move, this is often why.
+Precise tracking only changes a value when it's at least 80% sure, or 50% when the story AI made the same change itself. Below that, you'll see something like "thought it should become X, but was only 60% sure". If a number just won't move, this is often why.
 
 Under each variable you'll also see the "when it changes" you wrote for it, so you can compare: did the AI not follow it, or was it never clear in the first place?
 

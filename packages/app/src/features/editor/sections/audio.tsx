@@ -12,7 +12,6 @@ import {
   Settings2,
   ArrowLeft,
   Copy,
-  Sparkles,
 } from "lucide-react";
 import { feedback } from "@/lib/feedback";
 import { useCopyFeedback } from "@/hooks/use-copy-feedback";
@@ -25,6 +24,7 @@ import { StyledCheckbox } from "../components/styled-checkbox";
 import { BgmConfigPanel } from "../components/bgm-config-panel";
 import { DebouncedInput } from "../components/debounced-field";
 import { NumberInput } from "@/components/ui/number-input";
+import { InfoTip } from "@/components/ui/info-tip";
 import type { AudioTrack } from "@yumina/engine";
 import { TwoTapDeleteButton } from "@/components/ui/two-tap-delete-button";
 
@@ -208,10 +208,7 @@ export function AudioSection({ compact, mobileListMode }: { compact?: boolean; m
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="max-w-xl">
               <h1 className="text-[22px] font-bold text-foreground tracking-tight">{t("audio.title")}</h1>
-              <p className="mt-0.5 text-xs text-muted-foreground leading-relaxed">
-                {t("audio.description")}{" "}
-                <a href={DOCS_URLS.audio} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{t("audio.learnMore")}</a>
-              </p>
+              <a href={DOCS_URLS.audio} target="_blank" rel="noopener noreferrer" className="mt-0.5 inline-block text-xs text-muted-foreground transition-colors hover:text-foreground">{t("audio.learnMore")}</a>
             </div>
             <button
               onClick={handleAddTrack}
@@ -337,8 +334,6 @@ export function AudioSection({ compact, mobileListMode }: { compact?: boolean; m
               <div className="rounded-xl border border-dashed border-border py-12 text-center">
                 <Music className="mx-auto h-8 w-8 text-muted-foreground/20" />
                 <p className="mt-2 text-sm text-muted-foreground/40">{t("audio.noTracks")}</p>
-                <p className="mt-1.5 max-w-xs mx-auto text-xs text-muted-foreground/30">{t("audio.noTracksDesc")}</p>
-                <a href={DOCS_URLS.audio} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-xs text-primary hover:underline">{t("audio.learnMore")}</a>
               </div>
             )}
             {filteredTracks.map((track) => {
@@ -372,8 +367,7 @@ export function AudioSection({ compact, mobileListMode }: { compact?: boolean; m
                     {track.name || t("audio.unnamed")}
                   </span>
                   {track.aiNote?.trim() && (
-                    <span title={t("audio.aiPickBadgeTitle")} className="flex shrink-0 items-center gap-1 rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">
-                      <Sparkles className="h-3 w-3" />
+                    <span title={t("audio.aiPickBadgeTitle")} className="flex shrink-0 items-center gap-1 rounded-full border border-border bg-secondary px-2 py-0.5 text-[10px] font-bold text-muted-foreground">
                       AI
                     </span>
                   )}
@@ -434,18 +428,14 @@ export function AudioSection({ compact, mobileListMode }: { compact?: boolean; m
                     matches it; an empty cue keeps the track out. */}
                 {(() => {
                   const isSfx = selected.type === "sfx";
-                  const hasCue = Boolean(selected.aiNote?.trim());
                   return (
-                    <div className={cn("rounded-2xl border p-6 transition-colors", hasCue ? "border-primary/40 bg-primary/[0.06]" : "border-border bg-card")}>
+                    <div className="rounded-2xl border border-border bg-card p-6">
                       <div className="flex items-center gap-2">
-                        <Sparkles className={cn("h-4 w-4", hasCue ? "text-primary" : "text-muted-foreground")} />
                         <h3 className="text-[15px] font-bold tracking-wide text-foreground">
                           {isSfx ? t("audio.aiPickSfxTitle") : t("audio.aiPickTitle")}
                         </h3>
+                        <InfoTip text={isSfx ? t("audio.aiPickSfxHelp") : t("audio.aiPickHelp")} />
                       </div>
-                      <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-                        {isSfx ? t("audio.aiPickSfxHelp") : t("audio.aiPickHelp")}
-                      </p>
                       <label htmlFor="audio-track-ai-note" className="mt-4 block text-[13px] font-bold text-foreground">
                         {isSfx ? t("audio.aiNoteSfxLabel") : t("audio.aiNoteLabel")}
                       </label>
@@ -458,15 +448,12 @@ export function AudioSection({ compact, mobileListMode }: { compact?: boolean; m
                         placeholder={isSfx ? t("audio.aiNoteSfxPlaceholder") : t("audio.aiNotePlaceholder")}
                         className={cn(inputClass, "mt-1.5")}
                       />
-                      <p className={cn("mt-2 text-xs", hasCue ? "text-primary" : "text-muted-foreground/60")}>
-                        {hasCue ? t("audio.aiPickOn") : t("audio.aiPickOff")}
-                      </p>
                     </div>
                   );
                 })()}
 
                 <div className="space-y-1.5">
-                  <label htmlFor="audio-track-id" className="text-[13px] font-bold text-foreground">{t("audio.trackId")}</label>
+                  <label htmlFor="audio-track-id" className="flex items-center gap-1 text-[13px] font-bold text-foreground">{t("audio.trackId")}<InfoTip text={t("audio.trackIdHelp")} /></label>
                   <div className="flex min-w-0 items-center gap-2">
                     <input id="audio-track-id" readOnly value={selected.id} className={cn(inputClass, "min-w-0 flex-1 font-mono")} onFocus={(e) => e.target.select()} />
                     <button type="button" aria-label={t("audio.copyTrackId")} title={t("audio.copyTrackId")}
@@ -477,7 +464,6 @@ export function AudioSection({ compact, mobileListMode }: { compact?: boolean; m
                       {trackIdCopied ? <Check className="h-4 w-4 text-primary" /> : <Copy className="h-4 w-4" />}
                     </button>
                   </div>
-                  <p className="text-xs text-muted-foreground">{t("audio.trackIdHelp")}</p>
                   <code className="block break-all text-xs text-muted-foreground">{`api.playAudio(${JSON.stringify(selected.id)})`}</code>
                 </div>
 
@@ -564,8 +550,8 @@ export function AudioSection({ compact, mobileListMode }: { compact?: boolean; m
                           className="h-5 w-5 shrink-0 accent-primary"
                         />
                         {t("audio.allowAiControl")}
+                        <InfoTip text={t("audio.allowAiControlHelp")} />
                       </label>
-                      <p className="text-xs leading-relaxed text-muted-foreground">{t("audio.allowAiControlHelp")}</p>
                     </div>
                     {/* Track Type */}
                     <div className="flex items-center justify-between">
@@ -668,11 +654,11 @@ export function AudioSection({ compact, mobileListMode }: { compact?: boolean; m
             </div>
           ) : (
             <div className="flex h-full w-full items-center justify-center">
-              <p className="text-sm text-muted-foreground/40">
-                {audioTracks.length === 0
-                  ? t("audio.emptyNoTracks")
-                  : t("audio.emptySelectTrack")}
-              </p>
+              {/* An empty list already says what goes here and offers the first one
+                on the left; saying it again across the empty pane said it twice. */}
+              {audioTracks.length > 0 && (
+                <p className="text-sm text-muted-foreground/40">{t("audio.emptySelectTrack")}</p>
+              )}
             </div>
           )}
         </div>

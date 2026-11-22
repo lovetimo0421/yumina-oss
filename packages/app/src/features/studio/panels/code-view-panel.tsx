@@ -4,6 +4,8 @@ import { Check, AlertCircle, FileCode, Pencil, Plus, Trash2 } from "lucide-react
 import { useTranslation } from "react-i18next";
 import { feedback } from "@/lib/feedback";
 import { useEditorStore } from "@/stores/editor";
+import { textFieldKey } from "@yumina/engine";
+import { DebouncedTextarea } from "@/features/editor/components/debounced-field";
 import { bundleTSX } from "@/lib/tsx/tsx-bundler";
 import { normalizeCardFileName, starterCardFile } from "../lib/card-file-names";
 import { CopyErrorButton } from "@/components/copy-error-button";
@@ -253,7 +255,7 @@ function RootComponentCodeView() {
             <FileCode className="h-3.5 w-3.5 shrink-0" />
             <span className="truncate flex-1 text-left font-mono">{name}</span>
             {name === entryFile && (
-              <span className="shrink-0 rounded bg-primary/15 px-1 py-0.5 text-[9px] text-primary">
+              <span className="shrink-0 rounded bg-accent px-1 py-0.5 text-[9px] text-muted-foreground">
                 entry
               </span>
             )}
@@ -297,13 +299,18 @@ function RootComponentCodeView() {
         </div>
 
         {/* Code textarea */}
-        <textarea
-          ref={textareaRef}
+        {/* Typed together: everyone in this file sees the others' typing
+            and carets live, and the file never reverts to an older copy. */}
+        <DebouncedTextarea
+          elementRef={(el) => { textareaRef.current = el as HTMLTextAreaElement | null; }}
           value={activeFileCode}
-          onChange={(e) => {
-            updateRootComponent({
-              files: { ...files, [safeActiveFile]: e.target.value },
-            });
+          syncKey={safeActiveFile}
+          sharedKey={textFieldKey({ kind: "file", name: safeActiveFile })}
+          onCommit={(code) => {
+            // The files as they are now: others may have changed a different
+            // one since this was typed.
+            const latest = useEditorStore.getState().worldDraft.rootComponent?.files ?? files;
+            updateRootComponent({ files: { ...latest, [safeActiveFile]: code } });
           }}
           spellCheck={false}
           className="flex-1 resize-none bg-muted/30 p-4 font-mono text-xs text-foreground focus:outline-none"

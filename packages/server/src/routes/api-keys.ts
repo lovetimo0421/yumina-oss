@@ -6,6 +6,7 @@ import { apiKeys } from "../db/schema.js";
 import { authMiddleware } from "../middleware/auth.js";
 import { encryptApiKey, decryptApiKey } from "../lib/crypto.js";
 import { createProvider } from "../lib/llm/provider-factory.js";
+import { loopbackOllamaAllowed } from "../lib/llm/ollama.js";
 import type { ProviderName } from "../lib/llm/provider-factory.js";
 import type { AppEnv } from "../lib/types.js";
 import type { ApiKeyMetadata, PromptPostProcessing } from "@yumina/shared";
@@ -13,6 +14,8 @@ import { MAX_API_KEY_LABEL } from "@yumina/shared";
 import { CustomProvider } from "../lib/llm/custom.js";
 import { customEndpointFailure, verifyCustomConnection } from "../lib/llm/custom-connection.js";
 import { validateCustomEndpointUrl } from "../lib/ssrf.js";
+
+const SAVABLE_PROVIDERS = new Set(["openrouter", "anthropic", "openai", "google", "ollama", "custom"]);
 import { invalidateModelCacheForUser } from "./messages.js";
 import { mergePrivateCatalog, privateCatalogIsFresh } from "../lib/private-model-catalog.js";
 
@@ -118,6 +121,21 @@ apiKeyRoutes.post("/", async (c) => {
   }
 
   const provider = body.provider ?? "openrouter";
+  // Only providers the factory knows. An unknown name used to be stored as-is
+  // and then fell through to whatever the factory's default happened to be.
+  if (!SAVABLE_PROVIDERS.has(provider)) {
+    return c.json({ error: "Unknown provider" }, 400);
+  }
+  if (provider === "ollama") {
+    try {
+      createProvider("ollama", body.key);
+    } catch (err) {
+      return c.json({ error: (err as Error).message }, 400);
+    }
+    if (!loopbackOllamaAllowed() && /^https?:[/][/](localhost|127[.]0[.]0[.]1|[[]::1[]])(:[0-9]+)?[/]?$/i.test(body.key.trim())) {
+      return c.json({ error: "Ollama on localhost is only reachable from the desktop edition. Use a public address or the local model bridge." }, 400);
+    }
+  }
 
   // Custom-provider-specific validation
   let validatedBaseUrl: string | null = null;

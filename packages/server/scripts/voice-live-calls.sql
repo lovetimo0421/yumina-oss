@@ -21,3 +21,4 @@ CREATE TABLE IF NOT EXISTS voice_live_calls (
 CREATE UNIQUE INDEX IF NOT EXISTS live_calls_one_open ON voice_live_calls (user_id) WHERE state <> 'closed';
 CREATE UNIQUE INDEX IF NOT EXISTS live_calls_provider ON voice_live_calls (provider_id) WHERE provider_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS live_calls_open ON voice_live_calls (state, started_at) WHERE state <> 'closed';
+ALTER TABLE voice_live_calls ADD COLUMN IF NOT EXISTS last_active_at timestamptz;

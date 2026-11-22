@@ -15,7 +15,7 @@ import { getAiAudioTracks } from "../audio/ai-audio.js";
 import { getAiSceneImages, buildSceneImagePromptBlock, resolveSceneImageDirectives } from "../parser/scene-image-directives.js";
 import { buildBackgroundPromptBlock } from "../parser/background-directives.js";
 import { aiSelectableBackgrounds } from "../world/background.js";
-import { buildSpeakerFormatBlock } from "./speaker-tag.js";
+import { buildLiveFaceBlock, buildSpeakerFormatBlock } from "./speaker-tag.js";
 
 /** State-free compatibility check for callers without a runtime snapshot. */
 function isAiExposedStatic(v: { internal?: boolean; aiAccess?: "write" | "read" | "none" }): boolean {
@@ -417,7 +417,12 @@ export class PromptBuilder {
    */
   buildStaticFormatBlock(
     world: WorldDefinition,
-    opts?: { activeGreetingId?: string | null; state?: GameState },
+    opts?: {
+      activeGreetingId?: string | null;
+      state?: GameState;
+      /** The creator's own expressions per live character ref (server-read). */
+      liveFaces?: Readonly<Record<string, readonly string[]>>;
+    },
   ): string {
     const hasVariables = world.variables.length > 0;
     const audioTracks = getAiAudioTracks(world.audioTracks ?? []);
@@ -434,11 +439,15 @@ export class PromptBuilder {
     // Several characters with portraits: the AI names the speaker up front so
     // the chat can show the right face before the prose streams in.
     const speakerBlock = buildSpeakerFormatBlock(world);
+    // A live character beside the chat: the AI names her face up front, so it
+    // changes as the reply starts. Nothing for a card without one.
+    const faceBlock = buildLiveFaceBlock(world, opts?.liveFaces);
 
-    if (!hasVariables && !hasAudio && !hasSceneImages && !hasBackgrounds && !speakerBlock) return "";
+    if (!hasVariables && !hasAudio && !hasSceneImages && !hasBackgrounds && !speakerBlock && !faceBlock) return "";
 
     const parts: string[] = [];
     if (speakerBlock) parts.push(speakerBlock);
+    if (faceBlock) parts.push(faceBlock);
 
     // Behavior rules section — variables with detailed AI instructions
     const behaviorRulesSection = this.buildBehaviorRulesSection(world, opts?.state);
@@ -487,6 +496,9 @@ export class PromptBuilder {
       lines.push(
         "",
         "Put all directives at the END of your reply, after the narrative.",
+        // Weak models announced them ("Directives follow.") and the label was
+        // left in the story once the brackets were taken out.
+        "Write them bare: no heading, label or sentence announcing them.",
         "</directive-format>"
       );
       parts.push(lines.join("\n"));

@@ -1,8 +1,9 @@
 import { sameJson } from "../../lib/json-equality";
 
 interface Cursor { id: string; createdAt: string }
-interface Page<T> { data: T[]; meta?: { hasMore?: boolean } }
-interface RefreshResult<T> { messages: T; hasEarlierMessages: boolean }
+interface Page<T> { data: T[]; meta?: { hasMore?: boolean; earlier?: number } }
+/** `earlierMessageCount` is set when the server reported how many rows precede the window. */
+interface RefreshResult<T> { messages: T; hasEarlierMessages: boolean; earlierMessageCount?: number }
 
 function compare(a: Cursor, b: Cursor): number {
   // Server timestamps preserve PostgreSQL microseconds. Date alone rounds
@@ -45,11 +46,18 @@ export async function refreshMessageWindow<T extends Cursor>(
       const retained = oldest && response.meta?.hasMore
         ? result.filter((row) => compare(row, oldest) >= 0) : result;
       const messages = [...new Map(retained.map((row) => [row.id, row])).values()];
+      const hasEarlierMessages = Boolean(response.meta?.hasMore) || retained.length < result.length;
+      const serverEarlier = response.meta?.hasMore ? response.meta.earlier : 0;
       return {
         // A foreground reload of equal JSON must not replace history identity:
         // pending state PATCH confirmations use that identity to detect restores.
         messages: sameJson(existing, messages) ? existing : messages,
-        hasEarlierMessages: Boolean(response.meta?.hasMore) || retained.length < result.length,
+        hasEarlierMessages,
+        // Rows the server counted before this page, plus the ones this page
+        // fetched but the window does not keep.
+        ...(typeof serverEarlier === "number"
+          ? { earlierMessageCount: serverEarlier + (result.length - retained.length) }
+          : {}),
       };
     }
     before = first;

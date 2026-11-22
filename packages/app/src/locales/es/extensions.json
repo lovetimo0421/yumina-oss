@@ -86,8 +86,8 @@
     },
     "session-memory-summary": {
       "name": "Memoria de sesión y resumen de historia (Beta)",
-      "shortDescription": "Mantiene pequena tu memoria de la historia sin perder la trama. Las escenas antiguas pasan a un resumen y los datos clave a una lista. Beta.",
-      "longDescription": "La memoria de la historia solo conserva palabra por palabra la parte mas reciente de la conversacion. Esta extension se encarga de que el resto no se pierda sin mas: las escenas antiguas se comprimen en un resumen y los datos clave (relaciones, objetos, promesas, metas) pasan a una lista. Ambos se envian con cada respuesta.\n\nPor eso funciona una memoria de la historia pequena. Dejala en torno a 16.000 y deja que esto cargue con todo lo anterior.\n\nEscribir las notas cuesta algo, normalmente bastante menos de 1 mushie por actualizacion. Un toque en el panel de Memoria lo cambia al modelo gratuito.\n\nBeta: de vez en cuando se equivoca en un detalle. Todo lo que escribe se puede leer y editar en el panel de Memoria, encima del chat.",
+      "shortDescription": "La IA lleva su propia lista de datos clave y puedes leer y editar cada capítulo del resumen. Beta.",
+      "longDescription": "El resumen previo y las notas fijas ya están para todos, sin extensión. Esta añade dos cosas:\n\nLa IA lleva su propia lista de datos clave (relaciones, objetos, promesas, objetivos), que va con cada respuesta.\nPuedes leer y editar cada capítulo del resumen.\n\nEscribir las notas cuesta poco, normalmente menos de 1 seta por actualización, y con un toque pasa al modelo gratuito. Beta: a veces se equivoca en un detalle, y puedes corregirlo.\n\nSe abre desde Memoria en el menú + del cuadro de chat.",
       "tags": {
         "memory": "memoria",
         "context": "contexto",
@@ -96,16 +96,16 @@
       },
       "explanations": [
         {
-          "title": "Funciona con tu memoria de la historia",
-          "body": "Pon la memoria de la historia en unos 16.000 en los ajustes de AI. Esto carga con lo anterior, asi una ventana pequena sale barata y precisa sin perder la trama."
+          "title": "La IA anota datos clave",
+          "body": "Relaciones, objetos, promesas y objetivos, en una lista que va con cada respuesta."
         },
         {
           "title": "Puedes leerlo y cambiarlo",
-          "body": "Abre el panel de Memoria encima del chat. Edita las notas, fija los hechos que nunca deben cambiar, borra y regenera, o cambia el modelo."
+          "body": "En Memoria, dentro del menú +: edita las notas, lee y edita cada capítulo del resumen."
         },
         {
           "title": "Desinstalar conserva tus notas",
-          "body": "Apagarlo deja intacto todo lo escrito. Si lo reinstalas mas adelante, retoma las mismas notas."
+          "body": "Desactivarla deja intacto todo lo escrito. Si la reinstalas, retoma las mismas notas."
         }
       ]
     },

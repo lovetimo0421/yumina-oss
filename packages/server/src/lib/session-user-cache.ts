@@ -17,7 +17,7 @@ import type { SessionUser } from "./types.js";
  * databaseHooks. Fields NOT in SessionUser (preferences, stripe ids, playtime)
  * never touch the cache. Redis unavailable → straight to the database.
  */
-const KEY = (userId: string) => `su:v1:${userId}`;
+const KEY = (userId: string) => `su:v2:${userId}`;
 export const SESSION_USER_CACHE_TTL_S = 60;
 
 type Wire = Omit<SessionUser, "createdAt" | "updatedAt"> & { createdAt: string; updatedAt: string };

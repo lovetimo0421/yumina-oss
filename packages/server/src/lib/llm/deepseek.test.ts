@@ -114,10 +114,49 @@ test("explicit DeepSeek controls override profile defaults, other hosts receive 
   assert.deepEqual(body.thinking, { type: "disabled" });
   assert.equal(body.reasoning_effort, "none");
   for (const host of ["https://proxy.example.com/v1", "https://api.deepseek.com.example.com/v1"]) {
-    await collect(new CustomProvider("key", host).generateStream({ ...params, reasoningEffort: "low", disableReasoning: true }));
+    // A chat's chosen effort is never forwarded to other hosts...
+    await collect(new CustomProvider("key", host).generateStream({ ...params, reasoningEffort: "low" }));
     assert.equal(body.thinking, undefined);
     assert.equal(body.reasoning_effort, undefined);
+    // ...but background work's "no thinking" goes as the OpenAI-standard field only.
+    await collect(new CustomProvider("key", host).generateStream({ ...params, reasoningEffort: "low", disableReasoning: true }));
+    assert.equal(body.thinking, undefined);
+    assert.equal(body.reasoning_effort, "none");
   }
+});
+
+test("other hosts: a profile that sets its own thinking fields gets no hint", async t => {
+  let body: Record<string, unknown> = {};
+  t.mock.method(globalThis, "fetch", async (_url: unknown, init: RequestInit) => { body = JSON.parse(String(init.body)); return success(true); });
+  for (const includeBody of [{ reasoning: { enabled: true } }, { chat_template_kwargs: { enable_thinking: true } }, { reasoning_effort: "high" }]) {
+    await collect(new CustomProvider("key", "https://proxy.example.com/v1", { includeBody }).generateStream({ ...params, disableReasoning: true }));
+    assert.equal(body.reasoning_effort, includeBody.reasoning_effort);
+  }
+});
+
+for (const status of [400, 422]) {
+  test(`other hosts: a refused no-thinking hint is resent once without it, even single-attempt (${status})`, async t => {
+    const bodies: Record<string, unknown>[] = [];
+    t.mock.method(globalThis, "fetch", async (_url: unknown, init: RequestInit) => {
+      const body = JSON.parse(String(init.body));
+      bodies.push(body);
+      return "reasoning_effort" in body
+        ? new Response(JSON.stringify({ error: { message: "Unrecognized request argument supplied: reasoning_effort" } }), { status })
+        : success(true);
+    });
+    const chunks = await collect(new CustomProvider("key", "https://proxy.example.com/v1").generateStream({ ...params, disableReasoning: true, singleAttempt: true }));
+    assert.equal(chunks.at(-1)?.type, "done");
+    assert.equal(bodies.length, 2);
+    assert.equal(bodies[0]!.reasoning_effort, "none");
+    assert.equal("reasoning_effort" in bodies[1]!, false);
+  });
+}
+
+test("other hosts: an unrelated single-attempt failure is not resent", async t => {
+  const fetchMock = t.mock.method(globalThis, "fetch", async () => new Response(JSON.stringify({ error: { message: "context length exceeded" } }), { status: 400 }));
+  const chunks = await collect(new CustomProvider("key", "https://proxy.example.com/v1").generateStream({ ...params, disableReasoning: true, singleAttempt: true }));
+  assert.equal(chunks.at(-1)?.type, "error");
+  assert.equal(fetchMock.mock.callCount(), 1);
 });
 
 test("DeepSeek connectivity probe bounds output and disables reasoning", async t => {

@@ -1,4 +1,13 @@
 {
+  "cardImages": {
+    "ask": {
+      "title": "¿Dejar que esta historia dibuje?",
+      "body": "Esta historia quiere dibujar una imagen para ti. Cada imagen cuesta {{price}} mushies.",
+      "free": "Te quedan {{count}} imágenes gratis.",
+      "confirm": "Dibujar",
+      "remember": "No volver a preguntar en esta historia"
+    }
+  },
   "nativeVoice": {
     "title": "Activar voz en directo",
     "description": "Habla con naturalidad e interrumpe las respuestas. La cámara permanece apagada.",
@@ -90,11 +99,14 @@
   },
   "view": {
     "retry": "Reintentar",
+    "sessionNotFound": "No se puede abrir este chat. Puede pertenecer a tu otra cuenta o haber sido eliminado.",
+    "switchAccount": "Cambiar de cuenta",
     "loadingSession": "Cargando sesión...",
     "exitFullscreen": "Salir de pantalla completa (F11)",
     "returnToFullscreen": "Volver a pantalla completa",
     "switchModel": "Modelo",
     "memoryPanel": "Memoria",
+    "searchMessages": "Buscar en el historial",
     "enterSystemFullscreen": "Entrar en pantalla completa del sistema",
     "exitImmersive": "Salir del modo inmersivo",
     "showPlayControls": "Mostrar controles de juego",
@@ -117,6 +129,8 @@
     "displayModeKeep": "Mantener configuración",
     "sandboxBootFailed": "No se pudo cargar la interfaz de este mundo. Revisa tu conexión e inténtalo de nuevo.",
     "sandboxBootSlow": "Sigue cargando: tu conexión parece lenta.",
+    "floatingHere": "Ahora está en su propia ventana.",
+    "floatingDock": "Traerlo de vuelta",
     "sceneVideo": "Vídeo de la escena",
     "backToEditor": "Volver al editor"
   },
@@ -172,6 +186,29 @@
     "sceneGalleryLocked": "Aún no ha aparecido",
     "sceneGalleryEmpty": "Este mundo no tiene imágenes de escena.",
     "sessionOrdinal": "Sesión {{n}}",
+    "searchSaves": "Buscar sesiones",
+    "clearSearch": "Borrar búsqueda",
+    "sortSaves": "Ordenar",
+    "sort": {
+      "recent": "Jugadas recientemente",
+      "oldest": "Más antiguas",
+      "messages": "Más mensajes",
+      "name": "Nombre"
+    },
+    "searchHits_one": "{{count}} coincidencia",
+    "searchHits_other": "{{count}} coincidencias",
+    "searchMore_one": "{{count}} más",
+    "searchMore_other": "{{count}} más",
+    "searchFailed": "No se pudo buscar. Inténtalo de nuevo.",
+    "noMatchingSaves": "Ninguna sesión coincide",
+    "pinSession": "Fijar arriba",
+    "unpinSession": "Desfijar",
+    "pinFailed": "No se pudo fijar la sesión",
+    "unpinFailed": "No se pudo desfijar la sesión",
+    "selectAllMatching_one": "Seleccionar la coincidencia",
+    "selectAllMatching_other": "Seleccionar las {{count}} coincidencias",
+    "deselectAllMatching_one": "Deseleccionar la coincidencia",
+    "deselectAllMatching_other": "Deseleccionar las {{count}} coincidencias",
     "playedFor": "{{time}} jugado",
     "chooseVersion": "Elige qué versión empezar",
     "startThisVersion": "Empezar esta versión"
@@ -279,6 +316,7 @@
   },
   "modelBrowser": {
     "privateSetupTitle": "Configurar modelos privados",
+    "docsLink": "¿Qué modelos puedo usar?",
     "privateSetupDescription": "Elige Clave API privada en Configuración de IA y configura la clave de tu proveedor para usar estos modelos.",
     "title": "Explorar modelos",
     "searchPlaceholder": "Buscar modelos...",
@@ -388,14 +426,11 @@
     "signInToSend": "Inicia sesión para enviar mensajes",
     "openPreview": "Vista previa"
   },
-  "zoom": {
-    "adjustZoom": "Ajustar zoom de juego",
-    "zoomLabel": "Porcentaje de zoom de juego"
-  },
   "stateGuard": {
     "unverified": "Estado sin comprobar. Valores actualizados según la respuesta"
   },
   "errors": {
+    "WORLD_ACCESS_ENDED": "Ya no tienes acceso a esta tarjeta: su creador te quitó de ella.",
     "PROTECTED_WORLD": "El creador de este mundo lo ha protegido contra la extracción de prompts. Solo están disponibles los modelos oficiales de la API de Yumina — no se pueden usar claves API privadas.",
     "NO_CREDITS": "¡Te has quedado sin mushies! Completa las misiones diarias para conseguir mushies gratis, o actualiza tu plan.",
     "PRIVATE_API_BALANCE": "Tu API privada no tiene saldo suficiente. Revisa tu cuenta con el proveedor.",
@@ -464,7 +499,12 @@
     "noKey": "La lectura por voz necesita una clave de API. Añade una en Ajustes.",
     "voiceUnavailable": "Esta voz ya no está disponible. Elige otra.",
     "needsKeyOrCredits": "La lectura por voz necesita una clave de OpenRouter o mushies.",
-    "byokNoBalance": "Tu clave de API no tiene saldo suficiente."
+    "byokNoBalance": "Tu clave de API no tiene saldo suficiente.",
+    "cardAsks": {
+      "title": "¿Activar la lectura por voz?",
+      "body": "Esta historia quiere hablarte en voz alta. La lectura por voz lee las frases con voces de IA y cuesta mushies por carácter. Puedes desactivarla cuando quieras en Ajustes › Pantalla / Idioma.",
+      "confirm": "Activar"
+    }
   },
   "worldDisplayUnavailable": "No se pudo cargar la interfaz de este mundo. Contacta con soporte.",
   "film": {
@@ -496,7 +536,9 @@
     "scenesEmpty": "Las escenas aparecen al empezar a grabar.",
     "current": "actual",
     "cutBack": "↩ Volver a {{scene}}",
-    "changesNextTime": "Los cambios se aplican la próxima vez que grabes.",
+    "changesNextTime": "El estilo cambia desde la próxima respuesta; lo demás se aplica la próxima vez que empieces a grabar.",
+    "lookNext": "La próxima respuesta se filma con este estilo.",
+    "advanced": "Avanzado",
     "engine": "Motor",
     "engineComfy": "Comfy H3 · ~130 mushies/min",
     "engineFal": "fal · el más rápido y estable · ~5.800 mushies/min",
@@ -518,24 +560,25 @@
     "limitSeconds": "Duración máxima (segundos)",
     "reset": "Restablecer",
     "consentTitle": "El vídeo de la escena es experimental",
-    "consentBody": "Cuesta hongos: fal filma en directo por ~5.800 al minuto; los cortos cuestan ~100–1.400 por respuesta y se cobran al terminar cada uno.",
+    "consentBody": "Cuesta hongos: fal filma en directo por ~5.800 al minuto; los cortos cuestan ~800–2.000 por respuesta y se cobran al terminar cada uno.",
     "consentAccept": "Activar y grabar",
     "consentDecline": "Ahora no",
     "noCredits": "Te quedaste sin mushies, así que se detuvo la grabación.",
     "notEnabled": "Primero activa el vídeo de la escena en Ajustes.",
     "unavailable": "El vídeo de la escena no está disponible ahora.",
-    "engineShorts": "Cortos · un corto por respuesta, listo unos minutos después · ~100–1.400 hongos por respuesta",
-    "shortsHint": "Cada respuesta se convierte en un corto de 5–60 s con voces, tan largo como lo pida la escena. Está listo unos minutos después de la respuesta y se reproduce aquí; entre cortos queda el último fotograma.",
+    "engineShorts": "Cortos · un corto por respuesta, empieza unos treinta segundos después · ~800–2.000 hongos por respuesta",
+    "shortsHint": "Cada respuesta se convierte en un corto de 5–60 s con voces, tan largo como lo pida la escena. Empieza a reproducirse aquí unos treinta segundos después de la respuesta; entre cortos queda el último fotograma.",
     "shortWriting": "Siguiente corto: el director está escribiendo los planos…",
     "shortShooting": "Siguiente corto: {{done}} de {{shots}} planos listos",
-    "shortFailed": "Esta respuesta no se filmó: {{reason}}",
+    "shortFailed": "Esta respuesta no se filmó: {{reason}}. No se cobraron mushies.",
+    "shortRefused": "el director no quiso filmar esta escena",
     "shortBusy": "ya hay dos cortos filmándose",
     "shortTimeout": "tardó demasiado y se detuvo",
     "shortRetry": "Filmar de nuevo",
     "shortRetake": "Filmar de nuevo la última respuesta",
     "shortBack": "Corto anterior",
     "shortForward": "Siguiente corto",
-    "shortNone": "El primer corto está en camino. Estará listo unos minutos después de la respuesta.",
+    "shortNone": "El primer corto está en camino. Empieza unos treinta segundos después de la respuesta.",
     "shortOpening": "Apertura",
     "shortReply": "Respuesta {{n}}",
     "shortShot": "plano {{n}}/{{total}}",
@@ -631,5 +674,13 @@
       "shortRewind": "El jugador retrocedió: un corto desde el inicio"
     }
   },
-  "memoryModelNeedsPlan": "{{model}} requiere el plan {{plan}}. Elige otro modelo para la memoria o mejora tu plan."
+  "memoryModelNeedsPlan": "{{model}} requiere el plan {{plan}}. Elige otro modelo para la memoria o mejora tu plan.",
+  "cardImages": {
+    "ask": {
+      "title": "¿Dejar que esta historia dibuje?",
+      "body": "Esta historia quiere dibujar una imagen para ti. Cada imagen cuesta {{price}} mushies. Si aceptas, esta historia podrá dibujar imágenes sin volver a preguntar.",
+      "free": "Te quedan {{count}} imágenes gratis.",
+      "confirm": "Dibujar"
+    }
+  }
 }

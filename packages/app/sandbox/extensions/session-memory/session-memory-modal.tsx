@@ -1,11 +1,12 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { AlertCircle, Brain, Check, FileText, Layers3, Loader2, Pencil, Pin, RefreshCw, Save, Settings2, Trash2, X } from "lucide-react";
-import type { SessionMemoryPayload, SessionMemoryUsageSummary, SessionSummaryCompactionMetadata, SessionSummaryImplementation, SessionSummaryLanguage, SessionSummaryPayload } from "@yumina/shared";
-import { SESSION_SUMMARY_LANGUAGES, SESSION_SUMMARY_LANGUAGE_ENDONYMS } from "@yumina/shared";
+import { AlertCircle, Brain, Check, FileText, Layers3, Loader2, Minus, Pencil, Pin, Plus, RefreshCw, Save, Settings2, Trash2, X } from "lucide-react";
+import type { RecapFoldEstimate, SessionMemoryPayload, SessionMemoryUsageSummary, SessionSummaryCompactionMetadata, SessionSummaryImplementation, SessionSummaryLanguage, SessionSummaryPayload } from "@yumina/shared";
+import { RECAP_ALL_THINKING_ERROR, SESSION_SUMMARY_LANGUAGES, SESSION_SUMMARY_LANGUAGE_ENDONYMS } from "@yumina/shared";
 import { useYumina } from "../../sandbox-context";
 import { pickLang } from "../../chat/i18n";
 import { ModelPickerModal, ModelTrigger } from "../../chat/model-picker-modal";
 import { SandboxPlatformOverlay } from "../../platform-overlay-portal";
+import { MemoryOverviewBar, RecapSection, useMemoryOverview } from "../../chat/core-memory";
 
 const DEFAULT_CONTEXT_MODEL = "google/gemini-3.1-flash-lite";
 // The zero-cost play model (see @yumina/shared YUMINA_MODELS "Yumina Free").
@@ -99,26 +100,26 @@ function MemoryTextView({ text }: { text: string }) {
   });
 
   return (
-    <div className="min-h-[200px] w-full rounded-xl border border-white/[0.08] bg-black/25 p-4">
+    <div className="min-h-[200px] w-full rounded-xl border border-play-ink/[0.08] bg-black/25 p-4">
       {blocks.map((block) => {
         if (block.type === "blank") return <div key={block.key} className="h-2" />;
         if (block.type === "heading") {
           return (
-            <h3 key={block.key} className="mt-3 mb-1.5 text-xs font-bold uppercase tracking-wide text-white/75 first:mt-0">
+            <h3 key={block.key} className="mt-3 mb-1.5 text-xs font-bold uppercase tracking-wide text-play-ink/75 first:mt-0">
               {block.content}
             </h3>
           );
         }
         if (block.type === "bullet") {
           return (
-            <div key={block.key} className="mb-1.5 flex gap-2 text-xs leading-relaxed text-white/72">
-              <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-white/30" />
+            <div key={block.key} className="mb-1.5 flex gap-2 text-xs leading-relaxed text-play-ink/72">
+              <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-play-ink/30" />
               <span className="whitespace-pre-wrap">{block.content}</span>
             </div>
           );
         }
         return (
-          <p key={block.key} className="mb-1.5 whitespace-pre-wrap text-xs leading-relaxed text-white/72">
+          <p key={block.key} className="mb-1.5 whitespace-pre-wrap text-xs leading-relaxed text-play-ink/72">
             {block.content}
           </p>
         );
@@ -136,6 +137,8 @@ type ContextTab = "systems" | "memory" | "localdev" | "summaryception";
 
 export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
   const api = useYumina();
+  // How far back the AI reads, shown above the tabs (core, see chat/core-memory).
+  const coreOverview = useMemoryOverview(open);
   const zh = pickLang(api.language) === "zh";
   const tt = (en: string, cn: string) => (zh ? cn : en);
   const formatSummaryJobError = (message: string): string => {
@@ -224,6 +227,12 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
   const [editingSnippetId, setEditingSnippetId] = useState<string | null>(null);
   const [snippetDraft, setSnippetDraft] = useState("");
   const [savingSnippet, setSavingSnippet] = useState(false);
+  // Recap: how many of the oldest unfolded messages "Fold" takes, and its price.
+  const [foldCount, setFoldCount] = useState(10);
+  const [foldEstimate, setFoldEstimate] = useState<RecapFoldEstimate | null>(null);
+  // Deleting a chapter asks twice: the first tap arms it for a few seconds.
+  const [armedDeleteId, setArmedDeleteId] = useState<string | null>(null);
+  const [deletingSnippetId, setDeletingSnippetId] = useState<string | null>(null);
 
   const memoryText = memoryToText(payload?.memory);
   const hasAnyMemory = memoryText.trim().length > 0;
@@ -331,6 +340,33 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
     };
   }, [open, anyUpdating, editingMemory, editingSummary, editingSnippetId, editingPinned, saving, regenerating, compacting, savingPinned, resumingAutoCompaction]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // The fold's price follows the count, and is read again once a fold or a
+  // delete has changed what is left to fold.
+  const recapStatus = summaryPayload?.summaryception.status;
+  const recapChapters = summaryPayload?.summaryception.snippetCount ?? 0;
+  useEffect(() => {
+    if (!open || contextTab !== "summaryception" || recapStatus === "updating") return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      api.estimateRecapFold(foldCount).then(
+        (next) => { if (!cancelled) setFoldEstimate(next); },
+        () => { if (!cancelled) setFoldEstimate(null); },
+      );
+    }, 250);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [open, contextTab, foldCount, recapStatus, recapChapters]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The bar above the tabs follows a fold to its end.
+  const wasFolding = useRef(false);
+  useEffect(() => {
+    if (recapStatus === "updating") { wasFolding.current = true; return; }
+    if (wasFolding.current) { wasFolding.current = false; coreOverview.reload(); }
+  }, [recapStatus]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!armedDeleteId) return;
+    const timer = setTimeout(() => setArmedDeleteId(null), 4000);
+    return () => clearTimeout(timer);
+  }, [armedDeleteId]);
+
   if (!open) return null;
 
   const refreshFromPayload = (data: SessionMemoryPayload) => {
@@ -434,7 +470,7 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
         const ending = data.compaction.compactedUntilOneLine
           ? tt(` Ending point: ${data.compaction.compactedUntilOneLine}`, ` 结束点：${data.compaction.compactedUntilOneLine}`)
           : "";
-        const label = implementation === "summaryception" ? "Layered Summary" : tt("story summary", "剧情摘要");
+        const label = implementation === "summaryception" ? tt("Recap", "前情提要") : tt("story summary", "剧情摘要");
         api.showToast(tt(`${label} compressed: ${range}.${ending}`, `${label} 已压缩：${range}。${ending}`), "success");
       } else {
         api.showToast(noOpMessage(data.compaction, data.summary), "info");
@@ -680,7 +716,7 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
     api.setSessionSummaryceptionModel(modelId)
       .then(refreshFromSummaryPayload)
       .catch((err) => {
-        const message = err instanceof Error ? err.message : tt("Failed to save Layered Summary model", "保存分层摘要模型失败");
+        const message = err instanceof Error ? err.message : tt("Failed to save recap model", "保存前情提要模型失败");
         setError(message);
         api.showToast(message, "error");
       });
@@ -711,25 +747,13 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
       });
   };
 
-  const handleToggleSummaryIncluded = (included: boolean) => {
-    setSummaryIncludedDraft(included);
-    api.setSessionSummaryIncluded(included)
-      .then(refreshFromSummaryPayload)
-      .catch((err) => {
-        setSummaryIncludedDraft(!included);
-        const message = err instanceof Error ? err.message : tt("Failed to save summary include setting", "保存摘要注入设置失败");
-        setError(message);
-        api.showToast(message, "error");
-      });
-  };
-
   const handleToggleSummaryceptionIncluded = (included: boolean) => {
     setSummaryceptionIncludedDraft(included);
     api.setSessionSummaryceptionIncluded(included)
       .then(refreshFromSummaryPayload)
       .catch((err) => {
         setSummaryceptionIncludedDraft(!included);
-        const message = err instanceof Error ? err.message : tt("Failed to save Layered Summary include setting", "保存分层摘要注入设置失败");
+        const message = err instanceof Error ? err.message : tt("Failed to save recap setting", "保存前情提要设置失败");
         setError(message);
         api.showToast(message, "error");
       });
@@ -799,6 +823,52 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
     setEditingSummary(false);
   };
 
+  // Fold the oldest N unfolded messages. The host asks first when it costs
+  // more than a few mushies; the run continues in the background and the
+  // poll follows it.
+  const foldAvailable = foldEstimate?.available ?? 0;
+  const foldShown = foldEstimate?.messages || Math.min(foldCount, Math.max(1, foldAvailable));
+  const stepFold = (delta: number) => setFoldCount(Math.min(Math.max(1, foldAvailable), Math.max(1, foldShown + delta)));
+  const handleFold = async () => {
+    setCompacting(true);
+    setError(null);
+    try {
+      const data = await api.recapFold(foldShown);
+      if (!data) return;
+      refreshFromSummaryPayload(data.summary);
+      coreOverview.reload();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : tt("Failed to fold", "整理失败");
+      setError(message);
+      api.showToast(message, "error");
+    } finally {
+      setCompacting(false);
+    }
+  };
+
+  const handleDeleteSnippet = async (snippetId: string) => {
+    if (armedDeleteId !== snippetId) {
+      setArmedDeleteId(snippetId);
+      return;
+    }
+    setArmedDeleteId(null);
+    setDeletingSnippetId(snippetId);
+    setError(null);
+    try {
+      const data = await api.deleteSummaryceptionSnippet(snippetId);
+      refreshFromSummaryPayload(data.summary);
+      coreOverview.reload();
+      const n = data.restoredMessages;
+      api.showToast(n > 0 ? tt(`Deleted · ${n} back word for word`, `已删除 · ${n} 条变回原文`) : tt("Deleted", "已删除"), "success");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : tt("Failed to delete", "删除失败");
+      setError(message);
+      api.showToast(message, "error");
+    } finally {
+      setDeletingSnippetId(null);
+    }
+  };
+
   const handleSaveSnippet = async (snippetId: string) => {
     const text = snippetDraft.trim();
     if (!text) {
@@ -827,6 +897,13 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
   const rawProgress = summaryPayload?.rawChatProgress ?? null;
   const rawProgressPercent = rawProgress ? Math.max(0, Math.min(100, rawProgress.percent)) : 0;
   const summaryceptionLayers = summaryPayload?.summaryception.layers ?? [];
+  // The newest chapter: deleting it puts its messages back word for word.
+  const newestChapterId = summaryceptionLayers
+    .flatMap((layer) => layer.snippets)
+    .reduce<{ id: string; end: number } | null>((best, snippet) => {
+      const end = snippet.sourceEndOrdinal ?? -1;
+      return !best || end > best.end ? { id: snippet.id, end } : best;
+    }, null)?.id ?? null;
 
   const renderSystemCard = (args: {
     title: string;
@@ -839,11 +916,11 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
     onUseFreeModel: () => void;
     description: ReactNode;
   }) => (
-    <section className="flex min-w-0 flex-col rounded-lg border border-white/[0.06] bg-black/18 p-3">
+    <section className="flex min-w-0 flex-col rounded-lg border border-play-ink/[0.06] bg-black/18 p-3">
       <label className="flex items-start justify-between gap-3">
         <span className="min-w-0">
-          <span className="block text-[11px] font-semibold text-white/72">{args.title}</span>
-          <span className="block text-[10px] leading-relaxed text-white/25">{args.meta}</span>
+          <span className="block text-[11px] font-semibold text-play-ink/72">{args.title}</span>
+          <span className="block text-[10px] leading-relaxed text-play-ink/25">{args.meta}</span>
         </span>
         <input
           type="checkbox"
@@ -877,7 +954,7 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
         )}
       </div>
       {renderUsageStats(args.usage)}
-      <div className="mt-3 text-[11px] leading-relaxed text-white/42">
+      <div className="mt-3 text-[11px] leading-relaxed text-play-ink/42">
         {args.description}
       </div>
     </section>
@@ -888,7 +965,7 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
       onClick={() => setContextTab(args.tab)}
       aria-pressed={contextTab === args.tab}
       className={`flex min-w-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-1 py-2 text-xs font-semibold transition-colors sm:px-3 ${
-        contextTab === args.tab ? "bg-primary/15 text-primary" : "bg-white/[0.03] text-white/45 hover:text-white/70"
+        contextTab === args.tab ? "bg-primary/15 text-primary" : "bg-play-ink/[0.03] text-play-ink/45 hover:text-play-ink/70"
       }`}
     >
       <span className="hidden sm:inline-flex">{args.icon}</span>
@@ -902,12 +979,7 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
         ? tt(`message ${snippet.sourceStartOrdinal}`, `消息 ${snippet.sourceStartOrdinal}`)
         : tt(`messages ${snippet.sourceStartOrdinal}-${snippet.sourceEndOrdinal}`, `消息 ${snippet.sourceStartOrdinal}-${snippet.sourceEndOrdinal}`);
     }
-    if (snippet.fromLayer != null) {
-      return snippet.promoted
-        ? tt(`promoted seed from layer ${snippet.fromLayer}`, `来自第 ${snippet.fromLayer} 层的提升种子`)
-        : tt(`folded from layer ${snippet.fromLayer}`, `从第 ${snippet.fromLayer} 层折叠`);
-    }
-    return tt("source pending", "来源待定");
+    return null;
   };
 
   const renderStatusIcon = (status: string | null | undefined) => {
@@ -942,38 +1014,38 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
     const last = usage?.last ?? null;
     if (!usage || (!last && !usage.requestCount)) return null;
     return (
-      <details className="mt-2 text-xs text-white/60">
-        <summary className="cursor-pointer py-1 hover:text-white/80">
+      <details className="mt-2 text-xs text-play-ink/60">
+        <summary className="cursor-pointer py-1 hover:text-play-ink/80">
           {tt(`Usage · ~${formatMushies(usage.estimatedMushies)} mushies`, `用量 · 约 ${formatMushies(usage.estimatedMushies)} 蘑菇`)}
         </summary>
         <div className="mt-2 grid gap-2 sm:grid-cols-2">
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-white/25">{tt("Last update", "上次更新")}</p>
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-play-ink/25">{tt("Last update", "上次更新")}</p>
             {last ? (
               <>
-                <p className="mt-1 text-[11px] font-semibold text-white/72">
+                <p className="mt-1 text-[11px] font-semibold text-play-ink/72">
                   {formatTokenCount(last.totalTokens)} tokens
                 </p>
-                <p className="mt-0.5 text-[10px] text-white/35">
+                <p className="mt-0.5 text-[10px] text-play-ink/35">
                   {tt(`${formatMushies(last.estimatedMushies)} est. mushies`, `约 ${formatMushies(last.estimatedMushies)} mushies`)}
                 </p>
               </>
             ) : (
-              <p className="mt-1 text-[11px] text-white/35">{tt("No usage logged yet", "暂无用量记录")}</p>
+              <p className="mt-1 text-[11px] text-play-ink/35">{tt("No usage logged yet", "暂无用量记录")}</p>
             )}
           </div>
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-white/25">{tt("Session total", "会话总计")}</p>
-            <p className="mt-1 text-[11px] font-semibold text-white/72">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-play-ink/25">{tt("Session total", "会话总计")}</p>
+            <p className="mt-1 text-[11px] font-semibold text-play-ink/72">
               {formatTokenCount(usage?.totalTokens)} tokens
             </p>
-            <p className="mt-0.5 text-[10px] text-white/35">
+            <p className="mt-0.5 text-[10px] text-play-ink/35">
               {tt(`${formatMushies(usage?.estimatedMushies)} est. mushies - ${usage?.requestCount ?? 0} calls`, `约 ${formatMushies(usage?.estimatedMushies)} mushies · ${usage?.requestCount ?? 0} 次调用`)}
             </p>
           </div>
         </div>
         {last && (
-          <p className="mt-2 truncate text-[10px] text-white/28" title={`${last.model} - ${formatDate(last.createdAt)}`}>
+          <p className="mt-2 truncate text-[10px] text-play-ink/28" title={`${last.model} - ${formatDate(last.createdAt)}`}>
             {last.model} - {formatDate(last.createdAt)}
           </p>
         )}
@@ -984,7 +1056,9 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
   const renderError = (message: string | null | undefined) => message ? (
     <details className="mt-2 text-xs text-red-300/90">
       <summary className="cursor-pointer py-1">{tt("Error details", "错误详情")}</summary>
-      <p className="mt-1 break-words leading-relaxed">{message}</p>
+      <p className="mt-1 break-words leading-relaxed">{message === RECAP_ALL_THINKING_ERROR
+        ? tt("This model spent its whole reply thinking and wrote no recap. Pick a model that doesn't think for the recap.", "这个模型把整段回复都用在思考上，没写出前情提要。请给前情提要换一个不思考的模型。")
+        : message}</p>
     </details>
   ) : null;
 
@@ -994,10 +1068,10 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
       <div className={`mb-4 rounded-xl border px-4 py-3 ${
         lastCompaction.compactedCount > 0
           ? "border-emerald-300/15 bg-emerald-500/8"
-          : "border-white/[0.06] bg-white/[0.025]"
+          : "border-play-ink/[0.06] bg-play-ink/[0.025]"
       }`}>
         <p className={`text-xs font-semibold ${
-          lastCompaction.compactedCount > 0 ? "text-emerald-100/80" : "text-white/55"
+          lastCompaction.compactedCount > 0 ? "text-emerald-100/80" : "text-play-ink/55"
         }`}>
           {lastCompaction.compactedCount > 0
             ? tt(
@@ -1014,7 +1088,7 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
               )
             : tt("No context was compressed.", "没有压缩任何上下文。")}
         </p>
-        <p className="mt-1 text-[11px] leading-relaxed text-white/45">
+        <p className="mt-1 text-[11px] leading-relaxed text-play-ink/45">
           {lastCompaction.compactedUntilOneLine
             || (lastCompaction.compactedCount > 0
               ? tt("Recent chat is still being kept raw.", "最近的聊天仍保留为原文。")
@@ -1032,46 +1106,51 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
           onClick={onClose}
           role="dialog"
           aria-modal="true"
-          aria-label={tt("Memory & Summary", "记忆与摘要")}
+          aria-label={tt("Memory", "记忆")}
         >
         <div className="absolute inset-0 modal-backdrop" />
         <div
           onClick={(e) => e.stopPropagation()}
-          className="relative z-10 flex max-h-[min(760px,calc(100dvh-env(safe-area-inset-top,0px)-env(safe-area-inset-bottom,0px)-4rem))] w-[min(840px,calc(100vw-1rem))] flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-[#17181b]/95 shadow-2xl shadow-black/45 backdrop-blur-xl"
+          className="relative z-10 flex max-h-[min(760px,calc(100dvh-env(safe-area-inset-top,0px)-env(safe-area-inset-bottom,0px)-4rem))] w-[min(840px,calc(100vw-1rem))] flex-col overflow-hidden rounded-2xl border border-play-ink/[0.08] bg-play-memory/95 shadow-2xl shadow-black/45 backdrop-blur-xl"
         >
-          <div className="flex shrink-0 items-center justify-between border-b border-white/[0.06] px-4 py-3">
+          <div className="flex shrink-0 items-center justify-between border-b border-play-ink/[0.06] px-4 py-3">
             <div className="flex items-center gap-2">
               <div className="text-primary">
                 <Brain className="h-4 w-4" />
               </div>
               <div>
-                <h2 className="flex items-center gap-2 text-sm font-bold text-white">
-                  {tt("Memory & Summary", "记忆与摘要")}
-                  <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-200/80" title={tt("Experimental; may miss details.", "测试中，可能遗漏细节。")}>{tt("Beta", "测试版")}</span>
+                <h2 className="flex items-center gap-2 text-sm font-bold text-play-ink">
+                  {tt("Memory", "记忆")}
                 </h2>
               </div>
             </div>
             <button
               onClick={onClose}
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-white/35 transition-colors hover:bg-white/5 hover:text-white/70"
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-play-ink/35 transition-colors hover:bg-play-ink/5 hover:text-play-ink/70"
               title={tt("Close", "关闭")}
             >
               <X className="h-4 w-4" />
             </button>
           </div>
 
-          <div className="shrink-0 border-b border-white/[0.06] px-3 py-2">
-            <div className="grid grid-cols-4 gap-1">
+          {coreOverview.overview && (
+            <div className="shrink-0 space-y-3 border-b border-play-ink/[0.06] px-4 py-3">
+              <MemoryOverviewBar overview={coreOverview.overview} />
+              <RecapSection overview={coreOverview.overview} onChanged={coreOverview.setOverview} onNavigate={onClose} />
+            </div>
+          )}
+
+          <div className="shrink-0 border-b border-play-ink/[0.06] px-3 py-2">
+            <div className="grid grid-cols-3 gap-1">
               {renderTabButton({ tab: "systems", icon: <Settings2 className="h-3.5 w-3.5" />, label: tt("Settings", "设置") })}
               {renderTabButton({ tab: "memory", icon: <Brain className="h-3.5 w-3.5" />, label: tt("Memory", "记忆") })}
-              {renderTabButton({ tab: "localdev", icon: <FileText className="h-3.5 w-3.5" />, label: tt("Summary", "摘要") })}
-              {renderTabButton({ tab: "summaryception", icon: <Layers3 className="h-3.5 w-3.5" />, label: tt("Layers", "分层") })}
+              {renderTabButton({ tab: "summaryception", icon: <Layers3 className="h-3.5 w-3.5" />, label: tt("Recap", "前情提要") })}
             </div>
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
             {loading ? (
-              <div className="flex items-center justify-center py-16 text-white/40">
+              <div className="flex items-center justify-center py-16 text-play-ink/40">
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 {tt("Loading…", "加载中…")}
               </div>
@@ -1081,9 +1160,9 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
                   <div className="space-y-3">
                     <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                       <div>
-                        <p className="text-xs font-bold text-white/78">{tt("Memory systems", "记忆系统")}</p>
+                        <p className="text-xs font-bold text-play-ink/78">{tt("Memory systems", "记忆系统")}</p>
                       </div>
-                      <span className="rounded-full border border-white/[0.08] bg-black/20 px-2.5 py-1 text-[10px] font-semibold tabular-nums text-white/40">
+                      <span className="rounded-full border border-play-ink/[0.08] bg-black/20 px-2.5 py-1 text-[10px] font-semibold tabular-nums text-play-ink/40">
                         {sessionUsageTotals.calls > 0
                           ? tt(
                               `This session: ${sessionUsageTotals.calls} updates · ~${formatMushies(sessionUsageTotals.mushies)} mushies`,
@@ -1092,19 +1171,19 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
                           : tt("This session: no cost yet", "本会话尚无消耗")}
                       </span>
                     </div>
-                    <div className="mb-3 rounded-lg border border-white/[0.06] bg-black/18 p-3">
+                    <div className="mb-3 rounded-lg border border-play-ink/[0.06] bg-black/18 p-3">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="min-w-0">
-                          <p className="text-[11px] font-semibold text-white/72">{tt("Summary language", "纪要语言")}</p>
+                          <p className="text-[11px] font-semibold text-play-ink/72">{tt("Summary language", "纪要语言")}</p>
                         </div>
                         <select
                           value={languageDraft}
                           onChange={(e) => handleSelectLanguage(e.target.value as SessionSummaryLanguage)}
-                          className="h-8 shrink-0 rounded-lg border border-white/[0.1] bg-black/40 px-2.5 text-[11px] font-medium text-white/80 outline-none transition-colors hover:border-white/20 focus:border-primary/50"
+                          className="h-8 shrink-0 rounded-lg border border-play-ink/[0.1] bg-black/40 px-2.5 text-[11px] font-medium text-play-ink/80 outline-none transition-colors hover:border-play-ink/20 focus:border-primary/50"
                           aria-label={tt("Summary language", "纪要语言")}
                         >
                           {SESSION_SUMMARY_LANGUAGES.map((code) => (
-                            <option key={code} value={code} className="bg-[#17181b] text-white">
+                            <option key={code} value={code} className="bg-play-memory text-play-ink">
                               {code === "auto"
                                 ? tt("Auto (story language)", "自动（故事语言）")
                                 : SESSION_SUMMARY_LANGUAGE_ENDONYMS[code]}
@@ -1112,11 +1191,11 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
                           ))}
                         </select>
                       </div>
-                      <p className="mt-2 text-[11px] leading-relaxed text-white/42">
+                      <p className="mt-2 text-[11px] leading-relaxed text-play-ink/42">
                         {tt("Applies to future updates. Names stay unchanged.", "对后续更新生效，专有名称保持原文。")}
                       </p>
                     </div>
-                    <div className="grid gap-3 md:grid-cols-3">
+                    <div className="grid gap-3 md:grid-cols-2">
                       {renderSystemCard({
                         title: tt("Session Memory", "会话记忆"),
                         checked: memoryIncludedDraft,
@@ -1127,33 +1206,31 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
                         onPickModel: () => setMemoryModelPickerOpen(true),
                         onUseFreeModel: () => handleSelectMemoryModel(FREE_CONTEXT_MODEL),
                         description: (
-                          <p>{tt("Tracks key facts, characters, and goals.", "记录关键事实、角色和目标。")}</p>
+                          <>
+                            <p>{tt("Tracks key facts, characters, and goals.", "记录关键事实、角色和目标。")}</p>
+                            <MemoryEveryChips tt={tt} />
+                          </>
                         ),
                       })}
+                      {/* One recap: the layered one (the rolling summary
+                          scored 8% against its 51% on the same questions).
+                          A session counts as on when either old switch is,
+                          and this switch moves both. Its size is chosen in
+                          AI settings. */}
                       {renderSystemCard({
-                        title: tt("Story Summary", "剧情摘要"),
-                        checked: summaryIncludedDraft,
-                        onChange: handleToggleSummaryIncluded,
-                        meta: `${statusLabel(summaryPayload?.status)} · ${formatTokenCount(summaryPayload?.tokenCount)} tokens`,
-                        model: summaryModel,
-                        usage: summaryPayload?.usage,
-                        onPickModel: () => setSummaryModelPickerOpen(true),
-                        onUseFreeModel: () => handleSelectSummaryModel(FREE_CONTEXT_MODEL),
-                        description: (
-                          <p>{tt("Recaps earlier events.", "概括之前的剧情。")}</p>
-                        ),
-                      })}
-                      {renderSystemCard({
-                        title: tt("Layered Summary", "分层摘要"),
-                        checked: summaryceptionIncludedDraft,
-                        onChange: handleToggleSummaryceptionIncluded,
-                        meta: tt(`${statusLabel(summaryPayload?.summaryception.status)} · ${summaryPayload?.summaryception.snippetCount ?? 0} snippets`, `${statusLabel(summaryPayload?.summaryception.status)} · ${summaryPayload?.summaryception.snippetCount ?? 0} 个片段`),
+                        title: tt("Recap", "前情提要"),
+                        checked: summaryceptionIncludedDraft || summaryIncludedDraft,
+                        onChange: (included: boolean) => {
+                          setSummaryIncludedDraft(included);
+                          handleToggleSummaryceptionIncluded(included);
+                        },
+                        meta: tt(`${statusLabel(summaryPayload?.summaryception.status)} · ${summaryPayload?.summaryception.snippetCount ?? 0} chapters`, `${statusLabel(summaryPayload?.summaryception.status)} · ${summaryPayload?.summaryception.snippetCount ?? 0} 章`),
                         model: summaryceptionModel,
                         usage: summaryPayload?.summaryception.usage,
                         onPickModel: () => setSummaryceptionModelPickerOpen(true),
                         onUseFreeModel: () => handleSelectSummaryceptionModel(FREE_CONTEXT_MODEL),
                         description: (
-                          <p>{tt("Layered notes for long stories. Experimental.", "超长故事的分层笔记（实验性）。")}</p>
+                          <p>{tt("Folds scenes older than story memory into chapters. Its size is set in AI settings.", "把超出剧情记忆的旧剧情按章整理。篇幅在 AI 设置里选。")}</p>
                         ),
                       })}
                     </div>
@@ -1165,8 +1242,8 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
 
                 {contextTab === "memory" && (
                   <>
-                    <div className="mb-4 rounded-xl border border-white/[0.06] bg-white/[0.025] px-4 py-3">
-                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-white/60">
+                    <div className="mb-4 rounded-xl border border-play-ink/[0.06] bg-play-ink/[0.025] px-4 py-3">
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-play-ink/60">
                         <span className="inline-flex items-center gap-1.5">
                           {renderStatusIcon(payload?.status)}
                           {statusLabel(payload?.status)}
@@ -1187,12 +1264,12 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
                         </p>
                       )}
                       {typeof payload?.pendingTurns === "number" && payload.pendingTurns > 0 && (
-                        <p className="mt-2 text-[11px] leading-relaxed text-white/50">
+                        <p className="mt-2 text-[11px] leading-relaxed text-play-ink/50">
                           {tt(`${payload.pendingTurns} replies pending.`, `${payload.pendingTurns} 轮对话待更新。`)}
                         </p>
                       )}
                       {payload?.pendingTurns === null && (
-                        <p className="mt-2 text-[11px] leading-relaxed text-white/50">
+                        <p className="mt-2 text-[11px] leading-relaxed text-play-ink/50">
                           {tt("Memory coverage unknown. Retry to repair.", "记忆覆盖范围未知，请重试修复。")}
                         </p>
                       )}
@@ -1218,7 +1295,7 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
                             <Pin className="h-3.5 w-3.5" />
                             {tt("Pinned notes", "固定记忆")}
                           </div>
-                          <p className="mt-1 text-[11px] leading-relaxed text-white/40">
+                          <p className="mt-1 text-[11px] leading-relaxed text-play-ink/40">
                             {tt(
                               "Facts that must never drift. The AI never rewrites these.",
                               "绝不能跑偏的事实。AI 不会改写这里。",
@@ -1229,7 +1306,7 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
                           <button
                             onClick={startEditPinned}
                             disabled={saving || regenerating || compacting || loading || savingPinned}
-                            className="flex shrink-0 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-white/[0.04] px-2.5 py-1.5 text-[11px] font-semibold text-white/65 transition-colors hover:bg-white/[0.07] hover:text-white/80 disabled:opacity-40"
+                            className="flex shrink-0 items-center gap-1.5 rounded-lg border border-play-ink/[0.08] bg-play-ink/[0.04] px-2.5 py-1.5 text-[11px] font-semibold text-play-ink/65 transition-colors hover:bg-play-ink/[0.07] hover:text-play-ink/80 disabled:opacity-40"
                           >
                             <Pencil className="h-3 w-3" />
                             {tt("Edit", "编辑")}
@@ -1244,17 +1321,17 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
                             maxLength={PINNED_MAX_CHARS}
                             spellCheck={false}
                             placeholder={tt("e.g. Lina died in chapter 3 — she never returns. The player is 24 and lives alone.", "例如：莉娜在第三章已经死了，不会再出场。主角 24 岁，独居。")}
-                            className="min-h-[160px] w-full resize-y rounded-xl border border-white/[0.08] bg-black/25 p-3 text-xs leading-relaxed text-white/75 outline-none placeholder:text-white/25 focus:border-amber-300/35"
+                            className="min-h-[160px] w-full resize-y rounded-xl border border-play-ink/[0.08] bg-black/25 p-3 text-xs leading-relaxed text-play-ink/75 outline-none placeholder:text-play-ink/25 focus:border-amber-300/35"
                           />
                           <div className="flex items-center justify-between gap-2">
-                            <span className={`text-[10px] ${pinnedDraft.length >= PINNED_MAX_CHARS ? "text-amber-200/80" : "text-white/30"}`}>
+                            <span className={`text-[10px] ${pinnedDraft.length >= PINNED_MAX_CHARS ? "text-amber-200/80" : "text-play-ink/30"}`}>
                               {pinnedDraft.length} / {PINNED_MAX_CHARS}
                             </span>
                             <div className="flex items-center gap-2">
                             <button
                               onClick={cancelEditPinned}
                               disabled={savingPinned}
-                              className="flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-[11px] font-semibold text-white/65 transition-colors hover:bg-white/[0.07] hover:text-white/80 disabled:opacity-40"
+                              className="flex items-center gap-1.5 rounded-lg border border-play-ink/[0.08] bg-play-ink/[0.04] px-3 py-1.5 text-[11px] font-semibold text-play-ink/65 transition-colors hover:bg-play-ink/[0.07] hover:text-play-ink/80 disabled:opacity-40"
                             >
                               <X className="h-3 w-3" />
                               {tt("Cancel", "取消")}
@@ -1271,11 +1348,11 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
                           </div>
                         </div>
                       ) : pinnedText ? (
-                        <div className="mt-3 whitespace-pre-wrap rounded-lg bg-black/25 p-3 text-xs leading-relaxed text-white/75">
+                        <div className="mt-3 whitespace-pre-wrap rounded-lg bg-black/25 p-3 text-xs leading-relaxed text-play-ink/75">
                           {pinnedText}
                         </div>
                       ) : (
-                        <p className="mt-3 text-[11px] leading-relaxed text-white/30">
+                        <p className="mt-3 text-[11px] leading-relaxed text-play-ink/30">
                           {tt("Nothing pinned yet.", "还没有固定内容。")}
                         </p>
                       )}
@@ -1285,13 +1362,13 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
                       hasAnyMemory ? (
                         <MemoryTextView text={memoryText} />
                       ) : (
-                        <p className="rounded-xl border border-dashed border-white/[0.08] px-4 py-6 text-center text-xs leading-relaxed text-white/30">
+                        <p className="rounded-xl border border-dashed border-play-ink/[0.08] px-4 py-6 text-center text-xs leading-relaxed text-play-ink/30">
                           {tt("No memory yet. Keep playing or generate it now.", "暂无记忆。继续游玩或点击「重新生成」。")}
                         </p>
                       )
                     ) : (
                       <div className="space-y-3">
-                        <p className="text-[11px] leading-relaxed text-white/35">
+                        <p className="text-[11px] leading-relaxed text-play-ink/35">
                           {tt("Edit what the AI remembers.", "编辑 AI 需要记住的内容。")}
                         </p>
                         <textarea
@@ -1299,7 +1376,7 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
                           onChange={(e) => setMemoryDraft(e.target.value)}
                           spellCheck={false}
                           placeholder={tt("Core facts, relationships, goals, promises, world state, risks...", "核心事实、人物关系、目标、承诺、世界状态、风险……")}
-                          className="min-h-[420px] w-full resize-y rounded-xl border border-white/[0.08] bg-black/25 p-4 text-xs leading-relaxed text-white/75 outline-none placeholder:text-white/25 focus:border-primary/35"
+                          className="min-h-[420px] w-full resize-y rounded-xl border border-play-ink/[0.08] bg-black/25 p-4 text-xs leading-relaxed text-play-ink/75 outline-none placeholder:text-play-ink/25 focus:border-primary/35"
                         />
                       </div>
                     )}
@@ -1308,8 +1385,8 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
 
                 {contextTab === "localdev" && (
                   <>
-                    <div className="mb-4 rounded-xl border border-white/[0.06] bg-white/[0.025] px-4 py-3">
-                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-white/60">
+                    <div className="mb-4 rounded-xl border border-play-ink/[0.06] bg-play-ink/[0.025] px-4 py-3">
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-play-ink/60">
                         <span className="inline-flex items-center gap-1.5">
                           {renderStatusIcon(summaryPayload?.status)}
                           {statusLabel(summaryPayload?.status)}
@@ -1338,7 +1415,7 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
                             <div className="mt-2 flex flex-wrap gap-2">
                               <button
                                 onClick={() => setDismissedSummaryError(summaryPayload.error)}
-                                className="rounded-md border border-white/[0.08] bg-white/[0.04] px-2.5 py-1 text-[10px] font-semibold text-white/55 transition-colors hover:bg-white/[0.07] hover:text-white/80"
+                                className="rounded-md border border-play-ink/[0.08] bg-play-ink/[0.04] px-2.5 py-1 text-[10px] font-semibold text-play-ink/55 transition-colors hover:bg-play-ink/[0.07] hover:text-play-ink/80"
                               >
                                 {tt("Dismiss", "关闭提示")}
                               </button>
@@ -1366,9 +1443,9 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
                         </p>
                       )}
                       <details className="mt-3">
-                        <summary className="cursor-pointer py-1 text-xs text-white/60 hover:text-white/80">{tt("Settings & context", "设置与上下文")}</summary>
+                        <summary className="cursor-pointer py-1 text-xs text-play-ink/60 hover:text-play-ink/80">{tt("Settings & context", "设置与上下文")}</summary>
                       <div className="mt-3 flex flex-wrap items-center gap-2">
-                        <span className="text-[10px] font-semibold uppercase tracking-wide text-white/25">{tt("Compress when chat passes", "对话超过时压缩")}</span>
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-play-ink/25">{tt("Compress when chat passes", "对话超过时压缩")}</span>
                         <input
                           type="number"
                           min={MIN_SUMMARY_TRIGGER_TOKENS}
@@ -1380,18 +1457,18 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
                             if (e.nativeEvent.isComposing || e.keyCode === 229) return;
                             if (e.key === "Enter") handleApplySummaryTrigger();
                           }}
-                          className="h-8 w-32 rounded-lg border border-white/[0.08] bg-black/25 px-3 text-[11px] font-semibold text-white/70 outline-none focus:border-primary/35"
+                          className="h-8 w-32 rounded-lg border border-play-ink/[0.08] bg-black/25 px-3 text-[11px] font-semibold text-play-ink/70 outline-none focus:border-primary/35"
                           title={tt("Older scenes get folded into the recap once raw chat grows past this.", "原文超过这个长度后，更早的场景会被折进前情提要。")}
                         />
                         <button
                           onClick={handleApplySummaryTrigger}
-                          className="rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-[11px] font-semibold text-white/60 transition-colors hover:bg-white/[0.07] hover:text-white/80"
+                          className="rounded-lg border border-play-ink/[0.08] bg-play-ink/[0.04] px-3 py-1.5 text-[11px] font-semibold text-play-ink/60 transition-colors hover:bg-play-ink/[0.07] hover:text-play-ink/80"
                         >
                           {tt("Apply", "应用")}
                         </button>
                       </div>
                       <div className="mt-3 flex flex-wrap items-center gap-2">
-                        <span className="text-[10px] font-semibold uppercase tracking-wide text-white/25">{tt("Story memory, this story", "本篇剧情记忆")}</span>
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-play-ink/25">{tt("Story memory, this story", "本篇剧情记忆")}</span>
                         <input
                           type="number"
                           min={MIN_SUMMARY_RECENT_TAIL_TOKENS}
@@ -1403,28 +1480,28 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
                             if (e.nativeEvent.isComposing || e.keyCode === 229) return;
                             if (e.key === "Enter") handleApplySummaryRecentTail();
                           }}
-                          className="h-8 w-32 rounded-lg border border-white/[0.08] bg-black/25 px-3 text-[11px] font-semibold text-white/70 outline-none focus:border-primary/35"
+                          className="h-8 w-32 rounded-lg border border-play-ink/[0.08] bg-black/25 px-3 text-[11px] font-semibold text-play-ink/70 outline-none focus:border-primary/35"
                           title={tt("How much recent chat this story keeps word for word. Overrides your global story memory setting.", "本篇逐字保留多少最近对话。会覆盖设置里的全局剧情记忆。")}
                         />
                         <button
                           onClick={handleApplySummaryRecentTail}
-                          className="rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-[11px] font-semibold text-white/60 transition-colors hover:bg-white/[0.07] hover:text-white/80"
+                          className="rounded-lg border border-play-ink/[0.08] bg-play-ink/[0.04] px-3 py-1.5 text-[11px] font-semibold text-play-ink/60 transition-colors hover:bg-play-ink/[0.07] hover:text-play-ink/80"
                         >
                           {tt("Apply", "应用")}
                         </button>
                       </div>
                       {rawProgress && (
-                        <div className="mt-3 rounded-lg border border-white/[0.06] bg-black/18 p-3">
+                        <div className="mt-3 rounded-lg border border-play-ink/[0.06] bg-black/18 p-3">
                           <div className="mb-2 flex items-center justify-between gap-3">
                             <div>
-                              <p className="text-[11px] font-semibold text-white/70">{tt("Chat waiting to be compressed", "待压缩的对话")}</p>
-                              <p className="mt-0.5 text-[10px] text-white/35">
+                              <p className="text-[11px] font-semibold text-play-ink/70">{tt("Chat waiting to be compressed", "待压缩的对话")}</p>
+                              <p className="mt-0.5 text-[10px] text-play-ink/35">
                                 {formatTokenCount(rawProgress.currentTokens)} / {formatTokenCount(rawProgress.triggerTokens)} tokens
                               </p>
                             </div>
                             <div className="text-right">
-                              <p className="text-[11px] font-bold text-white/75">{rawProgressPercent}%</p>
-                              <p className="mt-0.5 text-[10px] text-white/35">
+                              <p className="text-[11px] font-bold text-play-ink/75">{rawProgressPercent}%</p>
+                              <p className="mt-0.5 text-[10px] text-play-ink/35">
                                 {rawProgress.canCompactNow
                                   ? tt("Ready", "就绪")
                                   : rawProgress.remainingTokens <= 0
@@ -1433,7 +1510,7 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
                               </p>
                             </div>
                           </div>
-                          <div className="h-2 overflow-hidden rounded-full bg-white/[0.08]">
+                          <div className="h-2 overflow-hidden rounded-full bg-play-ink/[0.08]">
                             <div
                               className={`h-full rounded-full transition-all ${
                                 rawProgress.canCompactNow ? "bg-emerald-300" : "bg-primary"
@@ -1444,7 +1521,7 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
                           {/* The bar above already gives current, limit, percent
                               and remaining. Message counts answered a question
                               nobody was asking. */}
-                          <p className="mt-2 text-[10px] text-white/35">
+                          <p className="mt-2 text-[10px] text-play-ink/35">
                             {tt(
                               `${formatTokenCount(rawProgress.recentTailTokens)} stays word for word`,
                               `逐字保留 ${formatTokenCount(rawProgress.recentTailTokens)}`,
@@ -1457,11 +1534,11 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
                     {renderLastCompaction("localdev")}
                     {!editingSummary ? (
                       summaryDraft.trim() ? (
-                        <div className="min-h-[200px] w-full whitespace-pre-wrap rounded-xl border border-white/[0.08] bg-black/25 p-4 text-xs leading-relaxed text-white/75">
+                        <div className="min-h-[200px] w-full whitespace-pre-wrap rounded-xl border border-play-ink/[0.08] bg-black/25 p-4 text-xs leading-relaxed text-play-ink/75">
                           {summaryDraft}
                         </div>
                       ) : (
-                        <div className="rounded-xl border border-dashed border-white/[0.08] px-4 py-10 text-center text-xs leading-relaxed text-white/30">
+                        <div className="rounded-xl border border-dashed border-play-ink/[0.08] px-4 py-10 text-center text-xs leading-relaxed text-play-ink/30">
                           {tt("No summary yet. Compress chat or write your own.", "暂无摘要。压缩聊天或自行编辑。")}
                         </div>
                       )
@@ -1471,7 +1548,7 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
                         onChange={(e) => setSummaryDraft(e.target.value)}
                         spellCheck={false}
                         placeholder={tt("Story summary…", "剧情摘要…")}
-                        className="min-h-[470px] w-full resize-y rounded-xl border border-white/[0.08] bg-black/25 p-4 text-xs leading-relaxed text-white/75 outline-none placeholder:text-white/25 focus:border-primary/35"
+                        className="min-h-[470px] w-full resize-y rounded-xl border border-play-ink/[0.08] bg-black/25 p-4 text-xs leading-relaxed text-play-ink/75 outline-none placeholder:text-play-ink/25 focus:border-primary/35"
                       />
                     )}
                   </>
@@ -1479,67 +1556,74 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
 
                 {contextTab === "summaryception" && (
                   <>
-                    <div className="mb-4 rounded-xl border border-white/[0.06] bg-white/[0.025] px-4 py-3">
-                      <div className="grid gap-2 text-xs text-white/60 sm:grid-cols-2">
+                    <div className="mb-4 rounded-xl border border-play-ink/[0.06] bg-play-ink/[0.025] px-4 py-3">
+                      <div className="grid gap-2 text-xs text-play-ink/60 sm:grid-cols-2">
                         <span className="inline-flex items-center gap-1.5">
                           {renderStatusIcon(summaryPayload?.summaryception.status)}
                           {statusLabel(summaryPayload?.summaryception.status)}
                         </span>
-                        <span>{tt(`${summaryPayload?.summaryception.layerCount ?? 0} layers · ${summaryPayload?.summaryception.snippetCount ?? 0} snippets`, `${summaryPayload?.summaryception.layerCount ?? 0} 层 · ${summaryPayload?.summaryception.snippetCount ?? 0} 个片段`)}</span>
+                        <span>{tt(`${summaryPayload?.summaryception.snippetCount ?? 0} chapters`, `${summaryPayload?.summaryception.snippetCount ?? 0} 章`)}</span>
                       </div>
-                      <details className="mt-2 text-xs text-white/60">
-                        <summary className="cursor-pointer py-1 hover:text-white/80">{tt("Details", "详情")}</summary>
+                      <details className="mt-2 text-xs text-play-ink/60">
+                        <summary className="cursor-pointer py-1 hover:text-play-ink/80">{tt("Details", "详情")}</summary>
                         <div className="mt-2 grid gap-2 break-words sm:grid-cols-2">
                         <span>{tt("Model:", "模型：")} {summaryPayload?.summaryception.model || summaryceptionModel}</span>
-                        <span>{tt("Layers:", "层数：")} {summaryPayload?.summaryception.layerCount ?? 0}</span>
-                        <span>{tt("Snippets:", "片段数：")} {summaryPayload?.summaryception.snippetCount ?? 0}</span>
-                        <span>{tt("Size:", "长度：")} {formatTokenCount(summaryPayload?.summaryception.tokenCount)} tokens</span>
                         <span>{tt("Updated:", "更新于：")} {formatDate(summaryPayload?.summaryception.updatedAt ?? null)}</span>
                         <span>{tt("Coverage:", "覆盖范围：")} {summaryPayload?.summaryception.coversUntilOrdinal ? tt(`through message ${summaryPayload.summaryception.coversUntilOrdinal}`, `至第 ${summaryPayload.summaryception.coversUntilOrdinal} 条消息`) : tt("Nothing compressed yet", "尚未压缩")}</span>
                         </div>
                       </details>
                       {renderUsageStats(summaryPayload?.summaryception.usage)}
                       {renderError(error || summaryPayload?.summaryception.error)}
-                      <p className="mt-3 text-[11px] leading-relaxed text-white/38">
-                        {tt("Higher layers condense older events.", "层数越高，内容越精简。")}
-                      </p>
                     </div>
                     {renderLastCompaction("summaryception")}
                     {summaryceptionLayers.length > 0 ? (
                       <div className="space-y-4">
                         {summaryceptionLayers.map((layer) => (
-                          <section key={layer.layerIndex} className="rounded-xl border border-white/[0.06] bg-white/[0.025] p-4">
+                          <section key={layer.layerIndex} className="rounded-xl border border-play-ink/[0.06] bg-play-ink/[0.025] p-4">
                             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                               <div>
-                                <h3 className="text-xs font-bold uppercase tracking-wide text-white/75">{tt(`Layer ${layer.layerIndex}`, `第 ${layer.layerIndex} 层`)}</h3>
-                                <p className="mt-0.5 text-[10px] text-white/35">
-                                  {layer.layerIndex === 0 ? tt("Fresh compacted chat sentences", "最新的压缩聊天句子") : tt(`Folded sentences promoted from layer ${layer.layerIndex - 1}`, `从第 ${layer.layerIndex - 1} 层提升折叠的句子`)}
-                                </p>
+                                <h3 className="text-xs font-bold tracking-wide text-play-ink/75">{layer.layerIndex === 0 ? tt("Recent chapters", "近期章节") : tt("Earlier, condensed", "更早（已精简）")}</h3>
                               </div>
-                              <span className="rounded-full border border-white/[0.08] bg-black/20 px-2.5 py-1 text-[10px] font-semibold text-white/40">
-                                {tt(`${layer.snippets.length} snippets`, `${layer.snippets.length} 个片段`)}
+                              <span className="rounded-full border border-play-ink/[0.08] bg-black/20 px-2.5 py-1 text-[10px] font-semibold text-play-ink/40">
+                                {tt(`${layer.snippets.length} chapters`, `${layer.snippets.length} 章`)}
                               </span>
                             </div>
                             <div className="space-y-2">
                               {layer.snippets.map((snippet) => (
-                                <article key={snippet.id} className="rounded-lg border border-white/[0.05] bg-black/18 p-3">
-                                  <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-white/32">
+                                <article key={snippet.id} className="rounded-lg border border-play-ink/[0.05] bg-black/18 p-3">
+                                  <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-play-ink/32">
                                     <span>#{snippet.snippetOrder + 1}</span>
-                                    <span>{renderSnippetSource(snippet)}</span>
-                                    {snippet.mergedCount ? <span>{tt(`merged ${snippet.mergedCount} snippets`, `合并了 ${snippet.mergedCount} 个片段`)}</span> : null}
-                                    {snippet.promoted ? <span>{tt("promoted seed", "提升种子")}</span> : null}
-                                    <span>{tt("Updated:", "更新于：")} {formatDate(snippet.updatedAt)}</span>
+                                    {renderSnippetSource(snippet) && <span>{renderSnippetSource(snippet)}</span>}
                                     <div className="flex-1" />
                                     {editingSnippetId !== snippet.id && (
-                                      <button
-                                        onClick={() => { setEditingSnippetId(snippet.id); setSnippetDraft(snippet.text); }}
-                                        className="inline-flex items-center gap-1 rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-0.5 text-[10px] font-semibold text-white/55 transition-colors hover:bg-white/[0.07] hover:text-white/80"
-                                      >
-                                        <Pencil className="h-3 w-3" />
-                                        {tt("Edit", "编辑")}
-                                      </button>
+                                      <>
+                                        <button
+                                          onClick={() => { setArmedDeleteId(null); setEditingSnippetId(snippet.id); setSnippetDraft(snippet.text); }}
+                                          className="inline-flex items-center gap-1 rounded-md border border-play-ink/[0.08] bg-play-ink/[0.04] px-2 py-0.5 text-[10px] font-semibold text-play-ink/55 transition-colors hover:bg-play-ink/[0.07] hover:text-play-ink/80"
+                                        >
+                                          <Pencil className="h-3 w-3" />
+                                          {tt("Edit", "编辑")}
+                                        </button>
+                                        <button
+                                          onClick={() => void handleDeleteSnippet(snippet.id)}
+                                          disabled={deletingSnippetId !== null || recapStatus === "updating" || compacting}
+                                          className={armedDeleteId === snippet.id
+                                            ? "inline-flex items-center gap-1 rounded-md border border-red-300/30 bg-red-500/15 px-2 py-0.5 text-[10px] font-semibold text-play-danger transition-colors hover:bg-red-500/25 disabled:opacity-40"
+                                            : "inline-flex items-center gap-1 rounded-md border border-play-ink/[0.08] bg-play-ink/[0.04] px-2 py-0.5 text-[10px] font-semibold text-play-ink/55 transition-colors hover:bg-red-500/10 hover:text-play-danger/85 disabled:opacity-40"}
+                                        >
+                                          {deletingSnippetId === snippet.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                                          {armedDeleteId === snippet.id ? tt("Delete?", "确认删除") : tt("Delete", "删除")}
+                                        </button>
+                                      </>
                                     )}
                                   </div>
+                                  {armedDeleteId === snippet.id && (
+                                    <p className="mb-2 text-[10.5px] text-play-danger/70">
+                                      {snippet.id === newestChapterId
+                                        ? tt("These messages go back to word for word", "这几条会变回原文")
+                                        : tt("The AI will no longer remember this part", "AI 将不再记得这段")}
+                                    </p>
+                                  )}
                                   {editingSnippetId === snippet.id ? (
                                     <div className="space-y-2">
                                       <textarea
@@ -1547,13 +1631,13 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
                                         onChange={(e) => setSnippetDraft(e.target.value)}
                                         spellCheck={false}
                                         rows={4}
-                                        className="w-full resize-y rounded-lg border border-white/[0.08] bg-black/25 p-2.5 text-xs leading-relaxed text-white/75 outline-none focus:border-primary/35"
+                                        className="w-full resize-y rounded-lg border border-play-ink/[0.08] bg-black/25 p-2.5 text-xs leading-relaxed text-play-ink/75 outline-none focus:border-primary/35"
                                       />
                                       <div className="flex items-center justify-end gap-2">
                                         <button
                                           onClick={() => setEditingSnippetId(null)}
                                           disabled={savingSnippet}
-                                          className="rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-[11px] font-semibold text-white/55 transition-colors hover:bg-white/[0.07] hover:text-white/80 disabled:opacity-40"
+                                          className="rounded-lg border border-play-ink/[0.08] bg-play-ink/[0.04] px-3 py-1.5 text-[11px] font-semibold text-play-ink/55 transition-colors hover:bg-play-ink/[0.07] hover:text-play-ink/80 disabled:opacity-40"
                                         >
                                           {tt("Cancel", "取消")}
                                         </button>
@@ -1568,7 +1652,7 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
                                       </div>
                                     </div>
                                   ) : (
-                                    <p className="whitespace-pre-wrap text-xs leading-relaxed text-white/72">{snippet.text}</p>
+                                    <p className="whitespace-pre-wrap text-xs leading-relaxed text-play-ink/72">{snippet.text}</p>
                                   )}
                                 </article>
                               ))}
@@ -1577,12 +1661,9 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
                         ))}
                       </div>
                     ) : (
-                      <div className="rounded-2xl border border-dashed border-white/[0.08] bg-white/[0.02] px-5 py-12 text-center">
-                        <Layers3 className="mx-auto mb-3 h-8 w-8 text-white/20" />
-                        <p className="text-sm font-semibold text-white/65">{tt("No Layered Summary snippets yet", "暂无分层摘要片段")}</p>
-                        <p className="mx-auto mt-1 max-w-md text-xs leading-relaxed text-white/35">
-                          {tt("Keep playing or compress chat now.", "继续游玩或点击「压缩」。")}
-                        </p>
+                      <div className="rounded-2xl border border-dashed border-play-ink/[0.08] bg-play-ink/[0.02] px-5 py-12 text-center">
+                        <Layers3 className="mx-auto mb-3 h-8 w-8 text-play-ink/20" />
+                        <p className="text-sm font-semibold text-play-ink/65">{tt("No recap yet", "还没有前情提要")}</p>
                       </div>
                     )}
                   </>
@@ -1591,7 +1672,7 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
             )}
           </div>
 
-          <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-white/[0.06] px-5 py-3">
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-play-ink/[0.06] px-5 py-3">
             {contextTab === "memory" ? (
               <button
                 onClick={handleClear}
@@ -1624,15 +1705,56 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
                 </button>
               )}
               {contextTab === "summaryception" && (
-                <button
-                  onClick={() => handleCompactSummary("summaryception")}
-                  disabled={saving || regenerating || compacting || loading}
-                  className="flex items-center gap-1.5 rounded-lg border border-emerald-300/15 bg-emerald-500/8 px-3 py-2 text-xs font-semibold text-emerald-100/75 transition-colors hover:bg-emerald-500/12 hover:text-emerald-50 disabled:opacity-40"
-                  title={tt("Compress older raw chat into Layered Summary snippets", "把较早的原始聊天压缩成分层摘要片段")}
-                >
-                  {compacting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Layers3 className="h-3.5 w-3.5" />}
-                  {tt("Compress", "压缩")}
-                </button>
+                <>
+                  <div className="flex items-center gap-1 text-xs text-play-ink/55">
+                    <span>{tt("Oldest", "最早")}</span>
+                    <button
+                      type="button"
+                      onClick={() => stepFold(-2)}
+                      disabled={foldAvailable === 0 || foldShown <= 1}
+                      aria-label={tt("Fewer", "减少")}
+                      className="flex h-7 w-7 items-center justify-center rounded-md border border-play-ink/[0.08] bg-play-ink/[0.04] text-play-ink/60 transition-colors hover:bg-play-ink/[0.07] disabled:opacity-30"
+                    >
+                      <Minus className="h-3 w-3" />
+                    </button>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min={1}
+                      max={Math.max(1, foldAvailable)}
+                      value={foldAvailable === 0 ? 0 : foldShown}
+                      disabled={foldAvailable === 0}
+                      aria-label={tt("Messages to fold", "要整理的条数")}
+                      onChange={(e) => {
+                        const next = Math.floor(Number(e.target.value));
+                        if (Number.isFinite(next) && next > 0) setFoldCount(Math.min(Math.max(1, foldAvailable), next));
+                      }}
+                      className="h-7 w-12 rounded-md border border-play-ink/[0.08] bg-black/25 text-center text-xs tabular-nums text-play-ink/80 outline-none focus:border-primary/35 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => stepFold(2)}
+                      disabled={foldAvailable === 0 || foldShown >= foldAvailable}
+                      aria-label={tt("More", "增加")}
+                      className="flex h-7 w-7 items-center justify-center rounded-md border border-play-ink/[0.08] bg-play-ink/[0.04] text-play-ink/60 transition-colors hover:bg-play-ink/[0.07] disabled:opacity-30"
+                    >
+                      <Plus className="h-3 w-3" />
+                    </button>
+                    {zh && <span>条</span>}
+                  </div>
+                  <button
+                    onClick={() => void handleFold()}
+                    disabled={saving || regenerating || compacting || loading || foldAvailable === 0 || recapStatus === "updating"}
+                    className="flex items-center gap-1.5 rounded-lg border border-emerald-300/15 bg-emerald-500/8 px-3 py-2 text-xs font-semibold text-emerald-100/75 transition-colors hover:bg-emerald-500/12 hover:text-emerald-50 disabled:opacity-40"
+                    title={tt("Fold the oldest messages into the recap", "把最早的这些消息整理进前情提要")}
+                  >
+                    {compacting || recapStatus === "updating" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Layers3 className="h-3.5 w-3.5" />}
+                    {tt("Fold", "整理")}
+                    {foldAvailable > 0 && foldEstimate?.estimatedCredits != null && (
+                      <span className="tabular-nums opacity-70">· {tt(`~${foldEstimate.estimatedCredits} mushies`, `约 ${foldEstimate.estimatedCredits} 币`)}</span>
+                    )}
+                  </button>
+                </>
               )}
               {contextTab === "memory" && (
                 editingMemory ? (
@@ -1640,7 +1762,7 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
                     <button
                       onClick={cancelEditMemory}
                       disabled={saving || regenerating || compacting || loading}
-                      className="flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-xs font-semibold text-white/65 transition-colors hover:bg-white/[0.07] hover:text-white/80 disabled:opacity-40"
+                      className="flex items-center gap-1.5 rounded-lg border border-play-ink/[0.08] bg-play-ink/[0.04] px-3 py-2 text-xs font-semibold text-play-ink/65 transition-colors hover:bg-play-ink/[0.07] hover:text-play-ink/80 disabled:opacity-40"
                     >
                       <X className="h-3.5 w-3.5" />
                       {tt("Cancel", "取消")}
@@ -1659,7 +1781,7 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
                     <button
                       onClick={handleRegenerate}
                       disabled={saving || regenerating || compacting || loading}
-                      className="flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-xs font-semibold text-white/65 transition-colors hover:bg-white/[0.07] hover:text-white/80 disabled:opacity-40"
+                      className="flex items-center gap-1.5 rounded-lg border border-play-ink/[0.08] bg-play-ink/[0.04] px-3 py-2 text-xs font-semibold text-play-ink/65 transition-colors hover:bg-play-ink/[0.07] hover:text-play-ink/80 disabled:opacity-40"
                     >
                       {regenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
                       {tt("Regenerate", "重新生成")}
@@ -1681,7 +1803,7 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
                     <button
                       onClick={cancelEditSummary}
                       disabled={saving || regenerating || compacting || loading}
-                      className="flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-xs font-semibold text-white/65 transition-colors hover:bg-white/[0.07] hover:text-white/80 disabled:opacity-40"
+                      className="flex items-center gap-1.5 rounded-lg border border-play-ink/[0.08] bg-play-ink/[0.04] px-3 py-2 text-xs font-semibold text-play-ink/65 transition-colors hover:bg-play-ink/[0.07] hover:text-play-ink/80 disabled:opacity-40"
                     >
                       <X className="h-3.5 w-3.5" />
                       {tt("Cancel", "取消")}
@@ -1700,7 +1822,7 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
                     <button
                       onClick={handleRegenerateSummary}
                       disabled={saving || regenerating || compacting || loading || summaryJobActive || summaryPayload?.status === "updating"}
-                      className="flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-xs font-semibold text-white/65 transition-colors hover:bg-white/[0.07] hover:text-white/80 disabled:opacity-40"
+                      className="flex items-center gap-1.5 rounded-lg border border-play-ink/[0.08] bg-play-ink/[0.04] px-3 py-2 text-xs font-semibold text-play-ink/65 transition-colors hover:bg-play-ink/[0.07] hover:text-play-ink/80 disabled:opacity-40"
                     >
                       {regenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
                       {tt("Regenerate", "重新生成")}
@@ -1744,10 +1866,71 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
         onClose={() => setSummaryceptionModelPickerOpen(false)}
         selectedModel={summaryceptionModel}
         onSelectModel={handleSelectSummaryceptionModel}
-        title={tt("Choose Layered Summary Model", "选择分层摘要模型")}
-        subtitle={tt("Layered snippet compactor", "分层片段压缩器")}
+        title={tt("Choose Recap Model", "选择前情提要模型")}
+        subtitle={tt("Folds older scenes into chapters", "把旧剧情按章整理")}
         allowExternalProviderSwitch
       />
     </>
+  );
+}
+
+const MEMORY_EVERY_QUICK = [3, 5, 10, 20];
+
+/** How many turns session memory waits before it updates. The same choice as in AI settings. */
+function MemoryEveryChips({ tt }: { tt: (en: string, cn: string) => string }) {
+  const api = useYumina();
+  const [every, setEvery] = useState<number | null>(null);
+  const [customOpen, setCustomOpen] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [error, setError] = useState(false);
+  useEffect(() => {
+    let live = true;
+    void api.getMemoryEvery().then((value) => {
+      if (!live) return;
+      const n = value ?? 3;
+      setEvery(n);
+      if (!MEMORY_EVERY_QUICK.includes(n)) { setCustomOpen(true); setDraft(String(n)); }
+    });
+    return () => { live = false; };
+  }, [api]);
+  const choose = (n: number) => {
+    const next = Math.min(50, Math.max(1, Math.round(n)));
+    setEvery(next);
+    setError(false);
+    api.setMemoryEvery(next).catch(() => setError(true));
+  };
+  const chip = (active: boolean) => `rounded-md border px-2 py-0.5 text-[10.5px] transition-colors ${
+    active ? "border-primary/50 bg-primary/10 text-play-ink/85" : "border-play-ink/[0.08] text-play-ink/50 hover:text-play-ink/75"
+  }`;
+  if (every === null) return null;
+  return (
+    <div className="mt-2">
+      <p className="mb-1.5 text-[10.5px] text-play-ink/50">{tt("Update every", "多少轮更新一次")}</p>
+      <div className="flex flex-wrap items-center gap-1">
+        {MEMORY_EVERY_QUICK.map((n) => (
+          <button key={n} type="button" aria-pressed={!customOpen && every === n}
+            onClick={() => { setCustomOpen(false); choose(n); }} className={chip(!customOpen && every === n)}>
+            {n}
+          </button>
+        ))}
+        {customOpen ? (
+          <label className={`${chip(true)} inline-flex items-center gap-1`}>
+            <input
+              type="number" inputMode="numeric" min={1} max={50} value={draft}
+              onChange={(e) => { setDraft(e.target.value); const n = Number(e.target.value); if (Number.isFinite(n) && n >= 1) choose(n); }}
+              onBlur={() => setDraft(String(every))}
+              aria-label={tt("Custom", "自定义")}
+              className="w-8 bg-transparent text-center tabular-nums outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+            />
+            {tt("turns", "轮")}
+          </label>
+        ) : (
+          <button type="button" onClick={() => { setCustomOpen(true); setDraft(String(every)); }} className={chip(false)}>
+            {tt("Custom", "自定义")}
+          </button>
+        )}
+        {error && <span className="text-[10px] text-play-error/80">{tt("Not saved", "没存上")}</span>}
+      </div>
+    </div>
   );
 }

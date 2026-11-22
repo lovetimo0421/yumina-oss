@@ -1,3 +1,7 @@
+---
+title: "Step-by-step tutorial: build a survival horror world from scratch"
+description: "Build a 14-night survival horror game step by step: a GM setup entry, an opening, five tracked variables, an AI-written interface and keyword lore."
+---
 # Step-by-Step Tutorial: Build a Survival Horror World from Scratch
 
 ::: tip
@@ -13,15 +17,13 @@ Along the way you'll use lore, variables, an AI-written interface and keyword lo
 
 ## Step 1: Create a new world
 
-Click **Create** on the left, choose **Blank Project**, and pick **Canvas**. Then type the name into the name field at the top left, next to the **Canvas** switch:
-
-- **Name**: `The Imposters`
+Click **Create** on the left, choose **Blank Project** and pick **Canvas**, then type `The Imposters` into the name field at the top left, next to the **Canvas** switch. [Canvas basics](/creator/canvas) shows the board, the top bar and the Canvas switch if anything looks unfamiliar.
 
 ---
 
 ## Step 2: Write the character setup entry
 
-In this game, the AI isn't playing a character — it's acting as the **Game Master (GM)**, responsible for narrating scenes, playing all NPCs, and driving the story forward. So the first entry tells the AI its role and responsibilities.
+In this game, the AI isn't playing a character. It's acting as the **Game Master (GM)**, responsible for narrating scenes, playing all NPCs, and driving the story forward. So the first entry tells the AI its role and responsibilities.
 
 Click the row under **Character and world** to open it.
 
@@ -156,7 +158,7 @@ The **ID** is what the interface code in Step 6 uses to read the variable. New v
 | **ID** (under Advanced) | `player_has_gun` |
 
 ::: tip What are Behavior Rules?
-**Behavior Rules** aren't code — they're natural language instructions written for the AI. They tell it when to update which variable. Think of it as a "cheat sheet" for the AI φ(>ω<*)
+**Behavior Rules** aren't code. They're natural language instructions written for the AI. They tell it when to update which variable. Think of it as a "cheat sheet" for the AI.
 :::
 
 ---
@@ -243,8 +245,8 @@ My variables:
 - player_has_gun — whether armed, true/false
 ```
 
-4. The assistant writes the code into **Panels → Front End Code**. Click **Player interface** in the middle of the top bar to see the result
-5. Want changes? Keep talking — "make the knocking effect more dramatic" or "the choice buttons are too spread out". If a round goes wrong, click **Undo this turn** in **The assistant's last turn** strip at the bottom of the canvas
+4. The assistant writes the code into **Panels → Interface code**. Click **Player interface** in the middle of the top bar to see the result
+5. Want changes? Keep talking: "make the knocking effect more dramatic" or "the choice buttons are too spread out". If a round goes wrong, click **Undo this turn** in **The assistant's last turn** strip at the bottom of the canvas
 
 ![The Creation assistant generating the interface](./images/tutorial-studio-ai2.png)
 
@@ -254,7 +256,7 @@ My variables:
 
 If you'd rather use another AI, there are two ways.
 
-**Connect it to your card.** Click **Connect your AI** in the top bar and follow the steps. Once connected, your AI edits the card directly, and you can send it the request above as is. See [Connect your own AI](/creator/studio-ai#connect-your-own-ai).
+**Connect it to your card.** Open the ⋮ menu at the top right, click **Connect your AI** and follow the steps. Once connected, your AI edits the card directly, and you can send it the request above as is. See [Connect your AI](/creator/connect-your-ai).
 
 **Paste the code yourself.** Send the effect description above along with the Yumina technical info appended at the end:
 
@@ -275,7 +277,7 @@ Yumina technical info (please follow these rules when writing code):
 ```
 
 Once you have the code:
-1. Open **Panels → Front End Code** and select `index.tsx`
+1. Open **Panels → Interface code** and select `index.tsx`
 2. Paste the code in (replace the default `return <Chat />`)
 3. If the panel shows **OK**, you're done
 
@@ -359,7 +361,7 @@ Click **Play** on the right of the top bar. A playtest starts a real game with t
 | Check item | How to verify | If it's not working |
 |-----------|---------------|---------------------|
 | Opening message appears | First message shows automatically on entry | Check that the opening (Greeting) has text |
-| Custom UI is active | Messages have a CRT-style phase title and HUD | Check that `index.tsx` in **Panels → Front End Code** has the renderBubble code and shows **OK** |
+| Custom UI is active | Messages have a CRT-style phase title and HUD | Check that `index.tsx` in **Panels → Interface code** has the renderBubble code and shows **OK** |
 | Values change | HUD values update after interactions; **Each value** in This turn says why a value changed or didn't | Check that each variable's Behavior Rules are clearly written |
 | Keyword lore triggers | Mentioning "peephole" makes the AI follow the rules; **What the AI got** lists it under lore mentioned this turn | Check keyword spelling and the Keyword scan depth |
 
@@ -369,12 +371,7 @@ When you're done, click **Stop** to go back to the canvas.
 
 ## Step 9: Fill in the card details
 
-Click **Cover & blurb** on the right of the canvas. **Card settings** opens:
-
-1. Upload a **Cover Image** (something that conveys the horror atmosphere). You need a portrait **Phone · 2:3** and a landscape **Desktop · 16:9** version
-2. Write a **Description** so players know what they're getting into
-3. Set **Language**: choose the language your world is written in (e.g., `English`)
-4. Click **Save** in the top bar
+Click **Cover & blurb** on the right of the canvas. In **Card settings**, upload a **Cover Image** that conveys the horror atmosphere. Keep a 2:3 portrait crop; in **Gallery display**, adjust the 21:9 desktop banner and 16:9 mobile/gallery crop separately. Write a **Description**, set the **Language**, then click **Save** in the top bar. [Publishing](/creator/publishing) walks through each field and both covers.
 
 ![Card details](./images/tutorial-publish.png)
 
@@ -382,11 +379,7 @@ Click **Cover & blurb** on the right of the canvas. **Card settings** opens:
 
 ## Step 10: Publish
 
-1. Click **Not live** on the right of the top bar. It runs through a short checklist: a name, a cover, an opening, and at least one playtest
-2. Click **Publish**. In the dialog, add **Tags** (`horror`, `survival`, `mystery`, `interactive fiction`), set the **Content Mode** (**Limited** or **Limitless**), visibility, and whether others may make editable copies
-3. Confirm your rights to the content and click **Publish**
-
-Your world goes into review. Once it passes, players can find it on Discover ヽ(✿ﾟ▽ﾟ)ノ
+Click **Not live** on the right of the top bar, pass its short checklist (a name, a cover, an opening and at least one playtest), then click **Publish** and add **Tags** such as `horror`, `survival`, `mystery` and `interactive fiction`. The dialog's other settings (**Content Mode**, visibility, editable copies) and the review that follows are covered in [Publishing](/creator/publishing). Once your world passes review, players can find it on Discover.
 
 ---
 
@@ -402,10 +395,10 @@ Your world goes into review. Once it passes, players can find it on Discover ヽ
 
 ## What else you can do
 
-- **[Behaviors](./rules-deep.md)** — auto-trigger a death ending when HP hits 0, no need to rely on the AI remembering
-- **[Custom UI Guide](./custom-ui-deep.md)** — turn messages into speech bubbles, visual novel scenes, or battle logs
-- **[Audio](./audio-deep.md)** — add BGM and sound effects, auto-switch to creepy music when entering the basement
-- **[Conditional lore](./entries-deep.md)** — send lore based on variable values, like late-game plot reveals
+- **[Behaviors](./rules-deep.md).** Auto-trigger a death ending when HP hits 0, no need to rely on the AI remembering
+- **[Custom UI Guide](./custom-ui-deep.md).** Turn messages into speech bubbles, visual novel scenes, or battle logs
+- **[Audio](./audio-deep.md).** Add BGM and sound effects, auto-switch to creepy music when entering the basement
+- **[Conditional lore](./entries-deep.md).** Send lore based on variable values, like late-game plot reveals
 
 ---
 

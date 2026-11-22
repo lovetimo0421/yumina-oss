@@ -31,6 +31,7 @@ import { DebouncedInput, DebouncedTextarea } from "../components/debounced-field
 import { StyledCheckbox } from "../components/styled-checkbox";
 import { DraftNumberInput } from "../components/condition-editor";
 import { Select } from "@/components/ui/select";
+import { InfoTip } from "@/components/ui/info-tip";
 import { NumberInput } from "@/components/ui/number-input";
 import { sampleRandomSpec } from "@yumina/engine";
 import { editableBehaviors, preserveLegacyEffect } from "../lib/editable-behaviors";
@@ -144,11 +145,11 @@ export function getWhenPresets(t: TFn): WhenPreset[] {
 
 // `key` resolves under behaviors.eventBadge.*; `label` is the English fallback.
 const EVENT_TYPE_BADGES: Record<string, { key: string; label: string; color: string }> = {
-  "turn:complete": { key: "turn", label: "TURN", color: "bg-secondary text-primary/80 border-primary/20" },
+  "turn:complete": { key: "turn", label: "TURN", color: "bg-secondary text-muted-foreground border-border" },
   "message:user": { key: "user", label: "MSG", color: "bg-secondary text-muted-foreground border-border" },
   "message:ai": { key: "ai", label: "AI", color: "bg-secondary text-muted-foreground border-border" },
   "session:start": { key: "start", label: "START", color: "bg-secondary text-muted-foreground border-border" },
-  "state:changed": { key: "state", label: "STATE", color: "bg-secondary text-primary/80 border-primary/20" },
+  "state:changed": { key: "state", label: "STATE", color: "bg-secondary text-muted-foreground border-border" },
   "state:crossed": { key: "threshold", label: "THRESH", color: "bg-secondary text-muted-foreground border-border" },
   "action:fired": { key: "action", label: "ACT", color: "bg-secondary text-muted-foreground border-border" },
 };
@@ -273,10 +274,7 @@ export function BehaviorsSection({ compact, mobileListMode }: { compact?: boolea
               <h1 className="text-[22px] font-bold tracking-tight text-foreground">
                 {t("behaviors.title")}
               </h1>
-              <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-                {t("behaviors.description")}{" "}
-                <a href={DOCS_URLS.rulesEngine} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{t("behaviors.learnMore")}</a>
-              </p>
+              <a href={DOCS_URLS.rulesEngine} target="_blank" rel="noopener noreferrer" className="mt-0.5 inline-block text-xs text-muted-foreground transition-colors hover:text-foreground">{t("behaviors.learnMore")}</a>
             </div>
             <div className="relative">
               <button
@@ -339,8 +337,6 @@ export function BehaviorsSection({ compact, mobileListMode }: { compact?: boolea
                 <p className="mt-2 text-sm text-muted-foreground/40">
                   {t("behaviors.noBehaviors")}
                 </p>
-                <p className="mt-1.5 max-w-xs mx-auto text-xs text-muted-foreground/30">{t("behaviors.noBehaviorsDesc")}</p>
-                <a href={DOCS_URLS.rulesEngine} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-xs text-primary hover:underline">{t("behaviors.learnMore")}</a>
               </div>
             )}
             {filtered.map((reaction) => {
@@ -475,8 +471,9 @@ export function BehaviorsSection({ compact, mobileListMode }: { compact?: boolea
                 {/* Module membership — inactive worldbook mutes the behavior */}
                 {(worldDraft.worldbooks?.length ?? 0) > 0 && (
                   <div className="space-y-1.5">
-                    <label className="text-[13px] font-bold text-foreground">
+                    <label className="flex items-center gap-1 text-[13px] font-bold text-foreground">
                       {t("behaviors.worldbookLabel")}
+                      <InfoTip text={t("behaviors.worldbookHint")} />
                     </label>
                     <select
                       value={selected.worldbookId ?? ""}
@@ -490,14 +487,13 @@ export function BehaviorsSection({ compact, mobileListMode }: { compact?: boolea
                         <option key={wb.id} value={wb.id}>{wb.name}</option>
                       ))}
                     </select>
-                    <p className="text-xs text-muted-foreground">{t("behaviors.worldbookHint")}</p>
                   </div>
                 )}
 
                 {/* ════ WHEN ════ */}
                 <div className="border-t border-border pt-6">
                   <div className="mb-6 flex items-center gap-2">
-                    <Zap className="h-5 w-5 text-primary" />
+                    <Zap className="h-5 w-5 text-muted-foreground" />
                     <h3 className="text-base font-bold tracking-wide text-foreground">
                       {t("behaviors.whenLabel")}
                     </h3>
@@ -513,8 +509,8 @@ export function BehaviorsSection({ compact, mobileListMode }: { compact?: boolea
                 <div className="border-t border-border pt-8">
                   <div className="mb-6 flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <Search className="h-5 w-5 text-amber-500" />
-                      <h3 className="text-base font-bold tracking-wide text-foreground">
+                      <Search className="h-5 w-5 text-muted-foreground" />
+                      <h3 className="text-base font-bold tracking-wide text-foreground" title={t("behaviors.onlyIfEmptyHint", "Optional. Leave empty to always fire.")}>
                         {t("behaviors.onlyIf")}
                       </h3>
                     </div>
@@ -548,12 +544,6 @@ export function BehaviorsSection({ compact, mobileListMode }: { compact?: boolea
                     </div>
                   </div>
 
-                  {selected.conditions.length === 0 && (
-                    <p className="mb-4 text-sm italic text-muted-foreground/50">
-                      {t("behaviors.onlyIfEmptyHint", "optional -- leave empty for unconditional trigger")}
-                    </p>
-                  )}
-
                   <ConditionEditor
                     conditions={selected.conditions}
                     variables={variables}
@@ -567,17 +557,12 @@ export function BehaviorsSection({ compact, mobileListMode }: { compact?: boolea
                 {/* ════ STOP WHEN ════ */}
                 <div className="border-t border-border pt-8">
                   <div className="mb-6 flex items-center gap-2">
-                    <Ban className="h-5 w-5 text-rose-500" />
+                    <Ban className="h-5 w-5 text-muted-foreground" />
                     <h3 className="text-base font-bold tracking-wide text-foreground">
                       {t("behaviors.stopWhen")}
                     </h3>
+                    <InfoTip text={t("behaviors.stopWhenNote")} />
                   </div>
-
-                  {(selected.stopConditions ?? []).length === 0 && (
-                    <p className="mb-4 text-sm italic text-muted-foreground/50">
-                      {t("behaviors.stopWhenHint")}
-                    </p>
-                  )}
 
                   <ConditionEditor
                     conditions={selected.stopConditions ?? []}
@@ -590,15 +575,12 @@ export function BehaviorsSection({ compact, mobileListMode }: { compact?: boolea
                     }
                     label={t("behaviors.stopConditionsLabel")}
                   />
-                  <p className="mt-3 text-sm text-muted-foreground">
-                    {t("behaviors.stopWhenNote")}
-                  </p>
                 </div>
 
                 {/* ════ DO ════ */}
                 <div className="border-t border-border pt-8">
                   <div className="mb-6 flex items-center gap-2">
-                    <Play className="h-5 w-5 fill-emerald-500/20 text-emerald-500" />
+                    <Play className="h-5 w-5 text-muted-foreground" />
                     <h3 className="text-base font-bold tracking-wide text-foreground">
                       {t("behaviors.doLabel")}
                     </h3>
@@ -634,8 +616,9 @@ export function BehaviorsSection({ compact, mobileListMode }: { compact?: boolea
                     <div className="space-y-6 border-t border-border p-6 pt-4">
                       {/* Priority */}
                       <div className="space-y-3">
-                        <label className="text-sm font-bold text-foreground">
+                        <label className="flex items-center gap-1 text-sm font-bold text-foreground">
                           {t("behaviors.priority")}
+                          <InfoTip text={t("behaviors.priorityHint")} />
                         </label>
                         <NumberInput
                           value={selected.priority}
@@ -646,15 +629,13 @@ export function BehaviorsSection({ compact, mobileListMode }: { compact?: boolea
                           }
                           className="max-w-[200px]"
                         />
-                        <p className="text-sm text-muted-foreground">
-                          {t("behaviors.priorityHint")}
-                        </p>
                       </div>
 
                       {/* Cooldown */}
                       <div className="space-y-3">
-                        <label className="text-sm font-bold text-foreground">
+                        <label className="flex items-center gap-1 text-sm font-bold text-foreground">
                           {t("behaviors.cooldown")}
+                          <InfoTip text={t("behaviors.cooldownHint")} />
                         </label>
                         <NumberInput
                           min={0}
@@ -667,15 +648,13 @@ export function BehaviorsSection({ compact, mobileListMode }: { compact?: boolea
                           placeholder={t("behaviors.cooldownPlaceholder")}
                           className="max-w-[200px]"
                         />
-                        <p className="text-sm text-muted-foreground">
-                          {t("behaviors.cooldownHint")}
-                        </p>
                       </div>
 
                       {/* Max Fire Count */}
                       <div className="space-y-3">
-                        <label className="text-sm font-bold text-foreground">
+                        <label className="flex items-center gap-1 text-sm font-bold text-foreground">
                           {t("behaviors.maxFireCount")}
+                          <InfoTip text={t("behaviors.maxFireCountHint")} />
                         </label>
                         <NumberInput
                           min={0}
@@ -688,15 +667,13 @@ export function BehaviorsSection({ compact, mobileListMode }: { compact?: boolea
                           placeholder={t("behaviors.maxFireCountPlaceholder")}
                           className="max-w-[200px]"
                         />
-                        <p className="text-sm text-muted-foreground">
-                          {t("behaviors.maxFireCountHint")}
-                        </p>
                       </div>
 
                       {/* Chance % — "sometimes it happens" */}
                       <div className="space-y-3">
-                        <label className="text-sm font-bold text-foreground">
+                        <label className="flex items-center gap-1 text-sm font-bold text-foreground">
                           {t("behaviors.chance", { defaultValue: "Chance to fire (%)" })}
+                          <InfoTip text={t("behaviors.chanceHint", { defaultValue: "Only fire this behavior this % of the time it otherwise would. Blank = always." })} />
                         </label>
                         <NumberInput
                           min={0}
@@ -710,9 +687,6 @@ export function BehaviorsSection({ compact, mobileListMode }: { compact?: boolea
                           placeholder="100"
                           className="max-w-[200px]"
                         />
-                        <p className="text-sm text-muted-foreground">
-                          {t("behaviors.chanceHint", { defaultValue: "Only fire this behavior this % of the time it otherwise would. Blank = always." })}
-                        </p>
                       </div>
 
                       {/* Enabled */}
@@ -732,11 +706,13 @@ export function BehaviorsSection({ compact, mobileListMode }: { compact?: boolea
             </div>
           ) : (
             <div className="flex h-full w-full items-center justify-center">
-              <p className="text-sm text-muted-foreground/40">
-                {reactions.length === 0
-                  ? t("behaviors.noBehaviorsDesc")
-                  : t("behaviors.selectToEdit", { defaultValue: "Select a behavior to edit" })}
-              </p>
+              {/* An empty list already says what goes here and offers the first one
+                on the left; saying it again across the empty pane said it twice. */}
+              {reactions.length > 0 && (
+                <p className="text-sm text-muted-foreground/40">
+                  {t("behaviors.selectToEdit", { defaultValue: "Select a behavior to edit" })}
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -786,13 +762,12 @@ function LegacyTriggerFields({ trigger, variables, onChange }: {
     </div>;
   }
   if (trigger.type === "turn-count") {
-    return <div className="space-y-3">
+    return <div className="space-y-3" title={t("audio.turnCountHint")}>
       {(["atTurn", "everyNTurns"] as const).map(key => <label key={key} className="block space-y-1 text-sm">
         <span>{t(`audio.${key}`)}</span>
         <input type="number" min={key === "atTurn" ? 0 : 1} className={fieldInputClass} value={trigger[key] ?? ""}
           onChange={e => update({ [key]: e.target.value === "" ? undefined : Number(e.target.value) })} />
       </label>)}
-      <p className="text-xs text-muted-foreground">{t("audio.turnCountHint")}</p>
     </div>;
   }
   return null;
@@ -837,7 +812,7 @@ export function WhenEditor({
 
   return (
     <div className="space-y-4">
-      <div className="space-y-1.5">
+      <div className="space-y-1.5" title={currentPreset?.description}>
         <label className="text-sm font-medium text-muted-foreground">
           {t("behaviors.selectEvent")}
         </label>
@@ -865,10 +840,6 @@ export function WhenEditor({
           ]}
         />
       </div>
-
-      {currentPreset?.description && (
-        <p className="text-xs text-muted-foreground">{currentPreset.description}</p>
-      )}
 
       {/* Preset-specific fields */}
       {reaction.when._legacyTrigger && (
@@ -1518,9 +1489,9 @@ export function RandomValueEditor({
   };
 
   return (
-    <div className="mt-2 space-y-3 rounded-lg border border-primary/20 bg-primary/[0.03] p-3">
+    <div className="mt-2 space-y-3 rounded-lg border border-border bg-card/40 p-3">
       <div className="flex items-center gap-2">
-        <Dices className="h-3.5 w-3.5 text-primary" />
+        <Dices className="h-3.5 w-3.5 text-muted-foreground" />
         <Select
           value={spec.kind}
           onValueChange={setKind}
@@ -1579,7 +1550,7 @@ export function RandomValueEditor({
             ) : (
               <div className="flex flex-wrap items-center gap-1.5">
                 {candidates.map((c, i) => (
-                  <span key={i} className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-1 text-xs">
+                  <span key={i} className="inline-flex items-center gap-1 rounded-full border border-border bg-secondary px-2.5 py-1 text-xs">
                     {c}
                     <button onClick={() => removeCandidate(i)} className="text-muted-foreground hover:text-destructive"><X className="h-3 w-3" /></button>
                   </span>
@@ -1596,7 +1567,12 @@ export function RandomValueEditor({
             )}
 
             <div className="space-y-1.5 rounded-lg border border-border bg-card/40 p-3">
-              <label className="text-[13px] font-semibold text-foreground">
+              <label
+                className="text-[13px] font-semibold text-foreground"
+                title={cooldown > 0
+                  ? tx("behaviors.randomPick.cooldownHelpOn", { defaultValue: "A \"pick\" = one time this behavior fires. Recent picks are auto-tracked for you." })
+                  : tx("behaviors.randomPick.cooldownHelpOff", { defaultValue: "0 = repeats allowed (the same one can come up twice in a row). A \"pick\" = one time this behavior fires." })}
+              >
                 {tx("behaviors.randomPick.cooldownTitle", { defaultValue: "Avoid repeats" })}
               </label>
               <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -1604,11 +1580,6 @@ export function RandomValueEditor({
                 <NumField min={0} value={cooldown} onChange={(n) => setCooldown(n)} className="w-[92px]" />
                 <span>{tx("behaviors.randomPick.cooldownPost", { defaultValue: "picks won't be chosen again" })}</span>
               </div>
-              <p className="text-[11px] leading-relaxed text-muted-foreground/70">
-                {cooldown > 0
-                  ? tx("behaviors.randomPick.cooldownHelpOn", { defaultValue: "A \"pick\" = one time this behavior fires. Recent picks are auto-tracked for you." })
-                  : tx("behaviors.randomPick.cooldownHelpOff", { defaultValue: "0 = repeats allowed (the same one can come up twice in a row). A \"pick\" = one time this behavior fires." })}
-              </p>
             </div>
 
             <button onClick={() => setShowAdv(!showAdv)} className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground">
@@ -1640,12 +1611,10 @@ export function RandomValueEditor({
                           <input
                             value={(spec.weights ?? []).join(", ")}
                             onChange={(e) => onChange({ ...spec, weights: e.target.value.split(/[,，\s]+/).map((s) => Number(s.trim())).filter((n) => !isNaN(n)) })}
-                            placeholder={tx("behaviors.randomPick.weightsPlaceholder", { defaultValue: "e.g. 3, 1, 1 — order matches candidates" })}
+                            placeholder={tx("behaviors.randomPick.weightsPlaceholder", { defaultValue: "e.g. 3, 1, 1" })}
+                            title={tx("behaviors.randomPick.weightsHelp", { defaultValue: "One number per candidate, comma-separated, in the same order. Bigger = more often (3,1,1 means the first is 3× as likely as each of the others). It's relative, not a percentage." })}
                             className={fieldInputClass}
                           />
-                          <p className="text-[11px] leading-relaxed text-muted-foreground/70">
-                            {tx("behaviors.randomPick.weightsHelp", { defaultValue: "One number per candidate, comma-separated, in the same order. Bigger = more often (3,1,1 means the first is 3× as likely as each of the others). It's relative, not a percentage." })}
-                          </p>
                           {mismatch && (
                             <p className="text-[11px] leading-relaxed text-amber-500">
                               {tx("behaviors.randomPick.weightsMismatch", { defaultValue: "Weight count must match candidate count, or weights are ignored and everyone is equal." })}
@@ -1680,7 +1649,7 @@ export function RandomValueEditor({
       <div className="flex items-center gap-2 border-t border-border/60 pt-2.5">
         <button
           onClick={() => setSample(sampleRandomSpec(spec))}
-          className="rounded-lg border border-primary/30 px-2.5 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/10"
+          className="rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-accent"
         >
           {tx("behaviors.random.roll", { defaultValue: "Roll it" })}
         </button>

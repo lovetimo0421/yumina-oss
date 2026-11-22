@@ -6,6 +6,7 @@ import { SESSION_MEMORY_EXTENSION_KEY } from "@yumina/shared";
 import {
   PromptBlockController,
   __setInstalledLookupForTests,
+  __setUninstalledLookupForTests,
   collectExtensionInvalidation,
   collectPromptBlocks,
   registerExtensionHooks,
@@ -149,6 +150,40 @@ test("send, regenerate, and continue all use the shared world transform seam", (
   const source = readFileSync(new URL("../routes/messages.ts", import.meta.url), "utf8");
   const calls = source.match(/worldDef = await resolveTurnWorldDefinition\(/g) ?? [];
   assert.equal(calls.length, 3);
+});
+
+test("a model the player picked takes a default-on extension off the platform's terms", async () => {
+  let picked: string | null = null;
+  let own: string | null = null;
+  registerExtensionHooks("state-update-guard", {
+    activeByDefault: () => true,
+    resolveCapabilities: () => [],
+    resolveOutputModel: () => own,
+    resolvePlayerOutputModel: async () => picked,
+  });
+  try {
+    __setUninstalledLookupForTests(async () => new Set());
+    __setInstalledLookupForTests(async () => new Set());
+    // Nothing picked: on by default, platform-paid, no model.
+    let dispatch = await resolveTurnHooks(baseCtx);
+    assert.equal(dispatch.defaultActivated?.has("state-update-guard"), true);
+    assert.equal(dispatch.outputModels?.get("state-update-guard"), undefined);
+    // The player's Generation Config pick: their model, their bill.
+    picked = "official::deepseek/deepseek-v4-flash";
+    dispatch = await resolveTurnHooks(baseCtx);
+    assert.equal(dispatch.defaultActivated?.has("state-update-guard"), false);
+    assert.equal(dispatch.outputModels?.get("state-update-guard"), "official::deepseek/deepseek-v4-flash");
+    // Installed with a model saved on the chat: the chat's model wins.
+    __setInstalledLookupForTests(async () => new Set(["state-update-guard"]));
+    own = "private::my-model";
+    dispatch = await resolveTurnHooks(baseCtx);
+    assert.equal(dispatch.outputModels?.get("state-update-guard"), "private::my-model");
+  } finally {
+    // Leave the key registered but inert, so later tests never default it on.
+    registerExtensionHooks("state-update-guard", {});
+    __setInstalledLookupForTests(null);
+    __setUninstalledLookupForTests(null);
+  }
 });
 
 test("registering an unknown extension key is refused", async () => {

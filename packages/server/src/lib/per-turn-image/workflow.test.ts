@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { env } from "../env.js";
-import { adultCaption, animaText, buildTurnWorkflow, tidyExplicitPrompt, turnRoute } from "./illustrate.js";
+import { adultCaption, animaText, buildTurnWorkflow, explicitNamesMinor, onePerson, PromptRefusedError, tidyExplicitPrompt, turnRoute, type TurnPrompt } from "./illustrate.js";
 
 type Node = { class_type: string; inputs: Record<string, unknown> };
 const nodes = (g: Record<string, unknown>, type: string) => Object.values(g as Record<string, Node>).filter((n) => n.class_type === type);
@@ -49,7 +49,7 @@ test("two people share one prompt instead of each getting half the frame", () =>
 
 // ── Routes (PER_TURN_IMAGE_EDIT_MODEL / _STORY_MODEL / _EXPLICIT_CHECKPOINT) ──
 
-function withEnv(values: Partial<Record<"PER_TURN_IMAGE_EDIT_MODEL" | "PER_TURN_IMAGE_EDIT_EXPLICIT" | "PER_TURN_IMAGE_STORY_MODEL" | "PER_TURN_IMAGE_EXPLICIT_CHECKPOINT" | "PER_TURN_IMAGE_ANIMA_MODEL" | "PER_TURN_IMAGE_ANIMA_SAMPLING", string>>, run: () => void) {
+function withEnv(values: Partial<Record<"PER_TURN_IMAGE_EDIT_MODEL" | "PER_TURN_IMAGE_EDIT_EXPLICIT" | "PER_TURN_IMAGE_STORY_MODEL" | "PER_TURN_IMAGE_EXPLICIT_CHECKPOINT" | "PER_TURN_IMAGE_ANIMA_MODEL" | "PER_TURN_IMAGE_ANIMA_SAMPLING" | "PER_TURN_IMAGE_ANIMA_DETAILED_MODEL" | "PER_TURN_IMAGE_ANIMA_DETAILED_SAMPLING" | "PER_TURN_IMAGE_VIVID_CHECKPOINT" | "PER_TURN_IMAGE_VIVID_SAMPLING", string>>, run: () => void) {
   const saved = Object.fromEntries(Object.keys(values).map((k) => [k, env[k as keyof typeof env]]));
   Object.assign(env, values);
   try { run(); } finally { Object.assign(env, saved); }
@@ -155,6 +155,26 @@ test("Anima's graph: its loaders and the turbo schedule; a fine redraw takes mor
   });
 });
 
+test("the detailed style draws on Anima's full model at its own schedule, only where one is configured", () => {
+  const AES = "anima-aesthetic-v1.1.safetensors";
+  withEnv({ PER_TURN_IMAGE_ANIMA_MODEL: ANIMA, PER_TURN_IMAGE_ANIMA_SAMPLING: "", PER_TURN_IMAGE_ANIMA_DETAILED_MODEL: AES, PER_TURN_IMAGE_ANIMA_DETAILED_SAMPLING: "" }, () => {
+    const g = buildTurnWorkflow({ scene: "1girl, cafe", bodies: [], style: "detailed" }, 9, "bad") as Record<string, Node>;
+    assert.equal(turnRoute({ scene: "1girl, cafe", bodies: [], style: "detailed" }), "anima");
+    assert.equal(g.unet!.inputs.unet_name, AES);
+    assert.deepEqual([g.ks!.inputs.steps, g.ks!.inputs.cfg, g.ks!.inputs.sampler_name], [30, 4, "er_sde"]);
+    // A fine redraw in the detailed style stays on its schedule.
+    const fine = buildTurnWorkflow({ scene: "1girl", bodies: [], style: "detailed", fine: true }, 9, "bad") as Record<string, Node>;
+    assert.equal(fine.ks!.inputs.steps, 30);
+    const plain = buildTurnWorkflow({ scene: "1girl", bodies: [] }, 9, "bad") as Record<string, Node>;
+    assert.equal(plain.unet!.inputs.unet_name, ANIMA);
+  });
+  // A saved choice outlives the setting: then it draws as before.
+  withEnv({ PER_TURN_IMAGE_ANIMA_MODEL: ANIMA, PER_TURN_IMAGE_ANIMA_SAMPLING: "", PER_TURN_IMAGE_ANIMA_DETAILED_MODEL: "" }, () => {
+    const g = buildTurnWorkflow({ scene: "1girl", bodies: [], style: "detailed" }, 9, "bad") as Record<string, Node>;
+    assert.deepEqual([g.unet!.inputs.unet_name, g.ks!.inputs.steps], [ANIMA, 10]);
+  });
+});
+
 test("Anima's prompt: its own quality and safety tags, no SDXL weights, then the caption, adults said in words", () => {
   const text = animaText({ scene: "masterpiece, best quality, nsfw, explicit, (sex, missionary:1.25), 1girl, 1boy, pov, bedroom",
     bodies: ["1girl, adult, silver hair"], caption: "A young girl lies on the bed.", explicit: true });
@@ -168,4 +188,111 @@ test("captions read as adults: girls, boys, kids and petite become women, men, a
     "A woman and two men watch a slim adult and her girlfriend.");
   assert.equal(adultCaption("as a young black-haired girl kneads his shoulders, a young man waits"), "as a black-haired woman kneads his shoulders, a man waits");
   assert.equal(adultCaption("Two young girls; a child; teenagers; the teen."), "Two women; an adult; adults; the adult.");
+});
+
+// ── The "vivid" style (PER_TURN_IMAGE_VIVID_CHECKPOINT) ──
+
+const WAI = "waiIllustriousSDXL_v170.safetensors";
+
+
+test("vivid: one person is drawn on WAI with its tags, no speed LoRA and no caption", () => {
+  withEnv({ PER_TURN_IMAGE_ANIMA_MODEL: ANIMA, PER_TURN_IMAGE_VIVID_CHECKPOINT: WAI, PER_TURN_IMAGE_VIVID_SAMPLING: "" }, () => {
+    const prompt = { scene: "1girl, kitchen, morning", bodies: [], caption: "A woman in a kitchen.", style: "vivid" as const };
+    assert.equal(turnRoute(prompt), "sdxl");
+    const g = buildTurnWorkflow(prompt, 1, "worst quality") as Record<string, Node>;
+    assert.equal(g.ckpt!.inputs.ckpt_name, WAI);
+    assert.equal(nodes(g, "LoraLoader").length, 0);
+    assert.equal(g.ks!.inputs.steps, 20);
+    assert.equal(g.ks!.inputs.sampler_name, "euler_ancestral");
+    assert.match(String(g.pos!.inputs.text), /very aesthetic/);
+    assert.doesNotMatch(String(g.pos!.inputs.text), /A woman in a kitchen/);
+    assert.match(String(g.neg!.inputs.text), /chibi/);
+  });
+});
+
+test("vivid: two people, a portrait, or no WAI configured stay where they were", () => {
+  withEnv({ PER_TURN_IMAGE_ANIMA_MODEL: ANIMA, PER_TURN_IMAGE_VIVID_CHECKPOINT: WAI }, () => {
+    assert.equal(turnRoute({ scene: "1girl, 1boy, hug", bodies: ["1girl", "1boy"], style: "vivid" }), "anima");
+    assert.equal(turnRoute({ scene: "2girls, cafe", bodies: [], style: "vivid" }), "anima");
+    assert.equal(turnRoute({ scene: "1girl, cafe", bodies: [], style: "detailed" }), "anima");
+  });
+  withEnv({ PER_TURN_IMAGE_ANIMA_MODEL: ANIMA, PER_TURN_IMAGE_VIVID_CHECKPOINT: WAI, PER_TURN_IMAGE_EDIT_MODEL: EDIT }, () => {
+    assert.equal(turnRoute({ scene: "1girl, cafe", bodies: [], style: "vivid", portraits: [{ name: "a.jpg", jpeg, slot: 0 }] }), "edit");
+  });
+  withEnv({ PER_TURN_IMAGE_ANIMA_MODEL: ANIMA, PER_TURN_IMAGE_VIVID_CHECKPOINT: "" }, () => {
+    assert.equal(turnRoute({ scene: "1girl, cafe", bodies: [], style: "vivid" }), "anima");
+  });
+});
+
+test("one person: a single head count and at most one body", () => {
+  assert.equal(onePerson({ scene: "1girl, solo, cafe", bodies: [] }), true);
+  assert.equal(onePerson({ scene: "1boy, 1boy, duel", bodies: [] }), true);
+  assert.equal(onePerson({ scene: "1girl, 1boy, cafe", bodies: [] }), false);
+  assert.equal(onePerson({ scene: "3girls, beach", bodies: [] }), false);
+  assert.equal(onePerson({ scene: "scenery", bodies: ["1girl", "1girl"] }), false);
+});
+
+// ── Explicit pictures that name a minor (every route, with or without a LoRA) ──
+
+const ALL_ROUTES = [
+  {},
+  { PER_TURN_IMAGE_ANIMA_MODEL: ANIMA },
+  { PER_TURN_IMAGE_EDIT_MODEL: EDIT, PER_TURN_IMAGE_EDIT_EXPLICIT: "1", PER_TURN_IMAGE_STORY_MODEL: STORY },
+  { PER_TURN_IMAGE_EXPLICIT_CHECKPOINT: "waiIllustriousSDXL_v170.safetensors" },
+  { PER_TURN_IMAGE_ANIMA_MODEL: ANIMA, PER_TURN_IMAGE_VIVID_CHECKPOINT: WAI },
+] as const;
+
+test("an explicit picture whose text names a minor is refused on every route", () => {
+  const refused: TurnPrompt[] = [
+    { scene: "1girl, 1boy, nsfw, explicit, sex, missionary, bedroom", bodies: [], explicit: true, caption: "A schoolgirl and a man in bed." },
+    { scene: "1girl, nude, onsen, Young_Girls", bodies: [], explicit: true },
+    { scene: "1girl, 1boy, sex, bedroom", bodies: ["1girl, teens", "1boy"], explicit: true },
+    { scene: "1girl, nude, bath", bodies: [], explicit: true, portraits: [{ name: "a.jpg", jpeg, slot: 0, look: "1girl, 萝莉" }] },
+    { scene: "1girl, nude, bath", bodies: [], explicit: true, style: "vivid", caption: "A little-girls bath." },
+    // The moment's own flag is enough, even without a nudity tag in the scene.
+    { scene: "1girl, bedroom, lingerie", bodies: [], explicit: true, caption: "A middle school student undresses." },
+    // A LoRA trigger is the picture's text too.
+    { scene: "1girl, nude, bedroom", bodies: [], explicit: true, loras: [{ modelId: "m", file: "x.safetensors", weight: 0.9, trigger: "shota_style" }] },
+  ];
+  for (const values of ALL_ROUTES) {
+    withEnv(values, () => {
+      for (const prompt of refused) {
+        assert.equal(explicitNamesMinor(prompt), true, prompt.scene);
+        assert.throws(() => buildTurnWorkflow(prompt, 1, "bad"), PromptRefusedError, `${JSON.stringify(values)} ${prompt.scene}`);
+        // The fallback recipe (RunPod) refuses it as well: nothing falls through.
+        assert.throws(() => buildTurnWorkflow(prompt, 1, "bad", { checkpoint: "plat_nsfw_anime.safetensors", loras: [], steps: 24, cfg: 5, sampler: "euler_ancestral", scheduler: "normal", styleReference: false }), PromptRefusedError);
+      }
+    });
+  }
+});
+
+test("an explicit picture of adults is drawn", () => {
+  const adults: TurnPrompt[] = [
+    { scene: "1girl, 1boy, nsfw, explicit, sex, missionary, adult, bedroom", bodies: [], explicit: true, caption: "A woman and a man have sex in bed." },
+    { scene: "1girl, nude, onsen, mature female", bodies: ["1girl, adult, silver hair"], explicit: true, caption: "A young woman bathes in a hot spring." },
+    { scene: "1girl, nude, classroom, school uniform", bodies: [], explicit: true, caption: "A teacher alone in a classroom." },
+  ];
+  for (const values of ALL_ROUTES) {
+    withEnv(values, () => {
+      for (const prompt of adults) {
+        assert.equal(explicitNamesMinor(prompt), false, prompt.scene);
+        assert.doesNotThrow(() => buildTurnWorkflow(prompt, 1, "bad"), `${JSON.stringify(values)} ${prompt.scene}`);
+      }
+    });
+  }
+});
+
+test("a picture that isn't explicit is unaffected by school or youth wording", () => {
+  const ordinary: TurnPrompt[] = [
+    { scene: "1girl, school uniform, classroom", bodies: [], caption: "A woman waits at an elementary school gate." },
+    { scene: "1girl, schoolgirl, park", bodies: [], caption: "A schoolgirl walks home from middle school." },
+  ];
+  for (const values of ALL_ROUTES) {
+    withEnv(values, () => {
+      for (const prompt of ordinary) {
+        assert.equal(explicitNamesMinor(prompt), false, prompt.scene);
+        assert.doesNotThrow(() => buildTurnWorkflow(prompt, 1, "bad"), `${JSON.stringify(values)} ${prompt.scene}`);
+      }
+    });
+  }
 });

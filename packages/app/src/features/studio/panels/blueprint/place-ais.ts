@@ -1,4 +1,4 @@
-import { ANY_MODULE, extractAiCallsFromFiles, firstMatchIn, interfaceSendsChat, memoryPoolMembers, resolveStation, type FrontendAiCall, type ModuleStation, type WorldDefinition, type Worldbook } from "@yumina/engine";
+import { ANY_MODULE, extractAiCallsFromFiles, firstMatchIn, liveVoiceCalls, interfaceSendsChat, memoryPoolMembers, resolveStation, type FrontendAiCall, type ModuleStation, type WorldDefinition, type Worldbook } from "@yumina/engine";
 import { stationName, voiceOf, workerReaders } from "./ai-roster";
 import type { AiRowType, AiType } from "./add-ai";
 
@@ -51,6 +51,14 @@ export interface PlaceAiRow {
   /** What a called AI hands back, for the row: `→ { mood, reply }`. Set on
    *  the kinds the card's screen calls (UI-based, custom). */
   returns?: string;
+  /** What it is handed, in a line: the entries it reads and what the code
+   *  builds its messages from. */
+  receives?: string;
+  /** When a behind-the-scenes AI runs (幕后 · 每 3 回合), said before what it
+   *  receives so the row keeps both. */
+  when?: string;
+  /** Its instructions as the code writes them, for the opened row. */
+  instructions?: string;
   /** Where in the interface code a row without a call of its own lives
    *  (a live voice conversation): a click opens the code there. */
   codeAt?: { file: string; line: number };
@@ -164,14 +172,74 @@ function customRow(book: Worldbook, calls: readonly FrontendAiCall[], t: Transla
   };
 }
 
-function aiRow(book: Worldbook, books: readonly Worldbook[], t: Translate, off?: boolean, calls: readonly FrontendAiCall[] = []): PlaceAiRow {
+/** What a station's wired inputs hand it, in the creator's words. */
+function inputWords(station: Pick<ModuleStation, "inputs">, books: readonly Worldbook[], t: Translate): string[] {
+  const nameOf = (from: string) =>
+    from === ANY_MODULE ? String(t("blueprint.placeAis.anyModule"))
+      : books.find((b) => b.id === from) ? stationName(books.find((b) => b.id === from)!) : String(t("blueprint.placeAis.theCard"));
+  return (station.inputs ?? []).map((i) =>
+    i.kind === "worker" ? String(t("blueprint.placeAis.getsWrites", { name: nameOf(i.from) }))
+      : i.kind === "memory" ? String(t("blueprint.placeAis.getsPast", { name: nameOf(i.from) }))
+        : i.kind === "variables" ? String(t("blueprint.placeAis.getsValues", { name: nameOf(i.from) }))
+          : String(t("blueprint.placeAis.getsTranscript", { name: nameOf(i.from), n: i.limit })));
+}
+
+/**
+ * What an AI that answers in the chat is handed each turn, as the server
+ * builds it (routes/messages.ts): the player's line, the conversation (all of
+ * it or the last N), the lore that is on (always-on and matched), the
+ * variables unless the card sends none, and a station's wired inputs.
+ */
+function narratorIo(world: WorldDefinition, station: Pick<ModuleStation, "inputs" | "historyLimit"> | null, t: Translate): { receives: string; returns: string } {
+  const limit = station?.historyLimit ?? world.settings?.historyLimit;
+  const parts = [
+    String(t("blueprint.placeAis.getsPlayer")),
+    String(limit ? t("blueprint.placeAis.getsRecentTalk", { n: limit }) : t("blueprint.placeAis.getsHistory")),
+    String(t("blueprint.placeAis.getsLore")),
+    ...((world.variables?.length ?? 0) > 0 && world.settings?.variablesToAi !== "none" ? [String(t("blueprint.placeAis.getsState"))] : []),
+    ...(station ? inputWords(station, world.worldbooks ?? [], t) : []),
+  ];
+  return { receives: parts.join(" · "), returns: `→ ${String(t("blueprint.placeAis.givesReply"))}` };
+}
+
+/**
+ * What a behind-the-scenes AI is handed (lib/worker-station.ts,
+ * lib/quiet-station.ts). One run on a turn, a reply or a closed situation
+ * reads its own part's lore and what is wired into it, and writes notes for
+ * others; one the quiet or the player's screen wakes reads the always-on
+ * lore, its own, the values and the last 12 messages, and says a line.
+ */
+function workerIo(station: Pick<ModuleStation, "inputs" | "trigger">, books: readonly Worldbook[], t: Translate): { receives: string; returns: string } {
+  const on = station.trigger?.on;
+  if (on === "quiet" || on === "ui") {
+    return {
+      receives: [
+        String(t("blueprint.placeAis.getsCoreLore")),
+        String(t("blueprint.placeAis.getsOwnLore")),
+        String(t("blueprint.placeAis.getsState")),
+        String(t("blueprint.placeAis.getsRecentTalk", { n: 12 })),
+      ].join(" · "),
+      returns: `→ ${String(t("blueprint.placeAis.givesLine"))}`,
+    };
+  }
+  return {
+    receives: [String(t("blueprint.placeAis.getsOwnLore")), ...inputWords(station, books, t)].join(" · "),
+    returns: `→ ${String(t("blueprint.placeAis.givesNote"))}`,
+  };
+}
+
+function aiRow(world: WorldDefinition, book: Worldbook, books: readonly Worldbook[], t: Translate, off?: boolean, calls: readonly FrontendAiCall[] = []): PlaceAiRow {
   if (book.station?.kind === "custom") return customRow(book, calls, t, off);
-  const type = aiTypeOf(resolveStation(book));
+  const station = resolveStation(book);
+  const type = aiTypeOf(station);
+  const job = jobOf(book, t);
+  const io = !station ? {} : station.kind === "narrator" ? narratorIo(world, station, t) : { ...workerIo(station, books, t), when: job };
   return {
     key: book.id, bookId: book.id, name: stationName(book), type,
     ...(off ? { off } : {}),
+    ...io,
     ...(type === "ui" && book.station ? { returns: returnsOf(book.station) } : {}),
-    job: jobOf(book, t), memory: memoryOf(book, books, t), link: linkOf(book, books, t),
+    job, memory: memoryOf(book, books, t), link: linkOf(book, books, t),
   };
 }
 
@@ -183,10 +251,55 @@ function narratorMemory(world: WorldDefinition, t: Translate): string {
 
 /** The situations an AI call written in code can draw lore from: the ids it
  *  names, plus every situation a template id (`still-${who}`) can resolve to. */
-function codeCallTargets(call: FrontendAiCall, books: readonly Worldbook[]): Worldbook[] {
+function codeCallTargets(call: FrontendAiCall, books: readonly Worldbook[], entries: WorldDefinition["entries"] = []): Worldbook[] {
   const ids = new Set(call.worldbookIds);
   for (const prefix of call.worldbookIdPrefixes) for (const b of books) if (b.id.startsWith(prefix)) ids.add(b.id);
+  for (const id of tagHomes(call.tags, entries)) ids.add(id);
   return books.filter((b) => ids.has(b.id));
+}
+
+/** The situations whose entries carry the tags a call picks its lore by
+ *  (1984's referee reads the entries tagged `actor:referee`, all of them in
+ *  「The world of 1984」): where that AI's instructions live. */
+function tagHomes(tags: readonly string[] | undefined, entries: WorldDefinition["entries"] = []): Set<string> {
+  const homes = new Set<string>();
+  if (!tags?.length) return homes;
+  for (const e of entries) if (e.worldbookId && e.enabled !== false && (e.tags ?? []).some((tag) => tags.includes(tag))) homes.add(e.worldbookId);
+  return homes;
+}
+
+const NOT_READ = /^(?:seed|calm|fresh|voiceless|jerks|debug|strict|budget|budgetMs|key|model|temperature|maxTokens|timeout|signal|fallback)$/;
+
+/** What a call is handed and what it answers, in a line: the entries it picks
+ *  by tag (and whose they are), then what the code builds its messages from,
+ *  the common words said in the creator's terms and the rest as written. */
+function callIo(
+  call: Pick<FrontendAiCall, "inputs" | "tags" | "returns">,
+  world: WorldDefinition,
+  t: Translate,
+): { receives?: string; returns?: string } {
+  const parts: string[] = [];
+  const tagged = (world.entries ?? []).filter((e) => e.enabled !== false && (e.tags ?? []).some((tag) => call.tags?.includes(tag)));
+  if (tagged.length) {
+    const home = (world.worldbooks ?? []).find((b) => b.id === tagged[0]!.worldbookId);
+    parts.push(String(t("blueprint.placeAis.readsTagged", { count: tagged.length, place: home?.name ?? String(t("blueprint.placeAis.theCard")) })));
+  }
+  const seen = new Set(parts);
+  for (const key of call.inputs ?? []) {
+    // Switches and plumbing (a seed, calm mode, a fresh start) are not
+    // something the AI reads; and the entries it is handed are said above.
+    if (NOT_READ.test(key) || (tagged.length && /^(?:entries|world|lore)$/.test(key))) continue;
+    const word = String(t(`blueprint.placeAis.input.${key}`, { defaultValue: key }));
+    if (!word || seen.has(word)) continue;
+    seen.add(word);
+    parts.push(word);
+  }
+  const shown = parts.slice(0, 6);
+  const more = parts.length - shown.length;
+  return {
+    ...(shown.length ? { receives: shown.join(" · ") + (more > 0 ? ` ${String(t("blueprint.placeAis.andMore", { count: more }))}` : "") } : {}),
+    ...(call.returns?.length ? { returns: `→ { ${call.returns.slice(0, 4).join(", ")}${call.returns.length > 4 ? ", …" : ""} }` } : {}),
+  };
 }
 
 /**
@@ -229,7 +342,7 @@ export function codeCallRows(world: WorldDefinition, place: string | undefined, 
     const nth = (onLine.get(at) ?? 0) + 1;
     onLine.set(at, nth);
     const key = nth === 1 ? `code:${at}` : `code:${at}#${nth}`;
-    const targets = codeCallTargets(call, books);
+    const targets = codeCallTargets(call, books, world.entries);
     // A call that implements a declared custom AI is that AI's row, not a
     // second row beside it.
     if (targets.some((b) => b.station?.kind === "custom")) continue;
@@ -237,6 +350,9 @@ export function codeCallRows(world: WorldDefinition, place: string | undefined, 
     // did not answer: it runs that AI's own task and model (1984's referee).
     if (call.fallbackOfCallAi && books.some((b) => b.station?.kind === "worker" && b.station.trigger?.on === "ui")) continue;
     if (place !== undefined && !targets.some((b) => b.id === place)) continue;
+    // An AI whose instructions live in a situation (the entries it reads are
+    // that situation's) is drawn there, with them, not again on the card.
+    if (place === undefined && targets.length > 0) continue;
     const names = targets.map((b) => b.station?.name?.trim() || b.name);
     const memory =
       call.includeLorebook === false ? String(t("blueprint.placeAis.memLoreNone"))
@@ -245,10 +361,17 @@ export function codeCallRows(world: WorldDefinition, place: string | undefined, 
       : String(t("blueprint.placeAis.memLoreNone"));
     rows.push({
       key,
-      name: names.length ? names.join(" · ") : String(t("blueprint.placeAis.codeCallName", { file: call.file })),
+      // What the code itself calls it ("referee"), when a message beside the
+      // call says; a bare 「界面代码 · index.tsx」 told five AIs apart by nothing.
+      // The situation it reads is where it is drawn, not who it is: a referee
+      // reading 「The world of 1984」 is still the referee.
+      name: call.label ? capitalize(call.label) : names.length ? names.join(" · ") : String(t("blueprint.placeAis.codeCallName", { file: call.file })),
       type: "script",
-      job: String(t(place === undefined ? "blueprint.placeAis.jobFromCode" : "blueprint.placeAis.jobFromCodeHere", { file: call.file, line: call.line })),
+      // What it is asked to do, in the instructions' own first sentence.
+      job: call.purpose ?? String(t(place === undefined ? "blueprint.placeAis.jobFromCode" : "blueprint.placeAis.jobFromCodeHere", { file: call.file, line: call.line })),
       memory,
+      ...callIo(call, world, t),
+      ...(call.instructions ? { instructions: call.instructions } : {}),
       ...(names.length
         ? { link: String(t(call.worldbookIds.length ? "blueprint.placeAis.linkReadsModules" : "blueprint.placeAis.linkPicksModule", { names: join(t, names) })) }
         : {}),
@@ -273,17 +396,63 @@ export function codeCallRows(world: WorldDefinition, place: string | undefined, 
 /** A spoken conversation the interface holds with an AI (api.realtimeVoice):
  *  an AI of the card's like any other, though nothing on the card configures
  *  it. 1984's official on the telescreen is one. */
-function liveVoiceRow(world: WorldDefinition, t: Translate): PlaceAiRow | null {
+const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/**
+ * The platform's AIs the card's own screen sets going: a film made of the
+ * story (a director AI cuts each reply into shots, a video model shoots
+ * them), lines read aloud, the player's voice typed out, a picture for a
+ * reply. They cost the player and change what they see, and the screen's
+ * code is the only place they were written down (the Movie Edition's whole
+ * film pipeline was nowhere on the board).
+ */
+export function platformRows(world: WorldDefinition, t: Translate): PlaceAiRow[] {
+  const files = world.rootComponent?.files;
+  if (!files) return [];
+  const rows: PlaceAiRow[] = [];
+  const row = (key: string, at: { file: string; line: number }, name: string, job: string): PlaceAiRow => ({
+    key: `platform:${key}`, name: String(t(name)), type: "platform", job: String(t(job)), memory: "", codeAt: at,
+    receives: String(t(`${name}Gets`)), returns: `→ ${String(t(`${name}Gives`))}`,
+  });
+  const film = firstMatchIn(files, /\brealtimeVideo\b/);
+  if (film) {
+    rows.push(row("film-director", film, "blueprint.placeAis.filmDirector", "blueprint.placeAis.filmDirectorJob"));
+    rows.push(row("film-camera", film, "blueprint.placeAis.filmCamera", "blueprint.placeAis.filmCameraJob"));
+  }
+  const tts = firstMatchIn(files, /\btts\b[^;]{0,60}\bspeak\b/);
+  if (tts) rows.push(row("tts", tts, "blueprint.placeAis.tts", "blueprint.placeAis.ttsJob"));
+  const stt = firstMatchIn(files, /\bvoice\s*\??\.\s*record\b/);
+  if (stt) rows.push(row("voice-input", stt, "blueprint.placeAis.voiceInput", "blueprint.placeAis.voiceInputJob"));
+  const art = firstMatchIn(files, /\billustrateMessage\b|\bsetAutoTurnImages\b/);
+  if (art) rows.push(row("illustrate", art, "blueprint.placeAis.illustrate", "blueprint.placeAis.illustrateJob"));
+  return rows;
+}
+
+/** `place`: the situation asked about (undefined is the card). The
+ *  conversation is drawn where the entries it is told live (1984: the entries
+ *  tagged `actor:voice`, all in 「The official on the telescreen」), and on the
+ *  card only when they live nowhere in particular. */
+const voiceHere = (world: WorldDefinition, t: Translate, place: string): PlaceAiRow[] => {
+  const row = liveVoiceRow(world, t, place);
+  return row ? [namedByNote(world, row)] : [];
+};
+
+function liveVoiceRow(world: WorldDefinition, t: Translate, place?: string): PlaceAiRow | null {
   const files = world.rootComponent?.files;
   const at = files ? firstMatchIn(files, /\brealtimeVoice\b/) : null;
   if (!at) return null;
+  const read = files ? liveVoiceCalls(files)[0] : undefined;
+  const homes = tagHomes(read?.tags, world.entries);
+  if (place === undefined ? homes.size > 0 : !homes.has(place)) return null;
   return {
     key: `voice:${at.file}:${at.line}`,
     name: String(t("blueprint.placeAis.liveVoice")),
     type: "script",
-    job: String(t("blueprint.placeAis.liveVoiceJob")),
+    job: read?.purpose ?? String(t("blueprint.placeAis.liveVoiceJob")),
     memory: "",
-    codeAt: at,
+    codeAt: read ? { file: read.file, line: read.line } : at,
+    ...(read ? callIo(read, world, t) : {}),
+    ...(read?.instructions ? { instructions: read.instructions } : {}),
   };
 }
 
@@ -365,6 +534,9 @@ export function placeAis(world: WorldDefinition, place: string | undefined, t: T
     name: String(t("blueprint.placeAis.defaultName")),
     type: "turn",
     job,
+    ...narratorIo(world, null, t),
+    // 「卡的 AI 在这里继续说」, 「这里由下面的 AI 说」: said before what it gets.
+    ...(job !== String(t("blueprint.roster.job.reply")) ? { when: job } : {}),
     memory: narratorMemory(world, t),
     ...(away ? { away } : {}),
   });
@@ -380,16 +552,17 @@ export function placeAis(world: WorldDefinition, place: string | undefined, t: T
       // no chat message (1984) or a game page (PvZ) never does, and a row that
       // can never answer is not an AI on the card. The Context block says why.
       ...(called ? [narrator(String(t("blueprint.roster.job.reply")))] : []),
-      ...aisLivingIn(books, "card").map((b) => aiRow(b, books, t, undefined, calls)),
+      ...aisLivingIn(books, "card").map((b) => aiRow(world, b, books, t, undefined, calls)),
       // Older shapes, drawn on the card so nothing goes missing: a
       // behind-the-scenes situation of its own (in play when its own switch
       // says), and one put nowhere (off until it is put somewhere).
-      ...books.filter((b) => b.host === undefined && resolveStation(b)?.kind === "worker").sort(byOrder).map((b) => aiRow(b, books, t, undefined, calls)),
-      ...aisLivingIn(books, "unplaced").map((b) => aiRow(b, books, t, true, calls)),
+      ...books.filter((b) => b.host === undefined && resolveStation(b)?.kind === "worker").sort(byOrder).map((b) => aiRow(world, b, books, t, undefined, calls)),
+      ...aisLivingIn(books, "unplaced").map((b) => aiRow(world, b, books, t, true, calls)),
       // What the interface code asks the model itself: on the board at last.
       ...(voice ? [voice] : []),
       ...codeCallRows(world, undefined, t),
       ...gameAiRows(world, t),
+      ...platformRows(world, t),
     ];
     return { rows, group: replies(rows) >= 2, canKeepNarrator: false, keepsNarrator: true };
   }
@@ -399,14 +572,14 @@ export function placeAis(world: WorldDefinition, place: string | undefined, t: T
   // game AI; the chat's turn-based AI never reads it.
   const gameHere = gameAiRows(world, t).filter((r) => r.game?.book === place);
   if (gameHere.length) return { rows: gameHere, group: false, canKeepNarrator: false, keepsNarrator: false };
-  const own = resolveStation(book) || book.station?.kind === "custom" ? [aiRow(book, books, t, undefined, calls)] : [];
-  const living = aisLivingIn(books, place).map((b) => aiRow(b, books, t, undefined, calls));
+  const own = resolveStation(book) || book.station?.kind === "custom" ? [aiRow(world, book, books, t, undefined, calls)] : [];
+  const living = aisLivingIn(books, place).map((b) => aiRow(world, b, books, t, undefined, calls));
   const voices = [...own, ...living].filter((r) => resolveStation(books.find((b) => b.id === r.bookId))?.kind === "narrator");
   if (voices.length === 0) {
     // Nobody of its own answers here: the narrator carries on, with whatever
     // works behind the scenes beside it.
     // (Not when nothing ever calls the story AI: 1984's telescreen official.)
-    const rows = [...(storyAiIsCalled(world) ? [narrator(String(t("blueprint.placeAis.narratorStays")))] : []), ...own, ...living, ...codeCallRows(world, place, t)];
+    const rows = [...(storyAiIsCalled(world) ? [narrator(String(t("blueprint.placeAis.narratorStays")))] : []), ...own, ...living, ...voiceHere(world, t, place), ...codeCallRows(world, place, t)];
     return { rows, group: false, canKeepNarrator: false, keepsNarrator: true };
   }
   const keeps = book.narratorHere === true;
@@ -414,6 +587,7 @@ export function placeAis(world: WorldDefinition, place: string | undefined, t: T
     narrator(String(t(keeps ? "blueprint.roster.job.reply" : "blueprint.placeAis.narratorAway")), !keeps),
     ...own,
     ...living,
+    ...voiceHere(world, t, place),
     ...codeCallRows(world, place, t),
   ];
   return { rows, group: replies(rows) >= 2, canKeepNarrator: true, keepsNarrator: keeps };

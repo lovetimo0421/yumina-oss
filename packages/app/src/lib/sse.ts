@@ -1,6 +1,7 @@
 import posthog from "posthog-js";
 import { isAnalyticsEnabled } from "@/lib/analytics-enabled";
 import { withStreamDeadline } from "./stream-deadline";
+import { askBackgroundConsent } from "@/features/background-charges/background-consent-store";
 
 /**
  * Reverse proxies (Cloudflare 5xx pages, Railway edge errors) answer with a
@@ -275,6 +276,8 @@ export function connectSSE(
                   break;
                 case "done":
                   receivedTerminalEvent = true;
+                  // Background AIs waiting for the player's answer before they charge.
+                  if (parsed?.consentNeeded) askBackgroundConsent(parsed.consentNeeded);
                   cb.onDone(parsed);
                   break;
                 case "error":

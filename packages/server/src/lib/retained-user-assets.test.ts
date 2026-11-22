@@ -23,7 +23,7 @@ before(async () => {
   for (const ddl of [
     WORLDS_TABLE_SQL,
     `CREATE TABLE world_versions (id text PRIMARY KEY, world_id text NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
-      created_by text NOT NULL, name text NOT NULL, note text, schema jsonb NOT NULL, created_at timestamp NOT NULL DEFAULT now())`,
+      created_by text NOT NULL, actor_id text, name text NOT NULL, note text, schema jsonb NOT NULL, created_at timestamp NOT NULL DEFAULT now())`,
     `CREATE TABLE world_pending_edits (id text PRIMARY KEY, world_id text NOT NULL UNIQUE REFERENCES worlds(id) ON DELETE CASCADE,
       created_by text NOT NULL, group_key text NOT NULL, schema jsonb NOT NULL, thumbnail_url text, age_rating text, is_nsfw boolean,
       reasons jsonb NOT NULL DEFAULT '[]', status text NOT NULL DEFAULT 'draft', submitted_at timestamp, reviewed_by text, reviewed_at timestamp,
@@ -35,6 +35,8 @@ before(async () => {
       source_asset_id text, is_public boolean NOT NULL DEFAULT false, created_at timestamp DEFAULT now())`,
     `CREATE TABLE assets (id text PRIMARY KEY, world_id text, type text, filename text, url text NOT NULL, size_bytes integer, mime_type text, created_at timestamp DEFAULT now())`,
     `CREATE TABLE asset_references (id text PRIMARY KEY, world_id text NOT NULL, asset_id text NOT NULL, created_at timestamp DEFAULT now())`,
+    // A live public resource pack naming a file also keeps it (assetHeldByLiveBundle).
+    `CREATE TABLE bundles (id text PRIMARY KEY, user_id text NOT NULL DEFAULT '', content jsonb NOT NULL DEFAULT '{}', is_public boolean NOT NULL DEFAULT false, review_status text NOT NULL DEFAULT 'approved')`,
   ].flatMap((ddl) => ddl.split(";").map((part) => part.trim()).filter(Boolean))) await db.execute(sql.raw(ddl));
   for (const statement of WORLD_VERSION_SCHEMA_SQL.split(";").filter((s) => s.trim())) await db.execute(sql.raw(statement));
   await ensureWorldsSchemaDerived();
@@ -47,7 +49,7 @@ after(async () => {
 });
 
 beforeEach(async () => {
-  await db.execute(sql`TRUNCATE world_versions, world_pending_edits, worlds, user_assets, assets, asset_references, asset_folders, retained_user_asset_files`);
+  await db.execute(sql`TRUNCATE world_versions, world_pending_edits, worlds, user_assets, assets, asset_references, asset_folders, retained_user_asset_files, bundles`);
   await db.execute(sql`INSERT INTO asset_folders (id, user_id, name) VALUES ('folder', ${owner}, 'Art')`);
   await db.execute(sql`INSERT INTO user_assets (id, user_id, type, filename, url, folder_id) VALUES (${assetId}, ${owner}, 'image', 'a.png', ${url}, 'folder')`);
 });

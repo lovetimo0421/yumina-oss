@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import {
   Plus,
   Trash2,
+  Lock,
   Copy,
   FileText,
   ChevronDown,
@@ -47,10 +48,13 @@ import {
 } from "@/lib/entry-constants";
 import { useEditorStore } from "@/stores/editor";
 import { HoverHint } from "../components/hover-hint";
+import { InfoTip } from "@/components/ui/info-tip";
 import { LORE_HEALTH_DOT, summarizeLoreTokens } from "../lib/lore-tokens";
 import { EntryPortraitField } from "../components/entry-portrait-field";
 import { EntryPortraitVideoField } from "../components/entry-portrait-video-field";
+import { EntryLiveCharacterField } from "../components/entry-live-character-field";
 import { VoiceField } from "../components/voice-field";
+import { IllustrationLoraField } from "@/edition/slots";
 import {
   estimateTokens,
   deriveSectionDefaults,
@@ -120,6 +124,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { textFieldKey } from "@yumina/engine";
 
 // ── Section classification ──
 
@@ -173,6 +178,9 @@ const CONTEXT_ROW_ID = "__conversation__";
 
 export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { compact?: boolean; mobileListMode?: boolean; scopeWorldbookId?: string | null } = {}) {
   const { t, i18n } = useTranslation("editor");
+  // Someone who may only view the card (or an admin's read-only look): no
+  // add, duplicate, rename or delete — nothing they did would be saved.
+  const readOnly = useEditorStore(s => s.readOnlyInspect);
   /** The template's untouched scaffolding, folded away by default.
    *
    *  A first-time author opening a card met Fiction Mode, Task, Style,
@@ -213,6 +221,7 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
   const removeFolder = useEditorStore(s => s.removeFolder);
   const renameFolder = useEditorStore(s => s.renameFolder);
   const moveFolder = useEditorStore(s => s.moveFolder);
+  const reorderFolder = useEditorStore(s => s.reorderFolder);
   const setField = useEditorStore(s => s.setField);
   const setActiveSection = useEditorStore(s => s.setActiveSection);
   const setCustomUiTab = useEditorStore(s => s.setCustomUiTab);
@@ -665,6 +674,19 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
       }
       if (folderTargetSection && folderTargetSection !== folder.section) {
         moveFolder(folder.id, folderTargetSection);
+        return;
+      }
+      // Same section → reorder among its folders. Dropping on an entry inside
+      // a folder counts as dropping on that folder. Same rule as entries:
+      // dragged downward lands after the target, dragged upward before it.
+      const overFolderId = isOverFolder
+        ? overRealId
+        : isOverEntry ? worldDraft.entries.find((e) => e.id === overRealId)?.folderId : undefined;
+      const visible = sectionFolders[folder.section as Section] ?? [];
+      const from = visible.findIndex((f) => f.id === folder.id);
+      const to = visible.findIndex((f) => f.id === overFolderId);
+      if (overFolderId && from !== -1 && to !== -1 && from !== to) {
+        reorderFolder(folder.id, overFolderId, from < to ? "after" : "before");
       }
       return;
     }
@@ -677,7 +699,8 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
     [worldDraft.entries],
   );
 
-  const selected = worldDraft.entries.find((e) => e.id === selectedId);
+  // An entry kept by the original author has no form: nothing of it is here to edit.
+  const selected = worldDraft.entries.find((e) => e.id === selectedId && !e.sealed);
   // How much of the conversation the AI reads — the context row's caption.
   const historyCount = historyWindowOf(worldDraft.settings).count;
   useEditorFocus("entry", selected?.id, worldDraft);
@@ -732,14 +755,11 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
               <h1 className="text-[22px] font-bold tracking-tight text-foreground">
                 {t("entries.title")}
               </h1>
-              <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-                {t("entries.description")}
-              </p>
               <a
                 href={DOCS_URLS.entries}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="mt-1 inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary transition-colors hover:bg-primary/15"
+                className="mt-1 inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
               >
                 {t("entries.learnMore")}
               </a>
@@ -860,13 +880,15 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
                 <TagIcon className="h-3.5 w-3.5" />
                 <span className="hidden md:inline">{t("entries.manageTags")}</span>
               </button>
-              <button
-                onClick={() => handleAddEntryInSection("system-presets")}
-                data-tour="entries-add"
-                className="flex items-center gap-2 rounded-lg bg-primary px-4 py-1.5 text-xs font-semibold text-primary-foreground shadow-[0_0_15px_hsl(var(--primary)/0.3)] transition-colors hover:bg-primary/90"
-              >
-                <Plus className="h-3.5 w-3.5" /> {t("entries.addEntry")}
-              </button>
+              {!readOnly && (
+                <button
+                  onClick={() => handleAddEntryInSection("system-presets")}
+                  data-tour="entries-add"
+                  className="flex items-center gap-2 rounded-lg bg-primary px-4 py-1.5 text-xs font-semibold text-primary-foreground shadow-[0_0_15px_hsl(var(--primary)/0.3)] transition-colors hover:bg-primary/90"
+                >
+                  <Plus className="h-3.5 w-3.5" /> {t("entries.addEntry")}
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -875,13 +897,15 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
       {/* Compact filter strip (studio only) */}
       {compact && (
         <div className="shrink-0 flex items-center gap-1.5 overflow-x-auto border-b border-border px-3 py-2 @[520px]:px-4">
-          <button
-            onClick={() => handleAddEntryInSection("system-presets")}
-            data-tour="entries-add"
-            className="flex h-7 shrink-0 items-center gap-1 rounded-lg bg-primary px-2 text-[11px] font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
-          >
-            <Plus className="h-3 w-3" /> {t("entries.add")}
-          </button>
+          {!readOnly && (
+            <button
+              onClick={() => handleAddEntryInSection("system-presets")}
+              data-tour="entries-add"
+              className="flex h-7 shrink-0 items-center gap-1 rounded-lg bg-primary px-2 text-[11px] font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
+            >
+              <Plus className="h-3 w-3" /> {t("entries.add")}
+            </button>
+          )}
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -1058,17 +1082,16 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
             {!compact && showSettings && (
               <div className="mb-4 space-y-4 rounded-xl border border-border bg-card p-4">
                 <div>
-                  <label className="mb-1.5 block text-sm font-bold text-foreground">{t("entries.scanDepth")}</label>
+                  <label className="mb-1.5 flex items-center gap-1 text-sm font-bold text-foreground">{t("entries.scanDepth")}<InfoTip text={t("entries.scanDepthHint")} /></label>
                   <NumberInput
                     value={worldDraft.settings.lorebookScanDepth ?? 2}
                     onChange={(val) => setSettings("lorebookScanDepth", val === "" ? 2 : val)}
                     min={1}
                     max={50}
                   />
-                  <p className="mt-1 text-xs text-muted-foreground/40">{t("entries.scanDepthHint")}</p>
                 </div>
                 <div>
-                  <label className="mb-1.5 block text-sm font-bold text-foreground">{t("entries.historyLimit")}</label>
+                  <label className="mb-1.5 flex items-center gap-1 text-sm font-bold text-foreground">{t("entries.historyLimit")}<InfoTip text={t(worldDraft.settings.historyLimit ? "entries.historyLimitHint" : "entries.historyLimitHintAll")} /></label>
                   <div className="flex items-center gap-2">
                     {/* The studio's three choices, through the same reader and
                         writer, so 「全部」 here cannot leave a summary on. */}
@@ -1100,7 +1123,6 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
                       />
                     ) : null}
                   </div>
-                  <p className="mt-1 text-xs text-muted-foreground/40">{t(worldDraft.settings.historyLimit ? "entries.historyLimitHint" : "entries.historyLimitHintAll")}</p>
                 </div>
                 <div>
                   <label className="flex cursor-pointer items-start gap-2">
@@ -1110,9 +1132,8 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
                       onChange={(e) => setSettings("contextPolicy", e.target.checked ? "author" : "player")}
                       className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-amber-500"
                     />
-                    <span className="min-w-0 flex-1">
+                    <span className="min-w-0 flex-1" title={t("blueprint.insp.contextLockHint", { tokens: worldDraft.settings.maxContext ?? 200000 })}>
                       <span className="block text-sm font-bold text-foreground">{t("blueprint.insp.contextLock")}</span>
-                      <span className="block text-xs text-muted-foreground/40">{t("blueprint.insp.contextLockHint", { tokens: worldDraft.settings.maxContext ?? 200000 })}</span>
                     </span>
                   </label>
                 </div>
@@ -1120,20 +1141,19 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
                     and the model the card recommends. */}
                 <StoryAiSettingsFields />
                 <div>
-                  <label className="mb-1.5 block text-sm font-bold text-foreground">{t("entries.recursionDepth")}</label>
+                  <label className="mb-1.5 flex items-center gap-1 text-sm font-bold text-foreground">{t("entries.recursionDepth")}<InfoTip text={t("entries.recursionDepthHint")} /></label>
                   <NumberInput
                     value={worldDraft.settings.lorebookRecursionDepth ?? 0}
                     onChange={(val) => setSettings("lorebookRecursionDepth", val === "" ? 0 : Math.min(Math.max(val, 0), 10))}
                     min={0}
                     max={10}
                   />
-                  <p className="mt-1 text-xs text-muted-foreground/40">{t("entries.recursionDepthHint")}</p>
                 </div>
               </div>
             )}
 
             {/* Restore missing presets */}
-            {missingPresets.length > 0 && (
+            {!readOnly && missingPresets.length > 0 && (
               <button
                 onClick={() => {
                   const newEntries = missingPresets.map((preset) => {
@@ -1157,7 +1177,7 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
                   });
                   setField("entries", [...worldDraft.entries, ...newEntries]);
                 }}
-                className="mb-3 flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-indigo-500/30 bg-indigo-500/5 px-3 py-2.5 text-xs font-medium text-indigo-400 transition-colors hover:bg-indigo-500/10 hover:border-indigo-500/50"
+                className="mb-3 flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-border px-3 py-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
               >
                 <Shield className="h-3.5 w-3.5" />
                 {t("entries.addOfficialPresets", { count: missingPresets.length })}
@@ -1224,7 +1244,7 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
                             : "border-dashed border-border/60 hover:bg-muted/50",
                         )}
                       >
-                        <MessageCircle className="h-3.5 w-3.5 shrink-0 text-teal-300" />
+                        <MessageCircle className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                         <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-foreground">
                           {t("blueprint.blocks.context")}
                         </span>
@@ -1365,8 +1385,6 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
                   <FileText className="h-5 w-5 text-muted-foreground" />
                 </div>
                 <p className="text-sm font-medium text-muted-foreground">{t("entries.noEntries")}</p>
-                <p className="mt-1.5 max-w-xs mx-auto text-xs text-muted-foreground/60">{t("entries.noEntriesDesc")}</p>
-                <a href={DOCS_URLS.entries} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-xs text-primary hover:underline">{t("entries.learnMore")}</a>
               </div>
             )}
           </div>
@@ -1489,7 +1507,7 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
               </button>
               <div className="mb-8 flex max-w-3xl items-center justify-between gap-2">
                 <h2 className="text-xl font-bold text-foreground">{t("entries.editEntry")}</h2>
-                <div className="flex shrink-0 items-center gap-1">
+                {!readOnly && <div className="flex shrink-0 items-center gap-1">
                   <button
                     onClick={() => duplicateAndSelect(selected.id, false)}
                     className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
@@ -1506,7 +1524,7 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
                   >
                     <Trash2 className="h-4 w-4" /> {t("entries.delete")}
                   </TwoTapDeleteButton>
-                </div>
+                </div>}
               </div>
 
               <div className="max-w-3xl space-y-8">
@@ -1534,6 +1552,7 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
                     value={selected.name}
                     onCommit={(name) => updateEntry(selected.id, { name })}
                     syncKey={selected.id}
+                    sharedKey={textFieldKey({ kind: "row", key: "entries", id: selected.id, field: "name" })}
                     className="w-full rounded-xl border border-border bg-card px-4 py-3 text-sm text-foreground shadow-inner transition-all focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/50"
                   />
                 </div>
@@ -1547,10 +1566,10 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
                     <div className="flex items-start justify-between gap-4">
                       <div className="min-w-0 space-y-1">
                         <div className="flex items-center gap-2 text-sm font-bold text-foreground">
-                          <UserRound className="h-4 w-4 text-emerald-400" />
+                          <UserRound className="h-4 w-4 text-muted-foreground" />
                           {t("entries.isCharacter")}
+                          <InfoTip text={t("entries.isCharacterHint")} />
                         </div>
-                        <p className="text-xs text-muted-foreground/70">{t("entries.isCharacterHint")}</p>
                       </div>
                       <button
                         type="button"
@@ -1600,6 +1619,10 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
                           value={selected.portraitVideo}
                           onChange={(portraitVideo) => updateEntry(selected.id, { portraitVideo })}
                         />
+                        <EntryLiveCharacterField
+                          value={selected.portraitLive}
+                          onChange={(portraitLive) => updateEntry(selected.id, { portraitLive })}
+                        />
                         <VoiceField
                           label={t("voiceField.characterLabel")}
                           hint={t("voiceField.characterHint")}
@@ -1607,32 +1630,22 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
                           value={selected.voice}
                           onChange={(voice) => updateEntry(selected.id, { voice })}
                         />
+                        <IllustrationLoraField
+                          kind="character"
+                          name={selected.name}
+                          value={selected.imageLora}
+                          portrait={selected.portrait}
+                          onChange={(imageLora) => updateEntry(selected.id, { imageLora })}
+                        />
                       </div>
                     )}
                   </div>
-                )}
-                {selected.role === "character" && (
-                  <EntryPortraitVideoField
-                    value={selected.portraitVideo}
-                    onChange={(portraitVideo) => updateEntry(selected.id, { portraitVideo })}
-                  />
-                )}
-
-                {/* Voice — how this character sounds when the player turns readout on */}
-                {selected.role === "character" && (
-                  <VoiceField
-                    label={t("voiceField.characterLabel")}
-                    hint={t("voiceField.characterHint")}
-                    title={t("blueprint.voice.character", { name: selected.name })}
-                    value={selected.voice}
-                    onChange={(voice) => updateEntry(selected.id, { voice })}
-                  />
                 )}
 
                 {/* Worldbook (lore module) membership */}
                 {scopeWorldbookId === undefined && worldbooks.length > 0 && (
                   <div className="space-y-2">
-                    <label className="text-sm font-bold text-foreground">{t("entries.worldbookLabel")}</label>
+                    <label className="flex items-center gap-1 text-sm font-bold text-foreground">{t("entries.worldbookLabel")}<InfoTip text={t("entries.worldbookHint")} /></label>
                     <select
                       value={selected.worldbookId ?? ""}
                       onChange={(e) => setEntryWorldbook(selected.id, e.target.value || undefined)}
@@ -1643,7 +1656,6 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
                         <option key={wb.id} value={wb.id}>{wb.name}</option>
                       ))}
                     </select>
-                    <p className="text-xs text-muted-foreground/60">{t("entries.worldbookHint")}</p>
                   </div>
                 )}
 
@@ -1657,6 +1669,7 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
                       return (
                         <button
                           key={opt.value}
+                          title={opt.hint}
                           onClick={() => updateEntry(selected.id, { apiRole: opt.value })}
                           className={cn(
                             "flex-1 rounded-xl border px-3 py-2.5 text-sm font-medium transition-all",
@@ -1670,9 +1683,6 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
                       );
                     })}
                   </div>
-                  <p className="text-xs text-muted-foreground/60">
-                    {getSendAsOptions(t).find((r) => r.value === (selected.apiRole ?? "system"))?.hint}
-                  </p>
                 </div>
                 )}
 
@@ -1703,7 +1713,7 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
                             updateEntry(selected.id, { content: official.content, apiRole: official.apiRole, name: official.name });
                           }
                         }}
-                        className="flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
+                        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
                       >
                         <RotateCcw className="h-3 w-3" />
                         {t("entries.resetToOfficial")}
@@ -1767,37 +1777,32 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
                 {/* Depth (shown prominently for chat-history entries) */}
                 {selected.section === "chat-history" && (
                   <div className="space-y-3 flex max-w-[200px] flex-col">
-                    <label className="text-sm font-bold text-foreground">{t("entries.depth")}</label>
+                    <label className="flex items-center gap-1 text-sm font-bold text-foreground">{t("entries.depth")}<InfoTip text={t("entries.depthHint")} /></label>
                     <NumberInput
                       value={selected.depth ?? 4}
                       onChange={(val) => updateEntry(selected.id, { depth: val === "" ? 4 : val })}
                       min={1}
                       max={100}
                     />
-                    <p className="text-xs text-muted-foreground/40">
-                      {t("entries.depthHint")}
-                    </p>
                   </div>
                 )}
 
                 {/* Position — sort order within section */}
                 <div className="space-y-3 flex max-w-[200px] flex-col">
-                  <label className="text-sm font-bold text-foreground">{t("entries.position")}</label>
+                  <label className="flex items-center gap-1 text-sm font-bold text-foreground">{t("entries.position")}<InfoTip text={t("entries.positionHint")} /></label>
                   <NumberInput
                     value={selected.position ?? 0}
                     onChange={(val) => updateEntry(selected.id, { position: val === "" ? 0 : val })}
                     step={1}
                   />
-                  <p className="text-xs text-muted-foreground/40">
-                    {t("entries.positionHint")}
-                  </p>
                 </div>
 
                 {/* Keywords (shown prominently for chat-history keyword entries — primary trigger mechanism) */}
                 {selected.section === "chat-history" && !selected.alwaysSend && (
                   <div className="space-y-3">
-                    <label className="text-sm font-bold text-foreground">
+                    <label className="flex items-center gap-1 text-sm font-bold text-foreground">
                       {t("entries.keywords")}
+                      <InfoTip text={t("entries.keywordsHint")} />
                     </label>
                     <KeywordsInput
                       value={selected.keywords}
@@ -1805,9 +1810,6 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
                       placeholder={t("entries.keywordsPlaceholder")}
                       showHint={false}
                     />
-                    <p className="text-xs text-muted-foreground/40">
-                      {t("entries.keywordsHint")}
-                    </p>
                   </div>
                 )}
 
@@ -1879,13 +1881,11 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
                   </div>
 
                   {entryUsesVariableBinding(selected) ? (
-                    <div className="space-y-4 rounded-xl border border-primary/20 bg-primary/[0.04] p-4">
-                      <p className="text-xs leading-relaxed text-muted-foreground">
-                        {t("entries.variableBindExplain")}
-                      </p>
+                    <div className="space-y-4 rounded-xl border border-border bg-card/40 p-4">
                       <div className="flex items-center justify-between gap-3">
-                        <span className="text-xs font-bold text-foreground">
+                        <span className="flex items-center gap-1 text-xs font-bold text-foreground">
                           {t("entries.whenConditions")}
+                          <InfoTip text={t("entries.variableBindExplain")} />
                         </span>
                         <div className="flex rounded-lg border border-border bg-card p-1">
                           <button
@@ -2057,7 +2057,7 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
                           >
                             {SECONDARY_LOGIC_OPTIONS.map((opt) => (
                               <option key={opt.value} value={opt.value}>
-                                {opt.label} — {opt.hint}
+                                {opt.label} · {opt.hint}
                               </option>
                             ))}
                           </select>
@@ -2106,8 +2106,7 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
                 {t("entries.back")}
               </button>
               <div className="mb-6 max-w-3xl">
-                <h2 className="text-xl font-bold text-foreground">{t("blueprint.blocks.context")}</h2>
-                <p className="mt-1 text-sm text-muted-foreground">{t("blueprint.blocks.contextHint")}</p>
+                <h2 className="text-xl font-bold text-foreground" title={t("blueprint.blocks.contextHint")}>{t("blueprint.blocks.context")}</h2>
               </div>
               <div className="max-w-3xl">
                 <CardContextForm />
@@ -2159,6 +2158,7 @@ function EntryContentTextarea({
       value={entry.content ?? ""}
       onCommit={onChange}
       syncKey={entry.id}
+      sharedKey={textFieldKey({ kind: "row", key: "entries", id: entry.id, field: "content" })}
       rows={8}
       placeholder={templatePlaceholder || fallbackPlaceholder}
       className="min-h-[160px] w-full resize-y rounded-xl border border-border bg-card px-4 py-4 font-mono text-sm leading-relaxed text-foreground shadow-inner transition-all placeholder:whitespace-pre-line placeholder:text-muted-foreground/30 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/50"
@@ -2233,6 +2233,7 @@ function DroppableSectionHeader({
   children?: React.ReactNode;
 }) {
   const { t } = useTranslation("editor");
+  const readOnly = useEditorStore(s => s.readOnlyInspect);
   const { setNodeRef, isOver } = useDroppable({ id: `section:${section}` });
   const showDropHighlight = isDragActive && isOver;
 
@@ -2248,20 +2249,15 @@ function DroppableSectionHeader({
           {isCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
         </button>
         <div className="flex-1 min-w-0">
-          <span className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground">
+          <span className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground" title={hint || undefined}>
             {label}
           </span>
-          {hint && (
-            <span className="ml-1.5 text-[9px] text-muted-foreground/40 normal-case tracking-normal font-normal">
-              {hint}
-            </span>
-          )}
         </div>
         <span className="rounded-full bg-accent px-1.5 py-0.5 text-[10px] font-bold text-muted-foreground">
           {entryCount}
         </span>
         {/* Section [+] dropdown: Entry or Folder */}
-        <DropdownMenu>
+        {!readOnly && <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button
               className="touch-reveal opacity-0 group-hover/sh:opacity-100 text-muted-foreground hover:text-primary transition-opacity"
@@ -2278,7 +2274,7 @@ function DroppableSectionHeader({
               <FolderOpen className="mr-2 h-3.5 w-3.5" /> {t("entries.newFolder")}
             </DropdownMenuItem>
           </DropdownMenuContent>
-        </DropdownMenu>
+        </DropdownMenu>}
       </div>
       {children}
     </div>
@@ -2320,6 +2316,7 @@ const SortableEntryCard = memo(function SortableEntryCard({
   const [editName, setEditName] = useState(entry.name);
   const inputRef = useRef<HTMLInputElement>(null);
   const { t } = useTranslation("editor");
+  const readOnly = useEditorStore(s => s.readOnlyInspect);
 
   // Mount-only: a freshly duplicated row starts in rename mode with the name
   // selected, so the creator can type straight over "… (copy)".
@@ -2376,6 +2373,35 @@ const SortableEntryCard = memo(function SortableEntryCard({
     setIsEditing(false);
   }, [editName, entry.id, entry.name, onRename]);
 
+  // Kept by the author of the card this one was copied from: no name and no
+  // text reach this browser. It can be dragged or deleted, never opened.
+  if (entry.sealed) {
+    return (
+      <div ref={setNodeRef} style={style} className="group/entry flex items-center">
+        <button
+          {...attributes}
+          {...listeners}
+          className="shrink-0 cursor-grab p-2.5 -m-1.5 touch-none text-muted-foreground/30 hover:text-muted-foreground active:cursor-grabbing"
+        >
+          <GripVertical className="h-4 w-4" />
+        </button>
+        <div className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-dashed border-border/60 px-2 py-2 text-sm text-muted-foreground/70">
+          <Lock className="h-3.5 w-3.5 shrink-0" />
+          <span className="min-w-0 flex-1 truncate">{t("blueprint.sealed.entry")}</span>
+          <button
+            type="button"
+            onClick={() => onDelete(entry.id)}
+            aria-label={t("blueprint.sealed.remove")}
+            title={t("blueprint.sealed.remove")}
+            className="shrink-0 rounded p-1 text-muted-foreground/50 opacity-0 hover:text-destructive group-hover/entry:opacity-100 focus-visible:opacity-100"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div ref={setNodeRef} style={style} className="group/entry flex items-center">
       <button
@@ -2415,10 +2441,10 @@ const SortableEntryCard = memo(function SortableEntryCard({
         ) : (
           <>
             {entry.presetId && (
-              <Shield className="h-3 w-3 shrink-0 text-indigo-400/60" />
+              <Shield className="h-3 w-3 shrink-0 text-muted-foreground/60" />
             )}
             {entry.role === "character" && (
-              <UserRound className="h-3 w-3 shrink-0 text-emerald-400/70" aria-label={t("entries.isCharacter")} />
+              <UserRound className="h-3 w-3 shrink-0 text-muted-foreground/70" aria-label={t("entries.isCharacter")} />
             )}
             {bundleColor && (
               <span
@@ -2447,7 +2473,7 @@ const SortableEntryCard = memo(function SortableEntryCard({
 
         {worldbookName && (
           <span
-            className="shrink-0 max-w-[7rem] truncate rounded bg-sky-500/15 px-1.5 py-0.5 text-[9px] font-bold text-sky-300"
+            className="shrink-0 max-w-[7rem] truncate rounded bg-secondary px-1.5 py-0.5 text-[9px] font-bold text-muted-foreground"
             title={t("entries.worldbookBadge", { name: worldbookName })}
           >
             {worldbookName}
@@ -2465,7 +2491,7 @@ const SortableEntryCard = memo(function SortableEntryCard({
 
         {uiSlotId && (
           <span
-            className="shrink-0 max-w-[7rem] truncate rounded bg-primary/15 px-1.5 py-0.5 text-[9px] font-bold text-primary"
+            className="shrink-0 max-w-[7rem] truncate rounded bg-secondary px-1.5 py-0.5 text-[9px] font-bold text-muted-foreground"
             title={t("entries.uiBindBadge", { slot: uiSlotId })}
           >
             {t("entries.uiBindBadge", { slot: uiSlotId })}
@@ -2474,7 +2500,7 @@ const SortableEntryCard = memo(function SortableEntryCard({
 
         {isVariableBoundEntry(entry) && (
           <span
-            className="shrink-0 rounded bg-violet-500/15 px-1 py-0.5 text-[9px] font-bold text-violet-400"
+            className="shrink-0 rounded bg-secondary px-1 py-0.5 text-[9px] font-bold text-muted-foreground"
             title={t("entries.variableBindExplain")}
           >
             {t("entries.variableBoundBadge")}
@@ -2484,7 +2510,7 @@ const SortableEntryCard = memo(function SortableEntryCard({
         {(entry.conditions ?? []).slice(0, 2).map((cond, i) => (
           <span
             key={`${cond.variableId}-${i}`}
-            className="shrink-0 max-w-[7rem] truncate rounded bg-violet-500/10 px-1 py-0.5 text-[9px] font-medium text-violet-300/90"
+            className="shrink-0 max-w-[7rem] truncate rounded bg-secondary px-1 py-0.5 text-[9px] font-medium text-muted-foreground"
             title={formatConditionLabel(cond, variables)}
           >
             {formatConditionLabel(cond, variables)}
@@ -2500,7 +2526,7 @@ const SortableEntryCard = memo(function SortableEntryCard({
           <span
             className={cn(
               "shrink-0 rounded px-1 py-0.5 text-[9px] font-bold",
-              apiRole === "user" ? "bg-secondary text-primary/80" : "bg-secondary text-muted-foreground"
+              "bg-secondary text-muted-foreground"
             )}
           >
             {apiRole === "user" ? t("entries.sendAsOptions.user") : t("entries.sendAsOptions.assistant")}
@@ -2510,7 +2536,7 @@ const SortableEntryCard = memo(function SortableEntryCard({
         {/* Hover actions: rename + duplicate + delete (touch-reveal keeps them
             visible where hover doesn't exist). Duplicate is non-destructive, so
             unlike delete it needs no two-tap confirm. */}
-        {!isEditing && (
+        {!isEditing && !readOnly && (
           <div className="touch-reveal shrink-0 flex items-center gap-0.5 opacity-0 group-hover/entry:opacity-100 transition-opacity">
             <button
               onClick={handleStartEdit}
@@ -2576,6 +2602,7 @@ function FolderCard({
   consumeAutoEdit?: (id: string) => boolean;
 }) {
   const { t } = useTranslation("editor");
+  const readOnly = useEditorStore(s => s.readOnlyInspect);
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState(folder.name);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -2652,7 +2679,7 @@ function FolderCard({
           {entries.length}
         </span>
 
-        {!isEditing && (
+        {!isEditing && !readOnly && (
           <button
             type="button"
             onClick={onAddEntry}
@@ -2663,7 +2690,7 @@ function FolderCard({
             <Plus className="h-3.5 w-3.5" />
           </button>
         )}
-        {!isEditing && (
+        {!isEditing && !readOnly && (
           <div className="touch-reveal flex items-center gap-0.5 opacity-0 group-hover/folder:opacity-100 transition-opacity">
             <button
               onClick={() => {
@@ -2769,6 +2796,7 @@ function ExampleTurnsEditor({
           value={entry.content ?? ""}
           onCommit={onUpdate}
           syncKey={entry.id}
+          sharedKey={textFieldKey({ kind: "row", key: "entries", id: entry.id, field: "content" })}
           rows={8}
           className="min-h-[160px] w-full resize-y rounded-xl border border-border bg-card px-4 py-4 font-mono text-sm leading-relaxed text-foreground shadow-inner transition-all placeholder:text-muted-foreground/30 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/50"
         />

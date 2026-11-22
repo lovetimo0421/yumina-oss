@@ -56,6 +56,8 @@ test("the canvas redirect waits for the save and falls back to the editor when t
       useUnsavedChangesGuard: () => useSyncExternalStore(fn => { blockerListeners.add(fn); return () => { blockerListeners.delete(fn); }; }, () => blocker),
     },
     "@/features/editor/unsaved-changes-dialog": { UnsavedChangesDialog: ({ blocker: b }: { blocker: { status: string } }) => b.status === "blocked" ? <div>DIALOG</div> : null },
+    "@/features/studio/lib/use-external-writes": { useExternalWrites: () => {} },
+    "@/features/collab/use-collab-presence": { useCollabPresence: () => {} },
     "@/features/editor/editor-draft-recovery": { backupEditorDraft: () => false },
     "@/features/editor/save-status": { useSaveWhenHidden: () => {} },
     "@/lib/safe-back": { navigateBackSafely: () => {} },

@@ -1,17 +1,5 @@
 import { deepEqual, mergeWorldDefinition, migrateWorldDefinition, type WorldDefinition } from "@yumina/engine";
 
-/**
- * Collections mergeWorldDefinition reconciles entity-by-entity (by id, or by
- * filename for the frontend). Every other top-level key it copies wholesale
- * from its `server` argument, so those are merged field-by-field here instead —
- * otherwise a creator's save to e.g. `worldbooks` or `uiDoc` would be replaced
- * by the agent's stale copy of it.
- */
-const GRANULAR_KEYS = new Set([
-  "entries", "variables", "rules", "reactions", "audioTracks", "sceneImages",
-  "backgrounds", "entryFolders", "customUI", "rootComponent",
-]);
-
 export interface AgentWriteConflict {
   /** Collection name ("entries", "rootComponent.files", …) or "field" for a top-level key. */
   collection: string;
@@ -62,16 +50,17 @@ export function rebaseAgentWrite(base: Json, current: Json, proposed: Json): Age
     let value: unknown;
     if (!agentChanged) value = c;
     else if (!creatorChanged || deepEqual(p, c)) value = p;
-    else if (GRANULAR_KEYS.has(key)) {
+    else {
+      // Both changed it: mergeWorldDefinition goes inside (rows by id, the
+      // frontend by file, objects key by key) and the creator keeps whatever
+      // both changed differently.
       value = granularMerged[key];
       for (const conflict of granular.conflicts) {
-        if (conflict.collection === key || conflict.collection.startsWith(`${key}.`)) {
+        if (conflict.collection === key || conflict.collection.startsWith(`${key}.`)
+          || (conflict.collection === "field" && (conflict.id === key || conflict.id.startsWith(`${key}.`)))) {
           conflicts.push({ collection: conflict.collection, id: conflict.id });
         }
       }
-    } else {
-      value = c;
-      conflicts.push({ collection: "field", id: key });
     }
     if (value !== undefined) merged[key] = value;
   }
@@ -82,5 +71,5 @@ export function rebaseAgentWrite(base: Json, current: Json, proposed: Json): Age
 export function describeAgentWriteConflicts(conflicts: AgentWriteConflict[]): string {
   const shown = conflicts.slice(0, 10).map((c) => c.collection === "field" ? c.id : `${c.collection}/${c.id}`);
   const more = conflicts.length > 10 ? ` (+${conflicts.length - 10} more)` : "";
-  return `The creator saved their own edits to ${shown.join(", ")}${more} in the editor while you were working. Their version was kept, so your change to ${conflicts.length === 1 ? "it" : "those"} was NOT saved. Everything else in this change was saved. Re-read ${conflicts.length === 1 ? "it" : "them"} before editing again, and do not undo the creator's edits unless they asked you to.`;
+  return `Someone else working on this card (the creator, a collaborator, or another assistant) changed ${shown.join(", ")}${more} while you were working. Their version was kept, so your change to ${conflicts.length === 1 ? "it" : "those"} was NOT saved. Everything else in this change was saved. Re-read ${conflicts.length === 1 ? "it" : "them"} before editing again, and do not undo their edits unless the person you are working for asked you to.`;
 }

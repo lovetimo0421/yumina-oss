@@ -76,6 +76,15 @@ interface UserPromptsState {
    *  The server sets auto_models on the chosen prompt and removes the family from
    *  any other prompt, then returns the full list which replaces ours. */
   setBinding: (family: string, promptId: string | null) => Promise<void>;
+
+  /** Switches the player set while playing a world, by world id → prompt id.
+   *  A prompt missing here follows its own (account-wide) `enabled`. */
+  worldSwitches: Record<string, Record<string, boolean>>;
+  fetchWorldSwitches: (worldId: string) => Promise<void>;
+  /** Switch one prompt for one world only. Resolves whether it saved. */
+  setWorldSwitch: (worldId: string, promptId: string, enabled: boolean) => Promise<boolean>;
+  /** Forget this world's switches: it follows the account-wide ones again. */
+  resetWorldSwitches: (worldId: string) => Promise<boolean>;
 }
 
 const apiBase = import.meta.env?.VITE_API_URL || "";
@@ -85,6 +94,59 @@ export const useUserPromptsStore = create<UserPromptsState>((set, get) => ({
   folders: [],
   loading: false,
   fetched: false,
+  worldSwitches: {},
+
+  fetchWorldSwitches: async (worldId) => {
+    try {
+      const res = await fetch(`${apiBase}/api/user-prompts/worlds/${encodeURIComponent(worldId)}`, {
+        credentials: "include",
+        cache: "no-store",
+      });
+      if (!res.ok) return;
+      const { data } = await res.json();
+      set((s) => ({ worldSwitches: { ...s.worldSwitches, [worldId]: data.switches ?? {} } }));
+    } catch {
+      // silent: the panel falls back to the account-wide switches
+    }
+  },
+
+  setWorldSwitch: async (worldId, promptId, enabled) => {
+    const before = get().worldSwitches[worldId];
+    set((s) => ({ worldSwitches: { ...s.worldSwitches, [worldId]: { ...s.worldSwitches[worldId], [promptId]: enabled } } }));
+    try {
+      const res = await fetch(`${apiBase}/api/user-prompts/worlds/${encodeURIComponent(worldId)}/${encodeURIComponent(promptId)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ enabled }),
+      });
+      if (!res.ok) throw new Error("Failed to save world prompt switch");
+      return true;
+    } catch (err) {
+      console.error("[user-prompts] world switch failed", err);
+      set((s) => ({ worldSwitches: { ...s.worldSwitches, [worldId]: before ?? {} } }));
+      feedback.error(tr("profile:customPrompts.updateFailed"));
+      return false;
+    }
+  },
+
+  resetWorldSwitches: async (worldId) => {
+    const before = get().worldSwitches[worldId];
+    set((s) => ({ worldSwitches: { ...s.worldSwitches, [worldId]: {} } }));
+    try {
+      const res = await fetch(`${apiBase}/api/user-prompts/worlds/${encodeURIComponent(worldId)}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to reset world prompt switches");
+      return true;
+    } catch (err) {
+      console.error("[user-prompts] world reset failed", err);
+      set((s) => ({ worldSwitches: { ...s.worldSwitches, [worldId]: before ?? {} } }));
+      feedback.error(tr("profile:customPrompts.updateFailed"));
+      return false;
+    }
+  },
 
   fetchPrompts: async () => {
     // Always revalidate against the server — prompts are edited from multiple

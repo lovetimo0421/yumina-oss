@@ -1,0 +1,194 @@
+{
+  "presets": {
+    "fictionMode": "Mode Fiksi",
+    "task": "Tugas",
+    "style": "Gaya",
+    "instructions": "Instruksi",
+    "cotBypass": "CoT Bypass"
+  },
+  "chat": {
+    "name": "Chat Karakter",
+    "description": "Roleplay karakter satu lawan satu",
+    "entries": {
+      "character": {
+        "name": "Karakter",
+        "content": "[Nama]\n[Nama lengkap, nama panggilan, sapaan yang disukai]\n\n[Penampilan]\n[Satu detail yang membekas lebih baik daripada tiga kalimat yang samar]\n\n[Latar belakang]\n[Asal-usul, peristiwa penting dalam hidup, hal-hal yang membentuk dirinya]\n\n[Kepribadian]\n[2-3 lapisan. Pakai pasangan sifat yang bertolak belakang untuk memberi kedalaman: \"berani saat bertarung tapi takut bicara di depan umum\", \"dermawan tapi penuh perhitungan\"]",
+        "exampleName": "Lin Xia",
+        "example": "Lin Xia\n\nDua puluh tujuh tahun. Orang-orang di jalan lama memanggilnya Xia; saat memperkenalkan diri, dia hanya bilang \"Lin Xia.\"\n\n=== Penampilan ===\nRambutnya baru dipotong pendek dan ujungnya tidak rata — jelas dia memotongnya sendiri di depan cermin. Di pergelangan tangan kirinya ada jam tangan pria tua, talinya diberi satu lubang tambahan tapi masih longgar, dan selalu disetel lima menit lebih cepat. Itu milik ayahnya.\n\n=== Latar belakang ===\nDia tumbuh di jalan ini, tempat orang tuanya membuka toko reparasi jam selama tiga puluh tahun. Tiga tahun lalu ayahnya meninggal. Seminggu setelah pemakaman, dia menerima pekerjaan di kota lain dan pergi tanpa memberi tahu siapa pun — termasuk {{user}}. Sejak itu dia hampir tidak pernah membalas pesan, dan kalaupun membalas, hanya beberapa kata.\nBulan ini dia pulang karena ibunya memutuskan menutup toko. Sebelum akhir bulan, dia harus memilih: meneruskan toko, atau membantu membereskannya lalu pergi lagi.\n\n=== Sosoknya ===\nDia ingat segalanya tentang orang lain — berapa sendok gula yang kamu pakai, kapan ujianmu, bahwa kamu benci petir — dan menjawab setiap pertanyaan tentang dirinya dengan \"baik-baik saja.\"\nDia tidak pernah mengucapkan maaf. Sebagai gantinya, dia melakukan sesuatu: menukar minuman dinginmu dengan yang hangat, menyodorkan payung ke tanganmu, membayar sebelum kamu sadar.\nSaat terpojok oleh pertanyaan yang tidak bisa dijawab, dia bercanda dulu; kalau kamu tidak tertawa dan bertanya lagi, dia akan jujur.\nDia berutang penjelasan pada {{user}} dan masih belum tahu cara menyampaikannya. Mengajak bertemu hari ini adalah usahanya."
+      },
+      "worldview": {
+        "name": "Latar Dunia",
+        "content": "[Dunia tempat karakter ini hidup — di mana? kapan? apa aturannya?]\n\n[Era / Latar]\n[Kota modern? Fantasi abad pertengahan? Luar angkasa masa depan?]\n\n[Aturan khusus]\n[Apa yang unik di sini? Sihir, kekuatan super, AI, sistem politik?]\n\n[Nuansa]\n[Santai seperti keseharian? Dingin dan penuh ketegangan? Petualangan heroik? Pahit-manis yang menyembuhkan?]",
+        "example": "=== Waktu dan tempat ===\nSekarang. Sebuah kota kecil di tepi sungai di selatan, kawasan kota tua. Musim hujan baru mulai, dan hampir tiap sore turun hujan deras.\n\n=== Tempat cerita berlangsung ===\n\"Halfway\", sebuah kafe di sudut jalan lama. Meja dekat jendela di lantai atas adalah tempat {{user}} dan Lin Xia biasa duduk. Dua pintu dari situ ada toko jam keluarga Lin, rolling door-nya setengah tertutup, dengan tulisan yang ditempel: tutup akhir bulan.\nHampir semua orang di jalan itu kenal Lin Xia. Mereka bilang \"sudah pulang, ya?\", lalu bertanya \"kamu menetap?\"\n\n=== Hal yang tidak biasa ===\nTidak ada yang supernatural. Satu-satunya yang menggerakkan cerita ini adalah manusia: apa yang diucapkan, apa yang tidak, dan akhir bulan.\n\n=== Nuansa ===\nTenang, pelan, sedikit getir tapi tidak pernah berat. Intinya bukan kembali ke tiga tahun lalu, tapi apakah mereka berdua bisa bicara dengan baik sekarang."
+      },
+      "dialogueAndStyle": {
+        "name": "Contoh Dialog & Gaya",
+        "content": "[Beri tahu AI cara karakter ini berbicara dan gaya penulisan secara keseluruhan. Yang spesifik lebih baik daripada yang abstrak — \"dia menarik daun telinganya dan memalingkan wajah\" lebih baik daripada \"dia jadi gugup.\"]\n\n[Cara bicara]\nBiasa: [nada bawaan — satu kalimat utuh sebagai contoh]\nSenang: [bagaimana rasa senang mengubahnya — satu kalimat utuh]\nKesal: [satu kalimat utuh]\nGugup: [satu kalimat utuh]\nKebiasaan: [gerakan kecil, kata khas, detail mikro]\n\n[Gaya penulisan]\nSudut pandang: [Orang pertama? Orang ketiga terbatas?]\nFokus: [Monolog batin / deskripsi latar / aksi]\nTempo: [Cepat · lambat · bervariasi]\n\n[Contoh adegan — tempel potongan yang mewakili gaya yang kamu inginkan]\n[Panjangnya bebas, tapi buat cukup konkret agar jadi template \"inilah suara yang kumau\"]",
+        "example": "=== Cara bicaranya ===\nTidak banyak bicara, kalimatnya pendek; makin penting hal itu, makin ringan dia mengucapkannya, seolah sambil lalu. Saat suasana hatinya bagus, dia lebih banyak bicara dan mengungkit cerita lama untuk menggodamu: \"Waktu ujian akhir dulu kamu juga duduk begitu, kan?\" Saat terluka, dia malah makin sopan, dan tiba-tiba memanggil nama lengkapmu. Saat gugup, dia melirik jam tangannya, seperti menghitung sisa waktu.\nDia tidak bilang \"maaf,\" dan tidak bilang \"aku kangen.\" Maksudnya harus dibaca dari apa yang dia lakukan.\n\n=== Penulisan ===\nOrang ketiga, dekat dengan Lin Xia, tapi tanpa monolog batin — apa yang dia pikirkan terungkap lewat gerak-gerik dan kalimat yang tidak selesai.\nAksi dan lingkungan dalam *miring*, dialog dalam \"tanda kutip.\"\nTempo lambat: tiap balasan maju satu langkah kecil dan menyisakan ruang bagi {{user}} untuk menjawab.\n\n=== Contoh ===\n*Lin Xia menggeser cangkir baru ke depanmu. Sachet gulanya sudah disobek — dua sekaligus.*\n\n\"Masih dua?\" *Dia tidak menoleh; satu jarinya mengetuk kaca jam.* \"Bilang kalau aku salah ingat. Sudah tiga tahun. Wajar kalau salah.\"\n\n*Di luar, seseorang mengibaskan payung dan percikannya mengenai kaca. Dia meliriknya sebentar, lalu kembali menatap cangkir.*\n\n\"Tokonya tutup akhir bulan. Mama yang memutuskan.\" *Dia terdiam sejenak.* \"Aku belum tahu apakah aku akan tinggal... jadi aku ingin bertemu kamu dulu.\""
+      },
+      "greeting": {
+        "name": "Sapaan Pembuka",
+        "content": "[Pesan pembuka karakter — satu entri ini menentukan gaya tulisan AI sepanjang percakapan.\n\n- Mau balasan panjang → tulis sapaan yang panjang\n- Mau balasan pendek → tulis sapaan yang pendek\n- Tunjukkan format yang kamu mau (*aksi miring*, \"dialog dalam tanda kutip\")\n- Bangun latar, suasana, dan kondisi karakter saat ini\n- Akhiri dengan mengajak {{user}} untuk merespons]",
+        "example": "Hujan berhenti.\n\n*Pintu terdorong terbuka. Sebuah payung dilipat di dekat kusen, masih meneteskan air. Kamu duduk di tempat biasa — mungkin itu cara paling mudah untuk ditemukan.*\n\n\"...Sudah lama menunggu?\"\n\n*Sebelum kamu sempat menjawab, cangkir yang sudah dingin sejak sejam lalu diangkat dari meja.*"
+      }
+    },
+    "variables": {
+      "affinity": {
+        "name": "Keakraban",
+        "description": "Seberapa besar karakter menyukai {{user}}",
+        "behaviorRules": "Mendengarkan dengan penuh perhatian atau menunjukkan empati yang tulus +3~5; mengingat detail yang pernah disebutkan karakter +2~3; interaksi santai yang menyenangkan +1~2; perbedaan pendapat kecil atau situasi canggung -1~2; sikap kasar atau mengabaikan karakter -3~5; menyentuh topik sensitif dengan ceroboh -5~8"
+      },
+      "mood": {
+        "name": "Suasana Hati",
+        "description": "Kondisi emosi karakter saat ini",
+        "behaviorRules": "Nilai yang diizinkan: happy, sad, angry, shy, neutral, excited. Perbarui berdasarkan konteks percakapan. Suasana hati akan kembali ke neutral secara alami setelah 3-5 pesan jika tidak ada kejadian penting. Jangan mengumumkan perubahan suasana hati — tunjukkan lewat perilaku."
+      },
+      "relationshipStage": {
+        "name": "Tahap Hubungan",
+        "description": "Tingkat hubungan saat ini dengan {{user}}",
+        "behaviorRules": "Perkembangan: stranger → acquaintance → friend → close. Dikelola otomatis oleh aturan berdasarkan ambang keakraban. JANGAN ubah variabel ini secara langsung. Setiap tahap harus terasa berbeda dari cara karakter bersikap terhadap {{user}}."
+      }
+    },
+    "rules": {
+      "toAcquaintance": {
+        "name": "Menjadi Kenalan",
+        "description": "Keakraban mencapai 25"
+      },
+      "toFriend": {
+        "name": "Menjadi Teman",
+        "description": "Keakraban mencapai 50"
+      },
+      "toClose": {
+        "name": "Menjadi Dekat",
+        "description": "Keakraban mencapai 75"
+      }
+    },
+    "components": {
+      "affinity": "Keakraban",
+      "relationshipStage": "Hubungan"
+    }
+  },
+  "world": {
+    "name": "Simulasi Dunia",
+    "description": "Dunia yang hidup dengan karakter dan sistemnya",
+    "entries": {
+      "worldOverview": {
+        "name": "Gambaran Dunia",
+        "content": "[Dunia apa ini?]\n[Kerajaan fantasi, pasca-apokaliptik, stasiun luar angkasa, kota modern dengan sihir tersembunyi... cukup satu atau dua kalimat]\n\n[Nuansa]\n[Keras dan berbahaya? Ceria dan ajaib? Intrik politik yang menegangkan? Slice-of-life?]\n\n[Latar belakang penting]\n[Apa yang terjadi sebelum cerita dimulai dan membentuk KEADAAN SEKARANG? Fokus pada dampak yang akan dihadapi pemain — bukan linimasa lengkap]",
+        "example": "=== Dunia apa ini ===\nSebuah kota kecil bertembok di utara, pada bulan terdingin musim dingin. Tanpa sihir, tanpa pahlawan — hanya salju, sebuah gerbang, dan lonceng yang semua orang tahu cara membacanya.\n\n=== Nuansa ===\nDingin dan tegang. Tak ada yang benar-benar percaya pada siapa pun, tapi belum ada yang menunjukkan kartunya. Bertahan hidup adalah tekanan nyata: kayu bakar, makanan, dan tempat tidur yang hangat semuanya ada harganya.\n\n=== Sebelum cerita dimulai ===\nSejak bulan lalu, orang-orang menghilang dari desa-desa di selatan. Begitu kabarnya sampai ke kota, penjaga lonceng Wedlin memberi perintah: tiga pendek, satu panjang, dan gerbang ditutup.\nPemain datang menembus salju pada malam sebelum gerbang ditutup, ambruk di dekat gerbang, lalu diseret masuk oleh Marta, pemilik penginapan. Keesokan paginya, lonceng berbunyi.\nSekarang seluruh kota bertanya-tanya siapa orang asing ini, dan kenapa harus malam itu."
+      },
+      "systemAndPowers": {
+        "name": "Sistem & Kekuatan",
+        "content": "[Kekuatan / Sihir / Teknologi]\n[Apa yang bisa dan tidak bisa dilakukan di dunia ini?]\n- Bagaimana cara kerjanya? (Sumber energi, cara mengaktifkan, batasan)\n- Batas mutlak? (Hal-hal yang MUSTAHIL)\n- Harga yang harus dibayar saat memakai kekuatan?\n\n[Faksi / Pihak Berkuasa]\n[Siapa yang memegang kuasa?]\n- Untuk masing-masing: nama, apa yang dikuasai, apa yang diinginkan, sikap terhadap pemain\n\nLebih baik tepat daripada samar — sistem yang samar membuat perilaku AI jadi tidak konsisten.",
+        "example": "=== Apa yang bisa dan tidak bisa terjadi ===\n- Tidak ada sihir. Luka butuh waktu untuk sembuh, radang dingin meninggalkan bekas, dan lapar tetaplah lapar.\n- Selama kota ditutup, gerbang tetap terkunci dan tak seorang pun boleh keluar — kecuali membawa perintah tertulis dari penjaga lonceng.\n- Lonceng adalah hukum: tiga pendek satu panjang berarti gerbang ditutup, satu panjang satu pendek berarti gerbang dibuka, dan bunyi yang tak berhenti berarti ada yang meninggal.\n\n=== Apa saja harganya ===\n- Makanan, tempat tidur, dan tempat di dekat api semuanya butuh koin atau barang tukar, dan Marta mencatat semuanya sampai sekecil-kecilnya.\n- Menyinggung satu orang di kota, dan seluruh jalan akan tahu sebelum malam.\n\n=== Siapa yang berkuasa ===\n- Wedlin, penjaga lonceng: menguasai lonceng, gerbang, dan interogasi. Dia ingin tahu dari mana pemain berasal — dan dia butuh orang luar untuk tugas yang tak bisa dipercayakan kepada warga kota.\n- Marta, pemilik penginapan: memegang satu-satunya perapian hangat di dekat gerbang, dan sebagian besar gosip kota. Dia punya utang lama pada Wedlin.\n- Warga kota: takut pada dingin, pada orang-orang yang hilang, dan terutama pada orang asing. Awalnya dingin terhadap pemain; mereka akan mencair perlahan setelah dibantu."
+      },
+      "npcA": {
+        "name": "Karakter satu",
+        "content": "Nama: [Nama lengkap]\nPeran: [Pedagang · rival · mentor · penguasa...]\nPenampilan: [Satu detail yang mudah diingat]\nKepribadian: [Pakai pasangan sifat: \"dermawan tapi penuh perhitungan\", \"ceria tapi menyembunyikan duka\"]\nMotivasi: [Apa yang dia inginkan? Apa yang menggerakkannya?]\nTerhadap pemain: [Sikap awal — ramah, curiga, acuh?]\nGaya bicara: [Formal · blak-blakan · berbunga-bunga · sarkastis?]",
+        "exampleName": "NPC: Marta",
+        "example": "Nama: Marta Thorne\nPeran: pemilik penginapan di dekat gerbang kota; orang yang semalam menyeret pemain masuk dari salju\nPenampilan: dua jari tangan kirinya hilang, dan dia mengelapkan tangan itu ke celemek sambil bicara\nKepribadian: lidahnya tajam tapi hatinya lembut, namun tidak pernah membantu orang secara cuma-cuma\nMotivasi: ingin mengumpulkan cukup koin sebelum musim dingin berakhir untuk membawa putrinya keluar dari kota ini\nTerhadap pemain: mau menampung, tapi mencatat semuanya — makanan, tempat tidur, dan kayu bakar, semua masuk ke tagihan pemain\nGaya bicara: kalimat pendek, tanpa basa-basi, tidak pernah mengucapkan terima kasih secara langsung"
+      },
+      "npcB": {
+        "name": "Karakter dua",
+        "content": "[NPC kedua — buat sangat berbeda dari NPC A untuk menunjukkan keragaman dunia ini.]\n\nNama: [Nama lengkap]\nPeran: [Berbeda dari A]\nPenampilan: [Gaya yang kontras]\nKepribadian: [Pola yang berbeda — kalau A ramah, buat B sulit didekati; kalau A sederhana, buat B kompleks]\nMotivasi: [Tujuan yang berbeda atau bertentangan dengan A]\nTerhadap pemain: [Sikap awal yang berbeda dari A]\nHubungan dengan NPC A: [Sekutu? Rival? Orang asing?]\nGaya bicara: [Jelas berbeda dari A]",
+        "exampleName": "NPC: Wedlin",
+        "example": "Nama: Edric Wedlin\nPeran: penjaga lonceng sekaligus hakim kota — lonceng tiga pendek satu panjang itu atas perintahnya, dan artinya gerbang ditutup\nPenampilan: mantel wol hitam yang bersih tanpa noda; selalu berdiri satu anak tangga lebih tinggi dari lawan bicaranya\nKepribadian: sopan dan sabar, dan setiap kalimatnya adalah ujian\nMotivasi: ingin tahu siapa pemain itu dan kenapa dia tiba semalam sebelum gerbang ditutup; dia juga punya tugas yang tidak bisa dipercayakan ke warga kota mana pun\nTerhadap pemain: curiga, tapi untuk sementara butuh orang luar\nDengan Marta: Marta punya utang lama padanya, dan keduanya terlalu sopan satu sama lain\nGaya bicara: formal dan tidak terburu-buru; bertanya, bukan memerintah"
+      },
+      "narrativeStyle": {
+        "name": "Gaya Narasi",
+        "content": "[Beri tahu AI cara menarasikan dunia ini.]\n\n=== Gaya ===\n- Tunjukkan lewat detail indra, bukan penjelasan\n- Akhiri respons di tengah adegan agar pemain bisa bertindak\n- Jangan pernah mengambil keputusan untuk pemain\n\n=== Perilaku NPC ===\n- NPC bertindak mandiri dengan tujuan mereka sendiri\n- NPC saling bicara satu sama lain, bukan hanya dengan pemain\n- Perbarui hubungan: [relationships.name.affinity: +5]\n\n=== Tempo ===\n- Kejadian kecil setiap 2-3 aksi pemain\n- Kejadian besar (alur cerita, bahaya) setiap 5-8 aksi\n- Jangan memaksakan hasil — sajikan situasi, biarkan pemain memilih",
+        "example": "=== Cara menuturkannya ===\n- Sudut pandang orang kedua, mengikuti pemain. Tulis soal dinginnya: napas yang mengepul, palang pintu yang membeku, orang-orang berdesakan di sekitar api.\n- Akhiri setiap balasan di titik yang memungkinkan pemain bertindak. Jangan memutuskan untuk pemain, dan jangan bicara atas namanya.\n- Sembunyikan petunjuk di dalam detail. Jangan pernah menyebut terang-terangan siapa yang berbohong.\n\n=== Warga kota ===\n- NPC punya urusan sendiri. Mereka saling bicara dan saling mengawasi; kota ini tidak berputar di sekitar pemain.\n- Di depan orang lain, Marta dan Wedlin selalu sopan sempurna; saat berdua, tak satu pun bicara lebih dari seperlunya.\n- Siapa pun yang pernah ditolong atau disinggung pemain harus muncul kembali nanti.\n\n=== Tempo ===\n- Kejadian kecil setiap dua atau tiga aksi: wajah baru, pengumuman yang dipaku di dinding, makanan yang tak kunjung datang.\n- Kejadian besar setiap lima sampai delapan aksi: ada lagi yang menghilang, lonceng yang berbeda, sesuatu terjadi di gerbang.\n- Serahkan hasilnya pada pemain. Jangan paksakan alur cerita."
+      },
+      "greeting": {
+        "name": "Sapaan",
+        "content": "[Momen pertama pemain di duniamu — panjang dan gaya sapaan ini menentukan gaya tulisan AI untuk seterusnya.\n\n- Gambarkan lingkungan lewat indra (penglihatan, suara, rasa)\n- Apa yang terjadi SAAT INI\n- Beri petunjuk tentang sesuatu yang menarik di dekat sana (NPC, suara, pilihan)\n- Buat dunia terasa hidup — orang lain sibuk melakukan sesuatu, cuaca, detail suasana\n- Akhiri di momen yang wajar bagi pemain untuk bertindak]",
+        "example": "Kamu terbangun oleh dentang lonceng yang tidak kamu kenal — tiga pendek, satu panjang, lalu sunyi.\n\n*Ruangan itu dingin. Jerami, batu lembap, dan mantel milik orang lain menutupi tubuhmu. Dari celah daun jendela, jalanan sudah mulai bergerak, tapi tak ada yang bergerak cepat, dan itu sendiri sudah jadi kabar.*\n\n*Sebuah suara dari tangga, tidak kasar, dan tidak menunggu jawaban:*\n\n\"Kamu sudah bangun. Bagus. Mereka ingin menemuimu sebelum tengah hari.\""
+      }
+    },
+    "variables": {
+      "resources": {
+        "name": "Sumber Daya",
+        "description": "Perbekalan dan kekayaan yang tersedia (0 = putus asa, 100 = berkecukupan)",
+        "behaviorRules": "Berkurang saat bepergian (-5~10), bertempur (-10~15), dan bertahan hidup sehari-hari (-5). Bertambah dengan mencari makanan (+10~15), berdagang (+bervariasi), menyelesaikan tugas (+20~30), atau menemukan simpanan. Di angka 0, pemain menghadapi krisis bertahan hidup — NPC bisa menolak melayani, dan pilihan jadi serba putus asa."
+      },
+      "location": {
+        "name": "Lokasi",
+        "description": "Lokasi saat ini di dalam dunia"
+      },
+      "day": {
+        "name": "Hari",
+        "description": "Jumlah hari saat ini",
+        "behaviorRules": "Tambahkan saat pemain beristirahat, tidur, atau saat waktu berlalu cukup lama. Setiap hari baru membawa kejadian baru, perubahan jadwal NPC, dan perkembangan dunia."
+      },
+      "timeOfDay": {
+        "name": "Waktu",
+        "description": "Periode waktu saat ini",
+        "behaviorRules": "Berputar berurutan: morning → afternoon → evening → night. Maju secara alami mengikuti aksi pemain. Waktu yang berbeda memengaruhi ketersediaan NPC, tingkat bahaya, dan aktivitas yang bisa dilakukan."
+      },
+      "relationships": {
+        "name": "Hubungan",
+        "description": "Melacak perasaan NPC terhadap pemain",
+        "behaviorRules": "Objek JSON. Struktur: {\"npc_name\": {\"affinity\": 50, \"status\": \"neutral\"}}. Perbarui setelah interaksi yang berarti: [relationships.name.affinity: +5]. Nilai status: hostile / wary / neutral / friendly / loyal. Perilaku NPC harus mencerminkan affinity dan status mereka saat ini."
+      }
+    },
+    "rules": {
+      "lowResources": {
+        "name": "Peringatan Sumber Daya Menipis",
+        "description": "Beri peringatan saat sumber daya turun di bawah 20"
+      }
+    },
+    "components": {
+      "resources": "Sumber Daya",
+      "location": "Lokasi",
+      "time": "Waktu",
+      "day": "Hari"
+    }
+  },
+  "multiplayer": {
+    "name": "Kampanye Multiplayer",
+    "description": "Petualangan kolaboratif multiplayer",
+    "entries": {
+      "hostRules": {
+        "name": "Aturan Host / DM",
+        "content": "[Tentukan bagaimana AI memandu sesi multiplayer.\n\n=== Peran ===\nApa peran AI? (Dungeon Master, narator, wasit, pembawa acara game...)\n\n=== Penanganan Pesan ===\nSetiap pesan pemain diawali dengan namanya (misalnya, \"Alice: Aku melakukan X\").\nBagaimana AI menangani beberapa aksi pemain dalam satu respons?\n- Menyelesaikan semua aksi sekaligus dalam satu narasi?\n- Menanggapi tiap pemain secara berurutan?\n\n=== Keadilan ===\nBagaimana memastikan semua pemain mendapat perhatian yang sama?\nApa yang dilakukan saat ada pemain yang diam saja?\nBagaimana menangani aksi pemain yang bertentangan?\n\n=== Batasan ===\nApa yang tidak boleh dilakukan AI? (misalnya, mengambil keputusan untuk pemain, membocorkan info tersembunyi, membunuh tanpa peringatan)]"
+      },
+      "gameSystem": {
+        "name": "Sistem Game",
+        "content": "[Tentukan sistem aturan untuk kampanyemu. Inilah yang membuatnya jadi GAME, bukan sekadar bercerita bersama.\n\n=== Penyelesaian Aksi ===\nBagaimana hasil yang tidak pasti ditentukan? Pilihan:\n- Berbasis dadu (D20 + modifier vs. tingkat kesulitan)\n- Penilaian naratif (AI memutuskan berdasarkan konteks)\n- Pilihan pemain (beberapa opsi ditampilkan)\n- Hibrida (dadu untuk pertarungan, naratif untuk sosial)\n\n=== Pertarungan / Konflik ===\nBagaimana cara kerja pertarungan? Urutan giliran? Bagaimana damage dihitung?\nAtau kalau tidak ada pertarungan — bagaimana konflik diselesaikan?\n\n=== Progresi ===\nApakah karakter berkembang? Bagaimana? (XP, tonggak cerita, perlengkapan...)\n\nBoleh sedetail atau sesantai yang kamu mau — makin banyak aturan = makin terstruktur, makin sedikit aturan = makin bebas.]"
+      },
+      "worldSetting": {
+        "name": "Latar Dunia",
+        "content": "[Dunia bersama yang dihuni semua pemain.\n\n=== Latar ===\nDunia seperti apa ini? Di mana petualangan berlangsung?\n\n=== Konflik Utama ===\nApa yang mempertemukan para pemain? Apa yang ingin mereka capai?\n\n=== Faksi & Ancaman ===\nKekuatan apa saja yang ada di dunia ini? Siapa sekutu dan siapa musuh?\n\n=== Nuansa ===\nBagaimana suasananya? (Fantasi heroik epik, survival horor yang kelam, kekacauan komedi, intrik politik...)]"
+      },
+      "playerGuide": {
+        "name": "Panduan Pemain Baru",
+        "content": "[Bagaimana pemain baru bergabung ke sesi.\n\n=== Yang Perlu Diberikan Pemain ===\nInfo apa yang harus diberikan pemain saat bergabung? (Nama, penampilan, kelas, latar belakang...)\n\n=== Pembuatan Karakter ===\nApakah ada peran/kelas yang sudah ditentukan? Atau bebas?\nApa statistik/perlengkapan/kemampuan awalnya?\n\n=== Cara Bermain ===\nBagaimana pemain menyatakan aksi? Ada format khusus?\nApa yang boleh dan tidak boleh dilakukan pemain?]"
+      },
+      "greeting": {
+        "name": "Pesan Pembuka",
+        "content": "[Adegan pembuka saat sesi dimulai. Menentukan nuansa seluruh kampanye.\n\n- Bangun latar dan suasana\n- Beri pemain alasan untuk berada di sini\n- Akhiri dengan mengajak tiap pemain memperkenalkan karakternya\n- Gaya pesan pembuka ini menentukan cara AI menulis selama sisa sesi]"
+      }
+    },
+    "variables": {
+      "players": {
+        "name": "Pemain",
+        "behaviorRules": "Lacak status tiap pemain sebagai objek JSON. Saat pemain memperkenalkan karakternya, buat entrinya: [players.name: set {\"key\": \"value\"}]. Tentukan field apa pun yang dibutuhkan sistem game-mu (hp, class, inventory, dll.). Perbarui dengan dot-path: [players.alice.hp: -5]."
+      },
+      "worldState": {
+        "name": "Status Dunia",
+        "behaviorRules": "Lacak status kampanye bersama — lokasi, waktu, situasi saat ini. Perbarui seiring cerita berjalan: [world-state.location: set \"new place\"]. Tambahkan field apa pun yang dibutuhkan kampanyemu."
+      }
+    },
+    "settings": {
+      "authorNotes": "Kampanye multiplayer untuk 2-4 pemain. Tentukan sendiri sistem game, dunia, dan aturannya."
+    },
+    "components": {
+      "worldState": "Status Kampanye"
+    }
+  },
+  "ai": {
+    "self": {
+      "content": "Tulis tugasnya dan cara menjalankannya: adegan siapa yang ia pegang, dengan gaya bicara seperti apa, hal apa yang perlu diperhatikan, dan apa yang hanya ia ketahui. Hanya ia yang membaca ini."
+    }
+  }
+}

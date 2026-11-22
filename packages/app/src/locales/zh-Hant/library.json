@@ -1,4 +1,8 @@
 {
+  "audience": {
+    "unlisted": "僅憑連結",
+    "followers": "僅限粉絲"
+  },
   "reviewBanner": {
     "title": "發布狀態",
     "inReview": "{{count}} 張更新稽覈中",
@@ -35,7 +39,8 @@
     "removeFromLibrary": "從庫中移除",
     "removeConfirm": "從庫中移除 <strong>{{name}}</strong> 將永久刪除你所有的存檔和遊玩記錄。",
     "removeAction": "移除",
-    "sessionHistorySoon": "會話歷史即將推出"
+    "sessionHistorySoon": "會話歷史即將推出",
+    "filterEmpty": "沒有符合的遊戲"
   },
   "projects": {
     "title": "我的專案",
@@ -190,7 +195,7 @@
     "invalidFile": "這不是資源包檔案",
     "parseFailed": "讀取資源包檔案失敗",
     "title": "資源包",
-    "noResults": "沒有「{{query}}」的搜尋結果 - 試試清除搜尋。",
+    "noResults": "沒有「{{query}}」的搜尋結果",
     "emptyHeadline": "暫無資源包",
     "emptySubtitle": "瀏覽發現頁尋找資源包並新增到你的庫。",
     "emptyCta": "瀏覽資源包",
@@ -231,7 +236,9 @@
     "tokens": "Token",
     "estTime": "預計時長",
     "share": "分享",
+    "inviteTesters": "邀請好友試玩",
     "download": "下載",
+    "duplicate": "複製一份",
     "report": "舉報",
     "delete": "刪除",
     "addToFavorites": "新增到收藏",
@@ -258,12 +265,22 @@
     "basedOnBy": "作者",
     "tags": "標籤",
     "activity": "熱度數據",
+    "community": "社群",
+    "allTime": "累計",
+    "moreActivity": "更多活動數據",
+    "noReviewsYet": "暫無評價",
+    "viewReviews": "查看評價",
     "downloads": "下載量",
     "chatVolume": "對話量",
     "favoriteCount": "收藏量",
     "uniquePlayers": "獨立玩家",
-    "averageSession": "平均會話時長",
+    "averagePlaytimePerPlayer": "平均遊玩時長",
     "averageRating": "平均評分",
+    "details": "詳情",
+    "playthroughs": "遊玩分享",
+    "totalPlaytime": "累計遊玩",
+    "openGallery": "查看圖集（{{count}} 張）",
+    "galleryImageAlt": "圖集第 {{index}} 張，共 {{total}} 張",
     "updateHistory": "更新記錄",
     "updateHistorySaveFirst": "儲存作品後可查看更新記錄。",
     "updateHistoryLoading": "正在載入更新記錄…",
@@ -318,14 +335,19 @@
       "failedToLoadSession": "會話載入失敗",
       "failedToSaveSession": "儲存會話文字失敗",
       "downloadCompleteTitle": "匯出完成",
-      "downloadCompleteDescription": "會話文字已儲存到「資源 > output chat」，型別為 TXT。你可以在那裡開啟、分享到社羣，或再挑一條匯出。",
+      "downloadCompleteDescription": "會話文字已儲存到「資源 > output chat」，型別為 TXT。你可以在那裡開啟、分享到社群，或再挑一條匯出。",
       "downloadSizeSummary": "已儲存 {{size}} 到你的資源庫。",
       "pickAnother": "再選一條",
       "viewInAssets": "前往資源檢視",
-      "shareInCommunity": "分享到社羣"
+      "shareInCommunity": "分享到社群"
     },
     "reviews": "評價",
-    "overviewSubtitle": "關鍵資訊、筆記和描述集於一處。"
+    "overviewSubtitle": "關鍵資訊、筆記和描述集於一處。",
+    "inviteCollaborators": "邀請協作",
+    "originalCreator": "原作者",
+    "showMore": "展開全部",
+    "showLess": "收起",
+    "reviewsHeading": "評價與討論"
   },
   "bulk": {
     "select": "選擇",
@@ -344,7 +366,7 @@
     "deleteConfirmBundles": "永久刪除 <strong>{{count}}</strong> 個資源包？此操作無法撤銷。",
     "deleting": "正在刪除...",
     "deletedSuccess": "已刪除 {{count}} 個專案",
-    "deletedPartial": "已刪除 {{success}} / {{total}} — 失敗 {{failed}} 個",
+    "deletedPartial": "已刪除 {{success}} / {{total}}，失敗 {{failed}} 個",
     "deletedFailed": "刪除失敗"
   },
   "dialog": {
@@ -372,7 +394,9 @@
     "editAsMyProject": "編輯為我的專案",
     "favorite": "收藏",
     "unfavorite": "取消收藏",
-    "update": "更新"
+    "update": "更新",
+    "lastPlayed": "上次遊玩 {{date}}",
+    "neverPlayed": "還沒玩過"
   },
   "room": {
     "dialogTitle": "選擇房間對話模式",
@@ -397,6 +421,7 @@
     "failedToCopy": "複製遊戲到專案失敗",
     "linkCopied": "連結已複製",
     "failedToShare": "分享失敗",
+    "unpublishedCannotShare": "未發布的卡片無法分享。",
     "failedToDownload": "下載失敗",
     "failedToExport": "匯出失敗",
     "failedToCreateRoom": "建立房間失敗",
@@ -408,7 +433,6 @@
     "downloadBundleFailed": "無法下載資源包",
     "deleteAssetFailed": "無法刪除素材",
     "deleteAssetVersioned": "已儲存的卡片歷史版本仍在使用這個素材，保留這些歷史版本期間無法刪除。",
-
     "deleteAssetInUse": "這張圖還是《{{name}}》的封面，先把那張卡的封面換掉再刪。",
     "deleteAssetUsedByCard": "《{{name}}》還在用這個檔案，先從那張卡裡拿掉再刪。",
     "renameAssetFailed": "無法重新命名素材",
@@ -434,11 +458,15 @@
       "subtitle": "生成圖片和音樂，儲存到你的素材庫。",
       "assets": "我的素材",
       "signInTitle": "讓靈感成為畫面",
-      "signInBody": "登入後即可生成圖片和音樂、儲存作品，並隨時查看生成紀錄。",
-      "signInAction": "生成圖片和音樂",
+      "signInBody": "登入後給你的角色做圖、影片和聲音。",
+      "signInAction": "做圖、影片和聲音",
       "signIn": "登入開始創作"
     },
-    "mobileSubtitle": "建構世界、設計角色，或把靈感變成一幅畫。"
+    "mobileSubtitle": "建構世界、設計角色，或把靈感變成一幅畫。",
+    "aiCard": {
+      "title": "工坊",
+      "desc": "給你的角色做圖片、影片、音訊"
+    }
   },
   "time": {
     "justNow": "剛剛",
@@ -459,7 +487,7 @@
     "worldSimulationDesc": "構建一個擁有自己傳說、陣營和動態事件的完整世界。",
     "multiplayerCampaign": "多人戰役",
     "multiplayerCampaignDesc": "2-4 名玩家的協作冒險。自定義你的遊戲系統和世界。",
-    "imageGeneration": "AI 生成",
+    "imageGeneration": "工坊",
     "imageGenerationDesc": "一句話生圖、生音樂：角色立繪、場景、封面，還有卡的 BGM。"
   },
   "newSubFolder": "新建子資料夾",
@@ -482,7 +510,7 @@
     "largeFile": "檔案較大（{{size}} MB），載入可能較慢"
   },
   "generation": {
-    "openButton": "AI 生成",
+    "openButton": "工坊",
     "title": "AI 生圖",
     "disabled": "生成服務暫不可用。",
     "template": {
@@ -511,7 +539,7 @@
     "promptPlaceholder": "描述你想要的畫面…",
     "referenceLabel": "參考圖",
     "referenceHint": "從素材庫選擇一張圖片，作為新圖片的參考。",
-    "referenceEmpty": "素材庫還沒有圖片——先上傳或生成一張",
+    "referenceEmpty": "素材庫還沒有圖片，先上傳或生成一張",
     "folderLabel": "保存到資料夾",
     "noFolder": "全部素材（不入資料夾）",
     "price": "{{count}} 蘑菇幣",
@@ -582,7 +610,7 @@
       "hint": "可以貼上 Civitai 連結匯入，也可以從素材庫裡的 .safetensors 檔案匯入。模型需要同步到各地生成伺服器後才能使用，通常幾分鐘。",
       "importCivitai": "匯入",
       "importLibrary": "從素材庫匯入",
-      "libraryEmpty": "素材庫裡還沒有 .safetensors 檔案——請先上傳到素材庫。",
+      "libraryEmpty": "素材庫裡還沒有 .safetensors 檔案，請先上傳到素材庫。",
       "syncing": "同步中",
       "failed": "失敗",
       "importedToast": "已匯入，正在同步到生成伺服器",
@@ -620,7 +648,9 @@
       "sentToModel": "實際發給模型的描述",
       "reroll": "再來一張",
       "reuseSeed": "沿用種子",
-      "seedValue": "種子 {{seed}}"
+      "seedValue": "種子 {{seed}}",
+      "keptInCard": "{{count}} 張圖還在「{{worldName}}」裡用著，已保留",
+      "keptVersioned": "{{count}} 張圖還在卡的儲存版本裡用著，已保留"
     },
     "community": {
       "searchPlaceholder": "搜尋共享模型…",
@@ -730,35 +760,35 @@
     "videoStyleFromReference": "影片會沿用參考圖的畫風。",
     "makeReference": "先生成一張",
     "errors": {
-      "TIMED_OUT": "生成耗時過長已被停止——請重試。",
+      "TIMED_OUT": "生成耗時過長已被停止，請重試。",
       "INTERRUPTED": "伺服器更新打斷了這次生成，本次未扣款，請重新生成。",
-      "NEVER_STARTED": "任務未能啟動——請重試。",
-      "NO_OUTPUT": "生成器沒有產出結果——請重試或調整提示詞。",
-      "STORE_FAILED": "結果儲存失敗——請重試。",
+      "NEVER_STARTED": "任務未能啟動，請重試。",
+      "NO_OUTPUT": "生成器沒有產出結果，請重試或調整提示詞。",
+      "STORE_FAILED": "結果儲存失敗，請重試。",
       "STORAGE_LIMIT": "素材空間不足，請清理一些素材後重試。",
       "OUTPUT_LOST": "結果在儲存前遺失。",
-      "WORKER_ERROR": "生成器內部出錯——請重試。",
-      "WORKER_OOM": "目前組合超出顯示記憶體上限——請降低解析度、減少步數或減少 LoRA 數量。",
-      "MODEL_MISSING": "所需模型檔案暫不可用，我們正在處理——請稍後再試。",
-      "SUBMIT_FAILED": "任務提交失敗——請重試。",
+      "WORKER_ERROR": "生成器內部出錯，請重試。",
+      "WORKER_OOM": "目前組合超出顯示記憶體上限，請降低解析度、減少步數或減少 LoRA 數量。",
+      "MODEL_MISSING": "所需模型檔案暫不可用，我們正在處理，請稍後再試。",
+      "SUBMIT_FAILED": "任務提交失敗，請重試。",
       "CANCELLED": "已取消。",
-      "INTERNAL": "我們這邊出了點問題——請重試。",
+      "INTERNAL": "我們這邊出了點問題，請重試。",
       "ACCOUNT_RESTRICTED": "你的帳號目前無法使用生成功能。",
-      "MODEL_NOT_READY": "該模型還在準備中——就緒後再試。",
-      "STYLE_NOT_READY": "該風格還在準備中——可以先試試其他風格。",
+      "MODEL_NOT_READY": "該模型還在準備中，就緒後再試。",
+      "STYLE_NOT_READY": "該風格還在準備中，可以先試試其他風格。",
       "MODEL_REGION_MISMATCH": "所選模型分布在不同區域，暫時無法組合使用。",
       "REFERENCE_TOO_LARGE": "參考圖過大。",
-      "PRESET_LIMIT": "預設數量已達上限——請先刪除一個。",
+      "PRESET_LIMIT": "預設數量已達上限，請先刪除一個。",
       "MODEL_TAKEN_DOWN": "該模型已被下架，無法繼續使用。",
-      "MODEL_IN_USE": "該模型正被進行中的任務使用——請等它完成。",
-      "IMPORT_IN_PROGRESS": "已有匯入任務進行中——請等它完成。",
-      "TOO_MANY_MODELS": "模型數量已達上限——請先刪除一個。",
+      "MODEL_IN_USE": "該模型正被進行中的任務使用，請等它完成。",
+      "IMPORT_IN_PROGRESS": "已有匯入任務進行中，請等它完成。",
+      "TOO_MANY_MODELS": "模型數量已達上限，請先刪除一個。",
       "MODEL_KIND_MISMATCH": "檔案與所選模型類型不符。",
       "NO_FINISHED_JOBS": "還沒有完成的生成紀錄。",
       "PROVIDER_BUSY": "生圖服務忙碌，請稍後重試。",
       "PROVIDER_CREDITS": "智慧生圖暫時無法使用，請稍後重試。",
       "GENERATION_BUSY": "生圖佇列已滿，請稍後重試。",
-      "GENERATION_BUDGET": "智慧生圖額度暫時用完，請稍後再試。",
+      "GENERATION_BUDGET": "今天的生成額度暫時用完了，請稍後再試。",
       "REFERENCE_NOT_FOUND": "找不到參考圖片，或目前帳號無權使用。",
       "REFERENCE_FORMAT": "參考圖僅支援 PNG、JPEG 或 WebP。",
       "REFERENCE_DIMENSIONS": "參考圖不能超過 4000 萬像素。",
@@ -794,11 +824,36 @@
       "VIDEO_STYLE_WITH_FRAME": "這個畫風現在用不了，換一個再試。",
       "QUALITY_BATCH": "4K 一次只能生成一張，把數量改成 1 再試。",
       "MODEL_UNAVAILABLE": "這個模型暫時無法使用，請換一個模型。",
-      "REFERENCE_UNSUPPORTED": "這個模型不支援參考圖。請移除圖片，或換一個模型。"
+      "REFERENCE_UNSUPPORTED": "這個模型不支援參考圖。請移除圖片，或換一個模型。",
+      "REFERENCE_VIDEO_FORMAT": "參考影片讀不出來，請換一個 MP4 或 WebM。",
+      "REFERENCE_VIDEO_LENGTH": "參考影片至少要 2 秒。",
+      "VIDEO_NO_REFERENCE_VIDEO": "這個模型不能跟參考影片。",
+      "VIDEO_REFERENCE_VIDEO_RESOLUTION": "跟參考影片時不能選這個解析度。",
+      "UNKNOWN_TOOL": "未知工具",
+      "INVALID_INPUT": "請檢查輸入",
+      "MEDIA_FORMAT": "不支援的檔案格式",
+      "MEDIA_NOT_FOUND": "找不到檔案",
+      "MEDIA_UNAVAILABLE": "檔案讀取失敗",
+      "MEDIA_TOO_LARGE": "檔案太大",
+      "MEDIA_TOO_LONG": "檔案太長",
+      "MEDIA_TOO_SHORT": "檔案太短",
+      "MEDIA_DIMENSIONS": "圖片尺寸不支援",
+      "OUTPUT_TOO_LARGE": "結果太大，無法儲存",
+      "REQUEST_CONFLICT": "已經開始了",
+      "FOLDER_NOT_FOUND": "找不到資料夾",
+      "JOB_MISSING": "找不到任務",
+      "GENERATION_USER_BUDGET": "你今天的用量到上限了，明天再來。",
+      "LORA_NEEDS_ANIMA": "這是 Anima 的 LoRA：換成 Anima 底模，或移除它",
+      "LORA_NEEDS_SDXL": "這是 SDXL 的 LoRA：換成 SDXL 底模，或移除它",
+      "LORA_FAMILY_UNSUPPORTED": "只支援 Anima 和 SDXL（Illustrious、NoobAI、Pony）的 LoRA",
+      "LORA_NOT_ANIMA": "只支援 Anima 的 LoRA",
+      "CIVITAI_SIGN_IN": "Civitai 要登入才能下載這個檔案，請下載後上傳",
+      "CIVITAI_LICENSE": "作者不允許在生成服務上使用這個 LoRA",
+      "NOT_SAFETENSORS": "只能匯入 .safetensors 檔案"
     },
     "queue": {
       "waiting": "排隊中…",
-      "busy": "目前使用人數較多——任務已排隊，會自動開始。"
+      "busy": "目前使用人數較多，任務已排隊，會自動開始。"
     },
     "smart": {
       "aspect": "畫面比例",
@@ -830,6 +885,7 @@
         "seedreamFlash": "最便宜",
         "seedreamLite": "快",
         "seedreamPro": "均衡",
+        "seedream55": "最新 · 可出透明底",
         "nanoBanana21": "最新 · 改圖強",
         "nanoBanana2": "有 512",
         "nanoBananaPro": "高質",
@@ -842,19 +898,19 @@
         "qwenImage3": "便宜 · 慢",
         "qwenImage3Pro": "細節多 · 慢",
         "grokImagine": "最便宜 · 快",
-        "grokImagineQuality": "快",
         "grokImagine2": "細節多 · 很慢",
         "klingO1": "乾淨動漫",
         "lumaUni1": "400萬像素 · 慢",
         "lumaUni1Max": "400萬像素更細 · 慢",
-        "ideogram45": "擅長文字",
+        "ideogram46": "擅長文字",
         "wan25": "偏繪畫 · 預覽版",
         "recraft41": "設計 · 平面",
         "krea2Turbo": "最便宜",
         "krea2Medium": "風格化",
         "krea2Large": "風格化 · 慢",
         "maiImage26": "乾淨 · 快",
-        "hunyuan35": "便宜 · 2K"
+        "hunyuan35": "便宜 · 2K",
+        "minimaxH3Image": "最快 · 便宜 4K"
       },
       "version": "版本",
       "noReference": "{{model}} 不支援參考圖。請移除圖片，或換一個模型。",
@@ -916,15 +972,23 @@
       "emptyTitle": "還沒有圖",
       "emptyBody": "第一張會出現在這裡。",
       "thisRun": "本次約 {{count}} 蘑菇幣",
-      "pageTitle": "AI 生成",
+      "pageTitle": "工坊",
       "tabImage": "圖片",
       "tabAudio": "音訊",
-      "audioTitle": "AI 生成 BGM",
-      "audioLead": "音樂會儲存到素材庫。",
+      "audioTitle": "AI 音訊",
+      "audioLead": "音樂、音效和配音會儲存到素材庫。",
       "sectionOutput": "畫面規格",
       "tabVideo": "影片",
       "videoTitle": "AI 生成影片",
-      "videoLead": "影片會儲存到素材庫，可以放進立繪、開場白和玩家介面。"
+      "videoLead": "影片會儲存到素材庫，可以放進立繪、開場白和玩家介面。",
+      "tabGallery": "廣場",
+      "galleryTitle": "生圖廣場",
+      "galleryLead": "看看大家畫了什麼。喜歡哪張，就用同樣的配方生成一張。",
+      "tab3d": "3D",
+      "model3dTitle": "AI 3D 模型",
+      "model3dLead": "模型以 .glb 儲存到素材庫。",
+      "tabLive": "動態立繪",
+      "liveTitle": "AI 製作動態立繪"
     },
     "music": {
       "workshopTitle": "AI 生成 BGM",
@@ -998,11 +1062,13 @@
       "slot": {
         "first": "首幀",
         "last": "尾幀",
-        "ref": "角色參考"
+        "ref": "角色參考",
+        "video": "參考影片"
       },
       "slotHint": {
         "first": "影片從這張圖開始",
-        "last": "影片停在這張圖上"
+        "last": "影片停在這張圖上",
+        "video": "鏡頭和走位照著它走。沒有現成的，點「搭白模」現搭一個"
       },
       "slotRefHint": "長相照著它，場景可以全新 · 最多 {{count}} 張，每張 +{{price}}",
       "slotRefHintFree": "長相照著它，場景可以全新 · 最多 {{count}} 張",
@@ -1026,7 +1092,8 @@
         "firstLastShort": "首尾幀",
         "refsShort": "參考圖",
         "fast": "快",
-        "needsImage": "需要圖片"
+        "needsImage": "需要圖片",
+        "refVideo": "跟參考影片"
       },
       "priceFrom": "{{count}} / {{seconds}} 秒起",
       "priceFor": "{{count}} / {{seconds}}秒",
@@ -1070,7 +1137,7 @@
       "emptyTitle": "還沒有影片",
       "emptyBody": "第一段會出現在這裡。",
       "place": "放到…",
-      "placePortrait": "角色動態立繪",
+      "placePortrait": "角色影片立繪",
       "placeGreeting": "開場白最前面",
       "placed": "已放到：{{where}}",
       "unnamed": "未命名角色",
@@ -1090,7 +1157,20 @@
       "howStyle": "{{style}}畫風",
       "placeUi": "玩家介面（新影片框）",
       "styleHint": "先按這個畫風畫出第一幀，再讓它動起來，整段影片保持這個畫風。",
-      "styleNoneHint": "{{model}} 直接從文字生成，畫面偏寫實。"
+      "styleNoneHint": "{{model}} 直接從文字生成，畫面偏寫實。",
+      "howReferenceVideo": "照參考影片生成",
+      "uploadVideo": "上傳影片",
+      "referenceVideoResolution": "{{model}} 跟參考影片時只能出 {{list}}。",
+      "slotBlockedByVideo": "跟參考影片時不用首尾幀",
+      "slotBlockedByFrames": "去掉首尾幀才能用參考影片",
+      "referenceVideoUsedAll": "{{seconds}} 秒 · 整段都用 · 裁成 {{aspect}}",
+      "referenceVideoUsedPart": "{{seconds}} 秒 · 只用前 {{used}} 秒 · 裁成 {{aspect}}",
+      "referenceVideoOtherModel": "只有 Seedance 2.5 能跟參考影片，{{model}} 不會用它。換回 Seedance 2.5 就會用上。",
+      "promptPlaceholderReferenceVideo": "寫畫面是什麼就行：方塊和小人分別是什麼、什麼地方、什麼風格和光線。鏡頭和走位會照參考影片走，不用再寫。",
+      "referenceVideoTooLarge": "參考影片不能超過 {{mb}} MB，剪短一點再傳。",
+      "referenceVideoEmpty": "素材庫裡還沒有影片，上傳一段灰模或錄屏。",
+      "searchVideos": "搜尋影片",
+      "referenceVideoSwitch": "要跟著參考影片或 3D 場景，換成 {{model}}。點一下切過去"
     },
     "folderLoadFallback": "讀不到這張卡綁定的資料夾，先按「全部素材」生成。",
     "quality": {
@@ -1131,6 +1211,1790 @@
         "camera": "會運鏡",
         "dialogue": "對口型說話"
       }
+    },
+    "blockout": {
+      "title": "搭白模",
+      "lead": "擺好場景和人，選一種運鏡，錄下來當參考影片。不用做得像，灰盒子就夠：AI 照它的鏡頭和走位，畫面按你寫的來。",
+      "open": "搭一個白模當參考影片",
+      "openShort": "搭白模",
+      "reopenShort": "改白模",
+      "place": "場景",
+      "places": {
+        "empty": "空地",
+        "room": "房間",
+        "classroom": "教室",
+        "street": "街道",
+        "scene": "AI 場景"
+      },
+      "scene": {
+        "off": "這裡沒有開通 AI 場景",
+        "promptLabel": "什麼地方",
+        "promptPlaceholder": "夕陽下的教室，一排排木課桌，綠色黑板，左邊一整面窗……（畫風也寫上：動漫、油畫、寫實）",
+        "make": "生成場景 · {{price}} 蘑菇幣",
+        "making": "正在生成場景…大約一分鐘",
+        "makeHint": "一句話變成一間 3D 房間，人能站進去、鏡頭能在裡面拍。同一個場景每次都一樣，這個地方的每段影片都對得上。大約一分鐘；失敗會退蘑菇幣。",
+        "noCredits": "需要 {{price}} 蘑菇幣，儲值後才能生成場景。",
+        "mine": "我的場景",
+        "none": "生成一個場景，或者選一個你已有的，就會出現在這裡",
+        "loading": "載入場景中…（{{mb}} MB）",
+        "loadFailed": "場景載入失敗，再試一次。",
+        "change": "換一個",
+        "remove": "刪掉這個場景",
+        "failedShort": "失敗",
+        "refunded": "已退款",
+        "floor": "地面",
+        "floorUp": "地面抬高",
+        "floorDown": "地面降低",
+        "floorHint": "人要是浮在半空或者陷進地裡，把地面挪一格。",
+        "howToFrame": "拖人挪位置，拖空白處轉視角。場景在生成它的那個點附近最清楚：鏡頭和人離中心 {{metres}} 公尺以內，再遠會糊。",
+        "needsScene": "先選一個或生成一個場景",
+        "failed": {
+          "REFUSED": "場景描述被供應商的內容審核拒絕了，換個說法再試。",
+          "PROVIDER_FAILED": "這段描述生成不出場景，換個寫法試試。",
+          "PROVIDER_UNAVAILABLE": "場景服務沒有回應，過一會兒再試。",
+          "STORAGE_FAILED": "場景生成了但沒存下來，再試一次。",
+          "LOST": "生成過程中斷了（伺服器重啟），再試一次。",
+          "GENERATION_DISABLED": "這裡沒有開通 AI 場景。"
+        },
+        "errors": {
+          "NO_CREDITS": "蘑菇幣不夠生成場景。",
+          "TOO_MANY_ACTIVE_JOBS": "一次只能生成一個場景，等目前這個做完。",
+          "PROMPT_TOO_LONG": "寫清楚是什麼地方，最多 1000 字。",
+          "GENERATION_DISABLED": "這裡沒有開通 AI 場景。",
+          "SCENE_BUSY": "這個場景還在生成中。",
+          "SCENE_FAILED": "場景這邊出了點問題，再試一次。"
+        }
+      },
+      "add": "加東西",
+      "things": {
+        "person": "人",
+        "box": "方塊",
+        "pillar": "柱子",
+        "table": "桌子"
+      },
+      "remove": "刪掉",
+      "turn": "朝向",
+      "turnLeft": "向左轉",
+      "turnRight": "向右轉",
+      "size": "大小",
+      "smaller": "小一點",
+      "bigger": "大一點",
+      "walks": "走動",
+      "walksHint": "拖半透明的那個人定終點，片子中段他會走過去",
+      "camera": "鏡頭",
+      "moves": {
+        "still": "固定",
+        "push": "推近",
+        "pull": "拉遠",
+        "orbit": "環繞",
+        "pan": "橫移",
+        "follow": "跟人"
+      },
+      "movesHint": {
+        "still": "鏡頭不動，只看人動",
+        "push": "從你擺好的畫面慢慢推近",
+        "pull": "從你擺好的畫面慢慢拉遠",
+        "orbit": "繞著畫面中心轉六分之一圈",
+        "pan": "往右平移，主體橫穿畫面",
+        "follow": "跟著走動的人，保持開頭的構圖"
+      },
+      "followNeedsPerson": "跟人需要場景裡至少有一個人",
+      "length": "時長",
+      "howToFrame": "拖人和物件挪位置，拖空白處轉視角，滾輪或雙指縮放。停在哪，開頭的畫面就是哪。",
+      "stayHere": "正在錄製，別切走這個頁面。錄完會自動放進參考影片。",
+      "recording": "錄製中 {{seconds}} / {{total}} 秒",
+      "previewing": "預覽 {{seconds}} / {{total}} 秒",
+      "uploading": "上傳中…",
+      "preview": "預覽",
+      "stop": "停止",
+      "use": "用這個白模（錄 {{count}} 秒）",
+      "footNote": "錄好的影片會存進素材庫，下次也能直接選。",
+      "leftWhileRecording": "錄製時切走了頁面，畫面會卡住。請留在這個頁面重錄一次。",
+      "recordFailed": "錄製失敗了，再試一次。一直不行的話，換 Chrome 或 Edge。",
+      "fileName": "白模"
+    },
+    "gallery": {
+      "sortLabel": "排序",
+      "sortNew": "最新",
+      "sortTop": "最熱",
+      "mine": "我的發布",
+      "loading": "載入中…",
+      "loadMore": "載入更多",
+      "error": "沒有載入成功",
+      "retry": "重試",
+      "emptyTitle": "廣場還空著",
+      "emptyBody": "生成一張滿意的圖，或者打開一張劇情插圖，點「發布到廣場」，審核通過後就會出現在這裡。",
+      "emptyAction": "去生成",
+      "mineEmptyTitle": "還沒有發布過",
+      "mineEmptyBody": "在生成紀錄裡點「發布到廣場」，就能把作品連同配方一起分享。",
+      "open": "查看大圖",
+      "untitled": "未命名",
+      "detailHint": "圖片、提示詞和生成參數",
+      "like": "按讚",
+      "unlike": "取消按讚",
+      "prompt": "提示詞",
+      "negativePrompt": "反向提示詞",
+      "copyPrompt": "複製",
+      "copied": "已複製",
+      "copyFailed": "複製失敗",
+      "settings": "參數",
+      "models": "用到的模型",
+      "omittedModels": "作者還用了 {{count}} 個私人模型，沒有包含在配方裡。",
+      "useRecipe": "用這個配方生成",
+      "useRecipeHint": "會填好提示詞和參數，生成前還能再改。",
+      "delete": "從廣場刪除",
+      "deleteConfirm": "從廣場刪除這張圖？圖片本身還在你的素材庫裡。",
+      "deleted": "已從廣場刪除",
+      "status": {
+        "pending": "審核中",
+        "approved": "已公開",
+        "rejected": "未通過"
+      },
+      "rejectReason": "原因：{{reason}}",
+      "pendingHint": "通過後別人才看得到",
+      "facts": {
+        "model": "模型",
+        "style": "畫風",
+        "aspect": "比例",
+        "size": "尺寸",
+        "steps": "步數",
+        "cfg": "CFG",
+        "sampler": "採樣器",
+        "quality": "畫質",
+        "seed": "種子"
+      },
+      "publish": "發布到廣場",
+      "inGallery": "已在廣場",
+      "publishTitle": "發布到廣場",
+      "publishBody": "提示詞和參數會一起公開，別人可以用同樣的配方生成。參考圖不會公開。",
+      "pickImage": "選一張發布",
+      "titleLabel": "標題（選填）",
+      "titlePlaceholder": "幫這張圖取個名字",
+      "sensitiveLabel": "放進無限制區（只有開了無限制的成年人看得到）",
+      "reviewNote": "AI 會先看一眼，通常很快就會出現。",
+      "publishAction": "發布",
+      "publishing": "發布中…",
+      "publishDone": "已提交，AI 看過後就會出現在廣場。",
+      "alreadyPosted": "這張已經發布過了。",
+      "tooManyPending": "等審核的圖太多了，審完再發吧。",
+      "publishFailed": "沒發出去，再試一次。",
+      "fromStory": "來自故事",
+      "playStory": "去玩",
+      "noRecipe": "這張圖畫在配方儲存功能上線之前，沒有可以照著生成的配方。",
+      "storyPublishBody": "別人能看到這張圖、畫它用的提示詞，以及它來自哪個故事。",
+      "discoverTitle": "大家畫的圖",
+      "signInBody": "登入後可以看到其他玩家發布的圖和劇情插圖，喜歡哪張就照著配方生成一張。",
+      "signIn": "登入",
+      "report": {
+        "open": "檢舉",
+        "title": "這張圖有什麼問題？",
+        "reasons": {
+          "minor": "疑似未成年",
+          "sexual_unmarked": "色情內容但沒標敏感",
+          "real_person": "真實人物",
+          "violence": "暴力或血腥",
+          "hate": "仇恨或騷擾",
+          "spam": "垃圾內容",
+          "other": "其他"
+        },
+        "detailsPlaceholder": "還有什麼想告訴我們的（可不填）",
+        "cancel": "取消",
+        "submit": "送出檢舉",
+        "sent": "謝謝，我們會盡快查看。"
+      }
+    },
+    "tools": {
+      "open": "工具",
+      "menu": "工具",
+      "overviewTitle": "工具",
+      "overviewLead": "所有工具，依用途分組。",
+      "loadError": "工具載入失敗",
+      "unavailable": "暫不可用",
+      "unavailableShort": "暫不可用",
+      "from": "{{count}} 蘑菇幣起",
+      "goFrom": "生成（{{count}} 蘑菇幣起）",
+      "about": "約 {{seconds}} 秒",
+      "started": "已開始",
+      "files": "檔案",
+      "pick": {
+        "image": "選一張圖",
+        "video": "選一部影片",
+        "audio": "選一段聲音"
+      },
+      "searchAudio": "搜尋聲音",
+      "uploadAudio": "上傳聲音",
+      "audioEmpty": "素材庫裡還沒有聲音",
+      "audioFormat": "MP3、WAV、OGG、M4A 或 FLAC",
+      "audioTooLarge": "最大 {{mb}} MB",
+      "lyricsPlaceholder": "可不填 · [verse] [chorus] [bridge]",
+      "input": {
+        "image": "圖片",
+        "video": "影片",
+        "audio": "聲音",
+        "mask": "要改的區域",
+        "prompt": "描述",
+        "lyrics": "歌詞",
+        "seconds": "長度",
+        "instrumental": "純音樂",
+        "factor": "放大倍數",
+        "aspect": "新比例",
+        "light": "光線",
+        "loop": "無縫循環",
+        "text": "台詞",
+        "voice": "音色",
+        "lang": "目標語言",
+        "model": "模型",
+        "heightM": "真實高度",
+        "detail": "精細度",
+        "motions": "動作"
+      },
+      "light": {
+        "sunset": "夕陽",
+        "night": "夜晚",
+        "studio": "攝影棚",
+        "neon": "霓虹",
+        "candle": "燭光",
+        "overcast": "陰天"
+      },
+      "mask": {
+        "brush": "畫筆",
+        "erase": "橡皮擦",
+        "size": "大小",
+        "clear": "清除",
+        "hint": "塗出要改的地方",
+        "empty": "請先塗出區域",
+        "failed": "遮罩上傳失敗"
+      },
+      "voicePreview": "試聽 {{name}}",
+      "voicePreviewStop": "停止",
+      "voiceLine": {
+        "make": "做一句配音",
+        "short": "配音",
+        "making": "正在製作配音…",
+        "failed": "配音失敗"
+      },
+      "group": {
+        "image": "圖片",
+        "video": "影片",
+        "audio": "音訊",
+        "3d": "3D"
+      },
+      "audioMode": {
+        "music": "音樂",
+        "song": "歌曲",
+        "sfx": "音效",
+        "voice": "配音",
+        "voice-change": "變聲"
+      },
+      "engine": "模型",
+      "engineName": {
+        "song": "ElevenLabs",
+        "song-open": "ACE-Step",
+        "song-mureka": "Mureka",
+        "bgm-mureka": "Mureka"
+      },
+      "model3d": {
+        "kindLabel": "做什麼",
+        "kind": {
+          "thing": "物件",
+          "person": "會動的人物"
+        },
+        "title": "模型",
+        "empty": "還沒有 3D 模型",
+        "emptyBody": "選一張圖開始。",
+        "view": "查看",
+        "download": "下載 .glb",
+        "orbit": "拖曳旋轉 · 滾輪縮放",
+        "loadFailed": "模型載入失敗",
+        "metres": "{{n}} 公尺",
+        "asMade": "按原樣",
+        "models": {
+          "hunyuan": {
+            "name": "混元 3D 3.1 Pro",
+            "maker": "Tencent",
+            "facts": "近看最清晰 · 約 4 分鐘"
+          },
+          "rodin": {
+            "name": "Rodin Gen-2.5",
+            "maker": "Hyper3D",
+            "facts": "顏色最豐富 · 約 3 分鐘"
+          },
+          "tripo": {
+            "name": "Tripo H3.1",
+            "maker": "Tripo",
+            "facts": "出來就是真實尺寸 · 顏色偏暗 · 約 2 分鐘"
+          },
+          "trellis": {
+            "name": "TRELLIS.2",
+            "maker": "Microsoft",
+            "facts": "最快，約 40 秒 · 近看偏糊，適合打草稿"
+          },
+          "meshy": {
+            "name": "Meshy 7.1",
+            "maker": "Meshy",
+            "facts": "約 2 分鐘"
+          }
+        },
+        "price": "{{count}} 蘑菇幣",
+        "detail": {
+          "high": "精細",
+          "standard": "標準"
+        }
+      },
+      "item": {
+        "remove-bg": {
+          "name": "去背景",
+          "desc": "去背出主體。"
+        },
+        "upscale": {
+          "name": "放大",
+          "desc": "放大 2 倍或 4 倍，更清晰。"
+        },
+        "inpaint": {
+          "name": "局部重繪",
+          "desc": "塗一塊，寫要改成什麼。",
+          "placeholder": "這裡畫什麼"
+        },
+        "expand": {
+          "name": "擴圖",
+          "desc": "擴成新比例。",
+          "placeholder": "新區域裡有什麼（可不填）"
+        },
+        "relight": {
+          "name": "改光線",
+          "desc": "換光線。"
+        },
+        "lipsync": {
+          "name": "對嘴型",
+          "desc": "讓角色說一句話。"
+        },
+        "video-upscale": {
+          "name": "影片放大",
+          "desc": "放大 2 倍，更清晰。"
+        },
+        "video-sound": {
+          "name": "配音效",
+          "desc": "幫影片配聲音。",
+          "placeholder": "什麼聲音（可不填）"
+        },
+        "song": {
+          "name": "歌曲",
+          "desc": "帶人聲和歌詞。",
+          "placeholder": "風格、情緒、樂器、歌手"
+        },
+        "song-open": {
+          "name": "歌曲（ACE-Step）",
+          "desc": "開源模型，更便宜。",
+          "placeholder": "標籤，如 city pop, female vocal"
+        },
+        "sfx": {
+          "name": "音效",
+          "desc": "依文字做短音效。",
+          "placeholder": "例：木門吱呀打開"
+        },
+        "voice": {
+          "name": "配音",
+          "desc": "文字轉語音。",
+          "placeholder": "要說的話"
+        },
+        "voice-change": {
+          "name": "變聲",
+          "desc": "把錄音換成另一個聲音。"
+        },
+        "to-3d": {
+          "name": "3D 模型",
+          "desc": "圖片轉 .glb 模型。"
+        },
+        "to-3d-character": {
+          "name": "3D 人物",
+          "desc": "一張圖變成會動的人物。",
+          "placeholder": "idle, walk, sit, salute…（留空用預設一組）"
+        },
+        "talk": {
+          "name": "讓照片說話",
+          "desc": "照片配一段聲音，開口說話。",
+          "placeholder": "表情或動作（可不填）"
+        },
+        "song-mureka": {
+          "name": "歌曲（Mureka）",
+          "desc": "帶人聲，按歌詞演唱。",
+          "placeholder": "風格、情緒、歌手"
+        },
+        "bgm-mureka": {
+          "name": "純音樂（Mureka）",
+          "desc": "完整的一首純音樂。",
+          "placeholder": "場景、情緒、樂器"
+        },
+        "dubbing": {
+          "name": "配音翻譯",
+          "desc": "換一種語言，保留原聲，對上口型。"
+        },
+        "reframe": {
+          "name": "改比例",
+          "desc": "換成新比例，補畫出空出的部分。",
+          "placeholder": "補出來的部分是什麼（可不填）"
+        },
+        "motion": {
+          "name": "動作遷移",
+          "desc": "讓人物照著參考影片動。",
+          "placeholder": "補充說明（可不填）"
+        }
+      },
+      "running": "處理中 · 約 {{seconds}} 秒",
+      "closeRunning": "關閉（繼續執行）",
+      "limit": {
+        "tooLong": "最長 {{seconds}} 秒",
+        "tooShort": "最短 {{seconds}} 秒",
+        "tooSmall": "最小 {{px}} px",
+        "tooBig": "最大 {{px}} px"
+      },
+      "proposal": {
+        "about": "約 {{seconds}} 秒",
+        "running": "{{seconds}} / 約 {{total}} 秒",
+        "done": "完成",
+        "failed": "失敗",
+        "declined": "已略過",
+        "stillRunning": "仍在執行 · 完成後進素材庫",
+        "run": "執行 · {{count}} 蘑菇幣",
+        "runNoPrice": "執行",
+        "decline": "略過",
+        "charged": "扣了 {{count}} 蘑菇幣",
+        "view3d": "查看 3D",
+        "copyFailed": "複製失敗"
+      },
+      "voiceTone": {
+        "Sarah": "沉穩女聲",
+        "Laura": "俏皮女聲",
+        "Jessica": "明亮女聲",
+        "Matilda": "溫暖女聲",
+        "Lily": "英式女聲",
+        "Alice": "清亮女聲",
+        "George": "講述男聲",
+        "Brian": "低沉男聲",
+        "Liam": "少年男聲",
+        "Callum": "沙啞男聲",
+        "Charlie": "活力男聲",
+        "River": "中性聲"
+      },
+      "lang": {
+        "en": "英語",
+        "zh": "中文",
+        "ja": "日語",
+        "ko": "韓語",
+        "es": "西班牙語",
+        "fr": "法語",
+        "de": "德語",
+        "pt": "葡萄牙語",
+        "ru": "俄語",
+        "it": "義大利語",
+        "ar": "阿拉伯語",
+        "id": "印尼語",
+        "th": "泰語",
+        "vi": "越南語",
+        "hi": "印地語",
+        "tr": "土耳其語"
+      }
+    },
+    "quick": {
+      "target": {
+        "portrait": "立繪",
+        "portraitIdle": "待機動畫",
+        "portraitSpeaking": "說話動畫",
+        "voice": "配音",
+        "sceneImage": "場景圖",
+        "background": "背景",
+        "cover": "封面",
+        "bgm": "音樂",
+        "sfx": "音效",
+        "ambient": "環境音"
+      },
+      "description": "生成後放進這個區塊。",
+      "prompt": "提示詞",
+      "model": "模型",
+      "moreModels": "更多",
+      "size": "尺寸",
+      "count": "張數",
+      "length": "長度",
+      "pick": "選一張",
+      "retryOn": "用 {{model}} 重試",
+      "edit": "修改",
+      "openHint": "開源模型拒絕得少。",
+      "needsPortrait": "先加一張立繪",
+      "open": "自有 GPU",
+      "clip": "片段",
+      "full": "完整",
+      "retryAnime": "用我們的動漫模型重試 · {{count}} 蘑菇幣",
+      "refsOn": "帶參考圖",
+      "refsOff": "這個模型不帶參考圖"
+    },
+    "wb": {
+      "style": "畫風",
+      "styleAuto": "模型預設",
+      "ownGpu": "自有 GPU",
+      "mention": "引用",
+      "noMatch": "沒有符合",
+      "noElements": "還沒有角色和設定",
+      "attach": "加入檔案",
+      "needPicture": "先加一張圖",
+      "go": "生成",
+      "placeholder": {
+        "image": "描述你想要的畫面",
+        "video": "描述鏡頭和動作",
+        "audio": "描述聲音，或寫下台詞",
+        "live": "加一張角色圖",
+        "3d": "加一張物體圖"
+      },
+      "starter": {
+        "animate": {
+          "name": "一張圖變活"
+        },
+        "outfit": {
+          "name": "一句話換裝",
+          "prompt": "同一個角色，同樣的姿勢，換成"
+        },
+        "bgm": {
+          "name": "卡的 BGM",
+          "prompt": "卡的背景音樂："
+        },
+        "voice": {
+          "name": "角色配音",
+          "prompt": ""
+        },
+        "expressions": {
+          "name": "表情全套",
+          "prompt": "同一個角色的表情九宮格：開心、生氣、難過、驚訝、害羞、平靜、得意、哭、睏。服裝不變，純色背景"
+        },
+        "canvas": {
+          "name": "新建空白畫布"
+        }
+      },
+      "blocked": {
+        "prompt": "先寫點什麼",
+        "picture": "先加一張圖",
+        "model": "沒有可用模型"
+      },
+      "tab": {
+        "works": "廣場",
+        "skills": "做法",
+        "elements": "角色和設定",
+        "mine": "我的作品"
+      },
+      "emptyMine": "還沒有作品",
+      "untitled": "未命名",
+      "liveTitle": "動態立繪 · {{date}}",
+      "myPosts": "我的",
+      "publishWork": "發布到廣場",
+      "publishSkill": "分享成做法",
+      "publishSkillLead": "別人可以換上自己的文字和圖來用。",
+      "kind": {
+        "character": "角色",
+        "scene": "場景",
+        "prop": "道具",
+        "voice": "聲音",
+        "style": "畫風"
+      },
+      "kindLabel": "類別",
+      "all": "全部",
+      "loadFailed": "載入失敗",
+      "saveFailed": "儲存失敗",
+      "addElement": "新建",
+      "editElement": "編輯",
+      "name": "名字",
+      "description": "描述",
+      "refs": "參考圖 {{count}}/{{max}}",
+      "none": "無",
+      "save": "儲存",
+      "filter": "篩選",
+      "sortLabel": "排序",
+      "sort": {
+        "hot": "熱門",
+        "new": "最新"
+      },
+      "mine": "我的",
+      "workKind": {
+        "image": "圖片",
+        "video": "影片",
+        "live": "動態立繪",
+        "audio": "音樂"
+      },
+      "emptyWorks": "還沒有作品",
+      "emptySkills": "還沒有做法",
+      "remix": "做同款",
+      "useInCard": "放進我的卡",
+      "copiedLink": "已複製連結",
+      "use": "使用",
+      "like": "喜歡",
+      "skillPublished": "做法已發布",
+      "title": "標題",
+      "cover": "封面",
+      "publish": "發布",
+      "skillStatus": {
+        "pending": "審核中",
+        "rejected": "未通過"
+      },
+      "suggest": {
+        "character": "做你的 OC",
+        "scene": "存一個場景",
+        "voice": "存一個聲音"
+      },
+      "showPrompt": "看提示詞",
+      "hidePrompt": "收起提示詞",
+      "studio": {
+        "image": "圖片",
+        "video": "影片",
+        "audio": "音訊",
+        "live": "動態立繪",
+        "3d": "3D 模型",
+        "lora": "LoRA 訓練"
+      },
+      "home": {
+        "title": "今天給誰做點什麼？",
+        "characters": "你的角色",
+        "newCharacter": "新角色",
+        "plaza": "廣場",
+        "back": "返回",
+        "forHer": "{{name}} 今天想做點什麼？",
+        "heading": "工坊",
+        "lead": "畫圖、做影片、配聲音",
+        "recent": "最近做的",
+        "myCharacters": "我的角色",
+        "others": "其他角色",
+        "firstHint": "畫一個角色，給她換裝、配音、做影片",
+        "listen": "聽一段",
+        "make": "能做什麼",
+        "try": "試試",
+        "line": {
+          "image": "寫一句話，出插圖、立繪、背景",
+          "video": "寫一句話，讓畫面動起來",
+          "audio": "配音、音樂和音效",
+          "live": "一張圖，讓角色活過來",
+          "3d": "一張圖變成能放進場景的模型",
+          "lora": "用一張立繪訓練，角色每張圖都是同一張臉"
+        },
+        "tile": {
+          "outfit": {
+            "name": "換裝",
+            "desc": "同一個角色，換一身衣服"
+          },
+          "expressions": {
+            "name": "表情全套",
+            "desc": "九種表情一次畫齊"
+          },
+          "talk": {
+            "name": "說一段話",
+            "desc": "一張照片配上聲音開口說話"
+          },
+          "lipsync": {
+            "name": "對口型",
+            "desc": "給影片裡的她配上台詞"
+          },
+          "remove-bg": {
+            "name": "去背景",
+            "desc": "一鍵摳出角色"
+          },
+          "upscale": {
+            "name": "放大",
+            "desc": "放大兩倍或四倍，更清晰"
+          },
+          "expand": {
+            "name": "擴圖",
+            "desc": "把畫面往外延伸"
+          },
+          "sfx": {
+            "name": "音效",
+            "desc": "寫一句話做出音效"
+          }
+        },
+        "whose": "給哪個角色做？",
+        "withPicture": "用一張圖片",
+        "withFiles": "用一張圖片和一段聲音",
+        "pickPicture": "選一張角色的圖片",
+        "sc": {
+          "imgLine": "清晨補網的老漁夫，側光",
+          "still": "一張圖",
+          "moving": "動起來"
+        },
+        "square": {
+          "title": "廣場",
+          "skills": "做法",
+          "lora": "LoRA",
+          "voice": "聲音",
+          "sort": {
+            "hot": "熱門",
+            "new": "最新"
+          },
+          "shared": "大家分享的"
+        },
+        "more": {
+          "title": "更多玩法",
+          "clone": "聲音複製",
+          "line": {
+            "lora": "一張立繪，每張圖都是她",
+            "live": "一張圖讓角色活過來",
+            "clone": "十秒錄音，做出她的聲音",
+            "lipsync": "給影片裡的她配上台詞",
+            "remove-bg": "一鍵摳出角色",
+            "expand": "把畫面往外延伸"
+          }
+        },
+        "live": {
+          "from": "原圖"
+        }
+      },
+      "next": {
+        "animate": "做成動態立繪",
+        "video": "做成影片",
+        "lipsync": "對口型",
+        "card": "放進我的卡",
+        "voice": "存為角色聲音",
+        "say": "說一段話",
+        "extend": "延長",
+        "join": "接成一條"
+      },
+      "card": {
+        "search": "搜尋我的卡",
+        "none": "還沒有卡，新建一張",
+        "done": "已放進「{{name}}」",
+        "doneHere": "已放進這張卡",
+        "open": "打開",
+        "landed": "已放進「{{name}}」· {{slot}}",
+        "landedHere": "已放進 · {{slot}}",
+        "look": "去看看"
+      },
+      "char": {
+        "unnamed": "未命名角色",
+        "keep": "存成角色",
+        "made": "和她一起做的",
+        "missing": "找不到這個角色",
+        "scenePrompt": "在",
+        "action": {
+          "outfit": "換裝",
+          "expressions": "表情全套",
+          "voice": "配音",
+          "animate": "讓她動起來",
+          "seeLive": "看她動",
+          "scene": "她在場景裡",
+          "card": "放進我的卡",
+          "video": "做成影片",
+          "say": "說一段話"
+        },
+        "outfits": "衣服",
+        "expressions": "表情",
+        "lives": "會動形象",
+        "voice": "她的聲音",
+        "clips": "說過的話"
+      },
+      "audio": {
+        "voice": "聲音",
+        "music": "音樂",
+        "sfx": "音效",
+        "bgm": "背景樂",
+        "song": "帶人聲的歌",
+        "mine": "我的聲音",
+        "plaza": "廣場"
+      },
+      "voiceLab": {
+        "mine": "我的聲音",
+        "design": "描述設計",
+        "clone": "複製",
+        "describe": "描述這個聲音",
+        "describePh": "例：三十歲男人，嗓音溫和低沉，帶點書卷氣",
+        "generate": "生成 3 個",
+        "again": "再生成 3 個",
+        "designCost": "{{n}} 蘑菇幣",
+        "free": "免費",
+        "candidate": "候選 {{n}}",
+        "keep": "保留",
+        "kept": "已保留",
+        "fromSaved": "已存",
+        "recording": "錄音",
+        "cloneHint": "{{min}}–{{max}} 秒，只有一個人說話",
+        "record": "錄音",
+        "stop": "停止",
+        "upload": "上傳檔案",
+        "seconds": "{{s}} 秒",
+        "name": "名字",
+        "namePh": "可不填",
+        "cloneGo": "複製",
+        "empty": "還沒有聲音",
+        "emptyBody": "描述一個聲音，或上傳一段錄音",
+        "fromDesign": "設計",
+        "fromClone": "複製",
+        "heldBy": "@{{name}} 在用",
+        "try": "試一句",
+        "tryPh": "輸入一句台詞，Enter",
+        "say": "念",
+        "toCharacter": "給角色",
+        "noCharacters": "還沒有角色",
+        "given": "已給 @{{name}}",
+        "copyName": "複製 @名字",
+        "copied": "已複製",
+        "rename": "重新命名",
+        "delete": "刪除",
+        "deleteConfirm": "刪除「{{name}}」？",
+        "err": {
+          "noCredits": "蘑菇幣不夠",
+          "tooShort": "錄音太短",
+          "tooLarge": "檔案太大",
+          "format": "讀不了這個檔案，換成 MP3、WAV 或 M4A",
+          "expired": "候選已過期，重新生成",
+          "busy": "太頻繁了，稍後再試",
+          "gone": "這個聲音已經不能用了",
+          "failed": "失敗了，再試一次",
+          "noMic": "用不了麥克風",
+          "nameTaken": "已經有這個名字了",
+          "unavailable": "聲音功能暫時不可用"
+        },
+        "publish": "發布到廣場",
+        "unpublish": "從廣場撤下",
+        "published": "已提交，審核通過後出現在聲音廣場",
+        "unpublished": "已從廣場撤下",
+        "status": {
+          "pending": "審核中",
+          "approved": "在廣場",
+          "rejected": "未通過"
+        },
+        "usedBy": "{{count}} 人在用",
+        "designLead": "用一句話描述你想要的聲音，出 3 個候選來挑",
+        "designTime": "約 15 秒",
+        "designFor": "適合原創角色",
+        "cloneLead": "錄一段或上傳一段清楚的人聲，馬上得到這個聲音",
+        "cloneTime": "約 1 分鐘",
+        "cloneFor": "適合已有錄音",
+        "savedTab": "收藏",
+        "savedEmpty": "還沒收藏聲音",
+        "savedEmptyBody": "在廣場的聲音裡點「使用」就會出現在這裡",
+        "fromPlaza": "來自廣場",
+        "useForLine": "用來配音",
+        "editShown": "編輯廣場資訊"
+      },
+      "field": {
+        "prompt": "描述",
+        "reference": "參考圖",
+        "model": "模型",
+        "firstFrame": "首幀",
+        "motion": "動作",
+        "lastFrame": "尾幀",
+        "characterRefs": "角色參考",
+        "referenceVideo": "參考影片",
+        "camera": "鏡頭"
+      },
+      "newKind": {
+        "character": "新角色",
+        "scene": "新場景",
+        "prop": "新道具",
+        "voice": "新聲音",
+        "style": "新畫風"
+      },
+      "emptyStudio": "還沒有作品",
+      "moreActions": "更多",
+      "resizeSettings": "拖動調整設定欄寬度",
+      "tools": "工具",
+      "copyRef": "複製引用",
+      "fullSettings": "完整設定",
+      "simple": "簡潔設定",
+      "play": "去玩",
+      "moreSettings": "更多設定",
+      "keep": {
+        "outfits": "存成{{name}}的衣服",
+        "expressions": "存成{{name}}的表情",
+        "remove": "移出",
+        "voiceWhose": "存成誰的聲音",
+        "voiceAlone": "單獨存成一個聲音",
+        "done": {
+          "outfits": "已存進{{name}}的衣服",
+          "expressions": "已存進{{name}}的表情",
+          "voice": "已存成{{name}}的聲音",
+          "clips": "已存進{{name}}說過的話"
+        }
+      },
+      "refused": {
+        "free": "這次沒扣幣",
+        "retry": "換個模型重試 · {{count}}",
+        "edit": "改描述"
+      },
+      "queue": {
+        "place": "排隊中 · 第 {{count}} 個",
+        "hint": "有空位就開始",
+        "cancel": "取消排隊",
+        "held": "已排隊，有空位就開始"
+      },
+      "budget": {
+        "useStyle": "換成畫風生成"
+      },
+      "slot": {
+        "portrait": "{{name}} 的立繪",
+        "clip": "{{name}} 影片立繪 · {{clip}}",
+        "live": "{{name}} 的動態立繪",
+        "scene": "場景圖",
+        "background": "聊天背景",
+        "cover": "封面",
+        "opening": "開場",
+        "assets": "只放進素材",
+        "audio": {
+          "bgm": "配樂",
+          "ambient": "環境音",
+          "sfx": "音效"
+        }
+      },
+      "download": "下載",
+      "hide": "刪除",
+      "filesGone": "檔案已從我的素材刪除",
+      "filesGoneCount": "{{count}} 條舊紀錄的檔案已刪除",
+      "needPrompt": "先寫一句描述",
+      "needMotion": "先寫一句動作",
+      "defaultMotion": "輕輕眨眼，頭髮隨風動",
+      "styleChip": "畫風：{{name}}",
+      "styleChipAuto": "畫風：自動",
+      "tier": {
+        "fast": "快",
+        "good": "好",
+        "best": "最好",
+        "custom": "自訂"
+      },
+      "moreModels": "更多模型",
+      "more": "更多",
+      "pricePer": "{{count}} / {{seconds}} 秒",
+      "preset": {
+        "custom": "自訂…",
+        "outfit": {
+          "school": "校服",
+          "kimono": "和服 / 浴衣",
+          "winter": "冬裝",
+          "sport": "運動服",
+          "gown": "禮服"
+        },
+        "scene": {
+          "classroom": "教室",
+          "cafe": "咖啡店",
+          "night": "夜晚街道",
+          "beach": "海邊",
+          "bedroom": "臥室"
+        }
+      },
+      "first": {
+        "title": "畫出你的第一個角色",
+        "placeholder": "她是誰？髮型、眼睛、衣服、氣質……",
+        "manual": "手動填寫"
+      },
+      "stage": {
+        "ask": "今天想給她做點什麼？",
+        "others": "其他角色 ({{count}})",
+        "open": "她的主頁",
+        "recent": "最近",
+        "seeAll": "去她的主頁看全部",
+        "seeAllHere": "看全部"
+      },
+      "examples": "試試這些",
+      "example": {
+        "image": {
+          "cafe": "雨天咖啡館窗邊的銀髮少女",
+          "sakura": "櫻花雨中的女劍士",
+          "neon": "霓虹夜市裡的少女，賽博朋克"
+        },
+        "video": {
+          "turn": "她慢慢轉身，微笑",
+          "wind": "風吹起頭髮，她輕輕眨眼",
+          "rain": "雨夜霓虹街道，鏡頭慢慢推近"
+        }
+      },
+      "experimental": "實驗",
+      "edit": "編輯",
+      "modelTag": {
+        "cheap": "實惠",
+        "k4": "4K",
+        "textOnly": "僅文字",
+        "sound": "有聲音",
+        "ownGpu": "自有算力",
+        "lastFrame": "首尾幀"
+      },
+      "details": {
+        "size": "尺寸",
+        "duration": "時長",
+        "cost": "花費",
+        "time": "時間",
+        "character": "角色",
+        "expand": "展開",
+        "collapse": "收起",
+        "loras": "LoRA",
+        "references": "參考圖",
+        "parts": "片段"
+      },
+      "custom": {
+        "change": "換底模",
+        "ownBase": "我的底模",
+        "platform": "平台底模",
+        "mine": "我的底模",
+        "community": "社群底模",
+        "videoLora": "影片 LoRA",
+        "mismatch": "不適合目前底模",
+        "mismatchShort": "不適合",
+        "noLoras": "這個底模不能加 LoRA",
+        "addLora": "加 LoRA",
+        "tab": {
+          "mine": "我的",
+          "community": "社群",
+          "link": "匯入"
+        },
+        "noMine": "還沒有 LoRA，去社群挑一個或貼上 Civitai 連結",
+        "noCommunity": "社群裡還沒有 LoRA",
+        "linkHint": "貼上 Civitai 模型連結，下載同步要幾分鐘",
+        "size": "尺寸",
+        "advanced": "進階",
+        "weight": "權重",
+        "dice": "隨機一個種子",
+        "upload": "上傳 .safetensors",
+        "uploading": "上傳中 {{pct}}%"
+      },
+      "say": {
+        "title": "讓{{name}}說一段話",
+        "placeholder": "要說的話",
+        "line": "台詞",
+        "price": "約 {{count}} 蘑菇幣 · 約 {{seconds}} 秒",
+        "go": "開始說",
+        "voicing": "配音中",
+        "runLabel": "{{name}}：{{line}}",
+        "voiceFallback": "她的聲音這裡還用不了，先用 {{voice}}"
+      },
+      "extend": {
+        "label": "延長 · {{title}}"
+      },
+      "camera": {
+        "push": "推近",
+        "pull": "拉遠",
+        "orbit": "環繞",
+        "follow": "跟隨",
+        "pan": "搖鏡",
+        "static": "固定"
+      },
+      "topUp": "去儲值",
+      "join": {
+        "label": "接成一條 · {{title}}"
+      },
+      "audioEmpty": "還沒有聲音",
+      "au": {
+        "describe": "描述",
+        "describePh": "一句話寫這段音樂：場景、情緒、樂器",
+        "style": "風格",
+        "vocals": "人聲",
+        "instrumental": "純音樂",
+        "withVocals": "帶人聲",
+        "lyrics": "歌詞",
+        "lyricsPh": "留空的話，生成前會先寫好歌詞",
+        "writeLyrics": "AI 寫詞",
+        "writing": "正在寫詞",
+        "needAbout": "先寫一句描述，或點一個風格",
+        "lyricsFailed": "沒寫出歌詞，再試一次",
+        "singer": {
+          "auto": "自動",
+          "female": "女聲",
+          "male": "男聲"
+        },
+        "length": "時長",
+        "len": {
+          "s": "{{n}} 秒",
+          "m": "{{n}} 分鐘"
+        },
+        "engineTag": {
+          "lyria": "推薦",
+          "bgm-mureka": "整曲",
+          "song-mureka": "推薦",
+          "song": "定長",
+          "song-open": "便宜"
+        },
+        "tag": {
+          "daily": "日常",
+          "battle": "戰鬥",
+          "romance": "戀愛",
+          "sad": "悲傷",
+          "mystery": "懸疑",
+          "horror": "恐怖",
+          "epic": "史詩",
+          "night": "夜晚",
+          "japanese": "和風",
+          "chinese": "國風",
+          "piano": "鋼琴",
+          "lofi": "Lo-fi",
+          "electronic": "電子",
+          "rock": "搖滾",
+          "citypop": "City Pop",
+          "jazz": "爵士"
+        },
+        "line": "台詞",
+        "linePh": "寫要說的話，可以加表演提示",
+        "cues": "表演",
+        "cue": {
+          "soft": "輕聲",
+          "laugh": "笑",
+          "sob": "哽咽",
+          "sigh": "嘆氣",
+          "shout": "大喊",
+          "whisper": "耳語"
+        },
+        "voice": "聲音",
+        "makeVoice": "做一個聲音",
+        "myVoice": "我的聲音",
+        "listen": "試聽",
+        "byChars": "按字數計費",
+        "voiceFailed": "沒生成出來，再試一次",
+        "making": "生成中 · {{seconds}} 秒",
+        "empty": {
+          "voice": "還沒有配音",
+          "music": "還沒有音樂",
+          "sfx": "還沒有音效"
+        },
+        "emptyBody": "在左邊寫一句就能開始",
+        "kind": {
+          "voice": "配音",
+          "music": "音樂",
+          "sfx": "音效"
+        },
+        "seek": "進度",
+        "close": "關閉",
+        "singerLabel": "歌手",
+        "plaza": {
+          "title": "聲音廣場",
+          "hot": "熱門",
+          "used": "我用過的",
+          "search": "搜尋聲音",
+          "use": "使用",
+          "inMine": "已加入",
+          "listen": "試聽",
+          "mine": "我的",
+          "users": "{{count}} 人在用",
+          "added": "已加入你的聲音，配音、卡片和聊天裡都能選",
+          "removed": "已從你的聲音移出",
+          "full": "你的聲音已滿 40 個，先移出幾個",
+          "failed": "沒成功，再試一次",
+          "empty": "還沒有人發布聲音",
+          "noneUsed": "還沒用過廣場上的聲音",
+          "noMatch": "沒找到這個聲音",
+          "emptyBody": "在「我的聲音」裡設計或克隆一個，發布到廣場",
+          "goMine": "去我的聲音",
+          "shelf": {
+            "music": "音樂",
+            "sfx": "音效",
+            "voice": "聲音"
+          },
+          "new": "最新",
+          "inMusic": "已加入",
+          "taken": "已加入你的音訊，可以放進卡裡",
+          "storageFull": "儲存空間滿了",
+          "emptyShelf": {
+            "music": "還沒有人分享音樂",
+            "sfx": "還沒有人分享音效"
+          },
+          "emptyShelfBody": "在音樂或音效裡做一首，點 ⋯ 發布到廣場",
+          "untitled": {
+            "music": "音樂",
+            "sfx": "音效"
+          },
+          "signIn": "登入後才能使用",
+          "noneMine": "你還沒發布過聲音",
+          "style": {
+            "piano": "鋼琴",
+            "orchestral": "管弦",
+            "acoustic": "原聲",
+            "electronic": "電子",
+            "lofi": "Lo-fi",
+            "japanese": "和風",
+            "chinese": "國風",
+            "fantasy": "奇幻",
+            "battle": "戰鬥",
+            "dark": "暗黑",
+            "tender": "溫柔",
+            "sad": "傷感",
+            "folk": "民謠",
+            "pop": "流行",
+            "heroic": "英雄",
+            "calm": "舒緩"
+          },
+          "listenIn": "推薦語言",
+          "download": "下載",
+          "best": "推薦",
+          "speaks": "語言",
+          "anyLang": "全部語言"
+        },
+        "savedVoice": "收藏",
+        "publish": "發布到廣場",
+        "posted": "已提交，審核通過後出現在廣場",
+        "alreadyPosted": "這首已經發布過了",
+        "postFailed": "沒發布成功，再試一次",
+        "restricted": "帳號受限，暫時不能發布",
+        "fromPlaza": "來自廣場",
+        "history": "歷史",
+        "pickVoice": "選擇聲音",
+        "pick": {
+          "all": "全部",
+          "mine": "我的",
+          "saved": "收藏",
+          "catalog": "推薦"
+        },
+        "picked": "在用",
+        "pickThis": "用這個",
+        "noMine": "還沒有自己的聲音",
+        "noSaved": "還沒收藏聲音，去廣場看看",
+        "morePlaza": "去廣場找更多聲音",
+        "dramaHint": "會照著方括號裡的提示演，不會念出來",
+        "scenesLead": "試試",
+        "scene": {
+          "line": {
+            "name": "角色台詞",
+            "text": "[輕聲] 你終於來了。我還以為……你不會回來了。"
+          },
+          "narration": {
+            "name": "旁白",
+            "text": "很久以前，在群山環繞的王都裡，住著一位不愛說話的公主。"
+          },
+          "whisper": {
+            "name": "耳語",
+            "text": "[耳語] 別出聲，他們就在門外。"
+          },
+          "battle": {
+            "name": "戰鬥",
+            "text": "[大喊] 所有人跟上！今天，我們一個都不能少！"
+          },
+          "tease": {
+            "name": "撒嬌",
+            "text": "[笑] 哼，才不是為了你做的呢……不過，你要嚐嚐嗎？"
+          },
+          "announce": {
+            "name": "廣播",
+            "text": "各位旅客請注意，開往星港的列車即將進站。"
+          }
+        },
+        "sfxPh": "說一個聲音，例如：木門吱呀一聲慢慢打開",
+        "loopOn": "循環",
+        "loopOff": "不循環",
+        "sfxIdea": {
+          "door": {
+            "name": "開門",
+            "text": "一扇老木門吱呀一聲慢慢打開"
+          },
+          "rain": {
+            "name": "雨聲",
+            "text": "雨點打在窗戶和屋簷上，平穩持續"
+          },
+          "sword": {
+            "name": "劍擊",
+            "text": "兩把鋼劍在戰鬥中連續碰撞"
+          },
+          "magic": {
+            "name": "施法",
+            "text": "魔法聚能後釋放，帶閃爍的呼嘯聲"
+          },
+          "crowd": {
+            "name": "酒館",
+            "text": "熱鬧的酒館裡人們說笑碰杯，聽不清具體的話"
+          },
+          "heart": {
+            "name": "心跳",
+            "text": "緊張的心跳聲，先慢後快"
+          }
+        }
+      },
+      "saveCharacter": "存成角色",
+      "share": "分享",
+      "skillSeconds": "{{count}} 秒",
+      "skillUsed": "{{count}} 次使用",
+      "skillWhat": "設定",
+      "skillFill": "填空",
+      "skillStep": {
+        "image": "出圖",
+        "video": "出影片",
+        "audio": "出聲音",
+        "live": "做成動態立繪",
+        "tool": "處理"
+      },
+      "skillPub": {
+        "words": "提示詞",
+        "wordsHint": "要別人填的部分用【】括起來",
+        "how": "可見範圍",
+        "open": "公開做法",
+        "openNote": "模型、參數、提示詞可見",
+        "closed": "只給用法",
+        "closedNote": "只顯示簡介和填空",
+        "closedNo": "僅單步做法可選",
+        "preview": "預覽",
+        "previewClosed": "預覽（僅你可見）",
+        "blanks": "填空 {{count}} 處",
+        "noBlanks": "沒有填空",
+        "onlyMe": "僅自己可見",
+        "save": "儲存",
+        "savedPrivate": "已儲存",
+        "coverPick": "選圖或上傳",
+        "file": {
+          "image": "一張圖",
+          "video": "一段影片",
+          "audio": "一段聲音"
+        }
+      },
+      "skillTakes": "要帶",
+      "skillPrompt": "提示詞",
+      "skillChainNote": "後面 {{count}} 步自動接著做，各自計費",
+      "skillSet": {
+        "size": "尺寸",
+        "aspectRatio": "比例",
+        "resolution": "解析度",
+        "durationSeconds": "時長",
+        "sound": "帶聲音",
+        "fast": "快速",
+        "style": "底模",
+        "quality": "品質",
+        "steps": "步數",
+        "cfg": "CFG",
+        "sampler": "取樣器",
+        "negativePrompt": "反向提示詞",
+        "on": "開",
+        "off": "關"
+      },
+      "allMade": "歷史",
+      "sealed": {
+        "title": "作者沒有公開做法",
+        "mine": "未公開",
+        "askPrice": "看價格",
+        "run": "生成（{{mushies}} 蘑菇幣）",
+        "failed": "沒能完成，稍後再試",
+        "noCredits": "蘑菇幣不夠"
+      },
+      "skillView": {
+        "recent": "最近用過",
+        "saved": "收藏"
+      },
+      "voiceLang": {
+        "zh": "中文",
+        "ja": "日語",
+        "en": "英語",
+        "es": "西語"
+      },
+      "soundCover": {
+        "upload": "上傳圖片",
+        "badFile": "請選 20MB 以內的圖片"
+      },
+      "soundPublish": {
+        "title": "發布到廣場",
+        "descPh": "誰的聲音，用什麼素材做的",
+        "lang": "推薦語言",
+        "go": "發布",
+        "desc": "簡介"
+      },
+      "source": {
+        "cloud": "通用模型",
+        "own": "畫風模型"
+      },
+      "refine": "繼續改圖",
+      "shareUpload": {
+        "title": "分享作品",
+        "go": "發布到廣場",
+        "done": "已提交，過審後出現在廣場",
+        "failed": "沒發出去，稍後再試",
+        "already": "這張圖已經分享過了",
+        "change": "換一個",
+        "kind": {
+          "image": "分享圖片",
+          "video": "分享影片",
+          "music": "分享音樂",
+          "sfx": "分享音效"
+        },
+        "titlePh": "取個標題",
+        "descPh": "寫點簡介：這是什麼，怎麼做的",
+        "tag": "標籤",
+        "removeTag": "移除",
+        "enlarge": "放大看",
+        "review": "發布後先審核，通過了出現在廣場",
+        "need": {
+          "work": "先選一個作品",
+          "title": "還差標題"
+        },
+        "search": "搜尋",
+        "keepPrompt": "不公開提示詞",
+        "keepPromptNote": "別人不能做同款",
+        "sensitive": "放進無限制區",
+        "sensitiveNote": "只給開了成人內容的成年人看",
+        "tooMany": "等審核的作品太多了，審完再發",
+        "pickOne": "選一個",
+        "noMatch": "沒有找到",
+        "shared": "已分享",
+        "none": {
+          "music": "還沒有音樂，可以上傳一個",
+          "sfx": "還沒有音效，可以上傳一個"
+        },
+        "untitled": {
+          "music": "未命名音樂",
+          "sfx": "未命名音效"
+        }
+      },
+      "myWork": "我做過的",
+      "skillPublish": {
+        "entry": "發布做法",
+        "pick": "用哪個作品做成做法"
+      },
+      "skillReview": {
+        "title": "評價",
+        "send": "發表",
+        "failed": "沒發出去，稍後再試",
+        "none": "還沒有評價"
+      },
+      "comments": {
+        "title": "評論",
+        "ratings": "{{count}} 人評分",
+        "writePh": "說說你的看法",
+        "makerPh": "以作者身分留言",
+        "rate": "評分",
+        "send": "發布",
+        "reply": "回覆",
+        "replyPh": "回覆 {{name}}",
+        "maker": "作者",
+        "like": "讚",
+        "delete": "刪除",
+        "moreReplies": "再看 {{count}} 則回覆",
+        "more": "載入更多",
+        "noneTitle": "還沒有評論",
+        "noneBody": "來寫第一則",
+        "signIn": "登入後可以評論",
+        "failed": "沒發出去，稍後再試",
+        "loadFailed": "評論沒載入出來",
+        "retry": "重試",
+        "menu": "更多",
+        "original": "原文",
+        "translation": "譯文",
+        "hide": "隱藏",
+        "unhide": "恢復顯示",
+        "report": "檢舉",
+        "reportedShort": "已檢舉",
+        "reported": "已檢舉，我們會查看",
+        "reportWhy": "檢舉原因",
+        "cancel": "取消",
+        "reason": {
+          "harassment": "騷擾或辱罵",
+          "spam": "廣告或洗版",
+          "sexual": "色情內容",
+          "illegal": "違法內容",
+          "other": "其他"
+        },
+        "hiddenBy": {
+          "maker": "已被作者隱藏",
+          "reports": "被多人檢舉，已隱藏",
+          "admin": "已被管理員隱藏"
+        }
+      },
+      "detail": {
+        "how": "怎麼做的",
+        "copy": "複製",
+        "copied": "已複製",
+        "promptHidden": "作者沒有公開提示詞",
+        "keptMine": "僅自己可見",
+        "prev": "上一個",
+        "next": "下一個"
+      },
+      "player": {
+        "label": "正在播放",
+        "prev": "上一個",
+        "next": "下一個",
+        "play": "播放",
+        "pause": "暫停",
+        "close": "關閉",
+        "seek": "進度",
+        "language": "試聽語言",
+        "best": "推薦"
+      },
+      "modelFact": {
+        "upTo": "最高 {{size}}",
+        "reference": "可用參考圖",
+        "textOnly": "僅文字",
+        "seconds": "最長 {{count}} 秒",
+        "sound": "帶聲音",
+        "lastFrame": "首尾幀",
+        "wait": "約 {{time}}"
+      },
+      "connectAi": "連接 AI",
+      "lora": {
+        "import": "已有 LoRA 檔案？匯入",
+        "square": "LoRA 廣場",
+        "mine": "我的 LoRA",
+        "confirmDelete": "刪除「{{name}}」？用到它的卡之後會不帶它畫。",
+        "confirmRemove": "把「{{name}}」移出我的 LoRA？",
+        "attach": "用到角色",
+        "draw": "用它畫圖",
+        "remove": "移出",
+        "pickShots": "訓練圖畫好了，去挑選",
+        "openTraining": "打開",
+        "inMine": "已在我的 LoRA",
+        "addToMine": "加進我的 LoRA",
+        "attachTitle": "用在……",
+        "attached": "好了，之後的插圖會用它",
+        "cardStyle": "這張卡的畫風",
+        "noCharacters": "這張卡還沒有角色",
+        "myPersona": "我的人設",
+        "myCards": "我的卡",
+        "noCards": "你還沒有卡",
+        "characters": "{{count}} 個角色",
+        "failed": "沒能完成，請再試一次",
+        "before": "沒有 LoRA",
+        "after": "用了 LoRA",
+        "emptyLine": "沒有 LoRA 時同一個角色每張都不一樣；用了 LoRA 就是同一個人"
+      }
+    },
+    "liveChar": {
+      "cue": {
+        "angry": "生氣",
+        "nod": "點頭",
+        "sad": "難過",
+        "shake": "搖頭",
+        "surprised": "驚訝",
+        "wave": "揮手",
+        "happy": "開心",
+        "shy": "害羞",
+        "heart": "心動",
+        "clasp": "雙手交握",
+        "laugh": "大笑",
+        "wink": "眨單眼",
+        "tilt": "歪頭",
+        "doubt": "懷疑",
+        "sigh": "嘆氣",
+        "lookdown": "低頭",
+        "welcome": "張開雙手",
+        "chest": "手放胸前",
+        "shrug": "聳肩"
+      },
+      "errors": {
+        "NOT_FOUND": "找不到",
+        "REDRAW_EXPIRED": "時間太久，不能再重畫了，請重新生成",
+        "NO_CREDITS": "蘑菇幣不夠",
+        "STORAGE_LIMIT": "素材庫已滿",
+        "TOO_MANY_ACTIVE_JOBS": "進行中的太多了，等一個做完",
+        "PROVIDER_UNAVAILABLE": "暫時無法使用",
+        "FAILED": "沒能開始，再試一次",
+        "PICTURE_MANY": "這張圖裡不只一個角色，請換一張只有一個角色的圖。沒有扣蘑菇幣。",
+        "PICTURE_SIDE": "臉要朝著畫面，側臉或背影做不成動態立繪。沒有扣蘑菇幣。",
+        "PICTURE_SMALL": "角色在圖裡太小了，請換一張頭和上半身佔大部分畫面的圖。沒有扣蘑菇幣。",
+        "PICTURE_EYES": "這張圖裡眼睛被擋住了（帽簷、面具或墨鏡），請換一張看得到眼睛的圖。沒有扣蘑菇幣。",
+        "PICTURE_SKETCH": "這張像是沒上色的線稿，衣服和紙是同一種白，分不出哪裡是背景。請換一張上了色的圖。沒有扣蘑菇幣。",
+        "PICTURE_PHOTO": "這張看起來是真人照片。動態立繪只能用畫出來的角色做，請換一張插畫。沒有扣蘑菇幣。",
+        "PICTURE_3D": "這張看起來是 3D 渲染風格。動態立繪要用 2D 的畫，請換一張 2D 插畫。沒有扣蘑菇幣。"
+      },
+      "layers": {
+        "apart": "拆開看",
+        "count": "{{layers}} 層 · {{parts}} 塊",
+        "drag": "拖動可以轉著看",
+        "intro": "一張圖，拆成能各自動起來的層：頭髮、臉、每隻眼睛的眼白、瞳孔和睫毛、眉毛、口型、衣服、手。",
+        "open": "圖層",
+        "title": "這張圖拆成了哪些層",
+        "together": "合起來"
+      },
+      "mood": {
+        "annoyed": "不耐煩",
+        "calm": "平靜",
+        "happy": "開心",
+        "low": "低落",
+        "sleepy": "睏"
+      },
+      "part": {
+        "eyes": "眼睛",
+        "hands": "手",
+        "mouth": "嘴"
+      },
+      "redraw": "重畫某個部位",
+      "redrawHint": "只重畫一個部位，生成新版本，這一版會保留",
+      "redrawIntro": "正在只重畫這一個部位，其餘不變（約 {{count}} 分鐘）",
+      "redrawStarted": "正在重畫，新版本會出現在這裡",
+      "redrawn": {
+        "angry": "重畫生氣",
+        "eyes": "重畫了眼睛",
+        "hands": "重畫了手",
+        "mouth": "重畫了嘴",
+        "sad": "重畫難過",
+        "surprised": "重畫驚訝",
+        "x1": "新表情",
+        "x2": "新表情",
+        "x3": "新表情",
+        "x4": "新表情",
+        "laugh": "畫上大笑",
+        "heart": "畫上心動"
+      },
+      "tune": {
+        "cancel": "取消",
+        "draw": "畫出來",
+        "drawStarted": "正在畫（約 {{count}} 分鐘），進度在角色卡上",
+        "drawing": "第 {{n}} 張",
+        "expressions": "表情",
+        "expressionsHint": "每個表情都畫了兩張，選更適合這個角色的那張。",
+        "hint": {
+          "blink": "眨眼的頻率",
+          "body": "身體晃動和傾斜的幅度",
+          "breath": "呼吸的深淺",
+          "gaze": "頭跟著滑鼠轉的程度",
+          "gesture": "手臂動作的大小（揮手、合手）",
+          "hair": "頭髮的軟硬和彈跳",
+          "idle": "待機時自己小動作的多少",
+          "mouth": "說話時嘴張開的大小",
+          "nod": "頭往上下看的幅度",
+          "tilt": "歪頭的幅度",
+          "turn": "頭往左右轉的幅度",
+          "wind": "風吹動頭髮的程度",
+          "expr": "所有表情顯示得多明顯（卡裡也一樣）"
+        },
+        "intro": "調成你想要的樣子。改動會馬上在預覽裡看到，儲存後所有用到這個角色的卡都會生效。",
+        "key": {
+          "blink": "眨眼",
+          "body": "身體擺動",
+          "breath": "呼吸",
+          "gaze": "視線跟隨",
+          "gesture": "手勢幅度",
+          "hair": "頭髮彈性",
+          "idle": "待機小動作",
+          "mouth": "說話張嘴",
+          "nod": "抬頭低頭",
+          "tilt": "歪頭",
+          "turn": "左右轉頭",
+          "wind": "風吹",
+          "expr": "表情強度"
+        },
+        "mood": "平時的心情",
+        "motion": "動作手感",
+        "open": "調整",
+        "own": "我的表情",
+        "ownBusy": "正在畫一個",
+        "ownExpired": "新表情要在角色生成後一天內畫",
+        "ownFull": "最多 4 個自己的表情",
+        "ownHint": "寫個名字和樣子，AI 照這個角色畫出來。卡裡用這個名字就能觸發。",
+        "ownName": "名字",
+        "ownNamePh": "比如：壞笑",
+        "ownPrompt": "什麼樣子",
+        "ownPromptPh": "比如：嘴角一邊上揚，眼睛瞇起來，有點得意",
+        "redrawExpr": "重畫",
+        "remove": "刪除",
+        "reset": "全部還原",
+        "save": "儲存",
+        "saved": "已儲存，用到這個角色的卡都已生效",
+        "title": "調整這個角色",
+        "moves": "表情和動作",
+        "movesHint": "點一下打開或關掉。關掉的不會出現，卡裡用到時會換成溫和的動作。",
+        "face": "表情",
+        "body": "動作",
+        "drawOn": "畫上",
+        "redrawLabel": "重畫表情："
+      },
+      "versions": {
+        "inUse": "使用中",
+        "original": "原版",
+        "switched": "卡片已改用這個版本",
+        "use": "用這個版本"
+      },
+      "picture": "角色圖",
+      "pictureHint": "一個角色，正面、置中、半身，不要用寬幅圖。背景要乾淨，顏色和頭髮分得開（淺色或細碎的頭髮配深色背景，不然邊緣會留一圈白邊）。手臂露在畫面裡，別藏在身後或插口袋，她才能揮手、做動作。",
+      "minutes": "約 {{count}} 分鐘",
+      "unavailable": "暫時無法使用",
+      "emptyTitle": "還沒有角色",
+      "emptyBody": "做好的角色會出現在這裡。",
+      "failed": "沒做出來",
+      "failedRefunded": "沒做出來，蘑菇幣已退回",
+      "copyRef": "複製引用",
+      "copied": "已複製",
+      "make": {
+        "moves": "表情",
+        "addOwn": "加一個自己的表情"
+      },
+      "go": "生成（按實際用量）",
+      "metered": "一般 {{lo}}–{{hi}} 蘑菇幣，按實際用量結算，多扣的退回",
+      "charged": "{{count}} 蘑菇幣",
+      "chargedHint": "按實際用量結算後的花費",
+      "tier": {
+        "label": "版本",
+        "lite": "輕量版",
+        "full": "完整版",
+        "liteNote": "轉頭是平面的，不補畫被畫面切掉的手",
+        "fullNote": "AI 先畫出轉頭，再逐層校準，轉頭更立體"
+      },
+      "liteIntro": "把圖片做成動態立繪（輕量版，約 {{count}} 分鐘）",
+      "feedback": {
+        "open": "回報問題",
+        "title": "回報動態立繪的問題",
+        "intro": "附上截圖，我們會對照你的角色查看並修復。",
+        "kind": "問題類型",
+        "kinds": {
+          "looks": "畫面不對",
+          "moves": "動作不對",
+          "failed": "生成失敗",
+          "price": "價格或扣費",
+          "idea": "建議"
+        },
+        "pictures": "截圖（必填）",
+        "addPicture": "新增截圖",
+        "picturesHint": "可以直接貼上、拖進來或點加號，最多 4 張。",
+        "uploadFailed": "上傳失敗",
+        "details": "說明",
+        "detailsPh": "哪裡不對？例如在哪個動作、哪個部位出現的。",
+        "send": "送出",
+        "sent": "已收到，謝謝！我們會盡快查看。",
+        "failed": "沒送出，請再試一次。"
+      },
+      "howTo": "怎麼放進卡裡"
+    },
+    "loraTrain": {
+      "open": "訓練 LoRA",
+      "title": "訓練 LoRA",
+      "source": "用什麼訓練",
+      "from": {
+        "portrait": "一張立繪",
+        "pictures": "多張圖（{{min}}–{{max}} 張）"
+      },
+      "kind": {
+        "character": "角色",
+        "style": "畫風"
+      },
+      "portrait": "立繪",
+      "add": "從素材庫新增",
+      "upload": "上傳圖片",
+      "count": "{{count}} 張 · {{min}}–{{max}} 張",
+      "makeSet": "生成訓練圖（{{count}} 蘑菇幣）",
+      "pick": "挑選訓練圖",
+      "kept": "已選 {{count}} 張",
+      "drawing": "正在畫 {{done}}/{{total}}",
+      "name": "名字",
+      "train": "開始訓練（{{count}} 蘑菇幣）",
+      "back": "返回",
+      "stage": {
+        "queued": "排隊中",
+        "caption": "整理圖片",
+        "waiting": "等待顯卡",
+        "train": "訓練中 {{pct}}%",
+        "sync": "儲存中",
+        "samples": "畫樣圖"
+      },
+      "trigger": "觸發詞",
+      "copied": "已複製",
+      "done": "訓練好了",
+      "again": "再訓練一個",
+      "failed": "沒有成功，蘑菇幣已退回",
+      "cancelled": "已取消，退回 {{count}} 蘑菇幣",
+      "errors": {
+        "FAILED": "沒能開始，請稍後再試",
+        "NO_CREDITS": "蘑菇幣不夠，這次一共要 {{total}}",
+        "LORA_TRAINING_BUSY": "已經有一個在訓練了",
+        "TOO_FEW_PICTURES": "至少 {{count}} 張",
+        "TOO_MANY_PICTURES": "圖片太多了",
+        "TOO_MANY_MODELS": "LoRA 數量已滿，先刪掉一些",
+        "STORAGE_QUOTA": "LoRA 空間已滿，先刪掉一些",
+        "STORAGE_LIMIT": "素材空間已滿",
+        "REFERENCE_NOT_FOUND": "找不到這張圖",
+        "PROVIDER_UNAVAILABLE": "暫時不能訓練",
+        "ACCOUNT_RESTRICTED": "帳號受限，不能使用 AI 生成",
+        "LORA_ALREADY_TRAINED": "已經訓練好了，正在儲存",
+        "LORA_JOB_BUSY": "正在處理，請稍後再試"
+      },
+      "fromLine": {
+        "portrait": "從我的圖片、角色立繪裡選，或上傳",
+        "pictures": "同一個角色，或同一種畫風"
+      },
+      "material": "素材",
+      "namePlaceholder": "比如：米拉",
+      "cost": "約 {{minutes}} 分鐘 · {{cost}} 蘑菇幣",
+      "start": "開始訓練",
+      "pickPortrait": "選一張立繪",
+      "fromMine": "從我的圖片選",
+      "uploadOne": "上傳",
+      "change": "換一張"
     }
   },
   "media": {
@@ -1181,5 +3045,40 @@
     "pending": "正在清理，完成後釋放空間。",
     "deleted": "圖片已永久刪除，容量已更新。",
     "unlinked": "已移除目前存檔關聯，容量不變。"
+  },
+  "filter": {
+    "all": "全部",
+    "favorites": "收藏",
+    "updates": "有更新",
+    "unplayed": "還沒玩",
+    "hidden": "已隱藏",
+    "label": "篩選遊戲"
+  },
+  "collections": {
+    "label": "分組",
+    "addTo": "加入分組",
+    "new": "新增分組",
+    "create": "建立",
+    "save": "儲存",
+    "delete": "刪除分組",
+    "manage": "管理「{{name}}」",
+    "namePlaceholder": "名稱",
+    "deleteTitle": "刪除「{{name}}」？",
+    "deleteConfirm": "遊戲仍會留在庫裡。",
+    "error": {
+      "nameTaken": "已經有同名的分組了",
+      "tooMany": "最多 100 個分組",
+      "failed": "沒有儲存成功，請再試一次"
+    },
+    "edit": "編輯分組",
+    "searchGames": "搜尋遊戲",
+    "games": "遊戲",
+    "picked": "已選 {{count}} 個",
+    "untitled": "未命名分組",
+    "noMatch": "沒有符合的遊戲"
+  },
+  "hidden": {
+    "hide": "在庫中隱藏",
+    "show": "在庫中顯示"
   }
 }

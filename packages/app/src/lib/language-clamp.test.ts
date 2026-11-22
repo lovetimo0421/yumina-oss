@@ -27,7 +27,13 @@ test("clampLanguage handles the other UI locales and unknowns", () => {
   assert.equal(clampLanguage("en-US"), "en");
   assert.equal(clampLanguage("ja"), "ja");
   assert.equal(clampLanguage("es-419"), "es");
-  assert.equal(clampLanguage("ko"), "en"); // unsupported UI → English
+  assert.equal(clampLanguage("ko"), "ko");
+  assert.equal(clampLanguage("ko-KR"), "ko");
+  assert.equal(clampLanguage("id"), "id");
+  assert.equal(clampLanguage("id-ID"), "id");
+  assert.equal(clampLanguage("ru"), "ru");
+  assert.equal(clampLanguage("ru-RU"), "ru");
+  assert.equal(clampLanguage("fr"), "en"); // unsupported UI → English
   assert.equal(clampLanguage(null), "en");
   assert.equal(clampLanguage(""), "en");
 });

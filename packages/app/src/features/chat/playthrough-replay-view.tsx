@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, useCallback, type CSSProperties } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useRouter } from "@tanstack/react-router";
 import { ArrowLeft, Loader2, Heart, Eye, Trash2 } from "lucide-react";
@@ -19,7 +19,6 @@ import {
 import type { WorldDefinition, AudioTrack } from "@yumina/engine";
 import { safeParseWorldDef } from "@/lib/utils";
 import { absoluteImageUrl, resolveImageUrl } from "@/lib/asset-url";
-import { useUiStore } from "@/stores/ui";
 import { useAudioStore } from "@/stores/audio";
 import {
   getPlaythrough,
@@ -29,6 +28,7 @@ import {
 } from "@/lib/playthroughs";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { navigateBackSafely } from "@/lib/safe-back";
+import { CARD_CODE_REQUEST_HEADERS } from "@yumina/shared";
 
 const apiBase = import.meta.env.VITE_API_URL || "";
 
@@ -52,7 +52,6 @@ export function PlaythroughReplayView({ playthroughId, returnContext }: { playth
   };
   const { requireAuth } = useAuthGuard();
   const { data: session } = useSession();
-  const playZoomPercent = useUiStore((s) => s.playZoomPercent);
 
   const [pt, setPt] = useState<PlaythroughDetail | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -76,7 +75,7 @@ export function PlaythroughReplayView({ playthroughId, returnContext }: { playth
         setLikeCount(detail.likeCount);
         // The schema is fetched from the public world endpoint (same source the
         // guest preview uses) so we render against the card's current UI.
-        const res = await fetch(`${apiBase}/api/worlds/${detail.worldId}`, { credentials: "include" });
+        const res = await fetch(`${apiBase}/api/worlds/${detail.worldId}`, { credentials: "include", headers: CARD_CODE_REQUEST_HEADERS });
         if (cancelled) return;
         if (res.ok) {
           const { data } = await res.json();
@@ -229,11 +228,6 @@ export function PlaythroughReplayView({ playthroughId, returnContext }: { playth
     [variables, replayMessages, worldDef?.name, worldCover, handleSetVariable, handleExecuteAction],
   );
 
-  const playZoomStyle = useMemo(
-    () => ({ "--play-ui-scale": `${playZoomPercent / 100}` }) as CSSProperties,
-    [playZoomPercent],
-  );
-
   const handleDelete = async () => {
     if (!pt) return;
     // No confirm — this only un-shares the snapshot, not the user's own chat.
@@ -362,7 +356,7 @@ export function PlaythroughReplayView({ playthroughId, returnContext }: { playth
 
   if (!worldDef || !rootComponent) {
     return (
-      <div className="play-page-root flex h-full w-full flex-col overflow-hidden" style={playZoomStyle}>
+      <div className="play-page-root flex h-full w-full flex-col overflow-hidden">
         {header}
         <div className="flex flex-1 items-center justify-center p-8 text-sm text-muted-foreground">
           {t("replay.cardUnavailable")}
@@ -372,11 +366,12 @@ export function PlaythroughReplayView({ playthroughId, returnContext }: { playth
   }
 
   return (
-    <div className="play-page-root flex h-full w-full flex-col overflow-hidden" style={playZoomStyle}>
+    <div className="play-page-root flex h-full w-full flex-col overflow-hidden">
       {header}
       <WorldRenderer
         entryFile={rootComponent.entryFile}
         files={rootComponent.files}
+        precompiled={rootComponent.compiled}
         variables={variables}
         variableDefs={worldDef?.variables ?? []}
         api={replayAPI}

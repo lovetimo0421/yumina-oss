@@ -273,6 +273,10 @@ export interface Frame {
    *  === total`. On the card's frame `shared` is always 0. */
   own: number;
   shared: number;
+  /** Set on an installed resource pack's frame: its installId. Its
+   *  `ownerId` is the pack's owner key (see `packOwnerId`), never a
+   *  worldbook id, and `module` is null. */
+  packId?: string;
   /** The card's frame on a card that has modules. Its lore, variables and
    *  behaviours have gone into every module; what is left — face, openings,
    *  interface, audio — exists once and is not a fifth module. On a card
@@ -290,6 +294,25 @@ export const frameIdForNode = (g: GraphNode): string =>
 
 const ownerOf = (g: GraphNode): string | undefined =>
   g.parentId?.startsWith("module:") ? g.parentId.slice("module:".length) : undefined;
+
+// ── Resource packs ──────────────────────────────────────────────────
+//
+// An installed pack is drawn as a frame of its own, the way a situation is:
+// the parts it brought sit together under its name instead of being dealt out
+// into the card's blocks. It is not a situation (no worldbook, no AI, nothing
+// switches it on), so its "owner" is a key no worldbook id can collide with,
+// and everything that reads an owner as a worldbook checks `isPackOwner`.
+
+export const PACK_OWNER_PREFIX = "pack~";
+export const packOwnerId = (installId: string) => `${PACK_OWNER_PREFIX}${installId}`;
+export const isPackOwner = (ownerId: string | null | undefined): boolean =>
+  !!ownerId && ownerId.startsWith(PACK_OWNER_PREFIX);
+/** The install a pack owner key names, or undefined for anything else. */
+export const packInstallIdOf = (ownerId: string | null | undefined): string | undefined =>
+  isPackOwner(ownerId) ? ownerId!.slice(PACK_OWNER_PREFIX.length) : undefined;
+/** The pack an object came with (toGraph tags it), if any. */
+export const packOf = (g: GraphNode): string | undefined =>
+  typeof g.data?.pack === "string" && g.data.pack ? g.data.pack : undefined;
 
 /**
  * Group the projection into the blocks a card is made of, one set per module.
@@ -362,11 +385,21 @@ export function buildBoard(graph: CardGraph, opts: BuildBoardOptions = {}): Bloc
    *  frames, until the creator drags it into a module or sends it to all. */
   const looseIds = opts.loose ?? new Set<string>();
   // Outside every frame: not placed yet, so in play nowhere (drawn faded).
-  const isLoose = (n: GraphNode) => ownerOf(n) === UNPLACED_WORLDBOOK_ID || (hasModules && ownerOf(n) === undefined && looseIds.has(n.id));
+  const isLoose = (n: GraphNode) => !packOf(n) && (ownerOf(n) === UNPLACED_WORLDBOOK_ID || (hasModules && ownerOf(n) === undefined && looseIds.has(n.id)));
   const looseNodes: GraphNode[] = [];
 
   const homes = (n: GraphNode): Array<{ owner: string; shared: boolean }> => {
     const owner = ownerOf(n);
+    const pack = packOf(n);
+    if (pack) {
+      // The pack's own frame holds the row. Card-level, it still reaches
+      // every situation's AI, so each one counts it the way it counts the
+      // card's own objects.
+      const home = packOwnerId(pack);
+      bucket(home);
+      if (owner !== undefined || !hasModules) return [{ owner: home, shared: false }];
+      return [{ owner: home, shared: false }, ...moduleIds.map((id) => ({ owner: id, shared: true }))];
+    }
     if (owner !== undefined) return [{ owner, shared: false }];
     if (!hasModules) return [{ owner: "", shared: false }];
     // The root module owns the row; every module still counts it.
@@ -457,7 +490,7 @@ export function buildBoard(graph: CardGraph, opts: BuildBoardOptions = {}): Bloc
     // Beside the card's frame a situation is a place of its own, laid out
     // like the card: its settings, variables and behaviours are drawn even
     // empty, as the shelves to fill ("where are its variables?").
-    const shelf = cardFrame && ownerId !== undefined && (kind === "state" || kind === "behavior" || (kind === "lore" && trigger === "always"));
+    const shelf = cardFrame && ownerId !== undefined && !isPackOwner(ownerId) && (kind === "state" || kind === "behavior" || (kind === "lore" && trigger === "always"));
     if (all.length === 0 && !shelf) return null;
     const limit = opts.rowLimits?.[kind] ?? BLOCK_ROW_LIMIT[kind];
     // With a root module on the board the card's objects have rows THERE;
@@ -513,7 +546,7 @@ export function buildBoard(graph: CardGraph, opts: BuildBoardOptions = {}): Bloc
       blocks.push({ id: blockId.background, kind: "background", head: world, headSlots: [], rows: [], hiddenCount: 0, total: 1, sharedCount: 0 });
     }
 
-    if (ownerId) {
+    if (ownerId && !isPackOwner(ownerId)) {
       // Inside a module the openings are a list, like its lore: the card's
       // openings drawn as shared rows, in every module. Not when the card is
       // its own frame: its openings are right there, and the same opening
@@ -578,7 +611,7 @@ export function buildBoard(graph: CardGraph, opts: BuildBoardOptions = {}): Bloc
     // one memory and nothing to say, and with modules the card is not a
     // frame any more — each module's block already names who it shares its
     // memory with.
-    if (ownerId) {
+    if (ownerId && !isPackOwner(ownerId)) {
       blocks.push({
         id: blockId.context(ownerId),
         kind: "context",
@@ -639,7 +672,7 @@ export function buildBoard(graph: CardGraph, opts: BuildBoardOptions = {}): Bloc
  * in it still gets a frame: an empty module is a thing the creator made and
  * has not filled yet, and hiding it would hide the place to put things.
  */
-export function buildFrames(graph: CardGraph, blocks: Block[], cardFrame = false): Frame[] {
+export function buildFrames(graph: CardGraph, blocks: Block[], cardFrame = false, packs: readonly string[] = []): Frame[] {
   const modules = graph.nodes.filter((n) => n.kind === "module");
   const moduleFrames: Frame[] = [];
   const byOwner = new Map<string, Frame>();
@@ -660,13 +693,29 @@ export function buildFrames(graph: CardGraph, blocks: Block[], cardFrame = false
   const theCard = () =>
     (card ??= { id: blockId.frame(null), ownerId: null, module: null, blocks: [], total: 0, own: 0, shared: 0, strip: modules.length > 0 && !cardFrame });
   if (modules.length === 0 || cardFrame) theCard();
+  // Every installed pack gets its frame, even one whose parts all live in
+  // its own situations or that brought only an interface: the frame is where
+  // its settings, its source and its removal are.
+  const packFrames: Frame[] = [];
+  const packFrame = (installId: string) => {
+    const ownerId = packOwnerId(installId);
+    let frame = byOwner.get(ownerId);
+    if (!frame) {
+      frame = { id: blockId.frame(ownerId), ownerId, module: null, packId: installId, blocks: [], total: 0, own: 0, shared: 0, strip: false };
+      packFrames.push(frame);
+      byOwner.set(ownerId, frame);
+    }
+    return frame;
+  };
+  for (const id of packs) packFrame(id);
   for (const b of blocks) {
     // A loose block is in no frame: it stands on the canvas by itself.
     if (b.loose) continue;
-    const frame = b.ownerId ? byOwner.get(b.ownerId) : undefined;
+    const pack = packInstallIdOf(b.ownerId);
+    const frame = pack ? packFrame(pack) : b.ownerId ? byOwner.get(b.ownerId) : undefined;
     (frame ?? theCard()).blocks.push(b);
   }
-  const frames = card ? [card, ...moduleFrames] : moduleFrames;
+  const frames = card ? [card, ...moduleFrames, ...packFrames] : [...moduleFrames, ...packFrames];
   for (const f of frames) {
     f.total = f.blocks.reduce((n, b) => n + b.total, 0);
     f.shared = f.blocks.reduce((n, b) => n + b.sharedCount, 0);
@@ -687,7 +736,13 @@ export function blockIdForNode(g: GraphNode, inOwner?: string): string | null {
   // module (`inOwner`) answers with that module's block. An object that has
   // a module of its own is not re-homed by asking.
   const home = ownerOf(g);
-  const owner = home ?? inOwner;
+  const pack = packOf(g);
+  // A pack's object lives in the pack's frame; asked about inside a
+  // situation, a card-level one answers with that situation's block (where
+  // it is counted), exactly like the card's own.
+  const owner = pack
+    ? (inOwner && home === undefined ? inOwner : packOwnerId(pack))
+    : home ?? inOwner;
   switch (g.kind) {
     case "world": return blockId.card;
     // Inside a module an opening is a row of that module's openings block;

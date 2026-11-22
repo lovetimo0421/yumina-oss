@@ -93,10 +93,10 @@ function ModuleListItem({
       )}
     >
       <div className="flex items-center gap-2">
-        <Boxes className="h-4 w-4 shrink-0 text-amber-300" />
+        <Boxes className="h-4 w-4 shrink-0 text-muted-foreground" />
         <span className="min-w-0 flex-1 truncate text-sm font-bold text-foreground">{wb.name || t("modules.untitled")}</span>
         {(station === "narrator" || station === "worker") && (
-          <span className={cn("shrink-0 rounded px-1 py-px text-[9px] font-bold", station === "worker" ? "bg-violet-500/20 text-violet-300" : "bg-amber-500/20 text-amber-300")}>
+          <span className={cn("shrink-0 rounded px-1 py-px text-[9px] font-bold", "bg-white/5 text-muted-foreground")}>
             {t(station === "worker" ? "modules.worker" : "modules.takesOver")}
           </span>
         )}
@@ -139,11 +139,11 @@ function CardListItem({
       )}
     >
       <div className="flex items-center gap-2">
-        <Boxes className="h-4 w-4 shrink-0 text-primary" />
+        <Boxes className="h-4 w-4 shrink-0 text-muted-foreground" />
         <span className="min-w-0 flex-1 truncate text-sm font-bold text-foreground">{cardName || t("modules.theCard")}</span>
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
-        <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-400">{t("modules.badge.always")}</span>
+        <span className="rounded-full bg-white/5 text-muted-foreground px-2 py-0.5 text-[10px] font-semibold">{t("modules.badge.always")}</span>
         <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] tabular-nums text-muted-foreground">
           {/* Just the count: "shared in" describes being inside something
               else, and nothing is shared in to the card. */}
@@ -243,11 +243,11 @@ export function ModulesSection({ compact }: { compact?: boolean } = {}) {
     const label = t(`modules.badge.${b.kind}` as never) as string;
     switch (b.kind) {
       case "disabled": return { txt: label, cls: "bg-white/5 text-muted-foreground" };
-      case "always": return { txt: label, cls: "bg-emerald-500/15 text-emerald-400" };
+      case "always": return { txt: label, cls: "bg-white/5 text-muted-foreground" };
       case "manual": return { txt: label, cls: "bg-white/5 text-muted-foreground" };
-      case "greeting": return { txt: b.count ? `${label} ×${b.count}` : label, cls: "bg-violet-500/15 text-violet-300" };
-      case "keywords": return { txt: b.detail ?? label, cls: "bg-amber-500/15 text-amber-300" };
-      default: return { txt: b.detail ? `${t("modules.badge.when")} ${b.detail}` : label, cls: "bg-sky-500/15 text-sky-300" };
+      case "greeting": return { txt: b.count ? `${label} ×${b.count}` : label, cls: "bg-white/5 text-muted-foreground" };
+      case "keywords": return { txt: b.detail ?? label, cls: "bg-white/5 text-muted-foreground" };
+      default: return { txt: b.detail ? `${t("modules.badge.when")} ${b.detail}` : label, cls: "bg-white/5 text-muted-foreground" };
     }
   }
 
@@ -303,7 +303,7 @@ export function ModulesSection({ compact }: { compact?: boolean } = {}) {
             className="flex w-10 shrink-0 flex-col items-center gap-3 border-r border-border bg-card/40 py-3 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           >
             <PanelLeftOpen className="h-4 w-4" />
-            <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary/15 px-1 text-[10px] font-bold text-primary select-none">
+            <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-white/5 px-1 text-[10px] font-bold text-muted-foreground select-none">
               {worldbooks.length + 1}
             </span>
           </button>
@@ -311,23 +311,23 @@ export function ModulesSection({ compact }: { compact?: boolean } = {}) {
         {!isMobile && (
           <div className={cn("flex shrink-0 flex-col border-r border-border bg-card/40 transition-all duration-200", sidebarOpen ? "w-[260px]" : "w-0 overflow-hidden border-r-0")}>
             <div className="flex items-center justify-between px-3 pb-1 pt-3">
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{t("modules.listTitle")}</span>
-              <span className="text-xs text-primary">{t("modules.count", { count: worldbooks.length + 1 })}</span>
+              {/* "Scenario" is a word the creator has to be handed once: the
+                  sentence sits on the heading, the docs one click away. */}
+              <span className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground" title={t("modules.whatIsThis")}>
+                {t("modules.listTitle")}
+                <a
+                  href={DOCS_URLS.modules}
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-label={t("modules.learnMore")}
+                  title={t("modules.learnMore")}
+                  className="text-muted-foreground/60 transition-colors hover:text-foreground"
+                >
+                  <ExternalLink className="h-2.5 w-2.5" />
+                </a>
+              </span>
+              <span className="text-xs text-muted-foreground">{t("modules.count", { count: worldbooks.length + 1 })}</span>
             </div>
-            {/* One sentence, because "module" is a word the creator has to be
-                handed once. The rest is a link, not a wall of text. */}
-            <p className="px-3 pb-2 text-[10px] leading-relaxed text-muted-foreground/70">
-              {t("modules.whatIsThis")}{" "}
-              <a
-                href={DOCS_URLS.modules}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-0.5 text-primary/80 hover:text-primary"
-              >
-                {t("modules.learnMore")}
-                <ExternalLink className="h-2.5 w-2.5" />
-              </a>
-            </p>
             <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-3 pb-3">
               <CardListItem selected={onCard} cardName={cardName} sharedCount={counts.shared} onSelect={selectCard} />
               {worldbooks.map((wb) => (
@@ -368,7 +368,7 @@ export function ModulesSection({ compact }: { compact?: boolean } = {}) {
                       {sidebarOpen ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}
                     </button>
                   )}
-                  <Boxes className="h-5 w-5 shrink-0 text-primary" />
+                  <Boxes className="h-5 w-5 shrink-0 text-muted-foreground" />
                   <DebouncedInput
                     value={cardName}
                     onCommit={(v) => setField("name", v)}
@@ -379,10 +379,8 @@ export function ModulesSection({ compact }: { compact?: boolean } = {}) {
 
                 {/* No activation section: the card is what is on when nothing
                     else is, which is not a setting anyone can change. */}
-                <p className="-mt-3 pl-1 text-[11px] leading-relaxed text-muted-foreground">{t("modules.cardAlwaysOn")}</p>
-
                 <section className="space-y-2">
-                  <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{t("modules.contents")}</h3>
+                  <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground" title={t("modules.cardAlwaysOn")}>{t("modules.contents")}</h3>
                   <ModuleContents book={null} />
                 </section>
 
@@ -395,7 +393,7 @@ export function ModulesSection({ compact }: { compact?: boolean } = {}) {
                         does this AI read" is the same question the module page
                         answers for every other module. */}
                     <label className="flex items-center justify-between gap-2 border-t border-border/50 pt-2 text-[11px] text-muted-foreground">
-                      <span className="min-w-0 flex-1 font-semibold text-foreground">{t("blueprint.station.historyLimit")}</span>
+                      <span className="min-w-0 flex-1 font-semibold text-foreground" title={t(historyLimit ? "entries.historyLimitHint" : "entries.historyLimitHintAll")}>{t("blueprint.station.historyLimit")}</span>
                       <span className="flex shrink-0 items-center gap-1">
                         <select
                           value={historyLimit ? "latest" : "all"}
@@ -417,7 +415,6 @@ export function ModulesSection({ compact }: { compact?: boolean } = {}) {
                         ) : null}
                       </span>
                     </label>
-                    <p className="text-[10px] leading-relaxed text-muted-foreground">{t(historyLimit ? "entries.historyLimitHint" : "entries.historyLimitHintAll")}</p>
                   </div>
                 </section>
               </div>
@@ -436,7 +433,7 @@ export function ModulesSection({ compact }: { compact?: boolean } = {}) {
                       {sidebarOpen ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}
                     </button>
                   )}
-                  <Boxes className="h-5 w-5 shrink-0 text-amber-300" />
+                  <Boxes className="h-5 w-5 shrink-0 text-muted-foreground" />
                   <DebouncedInput
                     value={selected.name}
                     onCommit={(v) => updateWorldbook(selected.id, { name: v })}

@@ -1,4 +1,4 @@
-import { eq, inArray, or, sql } from "drizzle-orm";
+import { and, eq, inArray, ne, or, sql } from "drizzle-orm";
 import { favorites, userLibrary, worlds } from "../db/schema.js";
 
 /** Restrict list metadata to Library dependencies, without changing the outer
@@ -16,9 +16,9 @@ export function libraryWorldScope(userId: string, requestedWorldId?: string) {
   return or(
     eq(worlds.creatorId, userId),
     inArray(worlds.id, savedIds),
-    sql`${worlds.languageGroupId} IN (
+    and(ne(worlds.visibility, "unlisted"), sql`${worlds.languageGroupId} IN (
       SELECT saved.language_group_id FROM worlds saved WHERE saved.id IN ${savedIds}
-    )`,
+    )`),
     requested,
   )!;
 }

@@ -1,7 +1,8 @@
+import type { MessageButtonColor } from "../../sandbox/protocol";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-export type FontSize = "small" | "default" | "large" | "x-large";
+export type FontSize = "small" | "default" | "large" | "x-large" | "xx-large";
 
 /** Root font-size multiplier per setting. Single source for the host document
  *  (app-shell writes it to --font-size-scale) AND the play sandbox (the
@@ -12,6 +13,7 @@ export const FONT_SIZE_SCALE: Record<FontSize, number> = {
   default: 1,
   large: 1.125,
   "x-large": 1.25,
+  "xx-large": 1.75,
 };
 
 /** Which keystroke sends a message composer. "enter" = Enter sends / Shift+Enter
@@ -28,7 +30,10 @@ function normalizeStoredContentLevel(raw: unknown): ContentLevel {
 }
 
 interface UiState {
-  playZoomPercent: number;
+  messageButtonColors: Record<string, MessageButtonColor>;
+  setMessageButtonColor: (sessionId: string, color: MessageButtonColor) => void;
+  playColorMode: "dark" | "light";
+  setPlayColorMode: (mode: "dark" | "light") => void;
   fontSize: FontSize;
   composerSendKey: ComposerSendKey;
   mobileNavOpen: boolean;
@@ -70,9 +75,6 @@ interface UiState {
   studioTakeover: boolean;
   guestContentLevel: ContentLevel;
   guestBlurSensitive: boolean;
-  setPlayZoomPercent: (percent: number) => void;
-  adjustPlayZoomPercent: (delta: number) => void;
-  resetPlayZoomPercent: () => void;
   setFontSize: (size: FontSize) => void;
   setComposerSendKey: (key: ComposerSendKey) => void;
   openMobileNav: () => void;
@@ -114,14 +116,7 @@ export interface RecentPlayedWorldInput {
   thumbnailUrl?: string | null;
 }
 
-const MIN_PLAY_ZOOM = 20;
-const MAX_PLAY_ZOOM = 200;
-const DEFAULT_PLAY_ZOOM = 80;
 const MAX_RECENT_PLAYED_WORLDS = 5;
-
-function clampPlayZoom(percent: number) {
-  return Math.min(MAX_PLAY_ZOOM, Math.max(MIN_PLAY_ZOOM, Math.round(percent)));
-}
 
 function normalizeRecentPlayedWorld(world: RecentPlayedWorldInput): RecentPlayedWorld {
   return {
@@ -135,7 +130,15 @@ function normalizeRecentPlayedWorld(world: RecentPlayedWorldInput): RecentPlayed
 export const useUiStore = create<UiState>()(
   persist(
     (set) => ({
-      playZoomPercent: DEFAULT_PLAY_ZOOM,
+      messageButtonColors: {},
+      setMessageButtonColor: (sessionId, color) => set((state) => {
+        const colors = { ...state.messageButtonColors };
+        if (color === "default") delete colors[sessionId];
+        else colors[sessionId] = color;
+        return { messageButtonColors: colors };
+      }),
+      playColorMode: "dark",
+      setPlayColorMode: (mode) => set({ playColorMode: mode === "light" ? "light" : "dark" }),
       fontSize: "default" as FontSize,
       composerSendKey: "enter" as ComposerSendKey,
       mobileNavOpen: false,
@@ -153,10 +156,6 @@ export const useUiStore = create<UiState>()(
       studioTakeover: false,
       guestContentLevel: "safe" satisfies ContentLevel as ContentLevel,
       guestBlurSensitive: true,
-      setPlayZoomPercent: (percent) => set({ playZoomPercent: clampPlayZoom(percent) }),
-      adjustPlayZoomPercent: (delta) =>
-        set((s) => ({ playZoomPercent: clampPlayZoom(s.playZoomPercent + delta) })),
-      resetPlayZoomPercent: () => set({ playZoomPercent: DEFAULT_PLAY_ZOOM }),
       setFontSize: (size) => set({ fontSize: size }),
       setComposerSendKey: (key) => set({ composerSendKey: key }),
       openMobileNav: () => set({ mobileNavOpen: true }),
@@ -212,23 +211,26 @@ export const useUiStore = create<UiState>()(
       partialize: ({ personaManagerOpen: _omit, sharePlaythroughOpen: _omit2, tipModalOpen: _omit3, studioTakeover: _omit4, sceneGalleryOpen: _omit5, promptComposerOpen: _omit6, ...rest }) => rest,
       // Migrate the legacy "r18" guestContentLevel value (persisted before the
       // sensitive-content rename) so old browser caches don't keep round-tripping it.
-      // Also drop the retired sidebar-collapse keys so old persisted state can't
-      // reintroduce them.
+      // Also drop the retired sidebar-collapse and play-zoom keys so old
+      // persisted state can't reintroduce them.
       merge: (persistedState, currentState) => {
         if (!persistedState || typeof persistedState !== "object") return currentState;
         const {
           sidebarCollapsed: _legacySidebarCollapsed,
           hasSeenCollapseHint: _legacyHasSeenCollapseHint,
+          playZoomPercent: _legacyPlayZoomPercent,
           ...persisted
         } = persistedState as Partial<UiState> & {
           guestContentLevel?: unknown;
           sidebarCollapsed?: unknown;
           hasSeenCollapseHint?: unknown;
+          playZoomPercent?: unknown;
         };
         return {
           ...currentState,
           ...persisted,
           guestContentLevel: normalizeStoredContentLevel(persisted.guestContentLevel),
+          playColorMode: persisted.playColorMode === "light" ? "light" : "dark",
         };
       },
     },

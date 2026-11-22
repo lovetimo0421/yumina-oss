@@ -5,7 +5,7 @@ export interface WorldMergeConflict {
   collection: string;
   /** Entity id, filename, or field name. */
   id: string;
-  reason: "both-edited" | "edit-vs-delete";
+  reason: "both-edited" | "edit-vs-delete" | "both-added";
 }
 
 export interface WorldMergeResult {
@@ -46,6 +46,67 @@ export function deepEqual(a: unknown, b: unknown): boolean {
 
 type Row = Record<string, unknown>;
 
+/**
+ * The rows that moved: everything outside the longest run that kept its
+ * relative order. Sending those as moves (rather than the whole order)
+ * means a reorder only touches what was dragged.
+ */
+export function movedIds(base: Row[], next: Row[]): Set<string> {
+  const at = new Map(base.map((r, i) => [r.id as string, i]));
+  const kept = next.map((r) => r.id as string).filter((id) => at.has(id));
+  const seq = kept.map((id) => at.get(id)!);
+  // Longest increasing subsequence, O(n log n), with back links.
+  const tails: number[] = [];
+  const prev: number[] = new Array(seq.length).fill(-1);
+  for (let i = 0; i < seq.length; i++) {
+    let lo = 0, hi = tails.length;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (seq[tails[mid]!]! < seq[i]!) lo = mid + 1; else hi = mid; }
+    if (lo > 0) prev[i] = tails[lo - 1]!;
+    tails[lo] = i;
+  }
+  const stay = new Set<string>();
+  for (let i = tails.length ? tails[tails.length - 1]! : -1; i >= 0; i = prev[i]!) stay.add(kept[i]!);
+  return new Set(kept.filter((id) => !stay.has(id)));
+}
+
+/**
+ * The merged order of an id-keyed list: the server's order, with the rows
+ * this side dragged (relative to the base) put back behind the neighbour
+ * they were dragged to — so two people reordering different rows both keep
+ * their move — and rows only this side has placed after their neighbour.
+ */
+function mergedOrder(baseArr: unknown, localArr: unknown, serverArr: unknown): string[] {
+  const ids = (arr: unknown) => {
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (const r of (Array.isArray(arr) ? arr : []) as Row[]) {
+      const id = idOf(r);
+      if (id && !seen.has(id)) { seen.add(id); out.push(id); }
+    }
+    return out;
+  };
+  const base = ids(baseArr);
+  const local = ids(localArr);
+  const order = ids(serverArr);
+  const moved = movedIds(base.map((id) => ({ id })), local.map((id) => ({ id })));
+  for (let i = 0; i < local.length; i++) {
+    const id = local[i]!;
+    // Dragged here, or a row the server list doesn't have (added here, or
+    // kept here after the server deleted it).
+    if (!moved.has(id) && order.includes(id)) continue;
+    const at = order.indexOf(id);
+    if (at >= 0) order.splice(at, 1);
+    // Behind the nearest earlier local row the merged list has.
+    let place = 0;
+    for (let j = i - 1; j >= 0; j--) {
+      const k = order.indexOf(local[j]!);
+      if (k >= 0) { place = k + 1; break; }
+    }
+    order.splice(place, 0, id);
+  }
+  return order;
+}
+
 function idOf(r: Row | undefined): string | undefined {
   return r && typeof r.id === "string" ? r.id : undefined;
 }
@@ -66,7 +127,8 @@ function indexById(arr: unknown): Map<string, Row> {
  *
  * Conservative by construction — it NEVER drops a side silently:
  *  - changed on exactly one side  → take that side
- *  - changed on both, differently → keep LOCAL + record a conflict (caller stashes the other)
+ *  - changed on both              → merge field by field; a field changed both
+ *                                   ways keeps LOCAL + records a conflict (caller stashes the other)
  *  - added on one side only        → keep it
  *  - deleted on one side, edited on the other → keep the EDIT + record a conflict
  *  - deleted on one side, untouched on the other → honor the delete
@@ -77,23 +139,16 @@ function mergeById(
   localArr: unknown,
   serverArr: unknown,
   conflicts: WorldMergeConflict[],
+  renameClashes = false,
 ): Row[] {
   const baseM = indexById(baseArr);
   const localM = indexById(localArr);
   const serverM = indexById(serverArr);
 
-  // Preserve server order first (the agent's/server layout), then append rows
-  // that exist only locally (the user's additions) so nothing reorders away.
-  const orderedIds: string[] = [];
-  const seen = new Set<string>();
-  for (const r of (Array.isArray(serverArr) ? serverArr : []) as Row[]) {
-    const id = idOf(r);
-    if (id && !seen.has(id)) { seen.add(id); orderedIds.push(id); }
-  }
-  for (const r of (Array.isArray(localArr) ? localArr : []) as Row[]) {
-    const id = idOf(r);
-    if (id && !seen.has(id)) { seen.add(id); orderedIds.push(id); }
-  }
+  // The server's order with this side's drags and additions placed where
+  // they were made (a merge used to put every local reorder back).
+  const orderedIds = mergedOrder(baseArr, localArr, serverArr);
+  const taken = new Set([...serverM.keys(), ...localM.keys()]);
 
   const out: Row[] = [];
   for (const id of orderedIds) {
@@ -103,35 +158,35 @@ function mergeById(
     const s = serverM.get(id);
 
     if (l && s) {
-      if (collection === "entries" && b) {
-        // Portraits arrive independently from background image tasks. Keeping
-        // the whole local entry after a text edit would silently drop a newly
-        // bound portrait, then autosave that loss with the new server version.
-        const { portrait: bp, ...baseEntry } = b;
-        const { portrait: lp, ...localEntry } = l;
-        const { portrait: sp, ...serverEntry } = s;
-        const localEntryChanged = !deepEqual(localEntry, baseEntry);
-        const serverEntryChanged = !deepEqual(serverEntry, baseEntry);
-        const localPortraitChanged = !deepEqual(lp, bp);
-        const serverPortraitChanged = !deepEqual(sp, bp);
-        if ((localEntryChanged && serverEntryChanged && !deepEqual(localEntry, serverEntry))
-          || (localPortraitChanged && serverPortraitChanged && !deepEqual(lp, sp))) {
-          conflicts.push({ collection, id, reason: "both-edited" });
+      if (!inBase) {
+        if (deepEqual(l, s)) { out.push(l); continue; }
+        if (renameClashes) {
+          // Two people named a new row alike (a variable): both are kept,
+          // ours under the next free id.
+          let n = 2;
+          while (taken.has(`${id}_${n}`)) n++;
+          taken.add(`${id}_${n}`);
+          conflicts.push({ collection, id, reason: "both-added" });
+          out.push(s, { ...l, id: `${id}_${n}` });
+          continue;
         }
-        const portrait = localPortraitChanged ? lp : sp;
-        out.push({ ...(localEntryChanged ? localEntry : serverEntry), ...(portrait !== undefined ? { portrait } : {}) });
+        // Both sides added the same id: keep ours, report that theirs differs.
+        conflicts.push({ collection, id, reason: "both-edited" });
+        out.push(l);
         continue;
       }
-      const localChanged = !inBase || !deepEqual(l, b);
-      const serverChanged = !inBase || !deepEqual(s, b);
-      if (localChanged && serverChanged && !deepEqual(l, s)) {
-        conflicts.push({ collection, id, reason: "both-edited" });
-        out.push(l); // keep the user's version; caller stashes server's
-      } else if (localChanged) {
-        out.push(l);
-      } else {
-        out.push(s);
+      // Field by field: two people editing different fields of one entry
+      // (a name here, the text there; a background portrait landing while the
+      // creator types) both keep their change. Only the same field changed
+      // two different ways is a conflict, and there the local edit wins.
+      const row: Row = {};
+      const clashes: WorldMergeConflict[] = [];
+      for (const field of new Set([...Object.keys(b!), ...Object.keys(l), ...Object.keys(s)])) {
+        const value = mergeValue(field, b![field], l[field], s[field], clashes);
+        if (value !== undefined) row[field] = value;
       }
+      if (clashes.length > 0) conflicts.push({ collection, id, reason: "both-edited" });
+      out.push(row);
     } else if (l && !s) {
       if (!inBase) {
         out.push(l); // user added
@@ -216,6 +271,41 @@ function mergeRootComponent(
   return { ...server, ...local, entryFile, assetLoading, files: mergedFiles, compiled: undefined };
 }
 
+/**
+ * Three-way merge of one value. Whichever side changed it wins; changed both
+ * ways, plain objects go key by key and id-keyed lists row by row — two
+ * people moving different nodes on the canvas, adding sticky notes, or
+ * editing different pages of the interface both keep theirs. A value changed
+ * both ways below that keeps LOCAL and is reported at its dotted path.
+ */
+function mergeValue(path: string, bv: unknown, lv: unknown, sv: unknown, conflicts: WorldMergeConflict[]): unknown {
+  if (deepEqual(lv, bv)) return sv;
+  if (deepEqual(sv, bv) || deepEqual(lv, sv)) return lv;
+  const isObject = (v: unknown): v is Row => !!v && typeof v === "object" && !Array.isArray(v);
+  // Both started the same thing from nothing: merge them as additions.
+  if (bv === undefined && isObject(lv) && isObject(sv)) bv = {};
+  else if (bv === undefined && Array.isArray(lv) && Array.isArray(sv)) bv = [];
+  if (isObject(bv) && isObject(lv) && isObject(sv)) {
+    const out: Row = {};
+    for (const k of new Set([...Object.keys(bv), ...Object.keys(lv), ...Object.keys(sv)])) {
+      const value = mergeValue(`${path}.${k}`, bv[k], lv[k], sv[k], conflicts);
+      if (value !== undefined) out[k] = value;
+    }
+    return out;
+  }
+  if (Array.isArray(bv) && Array.isArray(lv) && Array.isArray(sv) && allRowsHaveIds(bv, lv, sv)) {
+    return mergeById(path, bv, lv, sv, conflicts);
+  }
+  conflicts.push({ collection: "field", id: path, reason: "both-edited" });
+  return lv;
+}
+
+/** Three-way merge of one value of a world (see mergeWorldDefinition). */
+export function mergeWorldValue(path: string, base: unknown, local: unknown, server: unknown): { value: unknown; conflicts: WorldMergeConflict[] } {
+  const conflicts: WorldMergeConflict[] = [];
+  return { value: mergeValue(path, base, local, server, conflicts), conflicts };
+}
+
 /** Collections merged by entity `id`. */
 const ID_COLLECTIONS = [
   "entries",
@@ -227,36 +317,39 @@ const ID_COLLECTIONS = [
   "backgrounds",
   "entryFolders",
   "customUI",
+  "worldbooks",
+  "scenes",
+  "replyRules",
+  "conditionalBGM",
+  "characters",
 ] as const;
 
+/** Every row carries a string id — otherwise an id-keyed merge would drop rows. */
+function allRowsHaveIds(...arrs: unknown[]): boolean {
+  return arrs.every((arr) => arr === undefined || (Array.isArray(arr) && (arr as Row[]).every((r) => idOf(r) !== undefined)));
+}
+
 /**
- * Other top-level fields, merged with base-aware "local wins if the user changed
- * it, else take server". Coarse but safe: a field only the agent changed flows
- * through from server; a field the user changed is preserved. When both sides
- * changed it differently, report the conflict so the caller retains the other
- * value for recovery, just as it does for an id-keyed entity.
+ * Every other top-level field is merged base-aware: a field only the other
+ * side changed flows through; a field only the user changed is preserved;
+ * changed on both sides, it is merged inside (mergeValue) and whatever both
+ * changed differently is reported so the caller retains the other value for
+ * recovery, just as it does for an id-keyed entity.
  */
-const FIELD_KEYS = [
-  "name",
-  "description",
-  "author",
-  "avatar",
-  "coverCrop",
-  "galleryCoverCrop",
-  "landscapeCover",
-  "landscapeCoverCrop",
-  "characters",
-  "components",
-  "uiBlueprint",
-  "bgmPlaylist",
-  "conditionalBGM",
-  "lorebookEntries",
-  "customTags",
-  "editorMode",
-  "settings",
-  "version",
-  "id",
-] as const;
+const HANDLED_KEYS = new Set<string>([...ID_COLLECTIONS, "rootComponent"]);
+
+function mergeField(
+  key: string,
+  bv: unknown,
+  lv: unknown,
+  sv: unknown,
+  merged: Record<string, unknown>,
+  conflicts: WorldMergeConflict[],
+): void {
+  const value = mergeValue(key, bv, lv, sv, conflicts);
+  if (value === undefined) delete merged[key];
+  else merged[key] = value;
+}
 
 /**
  * 3-way merge of two WorldDefinitions that diverged from a common ancestor
@@ -288,7 +381,11 @@ export function mergeWorldDefinition(
       merged[key] = ss;
       continue;
     }
-    merged[key] = mergeById(key, bb, ll, ss, conflicts);
+    if (!allRowsHaveIds(bb, ll, ss)) {
+      mergeField(key, bb, ll, ss, merged, conflicts);
+      continue;
+    }
+    merged[key] = mergeById(key, bb, ll, ss, conflicts, key === "variables");
   }
 
   merged.rootComponent = mergeRootComponent(
@@ -298,15 +395,15 @@ export function mergeWorldDefinition(
     conflicts,
   );
 
-  for (const key of FIELD_KEYS) {
-    const lv = (local as unknown as Record<string, unknown>)[key];
-    const bv = (b as unknown as Record<string, unknown>)[key];
-    const sv = (server as unknown as Record<string, unknown>)[key];
-    const localChanged = !deepEqual(lv, bv);
-    if (localChanged && !deepEqual(sv, bv) && !deepEqual(lv, sv)) {
-      conflicts.push({ collection: "field", id: key, reason: "both-edited" });
-    }
-    merged[key] = localChanged ? lv : sv;
+  // Every remaining key, including ones added to WorldDefinition later — a
+  // fixed list here once let unsaved worldbooks/uiDoc/replyRules edits be
+  // replaced by the server copy on any merge.
+  const lo = local as unknown as Record<string, unknown>;
+  const so = server as unknown as Record<string, unknown>;
+  const bo = b as unknown as Record<string, unknown>;
+  for (const key of new Set([...Object.keys(bo), ...Object.keys(lo), ...Object.keys(so)])) {
+    if (HANDLED_KEYS.has(key)) continue;
+    mergeField(key, bo[key], lo[key], so[key], merged, conflicts);
   }
 
   return { merged: merged as unknown as WorldDefinition, conflicts };

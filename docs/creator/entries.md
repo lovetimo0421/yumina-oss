@@ -1,3 +1,8 @@
+---
+title: "Openings and lore"
+description: "How openings and lore work in a Yumina card: what the AI reads every turn, keyword and conditional lore, standby lore, macros, and how to keep it short."
+---
+
 # Openings and Lore
 
 ## Openings
@@ -39,7 +44,7 @@ Under each block's title you'll see how many entries it has and roughly how much
 
 ### Character and world: sent every turn
 
-This is the foundation of your world: character descriptions and personalities, the setting, narration style, game mechanics.
+This is the foundation of your world: character descriptions and personalities, the setting, narration style, game mechanics. Because this block reads the same every turn, AI providers cache it, so it costs less than its size suggests.
 
 Click a row in this block and it opens up. Name goes on top, content below:
 
@@ -109,8 +114,9 @@ You can write `{{macros}}` in lore and openings. When the AI sees them, they're 
 | `{{random::a::b::c}}` | One of the options, picked at random |
 | `{{roll::2d6}}` | A dice roll result |
 | `{{variable ID}}` | That variable's current value |
+| `{{turnCount}}`, `{{time}}`, `{{date}}` | The turn number, the time and the date |
 
-This takes the variable's **ID**, not its name, and the ID can only use English letters, digits and underscores. Variables made on the canvas get a random ID, so to use one in a macro, open its **Advanced**, change the **ID** to a short name like `location`, click **Apply**, then write `{{location}}` in your lore.
+This takes the variable's **ID**, not its name, and the ID can only use English letters, digits and _. Variables made on the canvas get a random ID, so to use one in a macro, open its **Advanced**, change the **ID** to a short name like `location`, click **Apply**, then write `{{location}}` in your lore.
 
 </div>
 

@@ -70,7 +70,7 @@ function hardenImages(root: ParentNode): void {
     const src = img.getAttribute("src");
     if (src && src.startsWith("@asset:") && !img.dataset.yuminaAssetResolved) {
       img.dataset.yuminaAssetResolved = "1";
-      resolveAssetUrl(src).then((resolved) => {
+      resolveAssetUrl(src, { original: true }).then((resolved) => {
         if (resolved !== src) img.src = resolved;
       });
     }
@@ -94,14 +94,14 @@ async function resolveStyleAssets(root: ParentNode): Promise<void> {
   for (const styleEl of styleTags) {
     const cssText = styleEl.textContent ?? "";
     if (!cssText.includes("@asset:")) continue;
-    const resolved = await resolveAssetRefs(cssText);
+    const resolved = await resolveAssetRefs(cssText, { original: true });
     if (resolved !== cssText) styleEl.textContent = resolved;
   }
   const styledElements = root.querySelectorAll<HTMLElement>("[style]");
   for (const el of styledElements) {
     const styleAttr = el.getAttribute("style") ?? "";
     if (!styleAttr.includes("@asset:")) continue;
-    const resolved = await resolveAssetRefs(styleAttr);
+    const resolved = await resolveAssetRefs(styleAttr, { original: true });
     if (resolved !== styleAttr) el.setAttribute("style", resolved);
   }
 }

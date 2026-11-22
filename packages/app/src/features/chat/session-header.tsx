@@ -13,7 +13,6 @@ import {
   GitBranch,
   X,
 } from "lucide-react";
-import { PlayZoomControl } from "./play-zoom-control";
 import { useSceneGallery } from "./scene-gallery";
 import { TipButton } from "@/edition/slots";
 import { useFeature } from "@/edition/edition";
@@ -147,8 +146,6 @@ export function SessionHeader({
           {isStreaming && streamStartTime && (
             <StreamingTimer startTime={streamStartTime} />
           )}
-
-          <PlayZoomControl />
 
           {billingEnabled && (
           <TipButton

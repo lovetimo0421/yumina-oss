@@ -32,6 +32,8 @@ for (const deleted of [true, false]) {
       "react-i18next": { useTranslation: () => ({ t: (key: string) => key }) },
       "@/lib/feedback": { feedback: { error: noop } },
       "@/hooks/use-copy-feedback": { useCopyFeedback: () => ({ copy: noop }) },
+      // The card being edited, for a collaborator's rights: none here, so the owner's.
+      "@/stores/editor": { useEditorStore: (select: (state: { access: null }) => unknown) => select({ access: null }) },
       "@/stores/folder-bindings": { useFolderBindingStore: (select: (state: typeof bindings) => unknown) => select(bindings) },
       "@/stores/user-assets": { useUserAssetStore: (select: (state: typeof assets) => unknown) => select(assets) },
       "@/stores/asset-imports": { useAssetImportStore: (select: (state: object) => unknown) => select({ items: [], revision: 0 }) },

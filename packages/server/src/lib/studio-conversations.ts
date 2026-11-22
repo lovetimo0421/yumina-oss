@@ -173,22 +173,27 @@ function runWriteTargets(turns: CommittedTurn[]): string[] {
  *  writes. Tool preambles, mid-task stalls, and server notices are simply never
  *  selected — we pick the real thing rather than filter out the junk. A run that
  *  produced no answer and no writes (a pure stall) correctly leaves no trace. */
-function runCommittedAssistantMessages(run: Pick<AgentRun, "committedTurns">): ChatMessage[] {
+/** Each answer comes with the step it was committed at (a write-only summary
+ *  has none and sorts last), so mid-run messages can be placed between them. */
+function runCommittedAssistantTurns(run: Pick<AgentRun, "committedTurns">): Array<{ iteration: number; message: ChatMessage }> {
   const turns = (Array.isArray(run.committedTurns) ? run.committedTurns : [])
     .filter((turn): turn is CommittedTurn => isRecord(turn) && typeof turn.textContent === "string");
 
   const answers = turns.filter((turn) => committedLane(turn) === "answer" && turn.textContent.trim() !== "");
-  const out: ChatMessage[] = answers.map((turn) => ({ role: "assistant" as const, content: turn.textContent }));
+  const out = answers.map((turn) => ({
+    iteration: typeof turn.iteration === "number" ? turn.iteration : Number.POSITIVE_INFINITY,
+    message: { role: "assistant" as const, content: turn.textContent } as ChatMessage,
+  }));
 
   const writeTargets = runWriteTargets(turns);
   if (writeTargets.length > 0) {
     const summary = `${WRITE_SUMMARY_PREFIX}${writeTargets.join("、")}〕`;
     if (out.length > 0) {
-      const last = out[out.length - 1]!;
+      const last = out[out.length - 1]!.message;
       last.content = `${typeof last.content === "string" ? last.content : ""}\n${summary}`.trim();
     } else {
       // A run that only wrote (no wrap-up text) still tells the next run what changed.
-      out.push({ role: "assistant" as const, content: summary });
+      out.push({ iteration: Number.POSITIVE_INFINITY, message: { role: "assistant" as const, content: summary } });
     }
   }
 
@@ -532,7 +537,20 @@ export function serverOwnedStudioRunsToAgentHistory(
     if (userMessage) {
       history.push(userMessage);
     }
-    history.push(...runCommittedAssistantMessages(run));
+    // What the creator added while the run worked (routes/agent.ts takeSteered),
+    // in the order it happened: a message taken at step N came before the
+    // answer committed at step N. One without a step goes first.
+    const steers = (Array.isArray(context.steers) ? context.steers : []).flatMap((steer) => {
+      const text = isRecord(steer) && typeof steer.text === "string" ? steer.text.trim() : "";
+      const iteration = isRecord(steer) && typeof steer.iteration === "number" ? steer.iteration : -1;
+      return text ? [{ iteration, message: { role: "user" as const, content: text } as ChatMessage }] : [];
+    });
+    let next = 0;
+    for (const answer of runCommittedAssistantTurns(run)) {
+      while (next < steers.length && steers[next]!.iteration <= answer.iteration) history.push(steers[next++]!.message);
+      history.push(answer.message);
+    }
+    while (next < steers.length) history.push(steers[next++]!.message);
   }
 
   return history.slice(-40);

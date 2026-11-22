@@ -2,14 +2,18 @@
  * The browser tab title. The server writes the right <title> into the HTML
  * for the first page; this keeps it right as people move around the app.
  *
- * Rule (owner, 2026-09-30): the home page is "Yumina", every other page is
- * just its own name. No "· Yumina" suffix anywhere. The tab follows the UI
+ * Rule (owner, 2026-09-30, home updated 2026-11-04): the home page carries
+ * the search title ("Yumina: Play Free AI Games & AI Roleplay - Sign Up to
+ * Play!"), every other page is just its own name, and pages with no name of
+ * their own fall back to the bare "Yumina". No "· Yumina" suffix anywhere. The tab follows the UI
  * language through the `common:tabTitle.*` strings; the English words here
  * are the fallback and what tests pin.
  */
 import { useSyncExternalStore } from "react";
+import { genreForPath } from "./discover-genre";
 
 export type TabTitleKey =
+  | "root"
   | "home"
   | "discover"
   | "community"
@@ -28,6 +32,7 @@ export type TabTitleKey =
   | "updates";
 
 export const TAB_TITLE_EN: Record<TabTitleKey, string> = {
+  root: "Yumina: Play Free AI Games & AI Roleplay - Sign Up to Play!",
   home: "Yumina",
   discover: "Discover",
   community: "Community",
@@ -47,7 +52,7 @@ export const TAB_TITLE_EN: Record<TabTitleKey, string> = {
 };
 
 const SECTION_KEYS: Array<[RegExp, TabTitleKey]> = [
-  [/^\/$/, "home"],
+  [/^\/$/, "root"],
   // A world address renders Discover with the preview open; the preview supplies the world name.
   [/^\/@[^/]+\/.+/, "discover"],
   [/^\/app\/hub\/bundles(\/|$)/, "bundles"],
@@ -79,9 +84,17 @@ export function titleKeyForPath(pathname: string): TabTitleKey {
   return "home";
 }
 
+/**
+ * The title of a genre or tag address (/ai-rpg, /app/tag/rpg): the one the
+ * server sent with the page, kept as it is in every UI language.
+ */
+export function genreTitleForPath(pathname: string): string | null {
+  return genreForPath(pathname)?.title ?? null;
+}
+
 /** The English tab title for a path. */
 export function titleForPath(pathname: string): string {
-  return TAB_TITLE_EN[titleKeyForPath(pathname)];
+  return genreTitleForPath(pathname) ?? TAB_TITLE_EN[titleKeyForPath(pathname)];
 }
 
 /**

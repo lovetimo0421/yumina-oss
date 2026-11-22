@@ -10,6 +10,7 @@ import { isContinuityEnabled, isContinuityOwned, isSceneImageJudgeOn } from "@yu
 import { loadAssetCatalog, formatAssetCatalog } from "./asset-catalog.js";
 import { uiDocOwnedFiles } from "./ui-doc-tools.js";
 import { stickyNotes } from "./sticky-notes.js";
+import { installedPacksInventory } from "./installed-packs.js";
 
 // ── Types ──
 
@@ -248,12 +249,22 @@ function scoreRule(rule: Rule, keywords: string[]): number {
 
 // Exported for tests: the snapshot's shape IS the agent's world model, so the
 // blackboard lines (module notes, canvas notes) are asserted, not assumed.
+export const INVENTORY_DESCRIPTION_CHARS = 4000;
+
 export function buildInventory(world: WorldDefinition, assets: AssetSummary[]): string {
   const parts: string[] = [];
 
   // World metadata
   parts.push(`World: "${world.name || "(unnamed)"}"`);
-  if (world.description) parts.push(`Description: ${world.description}`);
+  // The storefront text can run to MAX_WORLD_DESCRIPTION (100k); the agent
+  // gets this inventory every turn, so it sees the opening and is told the rest
+  // exists.
+  if (world.description) {
+    const d = world.description;
+    parts.push(d.length > INVENTORY_DESCRIPTION_CHARS
+      ? `Description (first ${INVENTORY_DESCRIPTION_CHARS} of ${d.length} chars): ${d.slice(0, INVENTORY_DESCRIPTION_CHARS)}…`
+      : `Description: ${d}`);
+  }
 
   // Entries inventory (compact but rich — includes keywords, not just count)
   if (world.entries.length > 0) {
@@ -422,6 +433,11 @@ GAME INTERFACE — this is a SpireTalk card (Slay the Spire 2 mod, schema.spiret
       parts.push(`  - ${n.on ? `[on ${n.on}] ` : ""}${text.replace(/\n/g, " / ")}`);
     }
   }
+
+  // Installed resource packs and their settings (each setting = a variable
+  // path). Omitted entirely when the card has none.
+  const packs = installedPacksInventory(world);
+  if (packs) parts.push(packs);
 
   // Lore UI bindings — frontend <LoreSlot>/<LoreButton> slot → entry (eligible
   // for injection while the slot is mounted/toggled by the player in the TSX).

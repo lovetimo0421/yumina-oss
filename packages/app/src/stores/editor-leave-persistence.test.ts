@@ -32,7 +32,7 @@ const vite = await createServer({
   server: { middlewareMode: true, watch: null },
   resolve: { alias: { "@": `${appRoot}/src`, "@yumina/engine": `${appRoot}/../engine/src/index.ts` } },
 });
-const { useEditorStore: store } = await vite.ssrLoadModule("/src/stores/editor.ts") as typeof import("./editor");
+const { useEditorStore: store, isServerAutosaveArmed } = await vite.ssrLoadModule("/src/stores/editor.ts") as typeof import("./editor");
 const { FLUSH_PENDING_EDITS_EVENT } = await vite.ssrLoadModule("/src/features/editor/components/flush-pending-edits.ts") as typeof import("../features/editor/components/flush-pending-edits");
 const initial = structuredClone(store.getState().worldDraft);
 // Only now: the modules above read window.location when a window exists.
@@ -87,7 +87,7 @@ test("a field that commits while the editor unmounts starts no autosave and writ
   commit();
 
   assert.equal(store.getState().worldDraft.settings.playerName, "typed just before leaving", "the text is not lost");
-  assert.equal(live.size, 0, "no server autosave was restarted after leaving");
+  assert.equal(isServerAutosaveArmed(), false, "no server autosave was restarted after leaving");
   await settle(2600);
   assert.equal(memory.has("yumina-editor-draft"), false, "no recovery draft was written after leaving");
 });
@@ -96,5 +96,5 @@ test("editing after the editor is opened again persists as usual", async () => {
   store.getState().stopAutosave();
   await settle(5);
   store.getState().setSettings("playerName", "back again");
-  assert.equal(live.size, 1, "the first edit starts the server autosave");
+  assert.equal(isServerAutosaveArmed(), true, "the first edit arms the server autosave");
 });

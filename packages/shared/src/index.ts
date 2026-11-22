@@ -1,14 +1,35 @@
 // Types
+export { FIRST_PARTY_GAME_ROOTS, isFirstPartyGamePath, foreignGamePath } from "./game-path.js";
 export { aiDecisionRequestSchema, parseAiDecisionResponse, MAX_DECISION_REQUEST_CHARS } from "./ai-decisions.js";
 export type { AiDecisionRequest, AiDecisionResponse, AiChoiceQuestion, AiChoiceAnswer } from "./ai-decisions.js";
 export { chatImageCopy, type ChatImageAttachment } from "./types/chat-image.js";
 
-export { AI_GENERATION_DEFAULTS, aiGenerationConfigSchema, clampPlayerSampling, PLAYER_SAMPLING_BOUNDS, resolveAiGenerationConfig } from './ai-generation.js';
+export { AI_GENERATION_DEFAULTS, aiGenerationConfigSchema, clampPlayerSampling, PLAYER_SAMPLING_BOUNDS, resolveAiGenerationConfig, MEMORY_EVERY_CHOICES, DEFAULT_MEMORY_EVERY, MEMORY_EVERY_MIN, MEMORY_EVERY_MAX, resolveMemoryEvery } from './ai-generation.js';
 export type { AiGenerationConfig } from './ai-generation.js';
 export { resolveStoryMemory, SUGGESTED_STORY_MEMORY, MIN_STORY_MEMORY, MAX_STORY_MEMORY } from './story-memory.js';
 export type { StoryMemoryInput, StoryMemoryResolution } from './story-memory.js';
+export { RECAP_SHARES, RECAP_SHARE_RATIO, MIN_RECAP_TOKENS, recapBudgetTokens, isRecapShare, resolveRecapShare } from './recap.js';
+export type { RecapShare } from './recap.js';
+export { TURN_IMAGE_VERSION_CAP, readTurnImageVersions, writeTurnImageEmbed, addTurnImageVersion, selectTurnImageVersion } from './turn-image-versions.js';
+export type { TurnImageVersions } from './turn-image-versions.js';
 export { resolveLorebookBudget } from './lorebook-budget.js';
 export type { LorebookBudgetInput } from './lorebook-budget.js';
+export {
+  LOW_RATING_MAX,
+  LOW_RATING_REASONS,
+  LOW_RATING_REASONS_NEEDING_DETAIL,
+  LOW_RATING_MIN_EXPLANATION,
+  RATING_MIN_PLAYTIME_SECONDS,
+  isLowRating,
+  isLowRatingReason,
+  normalizeLowRatingReasons,
+  parseLowRatingReasons,
+  serializeLowRatingReasons,
+  lowRatingNeedsExplanation,
+  lowRatingExplanationLength,
+  isLowRatingExplanationLongEnough,
+} from './rating-reasons.js';
+export type { LowRatingReason } from './rating-reasons.js';
 export type {
   User,
   UserProfile,
@@ -63,6 +84,7 @@ export type { ApiKeyMetadata, PromptPostProcessing } from "./types/api-key.js";
 export type {
   SessionMemory,
   SessionMemoryPayload,
+  MemoryOverview,
   SessionMemoryStatus,
   SessionMemoryUsageEntry,
   SessionMemoryUsageSummary,
@@ -76,9 +98,11 @@ export type {
   SessionSummaryceptionPayload,
   SessionSummaryStatus,
   SummaryCompactionNoOpCode,
+  RecapFoldEstimate,
 } from "./types/session-memory.js";
 export {
   SESSION_SUMMARY_LANGUAGES,
+  RECAP_ALL_THINKING_ERROR,
   SESSION_SUMMARY_LANGUAGE_ENDONYMS,
   SESSION_SUMMARY_LANGUAGE_PROMPT_NAMES,
   normalizeSessionSummaryLanguage,
@@ -309,8 +333,12 @@ export {
   GENERATION_TEMPLATES,
   ENABLED_GENERATION_TEMPLATES,
   SMART_IMAGE_MODEL,
+  SMART_IMAGE_EDIT_MODEL,
+  SMART_IMAGE_MODEL_ALIASES,
+  canonicalSmartImageModelId,
   SMART_IMAGE_MODELS,
   SMART_IMAGE_FAMILIES,
+  SMART_IMAGE_FAMILY_INFO,
   SMART_IMAGE_MODEL_IDS,
   getSmartImageModel,
   getSmartImageCapabilities,
@@ -319,10 +347,12 @@ export {
   SMART_IMAGE_ASPECTS,
   SMART_IMAGE_RESOLUTIONS,
   SMART_IMAGE_4K_COST_FACTOR,
+  SMART_IMAGE_MARKUP,
   getEnabledGenerationTemplate,
   getGenerationTemplate,
   MAX_ACTIVE_GENERATION_JOBS,
   MAX_GENERATION_PROMPT_LENGTH,
+  MAX_VIDEO_PROMPT_LENGTH,
   IMAGE_SAMPLERS,
   IMAGE_ASPECTS,
   ADVANCED_LIMITS,
@@ -348,6 +378,7 @@ export {
   MAX_GENERATION_PRESETS,
   GENERATION_ERROR_CODES,
   classifyWorkerError,
+  smartImageMaxReferences,
 } from "./constants/generation.js";
 export type {
   GenerationKind,
@@ -379,6 +410,8 @@ export {
   VIDEO_TUNING_LIMITS,
   VIDEO_LORA_PRICE_MUSHIES,
   VIDEO_STYLE_FRAME_MUSHIES,
+  REFERENCE_VIDEO_MIN_SECONDS,
+  REFERENCE_VIDEO_MAX_BYTES,
   VIDEO_STYLE_FRAME_SECONDS,
   getVideoModel,
   videoDurationOptions,
@@ -387,17 +420,37 @@ export {
   computeVideoModelPrice,
   estimateVideoSeconds,
   videoUsesFast,
+  VIDEO_CAMERA_MOVES,
+  VIDEO_CAMERA_PROMPTS,
+  videoCameraNative,
+  videoCameraPrompt,
 } from "./constants/video-models.js";
-export type { VideoAspect, VideoFamily, VideoProvider, VideoModelSpec, VideoRequest } from "./constants/video-models.js";
-export { MODEL_TRAITS, getModelTraits } from "./constants/model-traits.js";
+export type { VideoAspect, VideoFamily, VideoProvider, VideoModelSpec, VideoRequest, ReferenceVideoLook, VideoCameraMove } from "./constants/video-models.js";
+export {
+  BLOCKOUT_SCENE_PROVIDER_USD,
+  BLOCKOUT_SCENE_PRICE_MUSHIES,
+  BLOCKOUT_SCENE_PROMPT_MAX,
+  BLOCKOUT_SCENE_CAMERA_HEIGHT_METRES,
+  BLOCKOUT_SCENE_CLEAR_RADIUS_METRES,
+  BLOCKOUT_SCENE_KEEP,
+} from "./constants/blockout-scene.js";
+export type { BlockoutSceneStatus, BlockoutSceneInfo } from "./constants/blockout-scene.js";
+export { MODEL_TRAITS, UNRESTRICTED_MODELS, getModelTraits, isUnrestrictedModel } from "./constants/model-traits.js";
 export type { ModelStyle, ModelStrength, ModelTraits } from "./constants/model-traits.js";
 export {
   TAG_VOCABULARY,
   findTagEntry,
   canonicalizeTag,
   tagLabel,
+  TAG_PAGE_PREFIX,
+  tagSlug,
+  findTagBySlug,
+  tagPagePath,
+  tagSpellings,
 } from "./constants/tags.js";
 export type { TagEntry, TagLocale } from "./constants/tags.js";
+export { GENRE_PAGES, tagPageTitle } from "./constants/genre-pages.js";
+export type { GenrePage } from "./constants/genre-pages.js";
 export {
   YUMINA_MODELS,
   RETIRED_PLAY_MODEL_IDS,
@@ -409,6 +462,8 @@ export {
   DEFAULT_PINNED_MODELS,
   MAX_PINNED_MODELS,
   DEFAULT_POOL,
+  SHIPPED_DEFAULT_PINNED_MODELS,
+  SHIPPED_DEFAULT_POOLS,
   DEFAULT_MIX_MODE,
   STUDIO_RECOMMENDED_MODEL,
   STUDIO_FREE_DEFAULT_MODEL,
@@ -452,6 +507,9 @@ export { parseStateGuardModel, stateGuardModelSelection, DEFAULT_STATE_GUARD_MOD
 export {
   TTS_MODEL,
   TTS_PRICE_USD_PER_UTF8_BYTE,
+  STUDIO_TTS_MODEL,
+  TTS_MODEL_PRICES,
+  ttsPricePerByte,
   TTS_MARKUP,
   TTS_MAX_TEXT_CHARS,
   TTS_VOICES,
@@ -470,10 +528,24 @@ export {
   sanitizeTtsCustomVoices,
   readTtsCustomVoices,
   ttsCustomVoiceLabel,
+  VOICE_DESIGN_PRICE_USD,
+  VOICE_SAVE_PRICE_USD,
+  VOICE_DESIGN_CANDIDATES,
+  VOICE_DESIGN_PROMPT_MAX,
 } from "./constants/tts.js";
 export type { TtsReadingMode, TtsVoice, TtsCustomVoice } from "./constants/tts.js";
 export { MUSIC_MODELS, MUSIC_MAX_PROMPT_CHARS, MUSIC_MARKUP, isMusicLength } from "./constants/music.js";
 export type { MusicLength, MusicModel } from "./constants/music.js";
+export {
+  MEDIA_TOOLS, MEDIA_TOOL_IDS, MEDIA_TOOL_MARKUP, MEDIA_TOOL_USD_PER_MUSHIE, MEDIA_TOOL_VOICES, MAX_ACTIVE_TOOL_JOBS,
+  MAX_ACTIVE_LONG_TOOL_JOBS, LONG_TOOL_SECONDS, mediaTool, mediaToolAmount, mediaToolEndpoint, mediaToolPriceUsd, mediaToolMushies,
+  MODEL_3D_CHOICES, MODEL_3D_ENDPOINTS, MODEL_3D_USD, MODEL_3D_DETAILS, MODEL_3D_BUDGET,
+  fitVideoSides, estimateSpeechSeconds, sayPrice, DUBBING_LANGUAGES,
+} from "./constants/media-tools.js";
+export type {
+  MediaTool, MediaToolId, MediaToolGroup, MediaToolInput, MediaToolOutput, MediaToolPrice, MediaToolAmount,
+  MediaToolMeasure, MediaToolMediaLimits, MediaToolVoiceId,
+} from "./constants/media-tools.js";
 export {
   DIALOGUE_SCAN_START,
   extractDialogueSpans,
@@ -496,6 +568,7 @@ export type { ImageBatchTarget, ImageBatchProposalItem, ImageBatchProposal,
   ImageBatchItemStatus, ImageBatchItem, ImageBatchSnapshot } from "./types/image-batch.js";
 
 export { IMAGE_MODEL_CAPABILITIES } from "./constants/image-models.js";
+export { MODEL_THINKING, MODEL_THINKING_LEVELS, type ModelThinking } from "./constants/model-thinking.js";
 export { personaEntriesSchema, formatPersonaEntries, MAX_PERSONA_ENTRIES, MAX_PERSONA_ENTRY_TITLE, MAX_PERSONA_ENTRY_CONTENT, MAX_PERSONA_ENTRIES_TOTAL } from "./types/persona-entries.js";
 export type { PersonaEntry } from "./types/persona-entries.js";
 export * from "./invite-race.js";
@@ -505,7 +578,7 @@ export { getKrewPublicPath, KREW_ABOUT_HTML, KREW_LOADING_HTML, KREW_PAGE_CSS, K
 export { KREW_CONFIG_ELEMENT_ID, getKrewPublicConfig, krewGameOrigin, normalizeKrewClientOrigin } from "./krew-config.js";
 export type { KrewPublicConfig } from "./krew-config.js";
 
-export { detectLang } from "./utils/detect-lang.js";
+export { detectLang, type DetectedLang } from "./utils/detect-lang.js";
 export * from "./featured-collections.js";
 export * from "./discover-editorial.js";
 
@@ -528,4 +601,23 @@ export { UNPERSON_ROOM_TIMING } from "./unperson-room-timing.js";
 export { parseCompletionResponseFormat, type CompletionResponseFormat } from "./completion-response-format.js";
 export { isStudioBuildProposal, type StudioBuildProposal } from "./types/studio-build.js";
 export * from "./changelog.js";
+export * from "./constants/workbench.js";
 export { isProviderBalanceError } from "./provider-balance-error.js";
+export * from "./ai-roles.js";
+export * from "./background-charges.js";
+export * from "./film-video-models.js";
+export { DEPRECATED_MODEL_REDIRECTS, SCHEDULED_MODEL_REDIRECTS, applyModelRedirect, applyModelRedirectAt } from "./constants/model-redirects.js";
+
+// Card code: the stored-compile contract and code diagnostics (no compiler;
+// that is @yumina/shared/card-code).
+export { COMPILED_FORMAT_VERSION, CARD_CODE_REQUEST_HEADERS, hashRootFiles, isCompiledUsable, isCompiledValid } from "./card-code/format.js";
+export type { CompiledRoot } from "./card-code/format.js";
+export { codeRevision, sourceExcerpt, createCodeDiagnostic, formatCodeDiagnostic } from "./card-code/diagnostics.js";
+export type { DiagnosticPhase, CodeDiagnostic } from "./card-code/diagnostics.js";
+export * from "./constants/creator-payouts.js";
+export * from "./constants/library.js";
+export * from "./constants/image-posts.js";
+export { REGEX_RULES_MAX, REGEX_FIND_MAX, REGEX_REPLACE_MAX, regexRuleSchema, regexRulesSchema, compileRegexRule, rulesFor, applyRegexRules, makeTextRule, parseSillyTavernRegex } from './regex-rules.js';
+export type { RegexRule, RegexTarget } from './regex-rules.js';
+
+export * from "./multiplayer.js";

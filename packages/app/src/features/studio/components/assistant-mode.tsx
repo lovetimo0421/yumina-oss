@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Check, ChevronDown } from "lucide-react";
+import { Check, ChevronDown, Globe } from "lucide-react";
 import { useStudioStore } from "@/stores/studio";
 import { cn } from "@/lib/utils";
 
@@ -16,6 +16,8 @@ export function AssistantModeSwitch({ disabled }: { disabled?: boolean }) {
   const { t } = useTranslation("editor");
   const mode = useStudioStore((s) => s.assistantMode);
   const setMode = useStudioStore((s) => s.setAssistantMode);
+  const web = useStudioStore((s) => s.assistantWeb);
+  const setWeb = useStudioStore((s) => s.setAssistantWeb);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -37,7 +39,9 @@ export function AssistantModeSwitch({ disabled }: { disabled?: boolean }) {
         aria-expanded={open}
         aria-label={t("studio.aiChat.mode.label")}
         onClick={() => setOpen((v) => !v)}
-        className="inline-flex items-center gap-0.5 rounded-md bg-primary/15 py-0.5 pl-2 pr-1 text-[11px] font-medium text-primary transition-colors hover:bg-primary/25 disabled:opacity-50"
+        // Plain text in the composer's row, like the model beside the send
+        // button: a gold chip there was the loudest thing in the box.
+        className="inline-flex h-7 items-center gap-0.5 rounded-full pl-2 pr-1.5 text-[11.5px] font-medium text-muted-foreground transition-colors hover:bg-white/[0.07] hover:text-foreground disabled:opacity-50"
       >
         {t(`studio.aiChat.mode.${mode}` as never)}
         <ChevronDown className={cn("h-3 w-3 transition-transform", open && "rotate-180")} aria-hidden="true" />
@@ -60,6 +64,22 @@ export function AssistantModeSwitch({ disabled }: { disabled?: boolean }) {
               {mode === value && <Check className="h-3 w-3 text-primary" aria-hidden="true" />}
             </button>
           ))}
+          <div className="my-1 h-px bg-border" role="separator" />
+          <button
+            type="button"
+            role="menuitemcheckbox"
+            aria-checked={web}
+            onClick={() => setWeb(!web)}
+            title={t("studio.aiChat.web.hint")}
+            className={cn(
+              "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted",
+              web ? "text-foreground" : "text-muted-foreground",
+            )}
+          >
+            <Globe className="h-3 w-3" aria-hidden="true" />
+            <span className="flex-1 whitespace-nowrap">{t("studio.aiChat.web.label")}</span>
+            {web && <Check className="h-3 w-3 text-primary" aria-hidden="true" />}
+          </button>
         </div>
       )}
     </div>

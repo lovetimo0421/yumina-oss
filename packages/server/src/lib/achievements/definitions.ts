@@ -56,6 +56,9 @@ export const ACHIEVEMENT_GROUPS: GroupDef[] = [
   { key: "community", title: "凝聚者", description: "在论坛中与众人共鸣、邀请伙伴。", sortOrder: 3 },
   { key: "creator", title: "造梦者", description: "发布与经营你的世界。", sortOrder: 4 },
   { key: "commemorative", title: "荣誉殿堂", description: "里程碑与至高荣誉。", sortOrder: 5 },
+  // Limited-time festival badges. Not a capstone group: missing a festival
+  // must never lock anyone out of 梦坞信徒 or 星图收藏家.
+  { key: "festival", title: "节日纪念", description: "限时节日活动的纪念徽章。", sortOrder: 6 },
 ];
 
 export const ACHIEVEMENTS: AchievementDef[] = [
@@ -110,6 +113,7 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   { key: "bug_hunter", groupKey: "commemorative", title: "Bug 猎人", description: "你提交的问题被官方确认并修复。", metricKey: null, triggerType: "admin", tiers: [tier("gold", 1)] },
   { key: "night_watch", groupKey: "commemorative", title: "守夜人", description: "连续 7 / 14 / 30 天有有效游玩或社区互动。", metricKey: "current_streak_days", triggerType: "batch", tiers: [tier("bronze", 7), tier("silver", 14), tier("gold", 30)] },
   { key: "cap_commemorative", groupKey: "commemorative", title: "梦坞信徒", description: "将「荣誉殿堂」分组的所有成就升至最高等级。", metricKey: null, triggerType: "series", tiers: [tier("diamond", 1)], isCapstone: true, isGroupCapstone: true },
+  { key: "pumpkin_hunter", groupKey: "festival", title: "南瓜猎人", description: "2026 万圣节，找到藏在全站的 5 个南瓜。", metricKey: null, triggerType: "admin", tiers: [{ level: "gold", threshold: 1, badge: "🎃" }] },
   { key: "star_collector", groupKey: "commemorative", title: "星图收藏家", description: "将除「梦坞原住民」「第一批造梦者」外的所有成就升至最高等级。", metricKey: null, triggerType: "series", tiers: [tier("diamond", 1)], isCapstone: true },
 ];
 
@@ -119,7 +123,7 @@ export const CAPSTONE_GROUP_KEYS = ["creator", "player", "community", "ai-model"
 /** Achievements that do NOT count toward the global star_collector: the closed
  *  founding cohorts plus the Hall-of-Honor capstone (Partisan / cap_commemorative).
  *  Group capstones are already excluded as capstones; this is the authoritative set. */
-export const STAR_COLLECTOR_EXCLUDE: readonly string[] = ["founding_resident", "first_dreamers", "cap_commemorative"];
+export const STAR_COLLECTOR_EXCLUDE: readonly string[] = ["founding_resident", "first_dreamers", "cap_commemorative", "pumpkin_hunter"];
 
 export const ACHIEVEMENTS_BY_KEY: Map<string, AchievementDef> = new Map(
   ACHIEVEMENTS.map((a) => [a.key, a]),

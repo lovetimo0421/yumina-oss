@@ -1,5 +1,10 @@
+import { blueprintEntranceViewport } from "./blueprint/blueprint-entrance-viewport";
 import { Component, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { QuickGenerate } from "@/edition/slots";
+import type { LandedAsset, QuickTarget } from "@/edition/slots.types";
+import { characterPortraits } from "./blueprint/generate-actions";
 import { createPortal } from "react-dom";
+import { STUDIO_BACK_EVENT } from "../lib/studio-back";
 import { LEARNING_CANCEL_EVENT, LEARNING_CANVAS_EVENT, LEARNING_REVEAL_EVENT, LEARNING_ROOM_EVENT, LEARNING_SHOW_EVENT, LEARNING_STEP_EVENT, LEARNING_TARGET_EVENT } from "../learn/learning-catalog";
 import { resolveLearningCanvasTarget, type LearningCanvasTarget } from "../learn/learning-target";
 import { flowNodeBlockKind, learningStageHides } from "../learn/learning-stage";
@@ -9,6 +14,7 @@ import { AiTable } from "./blueprint/ai-table";
 import { AiCallsTable, OPEN_AI_CALLS_EVENT } from "./blueprint/ai-calls-table";
 import type { AiCallRow } from "./blueprint/ai-calls";
 import { NOTE_SIZE, StickyNoteLayer } from "./blueprint/sticky-note-layer";
+import { LiveCursors } from "@/features/collab/live-cursors";
 import { rowFacts, type Translate } from "./blueprint/row-facts";
 import { gameInterfaceOf, gameScreenOf } from "@/features/editor/lib/game-interface";
 import { GameScreenView } from "./blueprint/game-screen";
@@ -45,6 +51,7 @@ import {
   checkConditions,
   computeActiveWorldbookIds,
   isBlockId,
+  isPackOwner,
   memoryPoolMembers,
   parseRowHandle,
   portHandleId,
@@ -82,7 +89,6 @@ import {
   Layers,
   LayoutGrid,
   LayoutTemplate,
-  ListChecks,
   Link2,
   Lock,
   LockOpen,
@@ -103,16 +109,20 @@ import {
   Trash2,
   Wand2,
   Bot,
-  Table2,
   Variable as VariableIcon,
   X,
   Zap,
-  Images,
-  Image as ImageIcon,
+  Undo2,
   SlidersHorizontal,
   ChevronDown,
   Check,
+  Package as PackageIcon,
+  Code as CodeIcon,
+  Save as SaveIcon,
+  Sparkles,
 } from "lucide-react";
+import { BundleCreator, CanvasPackLayer, closePackMarketDrawer, HAS_PACK_MARKET, openPackMarketDrawer, openPackMarketStore, packFrameChrome, usePackDrawerOpen, usePackUpdates } from "@/edition/slots";
+import type { BundleCreatorSelection } from "@/edition/slots.types";
 import { useEditorStore } from "@/stores/editor";
 import { feedback } from "@/lib/feedback";
 import { classifyInterface } from "@/features/studio/lib/ui-doc-takeover";
@@ -121,7 +131,7 @@ import { reactionSummary } from "@/features/studio/lib/reaction-summary";
 import { FocusEditor } from "./blueprint/focus-editor";
 import { useChatStore } from "@/stores/chat";
 import { cn } from "@/lib/utils";
-import { isLessonHello } from "@/lib/world-templates";
+import { resolveImageUrl } from "@/lib/asset-url";
 import { captureHubEvent } from "@/lib/analytics";
 import { addStudioPanelInstance, getActiveStudioGroup } from "../studio-page-catalog";
 import { KIND_STYLE, edgeColor } from "./blueprint/style";
@@ -137,7 +147,7 @@ import {
   type GateNodeData,
 } from "./blueprint/block-node";
 import { AI_RECEIVES_H, BLOCK_W, FRAME_GAP, FRAME_NOTE_H, FRAME_TITLE_H, TILE_ROW_LIMIT, TILE_WRITING_ROW_LIMIT, blockHeight, rowColumns, type BlockChrome, type FrameBox } from "./blueprint/board";
-import { LETTERHEAD_GAP, LETTERHEAD_W, letterheadBeside, letterheadRoom, tileBoardLayout } from "./blueprint/tile-board";
+import { LETTERHEAD_GAP, LETTERHEAD_W, TILE_WIDTHS, letterheadBeside, letterheadRoom, tileBoardLayout } from "./blueprint/tile-board";
 import { arrangeSituations, type SituationGroupBox } from "./blueprint/situation-map";
 import { entryReadBy, gameAiRows, gameBookIds, livesSomewhere, placeAis, storyAiIsCalled, type PlaceAis } from "./blueprint/place-ais";
 import { STUDIO_ASK_EVENT, type StudioAskDetail } from "../lib/block-ask";
@@ -162,6 +172,7 @@ import { ObjectRelationshipsPanel, type RelationCandidate } from "./blueprint/ob
 import { requestUiEditor } from "./inspector/new-page-hooks";
 import { AI_FOLLOW_EVENT } from "../lib/agent-job";
 import { VoicePickerPopover } from "./blueprint/voice-picker-popover";
+import { SoundPicker } from "@/features/editor/components/sound-picker";
 import { useAssetStore } from "@/stores/assets";
 import { contextBadgeFor, type ContextBadge } from "@/features/editor/lib/module-context";
 import { aiInspectorId, resolveCanvasInspectorNode } from "./blueprint/canvas-inspector-target";
@@ -169,6 +180,10 @@ import { defaultStateFor, turnContextView } from "./blueprint/turn-context";
 import { liveRuntimeState } from "../lib/runtime-state";
 import { lastTurnWhy } from "../lib/turn-explain";
 import { TurnContextCard } from "./blueprint/turn-context-card";
+import { AI_LINEUP_EVENT, AiLineupCard } from "./blueprint/ai-lineup-card";
+import { INTERFACE_SWITCHER_EVENT, InterfaceSwitcher } from "./blueprint/interface-switcher";
+import { searchActions, type SearchAction } from "./blueprint/search-actions";
+import { SEAT_AI_KEY, aiLineup, type LineupItem } from "./blueprint/ai-lineup";
 import { StarterNode, type StarterNodeData } from "./blueprint/starter-node";
 import { WireEdge } from "./blueprint/wire-edge";
 import { isDefaultChatInterface } from "./blueprint/starter-state";
@@ -178,7 +193,7 @@ import { cardReadiness } from "../lib/card-readiness";
 import { useBlueprintDocumentKey } from "./blueprint/use-blueprint-document";
 import { CanvasWritingNode, canvasWritingNodeHeight, PRESETS_GROUP_ID, type CanvasWritingNodeData, type WritingFolder, type WritingGateBar } from "./blueprint/canvas-writing-node";
 import { GATE_MIN_ENTRIES, gateGrouping, gateLabel, type GateGrouping, type GateLabel, type GateValue } from "./blueprint/gate-groups";
-import { BlueprintRowEditor, canEditRowInline } from "./blueprint/row-editor";
+import { BlueprintRowEditor, canEditRowInline, renameCanvasRow } from "./blueprint/row-editor";
 import { FLOATING_WIDE, FloatingEditor, type FloatingAnchor } from "./blueprint/floating-editor";
 import { useSmoothWheelZoom } from "./blueprint/use-smooth-wheel-zoom";
 import { glide } from "./blueprint/glide";
@@ -190,6 +205,9 @@ import { getUnmappedSearchPanel, getWorldSearchNode, indexWorldContent, searchWo
 import { useTurnDiff } from "./blueprint/turn-diff";
 import { isTextEntryTarget } from "../lib/text-entry-target";
 import { readLocalPref, writeLocalPref } from "../lib/local-pref";
+import { normaliseMultiplayer } from "@yumina/shared";
+import { requestMultiplayerFocus } from "./blueprint/multiplayer-group";
+import { seatRange } from "./blueprint/multiplayer-form";
 
 /** How close two presses must be to open a page (see onCanvasDoubleClickCapture). */
 const DOUBLE_CLICK_MS = 260;
@@ -250,6 +268,14 @@ const MIN_READABLE_ZOOM = 0.3;
 /** A phone's tiles: one width, the narrowest, which a 390px screen shows
  *  at full size with a margin either side. */
 const PHONE_TILE_WIDTHS: readonly number[] = [360];
+/** A read-only board (a pack in the market's frame, a window narrower than
+ *  any Studio) has nowhere to put a tile wider than itself: a row opened in
+ *  one came out with its values past the right edge. Its tiles stop at the
+ *  board's width, and grow down past that. */
+function readOnlyTileWidths(viewWidth: number): readonly number[] {
+  const fit = TILE_WIDTHS.filter((w) => w <= viewWidth - 32);
+  return fit.length > 1 ? fit : TILE_WIDTHS.slice(0, 2);
+}
 /** Below this a row is its name; at or above GLANCE_LEAVE it says what it
  *  holds. Between the two it keeps whatever it was. */
 const GLANCE_ENTER = 0.72;
@@ -388,6 +414,31 @@ function tileBoxes(
   } else {
     opts.onGroups?.([]);
   }
+  // Installed packs stand under the card, a row at a time, as wide as the
+  // card and its letterhead: to the right is where the situations are
+  // arranged, and a pack packed in among them read as one of them.
+  if (cardTile) {
+    const packs = frames
+      .filter((f) => f.id.startsWith("module:") && isPackOwner(f.id.slice("module:".length)) && !opts.pinned[f.id])
+      .map((f) => map.get(f.id))
+      .filter((box): box is FrameBox => !!box);
+    if (packs.length > 0) {
+      let bottom = cardTile.y + cardTile.height;
+      for (const block of letterhead) {
+        const box = map.get(block.id);
+        if (box) bottom = Math.max(bottom, box.y + box.height);
+      }
+      const left = cardTile.x;
+      const rowW = Math.max(cardTile.width + (letterhead.length && !under ? room.w : 0), ...packs.map((b) => b.width));
+      let x = left, y = bottom + FRAME_GAP * 2, rowH = 0;
+      for (const box of packs) {
+        if (x > left && x + box.width > left + rowW) { x = left; y += rowH + FRAME_GAP; rowH = 0; }
+        map.set(box.id, { ...box, x, y });
+        x += box.width + FRAME_GAP;
+        rowH = Math.max(rowH, box.height + (noted.has(box.id) ? FRAME_NOTE_H : 0));
+      }
+    }
+  }
   return map;
 }
 
@@ -480,6 +531,9 @@ function addLabelKey(block: Block): string | null {
     case "lore": return "blueprint.blocks.add.lore";
     case "state": return "blueprint.blocks.add.state";
     case "behavior": return "blueprint.blocks.add.behavior";
+    // The player's screen adds a page (开局页, 背包, 地图…): with the top
+    // menu down to what belongs to no block, this is where pages are added.
+    case "frontend": return "blueprint.blocks.add.frontend";
     default: return null;
   }
 }
@@ -570,6 +624,89 @@ function MenuItem({
   );
 }
 
+/** What the ＋ panel's tiles carry when dragged onto the board. */
+const ADD_DRAG_MIME = "application/yumina-add";
+type AddKind = "module" | "ai" | "note" | "generate";
+/** What 添加 → 生成 makes: the things that land on the card by themselves. */
+const ADD_GENERATE_TARGETS = [
+  { key: "sceneImage", target: { kind: "scene-image", sceneImageId: "" } },
+  { key: "background", target: { kind: "background" } },
+  { key: "bgm", target: { kind: "audio", type: "bgm" } },
+  { key: "ambient", target: { kind: "audio", type: "ambient" } },
+  { key: "sfx", target: { kind: "audio", type: "sfx" } },
+] as const satisfies readonly { key: string; target: QuickTarget }[];
+/** dragFrom while an AI tile is in the air: not a place a row came from. */
+const ADD_AI_DRAG = "add-ai";
+
+/** A small likeness of what lands on the board: the scenario's frame, an AI
+ *  block, a note. The ＋ panel shows these instead of a list of words, so the
+ *  thing picked is the thing that appears. */
+function AddLikeness({ kind }: { kind: AddKind }) {
+  if (kind === "generate") {
+    return (
+      <div className="relative h-[40px] w-[56px] overflow-hidden rounded-[5px] border border-sky-300/40 shadow-[0_4px_10px_rgba(0,0,0,0.35)]" style={{ background: "linear-gradient(160deg,#2a3550 0%,#4a3c62 55%,#d9a35f 100%)" }}>
+        <span className="absolute bottom-0 left-0 h-3 w-full" style={{ background: "linear-gradient(170deg,transparent 30%,rgba(10,12,20,0.55) 31%)" }} />
+        <Sparkles className="absolute right-1 top-1 h-3 w-3 text-amber-200" />
+      </div>
+    );
+  }
+  if (kind === "module") {
+    return (
+      <div className="w-[64px] rounded-[5px] border border-amber-400/55 bg-amber-400/[0.05] p-1 shadow-[0_4px_10px_rgba(0,0,0,0.35)]">
+        <div className="mb-1 flex items-center gap-1">
+          <Boxes className="h-2.5 w-2.5 text-amber-400" />
+          <span className="h-1 w-6 rounded-full bg-amber-300/60" />
+        </div>
+        <div className="flex gap-1">
+          <span className="h-5 flex-1 rounded-[3px] border border-white/10 bg-white/[0.06]" />
+          <span className="h-5 flex-1 rounded-[3px] border border-white/10 bg-white/[0.06]" />
+        </div>
+      </div>
+    );
+  }
+  if (kind === "ai") {
+    return (
+      <div className="w-[60px] rounded-[5px] border border-pink-400/40 bg-[#1f1b26] p-1.5 shadow-[0_4px_10px_rgba(0,0,0,0.35)]">
+        <div className="flex items-center gap-1.5">
+          <span className="flex h-4 w-4 items-center justify-center rounded-full bg-pink-400/20"><Bot className="h-2.5 w-2.5 text-pink-300" /></span>
+          <span className="h-1 flex-1 rounded-full bg-pink-300/50" />
+        </div>
+        <span className="mt-1.5 block h-1 w-10 rounded-full bg-white/15" />
+        <span className="mt-1 block h-1 w-7 rounded-full bg-white/10" />
+      </div>
+    );
+  }
+  return (
+    <div className="relative h-[42px] w-[46px] -rotate-3 rounded-[3px] shadow-[0_6px_12px_rgba(0,0,0,0.45)]" style={{ background: "linear-gradient(170deg,#fff6b8 0%,#ffe98a 100%)" }}>
+      <span className="absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rounded-full border border-black/20" style={{ background: "#e0b83a" }} />
+      <span className="absolute left-1.5 top-3 h-[3px] w-7 rounded-full bg-[#4a3a10]/25" />
+      <span className="absolute left-1.5 top-5 h-[3px] w-5 rounded-full bg-[#4a3a10]/20" />
+      <span className="absolute bottom-0 right-0 h-2 w-2" style={{ background: "linear-gradient(135deg, transparent 50%, rgba(0,0,0,0.18) 50%)" }} />
+    </div>
+  );
+}
+
+function AddTile({ kind, label, onAdd, onDragStart }: { kind: AddKind; label: string; onAdd: () => void; onDragStart: () => void }) {
+  return (
+    <button
+      type="button"
+      draggable
+      onClick={onAdd}
+      onDragStart={(e) => {
+        e.dataTransfer.setData(ADD_DRAG_MIME, kind);
+        // The kind as a type too: the one thing readable before the drop.
+        e.dataTransfer.setData(`${ADD_DRAG_MIME}-${kind}`, "1");
+        e.dataTransfer.effectAllowed = "copy";
+        onDragStart();
+      }}
+      className="group/tile flex min-w-0 flex-col items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-1 pb-2 pt-3 transition-colors hover:border-amber-400/35 hover:bg-white/[0.05] active:cursor-grabbing"
+    >
+      <span className="flex h-[52px] items-center justify-center transition-transform group-hover/tile:-translate-y-0.5"><AddLikeness kind={kind} /></span>
+      <span className="w-full truncate text-center text-xs font-medium text-foreground">{label}</span>
+    </button>
+  );
+}
+
 /** The id analytics files a board event under: the saved card, or the draft's. */
 const eventWorldId = () => { const st = useEditorStore.getState(); return st.serverWorldId ?? st.worldDraft.id; };
 
@@ -622,13 +759,29 @@ function isShareableObject(nodeId: string): boolean {
   return nodeId.startsWith("entry:") || nodeId.startsWith("var:") || nodeId.startsWith("rule:");
 }
 
-function isDeletableObject(nodeId: string): boolean {
+/** What copy, paste and duplicate can make another of. */
+/** Kept by the author this card was copied from: no page of its own, no copies. */
+const isSealedEntry = (nodeId: string) =>
+  nodeId.startsWith("entry:") && !!useEditorStore.getState().worldDraft.entries.find((e) => e.id === nodeId.slice("entry:".length))?.sealed;
+
+function isCopyableObject(nodeId: string): boolean {
   return (
     nodeId.startsWith("var:") ||
     nodeId.startsWith("greeting:") ||
-    (nodeId.startsWith("entry:") && !nodeId.startsWith("module-entries:")) ||
-    nodeId.startsWith("reaction:") ||
-    nodeId.startsWith("module:")
+    (nodeId.startsWith("entry:") && !nodeId.startsWith("module-entries:") && !isSealedEntry(nodeId)) ||
+    nodeId.startsWith("reaction:")
+  );
+}
+
+/** Audio tracks and scene images are added from the board too; leaving them
+ *  out here meant their rows had no Delete, in the menu or on the key. */
+function isDeletableObject(nodeId: string): boolean {
+  return (
+    isCopyableObject(nodeId) ||
+    isSealedEntry(nodeId) ||
+    nodeId.startsWith("module:") ||
+    nodeId.startsWith("audio:") ||
+    nodeId.startsWith("image:")
   );
 }
 
@@ -655,6 +808,13 @@ function overBoardFurniture(target: EventTarget | null): boolean {
 }
 
 /** Stable "no search", so an idle search box never re-forces the board. */
+const SEARCH_ACTION_ICON: Record<SearchAction, typeof CodeIcon> = {
+  look: Palette,
+  code: CodeIcon,
+  switch: LayoutTemplate,
+  saveTemplate: SaveIcon,
+  market: PackageIcon,
+};
 const NO_SEARCH_RESULTS: never[] = [];
 
 /** One shared empty set, so "nothing multi-selected" never re-renders the
@@ -757,6 +917,16 @@ type BlueprintCanvasCoreProps = {
    * place: at 390px either one covers the board it was opened from.
    */
   phone?: { onOpen: (objectId: string) => void };
+  /**
+   * Someone else's card (a resource pack in the market): its interface must
+   * not compile inside this page, so the host hands in the screen already
+   * running in the play sandbox. The interface block shows it; scene blocks,
+   * which would compile the same code again, stay paused.
+   */
+  sandboxedScreen?: React.ReactNode;
+  /** The block the board first opens on, instead of the whole board: a pack's
+   *  frame in the market's look at an empty card with that pack in it. */
+  opensOn?: string;
 };
 
 function BlueprintCanvas({
@@ -767,6 +937,8 @@ function BlueprintCanvas({
   previewOwnedElsewhere,
   toolbarHost,
   phone,
+  sandboxedScreen,
+  opensOn,
 }: BlueprintCanvasCoreProps) {
   const { t, i18n } = useTranslation("editor");
   const { data: authSession } = useSession();
@@ -800,6 +972,8 @@ function BlueprintCanvas({
   // A guest's edits are dropped by the store; the board says so up front
   // instead of letting them type into nothing.
   const readOnly = useEditorStore((s) => s.readOnlyInspect || s.guestMode);
+  const readOnlyRef = useRef(readOnly);
+  readOnlyRef.current = readOnly;
   // Decides where the frontend block drills: somebody's code, or the visual
   // builder. A card already on a uiDoc is never "hand-written" again.
   const interfaceIsHandwritten =
@@ -897,7 +1071,10 @@ function BlueprintCanvas({
   const toggleScreenFold = useCallback(() => {
     setScreenFoldPref((folded) => { writeLocalPref("yumina-bp-screen-open", folded ? "1" : "0"); return !folded; });
   }, []);
-  const screenFolded = screenFoldPref && !learningStage;
+  /** 「换界面」: looks beside the board, the interface block as the preview. */
+  const [showSwitcher, setShowSwitcher] = useState(false);
+  // Folded, the block would hide the very preview 「换界面」 works through.
+  const screenFolded = screenFoldPref && !learningStage && !showSwitcher;
   /** A stock-chat card with a background is no longer a one-line "ready to
    *  use": the picture IS what the player sees, and the block has to show it
    *  the moment it is uploaded, or the author looks for it and concludes the
@@ -1151,6 +1328,24 @@ function BlueprintCanvas({
   }, [liveState, worldDraft.worldbooks, worldDraft.entries]);
 
   const [showTurnContext, setShowTurnContext] = useState(false);
+  /** 「AI 一览」: every AI the card runs, the platform's included. */
+  const [showAiLineup, setShowAiLineup] = useState(false);
+  useEffect(() => {
+    const open = () => { setShowSwitcher(true); setShowAiLineup(false); setShowTurnContext(false); };
+    window.addEventListener(INTERFACE_SWITCHER_EVENT, open);
+    return () => window.removeEventListener(INTERFACE_SWITCHER_EVENT, open);
+  }, []);
+  // The block is the preview: bring it into view beside the column.
+  useEffect(() => {
+    if (!showSwitcher) return;
+    const timer = window.setTimeout(() => fitFocusedBlockRef.current(blockId.frontend, 420), 120);
+    return () => window.clearTimeout(timer);
+  }, [showSwitcher]);
+  useEffect(() => {
+    const open = () => setShowAiLineup(true);
+    window.addEventListener(AI_LINEUP_EVENT, open);
+    return () => window.removeEventListener(AI_LINEUP_EVENT, open);
+  }, []);
 
   /** Configuration estimate using the complete session state when available. */
   const turnContext = useMemo(() => {
@@ -1160,7 +1355,7 @@ function BlueprintCanvas({
   }, [showTurnContext, liveGating, worldDraft]);
 
   // ── The AI's last write turn, as an audit rather than a notification ──
-  const { turn, dismiss: dismissTurn, restore: undoTurn } = useTurnDiff(graph, serverWorldId, graphOptions);
+  const { turn, dismiss: dismissTurn, restore: undoTurn, restoreOne: undoTurnItem } = useTurnDiff(graph, serverWorldId, graphOptions);
   const turnMark = useMemo(() => {
     const marks = new Map<string, "added" | "changed">();
     if (!turn) return marks;
@@ -1281,9 +1476,11 @@ function BlueprintCanvas({
     // is gone only when no block answers to that id any more.
     const isBlock = selection.type === "node" && isBlockId(selection.id)
       && blocksRef.current.some((b) => b.id === selection.id || b.sourceBlockId === selection.id);
-    // An AI the interface code runs (a call, a live voice) is a row of the AI
-    // block, not a graph node: its panel goes when the row does.
-    const isCodeAi = selection.type === "node" && /^ai:(?:code|voice|game):/.test(selection.id);
+    // An AI the interface code runs (a call, a live voice, the platform's
+    // voice / voice input / illustrations) is a row of the AI block, not a
+    // graph node: its panel goes when the row does. Leaving `platform:` out
+    // shut that panel the instant it opened.
+    const isCodeAi = selection.type === "node" && /^ai:(?:code|voice|game|platform):/.test(selection.id);
     const gone =
       selection.type === "node"
         ? !isBlock && !isCodeAi && !resolveCanvasInspectorNode(selection.id, graph.nodes)
@@ -1311,6 +1508,12 @@ function BlueprintCanvas({
       return node ? [{ ...node, scope: result.scope, excerpt: result.excerpt }] : [];
     });
   }, [query, searchIndex, graphById]);
+  /** The features the query names, above the content it matches: a creator
+   *  who does not know where the theme or the code lives types it here. */
+  const queryActions = useMemo(
+    () => searchActions(query).filter((a) => a === "market" ? HAS_PACK_MARKET : !readOnly && (a !== "saveTemplate" || HAS_PACK_MARKET)),
+    [query, readOnly],
+  );
   // ── Block collapse (persisted) + row expansion (session-only) ──
   const [collapsedSet, setCollapsedSet] = useState<Set<string>>(() => new Set(storedCollapsed()));
   /** Per 「这里的 AI」 block, the row open in place. */
@@ -1333,7 +1536,22 @@ function BlueprintCanvas({
    *  when the focused one commits. */
   const headOpenedRef = useRef(headOpened);
   headOpenedRef.current = headOpened;
+  const [editorMeasurements, setEditorMeasurements] = useState<ReadonlyMap<string, ReadonlyMap<string, number>>>(new Map());
+  const measureEditor = useCallback((id: string, height: number, hostId: string) => {
+    // A shared entry can be open in differently sized blocks at once.
+    setEditorMeasurements(previous => {
+      const host = previous.get(hostId) ?? new Map<string, number>();
+      if (host.get(id) === height) return previous;
+      return new Map(previous).set(hostId, new Map(host).set(id, height));
+    });
+  }, []);
   const toggleOpenRow = useCallback((objectId: string) => {
+    // Opening with the chevron selects the same whole item as clicking its name.
+    if (!openRowIdsRef.current.has(objectId)) {
+      selectOnlyRef.current = objectId;
+      setSelection({ type: "node", id: objectId });
+      setMultiSelected(EMPTY_MULTI);
+    }
     // A row the head opened shuts on its own chevron, the others staying
     // open: the chevron only knew the one row a click opens, so after a
     // click on the head no row could be closed except all of them at once.
@@ -1440,14 +1658,10 @@ function BlueprintCanvas({
     const entries = useEditorStore.getState().worldDraft.entries ?? [];
     if (autoOpenDecidedFor.current === blueprintDocumentKey || entries.length === 0) return;
     autoOpenDecidedFor.current = blueprintDocumentKey;
-    // A card with written words opens with every row shut: the opening is
-    // on the player's screen already, and open as well it stood twice. A
-    // new card has nothing written yet — its opening is the one place to
-    // start, so it opens ready to type into.
-    const openings = entries.filter((e) => e.role === "greeting" && !e.worldbookId);
-    const fresh = openings.length === 1 && entries.every((e) =>
-      e.presetId || !e.content?.trim() || isLessonHello(e.content));
-    setOpenRowId(fresh ? `greeting:${openings[0].id}` : null);
+    // Every card opens with every row shut, a new one too (owner, 11/15:
+    // 「默认什么都不展开是最好的」). The opening used to open itself on a new
+    // card; the board then showed one big editor before anything else.
+    setOpenRowId(null);
   }, [blueprintDocumentKey, worldDraft.entries]);
   // The panel usually mounts before the draft finishes loading, so re-read the
   // persisted flags once per world identity (also covers switching cards).
@@ -1580,6 +1794,24 @@ function BlueprintCanvas({
   // panels stay where they were for the settings that need a page.
   /** Whose voice is being chosen: a character's (entryId) or the narrator's. */
   const [voiceFor, setVoiceFor] = useState<{ entryId?: string; title: string } | null>(null);
+  const [soundPickerOpen, setSoundPickerOpen] = useState(false);
+  /** A sound from the author's own or (already copied) from the plaza, as a new track: one undo step. The window stays open for the next one. */
+  const landSound = useCallback((sound: { assetId: string; title: string; shelf: "music" | "sfx" }) => {
+    const store = useEditorStore.getState();
+    store.beginBatch();
+    try {
+      store.addAudioTrack();
+      const track = (useEditorStore.getState().worldDraft.audioTracks ?? []).at(-1);
+      if (track) {
+        useEditorStore.getState().updateAudioTrack(track.id, { url: `@asset:${sound.assetId}`, name: sound.title, type: sound.shelf === "sfx" ? "sfx" : "bgm", loop: sound.shelf !== "sfx" });
+        flashRecent([`audio:${track.id}`]);
+      }
+    } finally { useEditorStore.getState().commitBatch(); }
+  }, [flashRecent]);
+  /** 生成 on a media block's header: what is being made, and where it goes
+   *  (a new track, scene image or background), made from the card's own
+   *  name and blurb. */
+  const [quickGen, setQuickGen] = useState<{ target: QuickTarget; worldId: string } | null>(null);
   /** Uploads and the cover need the card to exist on the server. */
   const ensureWorldId = useCallback(async () => {
     const store = useEditorStore.getState();
@@ -1633,9 +1865,16 @@ function BlueprintCanvas({
   /** The header tools a block of this kind wears. */
   const blockTools = useCallback((block: Block) => {
     if (readOnly) return undefined;
-    const label = (id: "upload" | "market" | "voice" | "open") => t(`blueprint.tools.${id}` as never) as string;
-    // No "generate" on any block: generation lives on the AI page beside the
-    // board (the owner: every block wearing one made the board too busy).
+    const label = (id: "upload" | "generate" | "market" | "add" | "voice" | "open") => t(`blueprint.tools.${id}` as never) as string;
+    // 生成 on the three media blocks only, beside 上传: what they hold is
+    // made here and lands here, without the trip to the AI page (owner,
+    // 11/06: the canvas is where things get done). Not on every block.
+    const generate = (target: QuickTarget) => ({ id: "generate" as const, label: label("generate"), onClick: () => {
+      void ensureWorldId().then((worldId) => {
+        if (!worldId) { feedback.error(t("overview.saveWorldFirst")); return; }
+        setQuickGen({ target, worldId });
+      });
+    } });
     switch (block.kind) {
       case "card":
         // No "upload" here: it only opened the card's settings, which a click
@@ -1644,16 +1883,14 @@ function BlueprintCanvas({
         // card's details, which a click on the cover opens.
         return undefined;
       case "background":
-        return [{ id: "upload" as const, label: label("upload"), onClick: () => onDrillPanel("backgrounds") }];
+        return [{ id: "upload" as const, label: label("upload"), onClick: () => onDrillPanel("backgrounds") }, generate({ kind: "background" })];
       case "image":
         if (block.ownerId) return undefined;
-        return [{ id: "upload" as const, label: label("upload"), onClick: () => uploadMedia("image") }];
+        return [{ id: "upload" as const, label: label("upload"), onClick: () => uploadMedia("image") }, generate({ kind: "scene-image", sceneImageId: "" })];
       case "audio":
         if (block.ownerId) return undefined;
-        return [
-          { id: "upload" as const, label: label("upload"), onClick: () => uploadMedia("audio") },
-          { id: "market" as const, label: label("market"), onClick: () => onDrillPanel("marketplace") },
-        ];
+        // One door: the sound window lists my own and the plaza's, and holds upload, generate and the market.
+        return [{ id: "add" as const, label: label("add"), onClick: () => setSoundPickerOpen(true) }];
       case "frontend":
         // Its page is in the top bar's switch and behind the block's own
         // 编辑界面 button; a third door in the header only added an icon.
@@ -1661,7 +1898,36 @@ function BlueprintCanvas({
       default:
         return undefined;
     }
-  }, [readOnly, t, onDrillPanel, uploadMedia]);
+  }, [readOnly, t, onDrillPanel, uploadMedia, ensureWorldId]);
+  /** What 生成 made, as a new thing in its block, one undo step. */
+  const landQuick = useCallback((target: QuickTarget, landed: LandedAsset) => {
+    const url = `@asset:${landed.assetId}`;
+    const store = useEditorStore.getState();
+    const made: string[] = [];
+    store.beginBatch();
+    try {
+      if (target.kind === "audio") {
+        store.addAudioTrack();
+        const track = (useEditorStore.getState().worldDraft.audioTracks ?? []).at(-1);
+        if (track) {
+          useEditorStore.getState().updateAudioTrack(track.id, { url, type: target.type, name: t(`audio.trackTypes.${target.type}` as never) as string });
+          made.push(`audio:${track.id}`);
+        }
+      } else if (target.kind === "scene-image") {
+        store.addSceneImage();
+        const image = (useEditorStore.getState().worldDraft.sceneImages ?? []).at(-1);
+        if (image) {
+          useEditorStore.getState().updateSceneImage(image.id, { url });
+          made.push(`image:${image.id}`);
+        }
+      } else if (target.kind === "background") {
+        store.addBackground(url);
+      }
+    } finally {
+      useEditorStore.getState().commitBatch();
+    }
+    if (made.length) flashRecent(made);
+  }, [t, flashRecent]);
 
   /** Objects made with nothing selected stand on the canvas by themselves
    *  until they are dragged into a module. Read from the layout, where the
@@ -1674,7 +1940,7 @@ function BlueprintCanvas({
   const [revealedSlots, setRevealedSlots] = useState<ReadonlySet<TrayItem>>(() => new Set());
   const pickTrayItem = useCallback((item: TrayItem, _anchor?: DOMRect) => {
     captureHubEvent("studio_tray_pick", { world_id: eventWorldId(), item });
-    if (item === "packs") { onDrillPanel("packs"); return; }
+    if (item === "packs") { openMarketRef.current("mechanics"); return; }
     // A number or a behaviour is made on the spot, on the card (the tray is
     // the card's), and opens in its row to be set up.
     if (item === "state" || item === "behavior") { trayAddRef.current?.(item); return; }
@@ -1688,6 +1954,26 @@ function BlueprintCanvas({
     }
   }, [onDrillPanel]);
   const trayAddRef = useRef<((item: "state" | "behavior") => void) | null>(null);
+  /** The market: as the drawer beside the board when the author folded it
+   *  there last time (never on a phone, where nothing is dragged), else the
+   *  full page. */
+  /** Installs with a newer version out (the 有新版 seam, see pack-canvas-store). */
+  const packUpdates = usePackUpdates();
+  const packUpdateCount = Object.keys(packUpdates).length;
+  const packDrawerOpen = usePackDrawerOpen();
+  const openMarketRef = useRef<(use?: "mechanics") => void>(() => {});
+  /** The whole card being saved as a template or pack (⋮ has the same). */
+  const [saveBundleOpen, setSaveBundleOpen] = useState(false);
+  // The market opens as the store (Jason 11/08: the drawer list did not feel
+  // like a market); the drawer stays one press away there (收起成侧栏) for
+  // dragging packs onto the board.
+  // The 玩法包 doors (an empty 状态/行为 block, the tray) open it on the
+  // mechanics shelf: Yumina's 好感度/生存数值… packs live in the market now,
+  // beside everyone else's, not on a page of their own (Jason 11/08).
+  openMarketRef.current = (use) => {
+    if (!isPhone && !readOnly && openPackMarketStore(use)) return;
+    onDrillPanel("marketplace");
+  };
 
   /** The platform's narration presets: never rows on the board (see
    *  writingEntriesFor), so never counted against a block's rows either. */
@@ -1740,6 +2026,12 @@ function BlueprintCanvas({
     for (const b of worldDraft.worldbooks ?? []) if (b.host === undefined) map.set(b.id, placeAis(worldDraft, b.id, t as Translate));
     return map;
   }, [worldDraft, t]);
+  const lineup = useMemo(() => {
+    if (!showAiLineup) return null;
+    const cardName = worldDraft.graphLayout?.cardTitle?.trim() || worldDraft.name?.trim() || String(t("blueprint.frame.cardFrame"));
+    const bookName = (owner: string) => owner ? ((worldDraft.worldbooks ?? []).find((b) => b.id === owner)?.name || cardName) : cardName;
+    return aiLineup(worldDraft, placeAisByOwner, bookName, t as Translate);
+  }, [showAiLineup, worldDraft, placeAisByOwner, t]);
 
   // ── 条件触发 as groups (gate-groups.ts) ──
   /** Groups opened by hand, as `block|group`, and the value each block's
@@ -1881,10 +2173,19 @@ function BlueprintCanvas({
     // An AI that lives on the card or in a situation is a row of that place's
     // 「这里的 AI」, so it has no frame of its own.
     const living = new Set((worldDraft.worldbooks ?? []).filter(livesSomewhere).map((b) => blockId.frame(b.id)));
-    return buildFrames(graph, blocks, true).filter((f) => !living.has(f.id));
-  }, [graph, blocks, worldDraft.worldbooks]);
+    // Every installed pack is a frame of its own, the parts it brought
+    // gathered under its name (engine board: data.pack on its objects).
+    const packs = (worldDraft.installedBundles ?? []).map((b) => b.installId);
+    return buildFrames(graph, blocks, true, packs).filter((f) => !living.has(f.id));
+  }, [graph, blocks, worldDraft.worldbooks, worldDraft.installedBundles]);
   const framesRef = useRef(frames);
   framesRef.current = frames;
+  /** Frames a wire can land on when its end is folded inside them: the
+   *  situations, and installed packs. */
+  const wireGateIds = useMemo(
+    () => new Set([...gateIdSet, ...frames.filter((f) => f.packId).map((f) => f.id)]),
+    [gateIdSet, frames],
+  );
 
   /** What each module holds, per shelf. Counted off the blocks rather than the
    *  draft so the number on a shelf and the rows in the block below it can
@@ -1918,7 +2219,7 @@ function BlueprintCanvas({
    *  the creator leaves it. */
   const autoOpenedFor = useRef<string | null>(null);
   useEffect(() => {
-    const modules = frames.filter((f) => f.ownerId);
+    const modules = frames.filter((f) => f.ownerId && !f.packId);
     if (modules.length === 0 || autoOpenedFor.current === worldDraft.id) return;
     autoOpenedFor.current = worldDraft.id;
     // A card with a handful of modules opens them all: the creator came to
@@ -1931,6 +2232,20 @@ function BlueprintCanvas({
       return next;
     });
   }, [frames, worldDraft.id]);
+  /** A pack's frame opens the first time it is on the board (the pack was
+   *  just put in, or the card was opened): what it brought is the thing to
+   *  see. Shut by hand, it stays shut. */
+  const packFramesSeen = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const fresh = frames.filter((f) => f.packId && !packFramesSeen.current.has(f.id));
+    if (fresh.length === 0) return;
+    for (const f of fresh) packFramesSeen.current.add(f.id);
+    setOpenFrames((prev) => {
+      const next = new Set(prev);
+      for (const f of fresh) if (f.total > 0) next.add(f.id);
+      return next;
+    });
+  }, [frames]);
   /** The frame a dragged row is currently over. Purely visual — the drop
    *  itself reads the id off the event. */
   const [dropFrameId, setDropFrameId] = useState<string | null>(null);
@@ -2269,6 +2584,7 @@ function BlueprintCanvas({
   const dropLabelFor = useCallback(
     (ownerId: string | null, name: string): string | undefined => {
       if (dragFrom === null) return undefined;
+      if (dragFrom === ADD_AI_DRAG) return String(t("blueprint.frame.dropAddAi"));
       const here = (ownerId ?? "core").toLowerCase();
       if (dragFrom === here) return String(t("blueprint.frame.dropSame"));
       if (!ownerId) return String(t("blueprint.frame.stripDrop"));
@@ -2331,7 +2647,7 @@ function BlueprintCanvas({
       const b = blockById.get(hostId);
       if (!b || b.loose || !b.ownerId || openNow.has(blockId.frame(b.ownerId))) return null;
       const gate = `module:${b.ownerId}`;
-      return gateIdSet.has(gate) ? gate : null;
+      return wireGateIds.has(gate) ? gate : null;
     };
     for (const [id, hosts] of map) {
       map.set(id, hosts.map((h) => {
@@ -2345,7 +2661,7 @@ function BlueprintCanvas({
     // module B lands on B's copy of the variable.
     for (const g of gates) map.set(g.id, [{ host: g.id, shown: true, ownerId: g.id.slice("module:".length) }]);
     return map;
-  }, [blocks, graph, gates, gateIdSet, collapsedSet, storyBoard, writingBlockIds, openFrames, frames, gateBlocks]);
+  }, [blocks, graph, gates, gateIdSet, wireGateIds, collapsedSet, storyBoard, writingBlockIds, openFrames, frames, gateBlocks]);
 
   /** Everything wired to the current selection. Selecting a row lights up its
    *  neighbours and greys the rest — on a card with sixty objects that is the
@@ -2636,6 +2952,51 @@ ${frontendFacts.sceneEvents.join(" · ")}`
     };
   }, [cardName, cardEntries, cardVariables, cardReactions, cardRules, cardAvatar, t]);
 
+  /** 联机, when the author turned it on: a chip on the card's frame that
+   *  opens the card settings at that group. */
+  const multiplayerRaw = worldDraft.settings?.multiplayer;
+  const multiplayer = useMemo(() => normaliseMultiplayer(multiplayerRaw), [multiplayerRaw]);
+  const cardMultiplayer = useMemo(() => {
+    const open = () => {
+      setRelationshipId(null);
+      setQuietFrame(null);
+      setSelection({ type: "node", id: "world:root" });
+      requestMultiplayerFocus();
+    };
+    if (!multiplayer) return { on: false, label: String(t("blueprint.multiplayer.title")), faces: [], onOpen: open };
+    const portraitOf = (entryId: string | undefined) =>
+      entryId ? (worldDraft.entries as Array<{ id: string; portrait?: string }>).find((e) => e.id === entryId)?.portrait : undefined;
+    return {
+      on: true,
+      label: String(t(multiplayer.mode === "rules" ? "blueprint.multiplayer.markRules" : "blueprint.multiplayer.mark", { seats: seatRange(multiplayer.minSeats, multiplayer.maxSeats) })),
+      faces: multiplayer.roles.map((r) => {
+        const ref = r.image ?? portraitOf(r.entryId);
+        return { name: r.name, src: ref ? resolveImageUrl(ref) ?? null : null };
+      }),
+      onOpen: open,
+    };
+  }, [multiplayer, worldDraft.entries, t]);
+  const multiplayerMark = useMemo(() => {
+    if (!multiplayer) return null;
+    const seats = seatRange(multiplayer.minSeats, multiplayer.maxSeats);
+    const portrait = (entryId: string | undefined) =>
+      entryId ? (worldDraft.entries as Array<{ id: string; portrait?: string }>).find((e) => e.id === entryId)?.portrait : undefined;
+    const faces = multiplayer.roles.map((r) => {
+      const ref = r.image ?? portrait(r.entryId);
+      return { name: r.name, src: ref ? resolveImageUrl(ref) ?? null : null };
+    });
+    return {
+      label: String(t(multiplayer.mode === "rules" ? "blueprint.multiplayer.markRules" : "blueprint.multiplayer.mark", { seats })),
+      faces,
+      onOpen: () => {
+        setRelationshipId(null);
+        setQuietFrame(null);
+        setSelection({ type: "node", id: "world:root" });
+        requestMultiplayerFocus();
+      },
+    };
+  }, [multiplayer, worldDraft.entries, t]);
+
   /** A phone's card opening is one row: its header, saying what the opening
    *  says and opening it (owner, 10/21: 「开场白有点太大了」). Only with an
    *  opening to open; an empty card keeps its invitation row. */
@@ -2647,7 +3008,7 @@ ${frontendFacts.sceneEvents.join(" · ")}`
     (block: Block, width: number = BLOCK_W): BlockChrome => ({
       collapsed: blockCollapsed(collapsedSet, block.id),
       expanded: openedTexts.has(block.id),
-      expandedIds: openRowIds,
+      expandedIds: openRowIds, editorHeights: editorMeasurements.get(block.id),
       width,
       compactCard: !block.head?.data.coverUrl && !worldDraft.description,
       defaultChat: defaultChat,
@@ -2668,7 +3029,7 @@ ${frontendFacts.sceneEvents.join(" · ")}`
       ...(isWritingBlock(block) ? (() => {
         const gate = gateLayoutFor(block);
         const entries = gate?.entries ?? writingEntriesFor(block);
-        return { collapsed: false, starterHeight: canvasWritingNodeHeight({ kind: block.kind === "opening" ? "opening" : "setting", entries, headOnly: phoneHeadOnly(block, gate), rows: gate ? [] : block.head ? [{ g: block.head, slots: block.headSlots }] : block.rows, compact: glance, expandedIds: openRowIds, columns: block.kind === "opening" ? 1 : rowColumns(entries.length, width), hiddenCount: gate ? 0 : block.hiddenCount, unfolded: !gate && isUnfolded(block), openGroups: gate ? openGroupsOf(block) : undefined, folders: gate?.folders ?? entryFolders, presetsTitle, collapsedFolders: gate?.collapsedFolders ?? collapsedFolders, gateBar: gate?.gateBar }) };
+        return { collapsed: false, starterHeight: canvasWritingNodeHeight({ kind: block.kind === "opening" ? "opening" : "setting", entries, headOnly: phoneHeadOnly(block, gate), rows: gate ? [] : block.head ? [{ g: block.head, slots: block.headSlots }] : block.rows, compact: true, expandedIds: openRowIds, editorHeights: editorMeasurements.get(block.id), columns: block.kind === "opening" ? 1 : rowColumns(entries.length, width), hiddenCount: gate ? 0 : block.hiddenCount, unfolded: !gate && isUnfolded(block), openGroups: gate ? openGroupsOf(block) : undefined, folders: gate?.folders ?? entryFolders, presetsTitle, collapsedFolders: gate?.collapsedFolders ?? collapsedFolders, gateBar: gate?.gateBar }) };
       })() : {}),
       ...(block.kind === "context" ? { contextRows: contextRowsFor(block).length } : {}),
       ...(block.kind === "ais" ? { aiRows: placeAisByOwner.get(block.ownerId ?? "")?.rows.length ?? 1 } : {}),
@@ -2677,7 +3038,7 @@ ${frontendFacts.sceneEvents.join(" · ")}`
       ...(hasPackDoor(block) ? { packDoor: true } : {}),
       ...(!isWritingBlock(block) && isUnfolded(block) ? { unfolded: true } : {}),
     }),
-    [isUnfolded, openGroupsOf, collapsedSet, openedTexts, openRowIds, contextRowsFor, placeAisByOwner, glance, phoneHeadOnly, device, worldDraft.description, worldDraft.entries, defaultChat, isWritingBlock, writingEntriesFor, isBareScene, hasPackDoor, entryFolders, presetsTitle, collapsedFolders, cardHasBackground, anyOpeningWritten, screenFolded, frontendFacts, gateLayoutFor, gameScreen],
+    [isUnfolded, openGroupsOf, collapsedSet, openedTexts, openRowIds, editorMeasurements, contextRowsFor, placeAisByOwner, glance, phone, phoneHeadOnly, device, worldDraft.description, worldDraft.entries, defaultChat, isWritingBlock, writingEntriesFor, isBareScene, hasPackDoor, entryFolders, presetsTitle, collapsedFolders, cardHasBackground, anyOpeningWritten, screenFolded, frontendFacts, gateLayoutFor, gameScreen],
   );
   /** Whether a face block (the card's interface, a module's scene) has a
    *  real preview to show — which puts it on a row of its own, full width. */
@@ -2747,7 +3108,7 @@ ${frontendFacts.sceneEvents.join(" · ")}`
       viewWidth: view.width,
       worldbooks: situationBooks(useEditorStore.getState().worldDraft.worldbooks),
       headerH: (id) => headerHForRef.current(id),
-      ...(phoneRef.current ? { widths: PHONE_TILE_WIDTHS } : {}),
+      ...(phoneRef.current ? { widths: PHONE_TILE_WIDTHS } : readOnlyRef.current ? { widths: readOnlyTileWidths(view.width) } : {}),
     });
     const pos: Record<string, { x: number; y: number }> = {};
     for (const box of boxes.values()) {
@@ -2847,7 +3208,7 @@ ${frontendFacts.sceneEvents.join(" · ")}`
       worldbooks: situationBooks(worldDraft.worldbooks),
       onGroups: (groups) => { situationGroupsRef.current = groups; },
       headerH: headerHFor,
-      ...(isPhone ? { widths: PHONE_TILE_WIDTHS } : {}),
+      ...(isPhone ? { widths: PHONE_TILE_WIDTHS } : readOnly ? { widths: readOnlyTileWidths(view.width) } : {}),
     });
     // The signature carries every block height, so a block that grows for a
     // reason other than its rows — the scene block taking the live preview
@@ -2855,7 +3216,7 @@ ${frontendFacts.sceneEvents.join(" · ")}`
     // the collapse/expand sets alone, the preview moved into a module whose
     // frame was still the old height and hung out of its bottom.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [framesForLayout, frames, blocks, openFrames, collapsedSet, openedTexts, pinnedSig, layoutSig, device, storyBoard, hasPreview, previewGreetingId, worldDraft.worldbooks, headerHFor, isPhone]);
+  }, [framesForLayout, frames, blocks, openFrames, collapsedSet, openedTexts, pinnedSig, layoutSig, device, storyBoard, hasPreview, previewGreetingId, worldDraft.worldbooks, headerHFor, isPhone, readOnly]);
   /** Where loose blocks stand: where they were put, unless that is on top of
   *  a frame or of another loose block — then beside the frames, one under
   *  another, so three new settings are three readable blocks, not a pile
@@ -3083,10 +3444,12 @@ ${frontendFacts.sceneEvents.join(" · ")}`
   );
 
   /**
-   * Decide, once a move has come to rest, whether rows are names or say what
-   * they hold (see `glance`). Changing it changes the height of every writing
-   * block, so the board is put back under the reader: after a fit it fits
-   * again, otherwise the block at the centre of the screen stays there.
+   * Decide, once a move has come to rest, whether rows say what they hold or
+   * wait as faint lines (see `glance`). Only what is drawn inside the rows
+   * changes: their heights stay, so nothing on the board moves. (It used to
+   * shrink every row to its name and then put the board back under the
+   * reader; on a big card that was a visible jump up, down and sideways
+   * each time a zoom crossed a threshold.)
    */
   const settleGlance = useCallback((zoom: number) => {
     // A phone's rows are names at every zoom: what they say is a tap away.
@@ -3094,55 +3457,9 @@ ${frontendFacts.sceneEvents.join(" · ")}`
     if (performance.now() < glanceQuietUntilRef.current) return;
     const want = teachingRef.current ? false : glanceRef.current ? zoom < GLANCE_LEAVE : zoom < GLANCE_ENTER;
     if (want === glanceRef.current) return;
-    const flow = flowViewportRef.current;
-    const rect = containerRef.current?.getBoundingClientRect();
-    const fit = lastFitRef.current && performance.now() - lastFitRef.current.at < 1500 ? lastFitRef.current : null;
+    const fit = lastFitRef.current && performance.now() - lastFitRef.current.at < 1500;
     lastFitRef.current = null;
-    // The entrance frames by hand rather than through fitBetweenDocks, so it
-    // leaves its own note: the rows changing under it move the blocks it
-    // just centred (on a wide screen ~330px right, half under the
-    // assistant), and it has to frame them again rather than keep a spot.
-    const entrance = !fit && lastEntranceRef.current && performance.now() - lastEntranceRef.current < 1500;
     lastEntranceRef.current = 0;
-    let anchor: { id: string; fy: number; sy: number } | null = null;
-    // Best of all, the very row that was under the pointer (or the middle):
-    // its top edge goes back to where it was on screen.
-    let rowAnchor: { attr: string; value: string; top: number } | null = null;
-    if (!fit && !entrance && rect) {
-      const aimAt = glanceAnchorRef.current && performance.now() - glanceAnchorRef.current.at < 3000 ? glanceAnchorRef.current : null;
-      const px = aimAt ? aimAt.x : rect.left + rect.width / 2;
-      const py = aimAt ? aimAt.y : rect.top + rect.height / 2;
-      const hit = document.elementFromPoint(px, py)?.closest<HTMLElement>("[data-canvas-writing-object],[data-row-anchor]");
-      if (hit) {
-        const attr = hit.hasAttribute("data-canvas-writing-object") ? "data-canvas-writing-object" : "data-row-anchor";
-        rowAnchor = { attr, value: hit.getAttribute(attr) ?? "", top: hit.getBoundingClientRect().top };
-      }
-    }
-    if (!fit && !entrance && rect && !rowAnchor) {
-      const vp = flow.getViewport();
-      const aim = glanceAnchorRef.current && performance.now() - glanceAnchorRef.current.at < 3000 ? glanceAnchorRef.current : null;
-      const sx = aim ? aim.x - rect.left : rect.width / 2;
-      const sy = aim ? aim.y - rect.top : rect.height / 2;
-      const cx = (sx - vp.x) / vp.zoom;
-      const cy = (sy - vp.y) / vp.zoom;
-      for (const n of flow.getNodes()) {
-        if (!n.id.startsWith("block:")) continue;
-        const inner = flow.getInternalNode(n.id);
-        const at = inner?.internals.positionAbsolute;
-        const w = inner?.measured?.width ?? 0;
-        const h = inner?.measured?.height ?? 0;
-        if (!at || !w || !h) continue;
-        if (cx >= at.x && cx <= at.x + w && cy >= at.y && cy <= at.y + h) {
-          anchor = { id: n.id, fy: (cy - at.y) / h, sy };
-          break;
-        }
-      }
-    }
-    // Put the board back once React Flow has measured the new heights —
-    // two frames is not always enough, and fitting the old size again just
-    // lands on the zoom that asked for the change.
-    const sizeOf = () => { const b = flow.getNodesBounds(flow.getNodes().filter((n) => !n.hidden)); return `${Math.round(b.width)}x${Math.round(b.height)}`; };
-    const before = sizeOf();
     // Zoom-to-read, once per visit: a zoom of the person's own, not a fit
     // and not a lesson.
     if (!want && !fit && !teachingRef.current && !readReportedRef.current) {
@@ -3150,55 +3467,7 @@ ${frontendFacts.sceneEvents.join(" · ")}`
       captureHubEvent("studio_board_read", { world_id: eventWorldId(), zoom: Math.round(zoom * 100) / 100 });
     }
     setGlance(want);
-    // Changed from `before`, then unchanged for a few frames: the heights
-    // arrive a block at a time as React Flow measures them.
-    let frames = 0;
-    let last = before;
-    let still = 0;
-    const settle = () => {
-      const now = sizeOf();
-      still = now === last ? still + 1 : 0;
-      last = now;
-      if ((now === before || still < 3) && ++frames < 60) { requestAnimationFrame(settle); return; }
-      // A lesson owns the camera: rows unfolding as it starts (the board
-      // was read at a glance on the catalog before it) re-take the lesson's
-      // frame. Keeping the reader's spot instead jumped back to the zoom
-      // the lesson was moving away from.
-      if (refitLessonRef.current) {
-        glanceQuietUntilRef.current = performance.now() + 650;
-        refitLessonRef.current(250);
-        return;
-      }
-      if (fit) {
-        glanceQuietUntilRef.current = performance.now() + fit.args[0] + 400;
-        void fitBetweenDocks(...fit.args);
-        return;
-      }
-      if (entrance) {
-        glanceQuietUntilRef.current = performance.now() + 400;
-        void fitEntranceRef.current?.();
-        return;
-      }
-      if (rowAnchor) {
-        const el = containerRef.current?.querySelector<HTMLElement>(`[${rowAnchor.attr}="${CSS.escape(rowAnchor.value)}"]`);
-        if (el) {
-          const vp = flow.getViewport();
-          glanceQuietUntilRef.current = performance.now() + 400;
-          void flow.setViewport({ x: vp.x, y: vp.y + (rowAnchor.top - el.getBoundingClientRect().top), zoom: vp.zoom });
-        }
-        return;
-      }
-      if (!anchor) return;
-      const inner = flow.getInternalNode(anchor.id);
-      const at = inner?.internals.positionAbsolute;
-      const h = inner?.measured?.height ?? 0;
-      if (!at || !h) return;
-      const vp = flow.getViewport();
-      glanceQuietUntilRef.current = performance.now() + 400;
-      void flow.setViewport({ x: vp.x, y: anchor.sy - (at.y + anchor.fy * h) * vp.zoom, zoom: vp.zoom });
-    };
-    requestAnimationFrame(settle);
-  }, [fitBetweenDocks]);
+  }, []);
   // A lesson frames a few blocks up close and teaches what they say, so it
   // reads rows in full; when it ends the zoom decides again.
   const wasTeachingRef = useRef(teaching);
@@ -3232,6 +3501,44 @@ ${frontendFacts.sceneEvents.join(" · ")}`
     }, 1400);
   }, []);
   useEffect(() => () => { if (mapSleepRef.current !== null) window.clearTimeout(mapSleepRef.current); }, []);
+  /** While the board is dragged or scrolled it travels as one picture: the
+   *  viewport gets a compositor layer of its own, so a frame shifts what was
+   *  already drawn instead of repainting every block and wire. A mouse drag
+   *  also puts a cover over the board, so the browser stops working out which
+   *  of hundreds of wires is under the pointer on every move; only a drag,
+   *  whose button is already down: after a scroll the next press has to reach
+   *  the board. All of it comes off when the board stops. A zoom never lifts
+   *  it: a layer scaled up stays drawn at the old size and reads blurred
+   *  until it comes down. */
+  const boardCoverRef = useRef<HTMLDivElement | null>(null);
+  const liftedRef = useRef<"drag" | "glide" | null>(null);
+  /** The last row that slid under the pointer while the board was moving
+   *  (see `lightRow`), and lighting it once the board stops. */
+  const passedRowRef = useRef<string | null>(null);
+  const lightPassedRowRef = useRef<() => void>(() => {});
+  const liftBoard = useCallback((by: "drag" | "glide") => {
+    // A drag grabbed out of a scroll's last moments takes the board over, so
+    // the scroll coming to rest does not set it down mid-drag.
+    if (liftedRef.current === by || liftedRef.current === "drag") return;
+    const viewport = containerRef.current?.querySelector<HTMLElement>(".react-flow__viewport");
+    if (!viewport) return;
+    liftedRef.current = by;
+    viewport.style.willChange = "transform";
+    if (by === "drag" && boardCoverRef.current) boardCoverRef.current.style.display = "block";
+  }, []);
+  const settleBoard = useCallback(() => {
+    if (!liftedRef.current) return;
+    liftedRef.current = null;
+    const viewport = containerRef.current?.querySelector<HTMLElement>(".react-flow__viewport");
+    if (viewport) viewport.style.willChange = "";
+    if (boardCoverRef.current) boardCoverRef.current.style.display = "none";
+    lightPassedRowRef.current();
+  }, []);
+  // A press starts the move but only a mouse that travels makes it a drag: a
+  // click on the empty board has to land on the board.
+  const onMove = useCallback((event: MouseEvent | TouchEvent | null) => {
+    if (event?.type === "mousemove") liftBoard("drag");
+  }, [liftBoard]);
   const onMoveStart = useCallback((event: MouseEvent | TouchEvent | null) => {
     if (!event) return;
     wakeMap();
@@ -3245,10 +3552,11 @@ ${frontendFacts.sceneEvents.join(" · ")}`
     if (point) glanceAnchorRef.current = { x: point.clientX, y: point.clientY, at: performance.now() };
   }, [wakeMap]);
   const onMoveEnd = useCallback((_: unknown, viewport: { zoom: number }) => {
+    if (liftedRef.current === "drag") settleBoard();
     updateBoardOverflow();
     settleGlance(viewport.zoom);
     sleepMapSoon();
-  }, [updateBoardOverflow, settleGlance, sleepMapSoon]);
+  }, [updateBoardOverflow, settleGlance, sleepMapSoon, settleBoard]);
   useSmoothWheelZoom({
     // A scroll stops when the board's edge reaches the middle of the window,
     // rather than running on into empty desk.
@@ -3275,8 +3583,15 @@ ${frontendFacts.sceneEvents.join(" · ")}`
     // Mid-glide the board is not done zooming: the switch between the full
     // and the glance rows waits for it to come to rest, then aims at the
     // spot the pointer zoomed into — the same as a pinch that ended there.
-    onGlide: () => { glanceQuietUntilRef.current = performance.now() + 250; lastFitRef.current = null; wakeMap(); },
+    onGlide: (kind) => {
+      glanceQuietUntilRef.current = performance.now() + 250;
+      lastFitRef.current = null;
+      wakeMap();
+      if (kind === "pan") liftBoard("glide");
+      else if (liftedRef.current === "glide") settleBoard();
+    },
     onSettle: (zoom, point) => {
+      if (liftedRef.current === "glide") settleBoard();
       sleepMapSoon();
       glanceQuietUntilRef.current = 0;
       glanceAnchorRef.current = { ...point, at: performance.now() };
@@ -3300,75 +3615,64 @@ ${frontendFacts.sceneEvents.join(" · ")}`
     // actual measured dimensions in its internal lookup across those rebuilds.
     return flow.getNodes().map(node => flow.getInternalNode(node.id) ?? node);
   }, []);
-  // The board opens on the whole board when the whole board can be read at
-  // once. When it cannot — six modules on a laptop — it opens on the card's
-  // own tile and its face, which are the first things on it; the rest is a
-  // pan away. (The old board opened on the first module, because the card
-  // was not a frame on a card with modules; now it is.)
-  const ENTRANCE_MIN_ZOOM = 0.6;
+  // Fit the board width with side padding; height stays pannable.
   const fitEntrance = useCallback(() => {
-    // A phone opens on the card's tile (and the player's screen standing on
-    // it) at reading size, from the top: one tile is one screen wide, and
-    // the situations beside it are a swipe away, or a pinch to see them all.
+    // Keep production's native phone canvas at its established reading size.
     if (phoneRef.current) {
       const first = new Set([blockId.frame(null), blockId.frontend]);
       return fitBetweenDocks(0, false, first, false, { zoom: 1 });
     }
-    // A card's own openings come first: the board opens close enough on them
-    // to read the opening, not on everything at once too small to read.
-    const opening = blocksRef.current.find((b) => b.kind === "opening" && !b.ownerId && !b.loose);
-    if (opening) {
-      // ...with the player's screen that sits right above it. Centring the
-      // opening alone left the bottom third of that screen hanging off the
-      // top edge, which reads as a board that loaded broken.
-      const flow = flowViewportRef.current;
-      const rect = containerRef.current?.getBoundingClientRect();
-      const nodes = flow.getNodes();
-      const openingNode = nodes.find((n) => n.id === opening.id);
-      const screenNode = nodes.find((n) => n.id === blockId.frontend && !n.hidden);
-      const both = rect && openingNode && screenNode ? flow.getNodesBounds([screenNode, openingNode]) : null;
-      if (!rect || !both || !openingNode || !screenNode || !(both.width > 0) || !(both.height > 0)) {
-        return fitBetweenDocks(0, false, new Set([opening.id]), false, { zoom: 1 });
-      }
-      const pad = 24;
-      const left = insetsRef.current?.left ?? 0;
-      const availW = Math.max(240, rect.width - left - (insetsRef.current?.right ?? 0));
-      const top = topChromeRef.current;
-      // The card opens at READING size, from its top, like a page: the board
-      // used to fit the screen and the opening into the window, which on a
-      // card of any length meant ~50% and text of five or six pixels — a
-      // thumbnail to be zoomed into before anything could be read. The wheel
-      // scrolls down it now. The cover column comes in when it fits at full
-      // size; otherwise it is a scroll to the right, beside the card.
-      const frameNode = nodes.find((n) => n.id === blockId.frame(null) && !n.hidden);
-      const tile = frameNode ? flow.getNodesBounds([frameNode]) : both;
-      const cardNode = nodes.find((n) => n.id === blockId.card && !n.hidden);
-      const wide = cardNode ? flow.getNodesBounds([frameNode ?? screenNode, cardNode]) : null;
-      // Exactly 1 when the tile fits: at any other scale the browser draws
-      // the board's 12–13px type resampled, and at 0.85 it came out at ten
-      // blurred pixels. The card tile is capped (CARD_TILE_WIDTHS) so that
-      // it fits beside the assistant at 1.
-      const READ_ZOOM = 1;
-      const fit = (width: number) => (availW - pad * 2) / width;
-      const target = wide && fit(wide.width) >= 1 ? wide : tile;
-      const zoom = Math.max(0.85, Math.min(READ_ZOOM, fit(target.width)));
-      const x = target.width * zoom <= availW - pad * 2
-        ? left + availW / 2 - (target.x + target.width / 2) * zoom
-        : left + pad - target.x * zoom;
-      // From the top of whatever is highest: the player's screen sits above
-      // the card's tile, and starting at the tile cut its folded bar
-      // (「展开看看」) in half under the toolbar.
-      const y = top + pad - Math.min(tile.y, both.y) * zoom;
-      requestAnimationFrame(updateBoardOverflow);
-      lastEntranceRef.current = enteredAtRef.current = performance.now();
-      return flow.setViewport({ x, y, zoom });
-    }
-    const whole = fitBetweenDocks(0, false, undefined, true);
-    if (typeof whole === "number" && whole >= ENTRANCE_MIN_ZOOM) return fitBetweenDocks();
-    const first = new Set([blockId.frame(null), blockId.card, blockId.background]);
-    return fitBetweenDocks(0, false, first);
+    const flow = flowViewportRef.current;
+    const rect = containerRef.current?.getBoundingClientRect();
+    const nodes = flow.getNodes().filter((node) => !node.hidden);
+    if (!rect || !nodes.length) return false;
+    const viewport = blueprintEntranceViewport(
+      flow.getNodesBounds(nodes),
+      rect.width,
+      insetsRef.current ?? { left: 0, right: 0 },
+      topChromeRef.current,
+      rect.height,
+    );
+    if (!viewport) return false;
+    requestAnimationFrame(updateBoardOverflow);
+    lastEntranceRef.current = enteredAtRef.current = performance.now();
+    return flow.setViewport(viewport);
   }, [fitBetweenDocks, updateBoardOverflow]);
   fitEntranceRef.current = fitEntrance;
+  // Opening on one block: the board lays itself out over its first moments
+  // (blocks measure, then the formation settles), so the block is followed
+  // until it holds still, and let go the moment the viewer touches the board.
+  useEffect(() => {
+    if (!opensOn) return;
+    const root = containerRef.current;
+    let last = "";
+    let stopped = false;
+    const stop = () => { stopped = true; };
+    root?.addEventListener("pointerdown", stop, true);
+    root?.addEventListener("wheel", stop, { capture: true, passive: true });
+    const started = performance.now();
+    const timer = window.setInterval(() => {
+      if (stopped || performance.now() - started > 3000) { window.clearInterval(timer); return; }
+      const flow = flowViewportRef.current;
+      const node = flow.getInternalNode(opensOn);
+      const rect = containerRef.current?.getBoundingClientRect();
+      const width = node?.measured.width;
+      const height = node?.measured.height;
+      if (!node || !rect || !width || !height) return;
+      const at = node.internals.positionAbsolute;
+      const key = `${at.x},${at.y},${width},${height}`;
+      if (key === last) return;
+      last = key;
+      cancelInitialFitRef.current?.();
+      const viewport = blueprintEntranceViewport({ x: at.x, y: at.y, width, height }, rect.width, insetsRef.current ?? { left: 0, right: 0 }, topChromeRef.current, rect.height);
+      if (viewport) void flow.setViewport(viewport);
+    }, 120);
+    return () => {
+      window.clearInterval(timer);
+      root?.removeEventListener("pointerdown", stop, true);
+      root?.removeEventListener("wheel", stop, true);
+    };
+  }, [opensOn]);
   const { isViewportSettled, cancelInitialFit } = useInitialBlueprintFit({ writing: false, worldId: blueprintDocumentKey, ready: Boolean(positions), viewportReady: rf.viewportInitialized, nodeCount: rfNodes.length, getNodes: measuredBlueprintNodes, getViewport: rf.getViewport, setViewport: rf.setViewport, fit: fitEntrance });
   cancelInitialFitRef.current = cancelInitialFit;
 
@@ -3571,12 +3875,16 @@ ${frontendFacts.sceneEvents.join(" · ")}`
    *  place — a beat later, so the second click of a double-click (which
    *  opens the full page instead) never gets to move the board first. */
   const expandTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const graphByIdRef = useRef(graphById);
+  graphByIdRef.current = graphById;
+  const drillObjectRef = useRef<(objId: string, how?: { focus?: boolean }) => void>(() => {});
   const clickRow = useCallback((objId: string) => {
     if (phoneRef.current) { phoneRef.current.onOpen(objId); return; }
     pickedByClickRef.current = objId;
     setMultiSelected(EMPTY_MULTI);
     if (expandTimer.current) { clearTimeout(expandTimer.current); expandTimer.current = null; }
     const picked = selectionRef.current?.type === "node" && selectionRef.current.id === objId;
+    if (objId.startsWith("rule:") && !readOnlyRef.current && !Array.isArray(graphByIdRef.current.get(objId)?.data.shapeIssues)) { drillObjectRef.current(objId); return; }
     if (!canEditRowInline(objId)) { setSelection({ type: "node", id: objId }); return; }
     // A lesson says "click the row to write in it", and waits for it to open.
     if (learningStageRef.current) { pressInlineRow(objId); return; }
@@ -3593,6 +3901,7 @@ ${frontendFacts.sceneEvents.join(" · ")}`
   }, [pressInlineRow]);
   const drillObject = useCallback((objId: string, how: { focus?: boolean } = {}) => {
     if (expandTimer.current) { clearTimeout(expandTimer.current); expandTimer.current = null; }
+    if (isSealedEntry(objId)) return;
     const g = graphById.get(objId);
     const drill = g && drillPanelFor(g, interfaceIsHandwritten);
     if (!g || !drill) return;
@@ -3614,7 +3923,6 @@ ${frontendFacts.sceneEvents.join(" · ")}`
     onDrillPanel(drill.panelId, how.focus ? { focus: true } : undefined);
   }, [graphById, onDrillPanel, interfaceIsHandwritten]);
   /** For the frames, built in an effect that should not re-run on it. */
-  const drillObjectRef = useRef(drillObject);
   drillObjectRef.current = drillObject;
 
   const onRowClick = useCallback((objId: string, e: React.MouseEvent) => {
@@ -3648,6 +3956,27 @@ ${frontendFacts.sceneEvents.join(" · ")}`
     }
     return null;
   }, [runtimeRecords, liveGating]);
+
+  /** Which AIs ran on the last playtest turn: the one that answered (its
+   *  situation's id, or the card's own AI), a quiet one that spoke up, and
+   *  the platform's judge and state check when they acted. Keys match the
+   *  AI lineup's; `owner` is the place on the board whose AI answered. */
+  const ranLastTurn = useMemo(() => {
+    if (!liveGating) return null;
+    for (let i = runtimeRecords.length - 1; i >= 0; i -= 1) {
+      const rec = runtimeRecords[i]!;
+      if (rec.kind === "restore" || rec.kind === "action") continue;
+      const keys = new Set<string>();
+      const speakerId = rec.quietSpeaker?.id ?? rec.prompt?.speaker?.id ?? null;
+      if (rec.prompt || rec.quietSpeaker) keys.add(speakerId ?? "|narrator");
+      if ((rec.trace?.asked?.length ?? 0) > 0) keys.add("platform:judge");
+      if (rec.repaired) keys.add("platform:repair");
+      const book = speakerId ? (worldDraft.worldbooks ?? []).find((b) => b.id === speakerId) : undefined;
+      const owner = !speakerId ? "" : book ? (book.host ?? book.id) : null;
+      return { keys, owner };
+    }
+    return null;
+  }, [runtimeRecords, liveGating, worldDraft.worldbooks]);
 
   /** Who moved each value on that turn, and how far each behavior still is —
    *  the playtest's "this turn" column, condensed to one tag per row. */
@@ -3731,10 +4060,8 @@ ${frontendFacts.sceneEvents.join(" · ")}`
      *  made a block look like it needed attention. One stays: a place where
      *  several AIs answer is a group chat, and says so. */
     const subtitleFor = (block: Block): string | undefined => {
-      // Context's head carries the one line that says what the block is —
-      // everything the AI here reads each turn — since its rows alone do not.
-      // A card whose chat never speaks has no turns for it to be read on.
-      if (block.kind === "context") return String(t(storyAiIsCalled(worldDraft) ? "blueprint.blocks.contextHint" : "blueprint.blocks.contextHintNoChat"));
+      // Context is its name and its rows: the line under it explained the
+      // word, and the rows already say what is in it.
       if (block.kind !== "ais") return undefined;
       // The rows are right below; the head only says when they take turns.
       return placeAisByOwner.get(block.ownerId ?? "")?.group ? String(t("blueprint.placeAis.group")) : undefined;
@@ -3745,7 +4072,9 @@ ${frontendFacts.sceneEvents.join(" · ")}`
       // card block was the one that said what the card is called — a name
       // floating above the tile with nothing to say it was where the cover
       // lives. The name is edited in the body now.
-      if (block.kind === "opening") return block.head ? displayTitle(block.head) : t("blueprint.blocks.opening");
+      // The opening too: titled with its greeting's name, a card with one
+      // greeting read 「Greeting」 on the block and 「Greeting」 again on the
+      // row right under it.
       // The game picks these up itself; "on standby" would mean for the chat.
       if (block.kind === "lore" && (block.trigger ?? "manual") === "manual" && block.ownerId && gameBookIds(worldDraft).has(block.ownerId)) return t("blueprint.blocks.lore.manualGame");
       if (block.kind === "lore") return storyBoard && block.trigger === "always" ? t("blueprint.starter.settingTitle") : t(("blueprint.blocks.lore." + (block.trigger ?? "manual")) as never);
@@ -3797,6 +4126,47 @@ ${frontendFacts.sceneEvents.join(" · ")}`
     for (const frame of frames) {
       const box = frameBoxes.get(frame.id);
       const open = openNow.has(frame.id);
+      if (frame.packId) {
+        // An installed pack: its colour, its name, and what can be done with
+        // it. It is not a situation, so nothing about activation, memory, AI
+        // or shelves; rows are not dropped into it.
+        const record = (worldDraft.installedBundles ?? []).find((b) => b.installId === frame.packId);
+        if (!record) continue;
+        const chromeOrNull = packFrameChrome(record, t as never, {
+          readOnly,
+          situationName: record.worldbookId ? (worldDraft.worldbooks ?? []).find((b) => b.id === record.worldbookId)?.name : undefined,
+          newerVersion: packUpdates[record.installId],
+        });
+        // The open-source edition has no packs to manage: no frame.
+        if (!chromeOrNull) continue;
+        const chrome = chromeOrNull;
+        nodes.push({
+          id: frame.id,
+          type: "gate",
+          position: positions[frame.id] ?? (box ? { x: box.x, y: box.y } : { x: 0, y: 0 }),
+          data: {
+            frame: {
+              width: box?.width ?? 236,
+              height: box?.height ?? 46,
+              open,
+              total: frame.total,
+              own: frame.own,
+              shared: frame.shared,
+              strip: false,
+              sole: false,
+              counts: shelfCounts.get(frame.ownerId ?? "") ?? EMPTY_SHELVES,
+              onToggle: () => toggleFrame(frame.id),
+            },
+            title: record.name,
+            tint: chrome.color,
+            pack: chrome,
+            recent: false,
+            dimmed: false,
+          } satisfies GateNodeData,
+          draggable: !readOnly,
+        });
+        continue;
+      }
       const g = frame.module ?? undefined;
       const idx = g ? (gateIndex.get(g.id) ?? 0) : 0;
       const bookId = frame.ownerId ?? "";
@@ -3856,7 +4226,9 @@ ${frontendFacts.sceneEvents.join(" · ")}`
         // Only the card's own frame: a module is a part of a card, and parts
         // are not the thing that gets published.
         ...(g ? {} : { readiness: cardProgress }),
-        title: g ? displayTitle(g) : (worldDraft.graphLayout?.cardTitle?.trim() || t("blueprint.frame.cardFrame")),
+        ...(!g && multiplayerMark ? { multiplayer: multiplayerMark } : {}),
+        // Named after the card: 「这张卡」 said nothing the board did not.
+        title: g ? displayTitle(g) : (worldDraft.graphLayout?.cardTitle?.trim() || worldDraft.name?.trim() || t("blueprint.frame.cardFrame")),
         // The card's own frame is deliberately colourless: it is not one of
         // the modules, it is what the modules sit beside.
         tint: g ? tintFor(frame.ownerId, idx) : "#8b8b96",
@@ -3871,9 +4243,13 @@ ${frontendFacts.sceneEvents.join(" · ")}`
           const target = ids.find((id) => worldDraft.entries.some((e) => e.id === id && e.role === "greeting"));
           return target && target !== previewGreetingId ? { onShowOpening: () => selectPreviewOpening(target) } : {};
         })() : {}),
-        // The title says only what the place is and when it is on: who
-        // answers there is the 「AI」 block at its foot.
-        aiLit: litFrames?.has(frame.id) ?? false,
+        // Who answers here, on the title as well as in the 「AI」 block at
+        // the foot (owner, 11/05: the AIs are what plays the card; at the
+        // foot of a long tile they read as its footnote, and zoomed out they
+        // were not there at all). The ones answering the player first.
+        speakers: speakersOf(placeAisByOwner.get(frame.ownerId ?? "")),
+        // In a playtest, the place whose AI just answered lights up too.
+        aiLit: (litFrames?.has(frame.id) ?? false) || (ranLastTurn?.owner != null && ranLastTurn.owner === (frame.ownerId ?? "")),
         ...(g && typeof g.data.note === "string" ? { note: g.data.note } : {}),
         ...(g && liveGating ? { live: { active: liveGating.activeBooks.has(bookId) } } : {}),
         ...(g && turnMark.get(g.id) ? { turn: turnMark.get(g.id) } : {}),
@@ -3922,7 +4298,10 @@ ${frontendFacts.sceneEvents.join(" · ")}`
         const gate = gateLayoutFor(block);
         const entries = gate?.entries ?? writingEntriesFor(block);
         const data: CanvasWritingNodeData = {
-          kind, entries, readOnly, compact: glance, headOnly: phoneHeadOnly(block, gate), ownerId: block.ownerId, shared: block.sharedCount, total: block.total - block.sharedCount,
+          // Names only until a row is opened (owner, 11/15: opened with every
+          // excerpt showing, the board 「看着太多东西」). Always, not by zoom:
+          // switching by zoom re-packed the board under the pointer.
+          kind, entries, readOnly, compact: true, quiet: false, headOnly: phoneHeadOnly(block, gate), ownerId: block.ownerId, shared: block.sharedCount, total: block.total - block.sharedCount,
           width: laid?.w, flush: !!laid && !block.loose, fillHeight: laid?.h,
           onPieceDrag, onPieceSelect,
           folders: gate?.folders ?? entryFolders, onSelectFolder: selectPieces, presetsTitle,
@@ -3961,22 +4340,22 @@ ${frontendFacts.sceneEvents.join(" · ")}`
           // holds it. Moving the board on every click (a wide block was always
           // "out of view") made picking two rows a chase.
           onEngage: (id: string) => { preferredWritingHosts.current.set(id, block.id); },
-          expandedIds: isPhone ? EMPTY_MULTI : openRowIds,
+          expandedIds: isPhone ? EMPTY_MULTI : openRowIds, editorHeights: editorMeasurements.get(block.id),
           // A phone's chevron opens the row's page, as a tap on it does.
           onToggleExpand: (id: string) => { preferredWritingHosts.current.set(id, block.id); if (isPhone) clickRow(id); else toggleOpenRow(id); },
           onToggleMulti: (id: string) => toggleMulti(id, selectionRef.current?.type === "node" ? selectionRef.current.id : null),
           onRename: (id: string, name: string) => useEditorStore.getState().updateEntry(id, { name }),
-          renderEditor: isPhone ? undefined : (id: string) => <BlueprintRowEditor objectId={id} onDrill={onDrillPanel} readOnly={readOnly} />,
-          onHoverObject: setHoveredRowId,
+          renderEditor: isPhone ? undefined : (id: string) => <BlueprintRowEditor hostId={block.id} objectId={id} onDrill={onDrillPanel} readOnly={readOnly} onMeasure={measureEditor} onOpenObject={id => setSelection({ type: "node", id })} />,
+          onHoverObject: lightRow,
           onFocusEntry: id => {
             preferredWritingHosts.current.set(`${kind === "opening" ? "greeting" : "entry"}:${id}`, block.id);
             if (kind === "opening") selectPreviewOpening(id);
           },
-          onRowContextMenu: (id, event) => { preferredWritingHosts.current.set(id, block.id); blockActionsRef.current.onRowContextMenu(id, event, block.ownerId); },
+          onRowContextMenu: (id, event) => { preferredWritingHosts.current.set(id, block.id); blockActionsRef.current.onRowContextMenu(id, event, isPackOwner(block.ownerId) ? undefined : block.ownerId); },
           onRowDrop: readOnly ? undefined : (dragged, target) => blockActionsRef.current.onRowDrop(dragged, target),
           // Blocks cover most of their frame and are not inside it in the
           // DOM, so a drop on one is handed to the frame it stands in.
-          ...(readOnly || block.loose ? {} : { dropIn: { over: dragOverFrame(frameId), drop: dropOnFrame(frameId, block.ownerId ?? null) } }),
+          ...(readOnly || block.loose || isPackOwner(block.ownerId) ? {} : { dropIn: { over: dragOverFrame(frameId), drop: dropOnFrame(frameId, block.ownerId ?? null) } }),
           ...(block.loose ? { loose: { onShareAll: () => unloose(block.rows[0]?.g.id ?? "") } } : {}),
           onAdd: readOnly ? undefined : () => {
             blockActionsRef.current.onAdd(block);
@@ -4020,7 +4399,7 @@ ${frontendFacts.sceneEvents.join(" · ")}`
         tools: blockTools(block),
         // The two blocks where a new creator stalls get a second door: the "+"
         // opens a blank form, this opens a working example they can read.
-        onOpenPacks: hasPackDoor(block) ? () => openPanel("packs") : undefined,
+        onOpenPacks: hasPackDoor(block) ? () => openMarketRef.current("mechanics") : undefined,
         emptyLabel:
           // A module with nothing of its own in this block but the card's
           // objects counted into it says so, rather than "none yet".
@@ -4117,25 +4496,24 @@ ${frontendFacts.sceneEvents.join(" · ")}`
               },
             }
           : {}),
+        onRenameRow: readOnly ? undefined : renameCanvasRow,
         onCommitVariableValue: block.kind === "state" && !readOnly ? commitVariableValue : undefined,
         onFocusEdit: readOnly ? undefined : focusEditRef.current,
         onToggleCollapse: () => toggleBlockCollapse(block.id),
         onToggleExpand: () => toggleOpeningText(block.id),
-        // The second way into a row's object, beside the click that opens the
-        // drawer. Only for the kinds that have a form; an audio track's row
-        // would show a chevron onto an empty box.
-        expandedIds: openRowIds,
+        // Every editable row, including audio and context, expands in place.
+        expandedIds: openRowIds, editorHeights: editorMeasurements.get(block.id),
         onToggleRowExpand: toggleOpenRow,
         canExpandRow: canEditRowInline,
-        renderEditor: isPhone ? undefined : (id: string) => <BlueprintRowEditor objectId={id} onDrill={onDrillPanel} readOnly={readOnly} />,
+        renderEditor: isPhone ? undefined : (id: string) => <BlueprintRowEditor hostId={block.id} objectId={id} onDrill={onDrillPanel} readOnly={readOnly} onMeasure={measureEditor} onOpenObject={id => setSelection({ type: "node", id })} />,
         onExpandRows: () => expandBlockRows(block.id),
         onAdd: readOnly || !addLabel ? undefined : (anchor?: DOMRect) => blockActionsRef.current.onAdd(block, anchor),
         onRowClick,
-        onRowHover: setHoveredRowId,
+        onRowHover: lightRow,
         onRowDoubleClick,
-        onRowContextMenu: (objId, e) => blockActionsRef.current.onRowContextMenu(objId, e, block.ownerId),
+        onRowContextMenu: (objId, e) => blockActionsRef.current.onRowContextMenu(objId, e, isPackOwner(block.ownerId) ? undefined : block.ownerId),
         onRowDrop: readOnly ? undefined : (dragged, target) => blockActionsRef.current.onRowDrop(dragged, target),
-        ...(readOnly || block.loose ? {} : { dropIn: { over: dragOverFrame(frameId), drop: dropOnFrame(frameId, block.ownerId ?? null) } }),
+        ...(readOnly || block.loose || isPackOwner(block.ownerId) ? {} : { dropIn: { over: dragOverFrame(frameId), drop: dropOnFrame(frameId, block.ownerId ?? null) } }),
       };
 
       if (block.kind === "background") {
@@ -4178,6 +4556,7 @@ ${frontendFacts.sceneEvents.join(" · ")}`
           // With the card's shelves gone (it is a strip), adding an opening
           // moves onto the card's own block — the one thing only it can hold.
           ...(readOnly || !cardStrip ? {} : { onAddOpening: () => blockActionsRef.current.addOpening() }),
+          multiplayer: cardMultiplayer,
         };
       } else if (block.kind === "opening" && block.head) {
         const entryId = String(block.head.data.entryId ?? "");
@@ -4226,11 +4605,12 @@ ${frontendFacts.sceneEvents.join(" · ")}`
           ...(readOnly ? {} : { onEdit: () => {
             if (!(worldDraft.uiDoc?.pages ?? []).some((page) => page.elements.length > 0)) requestUiEditor({ gallery: true });
             onDrillPanel("frontend");
-          } }),
+          }, onSwitch: () => window.dispatchEvent(new Event(INTERFACE_SWITCHER_EVENT)),
+          ...(Object.keys(worldDraft.rootComponent?.files ?? {}).length > 0 ? { onCode: () => onDrillPanel("code-view") } : {}) }),
           // One live compile at a time: the full preview and a playtest each
           // mount the card's TSX, and two shadow roots means the card's own
           // side effects (audio unlock, timers) fire twice.
-          render: previewOwnedElsewhere ? null : <LiveFrontendPreview greetingId={previewGreetingId} fitToFrame />,
+          render: sandboxedScreen ?? (previewOwnedElsewhere ? null : <LiveFrontendPreview greetingId={previewGreetingId} fitToFrame />),
           pausedLabel: t("blueprint.block.previewPaused"),
           readNames: [],
           dynamicReads: 0,
@@ -4238,6 +4618,7 @@ ${frontendFacts.sceneEvents.join(" · ")}`
             files: frontendFacts.files,
             entryFile: worldDraft.rootComponent?.entryFile,
             aiCalls: frontendFacts.aiCalls,
+            ...(multiplayer?.mode === "rules" && multiplayer.rulesFile ? { rulesFile: multiplayer.rulesFile } : {}),
             onOpenFile: (file: string, line: number) => { setPendingCodeJump(file, line); onDrillPanel("code-view"); },
           }),
           device,
@@ -4254,7 +4635,7 @@ ${frontendFacts.sceneEvents.join(" · ")}`
           // Paused while the full preview dock or a playtest owns the
           // screen: those mount the card's TSX too, and the card's own side
           // effects (audio unlock, timers) must not fire from two places.
-          render: previewOwnedElsewhere ? null : <LiveFrontendPreview greetingId={previewGreetingId} overrides={sceneOverrides.get(ownerId)} fitToFrame />,
+          render: previewOwnedElsewhere || sandboxedScreen ? null : <LiveFrontendPreview greetingId={previewGreetingId} overrides={sceneOverrides.get(ownerId)} fitToFrame />,
           openingPicker: <OpeningPreviewPicker entries={worldDraft.entries} selectedId={previewGreetingId} onSelect={selectPreviewOpening} />,
           pausedLabel: t("blueprint.block.previewPaused"),
           device,
@@ -4338,11 +4719,12 @@ ${frontendFacts.sceneEvents.join(" · ")}`
     // built once and never repaints when the running session reports new
     // values -- the live readout would silently stay at the boot state.
   }, [
-    blocks, gates, graph, positions, frameBoxes, collapsedSet, openedTexts, openRowIds, toggleOpenRow, selection, multiSelected, focusIds, firedBy,
+    packUpdates, worldDraft.installedBundles,
+    blocks, gates, graph, positions, frameBoxes, collapsedSet, openedTexts, openRowIds, editorMeasurements, measureEditor, toggleOpenRow, selection, multiSelected, focusIds, firedBy,
     gateIndex, displayTitle, previewFor, graphById, draftById, t, readOnly, recentIds, turnMark,
     budget, linkCounts, liveGating, liveVars, recentChanges, lastTurn, lastWhy, onDrillPanel, toggleBlockCollapse, contextRowsFor, contextScopeFor, placeAisByOwner, aiOpenedIn,
     toggleOpeningText, expandBlockRows, onRowClick, onRowDoubleClick, worldDraft.name, isPhone, phoneHeadOnly,
-    worldDraft.description, previewOwnedElsewhere, glance, pickTrayItem, activationLabelFor, roster, litFrames, lightSources, headerHFor, clickRow, toggleMulti, screenFolded, toggleScreenFold,
+    worldDraft.description, previewOwnedElsewhere, sandboxedScreen, glance, phone, pickTrayItem, activationLabelFor, roster, litFrames, lightSources, headerHFor, clickRow, toggleMulti, screenFolded, toggleScreenFold,
     defaultChat, storyBoard, worldDraft.entries, chromeFor, presetsTitle, collapsedFolders, renamingFolderId, toggleFolder, gateLayoutFor, toggleGateGroup, cardHasBackground, blockTools, isWritingBlock, writingEntriesFor, showRelationships, blueprintDocumentKey, previewGreeting, previewGreetingId, selectPreviewOpening,
     sceneOverrides, sceneFiles, worldDraft.worldbooks, dropLabelFor, looseStored, loosePlaced, unloose, device, toggleDevice,
     gameScreen, authSession?.user?.name, worldDraft.variables, worldDraft.language, i18n.resolvedLanguage,
@@ -4354,6 +4736,9 @@ ${frontendFacts.sceneEvents.join(" · ")}`
     worldDraft.uiDoc?.pages, worldDraft.uiDoc?.entryPageId,
     // What the creator calls the card's own tile.
     worldDraft.graphLayout?.cardTitle,
+    // 联机: the card frame's chip and the rules file's tag.
+    multiplayer, multiplayerMark,
+    worldDraft.name,
   ]);
 
   // A block React Flow never measured stays `visibility: hidden` for good:
@@ -4407,7 +4792,43 @@ ${frontendFacts.sceneEvents.join(" · ")}`
   //   · a wire the last AI turn added (the audit)
   //   · a wire that was just created (the 4s pulse)
   //   · the edge you have selected
-  const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
+  // The row the pointer is on. A ref, not state: a pointer crossing a list
+  // passes a row every few milliseconds, and as state each row redrew the
+  // whole board twice (leave, then enter) before its wires even changed. On
+  // a card with a hundred rows, sweeping down a list stuttered. Now the row
+  // the pointer settles on rebuilds the wires alone, and only when the lit
+  // set differs. A leave waits longer than an enter, so the next row's enter
+  // replaces it without a dark frame in between.
+  // While the board scrolls, rows slide under a pointer that is not moving:
+  // that is not pointing at them, and lighting each one in passing restyled
+  // every wire on the board a few times a second. Letting go of one still
+  // counts, so a row lit before the scroll does not stay lit after it.
+  const hoveredRowRef = useRef<string | null>(null);
+  const rebuildWiresRef = useRef<() => void>(() => {});
+  const hoverTimerRef = useRef<number | null>(null);
+  const lightRow = useCallback((id: string | null) => {
+    if (hoverTimerRef.current !== null) window.clearTimeout(hoverTimerRef.current);
+    hoverTimerRef.current = window.setTimeout(() => {
+      hoverTimerRef.current = null;
+      if (liftedRef.current) passedRowRef.current = id;
+      if (id !== null && liftedRef.current) return;
+      if (hoveredRowRef.current === id) return;
+      hoveredRowRef.current = id;
+      rebuildWiresRef.current();
+    }, id === null ? 120 : 60);
+  }, []);
+  useEffect(() => () => { if (hoverTimerRef.current !== null) window.clearTimeout(hoverTimerRef.current); }, []);
+  // The row the board came to rest under the pointer lights then, since the
+  // pointer will not enter it again.
+  useEffect(() => {
+    lightPassedRowRef.current = () => {
+      const id = passedRowRef.current;
+      passedRowRef.current = null;
+      // A pointer event still waiting to land is newer: it decides.
+      if (id && hoverTimerRef.current === null) lightRow(id);
+    };
+  }, [lightRow]);
+  const wiresDrawnRef = useRef("");
   const [showAllWires, setShowAllWires] = useState(
     () => readLocalPref("yumina-blueprint-all-wires") === "on",
   );
@@ -4419,135 +4840,145 @@ ${frontendFacts.sceneEvents.join(" · ")}`
   }, []);
 
   useEffect(() => {
+    rebuildWiresRef.current = () => {};
     if (!positions) return;
-    // Entering a situation selects it (so its settings open), but nobody
-    // pointed at it: its every wire, animated across the screen, was the
-    // first thing a creator saw inside. Wires light for what is pointed at.
-    const selectedNode = selection?.type === "node" ? selection.id : null;
-    const lit = hoveredRowId ?? (selectedNode && selectedNode === focusedModule ? null : selectedNode);
-    // Pointing at a gate lights everything it governs, not just its own
-    // condition wire — that is the question a gate raises.
-    const litMembers =
-      lit && gateIdSet.has(lit)
-        ? new Set(graph.nodes.filter((n) => n.parentId === lit).map((n) => n.id))
-        : null;
+    const rebuild = () => {
+      // Entering a situation selects it (so its settings open), but nobody
+      // pointed at it: its every wire, animated across the screen, was the
+      // first thing a creator saw inside. Wires light for what is pointed at.
+      const selectedNode = selection?.type === "node" ? selection.id : null;
+      const lit = hoveredRowRef.current ?? (selectedNode && selectedNode === focusedModule ? null : selectedNode);
+      // Pointing at a gate lights everything it governs, not just its own
+      // condition wire — that is the question a gate raises.
+      const litMembers =
+        lit && gateIdSet.has(lit)
+          ? new Set(graph.nodes.filter((n) => n.parentId === lit).map((n) => n.id))
+          : null;
 
-    const edges: Edge[] = [];
-    for (const e of graph.edges) {
-      // One wire may be drawn more than once: a shared object is a row in
-      // every module, and a wire between two shared objects holds in every
-      // module — so it is drawn in each frame the two ends have in common.
-      const pairs = wirePairs(hostsOf.get(e.from), hostsOf.get(e.to));
-      for (let pairIndex = 0; pairIndex < pairs.length; pairIndex++) {
-      const { from: fromHost, to: toHost, frame: pairFrame } = pairs[pairIndex]!;
-      // The card owning its openings IS worth drawing now: the card face and
-      // each opening are separate blocks, so the wire is the only thing saying
-      // which openings this card offers.
-      //
-      // Unless the card is the whole board. With no modules there is one frame
-      // and every opening in it is this card's, so the wire answers a question
-      // nobody has — and it answers it by leaving the card's right edge,
-      // crossing the board behind three blocks and arriving at the opening's
-      // left. On a brand new card that stray diagonal was the only line on
-      // screen, and it looked like something had gone wrong.
-      if (storyBoard && e.from === "world:root") continue;
-      if (fromHost.host === toHost.host) continue;
-      // What the player interface shows is in its preview already; a wire
-      // from every value it reads only crossed the board to say so twice.
-      if (e.to === "frontend" || e.from === "frontend") continue;
+      const edges: Edge[] = [];
+      for (const e of graph.edges) {
+        // One wire may be drawn more than once: a shared object is a row in
+        // every module, and a wire between two shared objects holds in every
+        // module — so it is drawn in each frame the two ends have in common.
+        const pairs = wirePairs(hostsOf.get(e.from), hostsOf.get(e.to));
+        for (let pairIndex = 0; pairIndex < pairs.length; pairIndex++) {
+        const { from: fromHost, to: toHost, frame: pairFrame } = pairs[pairIndex]!;
+        // The card owning its openings IS worth drawing now: the card face and
+        // each opening are separate blocks, so the wire is the only thing saying
+        // which openings this card offers.
+        //
+        // Unless the card is the whole board. With no modules there is one frame
+        // and every opening in it is this card's, so the wire answers a question
+        // nobody has — and it answers it by leaving the card's right edge,
+        // crossing the board behind three blocks and arriving at the opening's
+        // left. On a brand new card that stray diagonal was the only line on
+        // screen, and it looked like something had gone wrong.
+        if (storyBoard && e.from === "world:root") continue;
+        if (fromHost.host === toHost.host) continue;
+        // What the player interface shows is in its preview already; a wire
+        // from every value it reads only crossed the board to say so twice.
+        if (e.to === "frontend" || e.from === "frontend") continue;
 
-      const liveGate = liveGating
-        ? (() => {
-            const m = /^e:var:.+?->(module|entry):(.+?):(\d+)$/.exec(e.id);
-            if (!m) return undefined;
-            if (m[1] === "module") return liveGating.activeBooks.has(m[2]!);
-            return liveGating.entryGate.get(m[2]!);
-          })()
-        : undefined;
+        const liveGate = liveGating
+          ? (() => {
+              const m = /^e:var:.+?->(module|entry):(.+?):(\d+)$/.exec(e.id);
+              if (!m) return undefined;
+              if (m[1] === "module") return liveGating.activeBooks.has(m[2]!);
+              return liveGating.entryGate.get(m[2]!);
+            })()
+          : undefined;
 
-      const recent = recentIds.has(e.id);
-      const byTurn = turnMark.get(e.id) === "added";
-      const selectedEdge = selection?.type === "edge" && selection.id === e.id;
-      const touched =
-        (lit != null && (e.from === lit || e.to === lit)) ||
-        (litMembers != null && (litMembers.has(e.from) || litMembers.has(e.to)));
+        const recent = recentIds.has(e.id);
+        const byTurn = turnMark.get(e.id) === "added";
+        const selectedEdge = selection?.type === "edge" && selection.id === e.id;
+        const touched =
+          (lit != null && (e.from === lit || e.to === lit)) ||
+          (litMembers != null && (litMembers.has(e.from) || litMembers.has(e.to)));
 
-      // Wires are hidden by default because a real card has a hundred of them
-      // and drawing every variable read is spaghetti. A wire BETWEEN MODULES is
-      // the exception: it says which AI reads whose memory, there are a handful
-      // at most, and it is the whole reason the module model exists. Hidden, a
-      // board of module frames looks like boxes that have nothing to do with
-      // each other — which is exactly how the feature read as missing.
-      const structural = e.from.startsWith("module:") && e.to.startsWith("module:");
-      if (!structural && !showAllWires && !touched && !selectedEdge && !recent && !byTurn && liveGate !== true)
-        continue;
+        // Wires are hidden by default because a real card has a hundred of them
+        // and drawing every variable read is spaghetti. A wire BETWEEN MODULES is
+        // the exception: it says which AI reads whose memory, there are a handful
+        // at most, and it is the whole reason the module model exists. Hidden, a
+        // board of module frames looks like boxes that have nothing to do with
+        // each other — which is exactly how the feature read as missing.
+        const structural = e.from.startsWith("module:") && e.to.startsWith("module:");
+        if (!structural && !showAllWires && !touched && !selectedEdge && !recent && !byTurn && liveGate !== true)
+          continue;
 
-      // A situation's own wire, or one whose end is inside a shut situation
-      // and lands on its frame: the frame's two handles.
-      const sourceHandle = gateIdSet.has(e.from) || gateIdSet.has(fromHost.host)
-        ? "governs"
-        : fromHost.shown
-          ? rowHandleId(e.from, "out")
-          : "block-out";
-      const targetHandle = gateIdSet.has(e.to) || gateIdSet.has(toHost.host)
-        ? "activate"
-        : toHost.shown
-          ? e.toPort.startsWith("slot:")
-            ? portHandleId(e.to, e.toPort)
-            : rowHandleId(e.to, "in")
-          : "block-in";
+        // A situation's own wire, or one whose end is inside a shut situation
+        // and lands on its frame: the frame's two handles.
+        const sourceHandle = gateIdSet.has(e.from) || wireGateIds.has(fromHost.host)
+          ? "governs"
+          : fromHost.shown
+            ? rowHandleId(e.from, "out")
+            : "block-out";
+        const targetHandle = gateIdSet.has(e.to) || wireGateIds.has(toHost.host)
+          ? "activate"
+          : toHost.shown
+            ? e.toPort.startsWith("slot:")
+              ? portHandleId(e.to, e.toPort)
+              : rowHandleId(e.to, "in")
+            : "block-in";
 
-      const color = edgeColor(e.id);
-      // In "show everything" mode the old dimming still earns its keep: it is
-      // the only way to read one object out of a full graph.
-      const dimmed = showAllWires && lit != null && !touched;
+        const color = edgeColor(e.id);
+        // In "show everything" mode the old dimming still earns its keep: it is
+        // the only way to read one object out of a full graph.
+        const dimmed = showAllWires && lit != null && !touched;
 
-      edges.push({
-        // The first drawing keeps the wire's own id; a repeat in another
-        // frame is suffixed. Both carry the graph id for selection and menus.
-        id: pairIndex === 0 ? e.id : `${e.id}~${pairFrame ?? pairIndex}`,
-        type: "wire",
-        data: { edgeId: e.id },
-        source: fromHost.host,
-        sourceHandle,
-        target: toHost.host,
-        targetHandle,
-        // The engine has no language, so a wire the projection NAMES arrives as
-        // a key; one labelled with the creator's own data (an operation, a
-        // channel, a value) arrives ready to read.
-        label:
-          fromHost.shown && toHost.shown
-            ? e.labelKey
-              ? t(`blueprint.${e.labelKey}` as never)
-              : e.label
-            : undefined,
-        animated: recent || byTurn || touched || liveGate === true,
-        // ReactFlow adds the endpoint node's layer for parented edges. Keep
-        // the wire and its invisible hit area below the text editor itself.
-        zIndex: writingBlockIds.has(fromHost.host) || writingBlockIds.has(toHost.host) ? -1 : touched || selectedEdge || liveGate === true ? 10 : undefined,
-        markerEnd: { type: MarkerType.ArrowClosed, width: 15, height: 15, color },
-        style: {
-          strokeWidth: selectedEdge ? 4 : touched ? 3.4 : liveGate === true ? 3.2 : recent || byTurn ? 3 : 2,
-          stroke: liveGate === true ? "#34d399" : byTurn ? "#34d399" : color,
-          opacity: dimmed ? 0.16 : liveGate === false ? 0.35 : 1,
-          filter:
-            liveGate === true
-              ? "drop-shadow(0 0 7px rgba(52,211,153,0.65))"
-              : touched || selectedEdge
-                ? `drop-shadow(0 0 6px ${color}88)`
-                : undefined,
-          transition: "opacity 160ms ease, stroke-width 160ms ease",
-        },
-        labelStyle: { fontSize: 11, fontWeight: 600, fill: dimmed ? "#6b6a75" : "#d7d5df" },
-        labelBgStyle: { fill: "#0b0a0e", fillOpacity: dimmed ? 0.6 : 0.92, stroke: color, strokeOpacity: dimmed ? 0.15 : 0.45 },
-        labelBgPadding: [5, 3] as [number, number],
-        labelBgBorderRadius: 5,
-      });
+        edges.push({
+          // The first drawing keeps the wire's own id; a repeat in another
+          // frame is suffixed. Both carry the graph id for selection and menus.
+          id: pairIndex === 0 ? e.id : `${e.id}~${pairFrame ?? pairIndex}`,
+          type: "wire",
+          data: { edgeId: e.id },
+          source: fromHost.host,
+          sourceHandle,
+          target: toHost.host,
+          targetHandle,
+          // The engine has no language, so a wire the projection NAMES arrives as
+          // a key; one labelled with the creator's own data (an operation, a
+          // channel, a value) arrives ready to read.
+          label:
+            fromHost.shown && toHost.shown
+              ? e.labelKey
+                ? t(`blueprint.${e.labelKey}` as never)
+                : e.label
+              : undefined,
+          animated: recent || byTurn || touched || liveGate === true,
+          // ReactFlow adds the endpoint node's layer for parented edges. Keep
+          // the wire and its invisible hit area below the text editor itself.
+          zIndex: writingBlockIds.has(fromHost.host) || writingBlockIds.has(toHost.host) ? -1 : touched || selectedEdge || liveGate === true ? 10 : undefined,
+          markerEnd: { type: MarkerType.ArrowClosed, width: 15, height: 15, color },
+          style: {
+            strokeWidth: selectedEdge ? 4 : touched ? 3.4 : liveGate === true ? 3.2 : recent || byTurn ? 3 : 2,
+            stroke: liveGate === true ? "#34d399" : byTurn ? "#34d399" : color,
+            opacity: dimmed ? 0.16 : liveGate === false ? 0.35 : 1,
+            filter:
+              liveGate === true
+                ? "drop-shadow(0 0 7px rgba(52,211,153,0.65))"
+                : touched || selectedEdge
+                  ? `drop-shadow(0 0 6px ${color}88)`
+                  : undefined,
+            transition: "opacity 160ms ease, stroke-width 160ms ease",
+          },
+          labelStyle: { fontSize: 11, fontWeight: 600, fill: dimmed ? "#6b6a75" : "#d7d5df" },
+          labelBgStyle: { fill: "#0b0a0e", fillOpacity: dimmed ? 0.6 : 0.92, stroke: color, strokeOpacity: dimmed ? 0.15 : 0.45 },
+          labelBgPadding: [5, 3] as [number, number],
+          labelBgBorderRadius: 5,
+        });
+        }
       }
-    }
-    setRfEdges(edges);
+      // Pointing at a row with no wires, or moving between two rows that light
+      // the same ones, leaves the drawing as it is: nothing to re-render.
+      const drawn = JSON.stringify(edges);
+      if (drawn === wiresDrawnRef.current) return;
+      wiresDrawnRef.current = drawn;
+      setRfEdges(edges);
+    };
+    rebuildWiresRef.current = rebuild;
+    rebuild();
   }, [
-    graph, positions, hostsOf, gateIdSet, hoveredRowId, selection, showAllWires, focusedModule,
+    graph, positions, hostsOf, gateIdSet, wireGateIds, selection, showAllWires, focusedModule,
     // `t` belongs here now that a wire's label can be a key: without it the
     // canvas keeps the old language's labels until something else changes.
     liveGating, recentIds, turnMark, t, writingBlockIds, storyBoard,
@@ -4715,7 +5146,13 @@ ${frontendFacts.sceneEvents.join(" · ")}`
         setOverlapIds((prev) => (prev.size === nextOver.size && [...nextOver].every((id) => prev.has(id)) ? prev : nextOver));
       }
       setRfNodes((nds) =>
-        applyNodeChanges(changes.filter((c) => c.type !== "position" || !isBlockId(c.id) || isLooseBlockId(c.id)), nds),
+        applyNodeChanges(changes.filter((c) =>
+          (c.type !== "position" || !isBlockId(c.id) || isLooseBlockId(c.id))
+          // A block's selection is the board's own (selection / multiSelected,
+          // drawn on the row picked). React Flow's click selection lit the
+          // whole block for a moment before the row it was opening took the
+          // light: 「先全选，又跳到一小块」 (owner, 11/15).
+          && !(c.type === "select" && isBlockId(c.id))), nds),
       );
     },
     [rf],
@@ -4954,15 +5391,30 @@ ${frontendFacts.sceneEvents.join(" · ")}`
   blockHeadIdRef.current = new Map(blocks.filter((b) => b.head).map((b) => [b.id, b.head!.id]));
 
   const onNodeClick = useCallback((_e: unknown, node: BlueprintNode) => {
+    // A row is open and being written in: a click on a block's bare surface
+    // (between rows, under the last one, its padding) is not a choice to
+    // write somewhere else. It used to be: the Context block sits right under
+    // the row being written, and a click just below the text, to drop the
+    // caret at the end or to clear a selection, swapped the open editor for
+    // Context's, which read as the editor closing by itself mid-sentence.
+    // Rows, heads and buttons still mean what they say; empty canvas and Esc
+    // still close.
+    const clicked = (_e as { target?: Element | null } | null)?.target;
+    if ((openRowIdRef.current || headOpenedRef.current.size > 0) && clicked?.closest
+      && !clicked.closest("[data-row-anchor], [data-canvas-writing-object], [data-block-head], button, a, input, textarea, select, [role='button'], [contenteditable='true']")) return;
     pickedByClickRef.current = blockHeadIdRef.current.get(node.id) ?? node.id;
     // The head of a list of rows opens them all in place; the next click (or
     // the first, if any row is already open) shuts them. The column listing
     // the same rows again said nothing the block did not.
     const onHead = !!(_e as { target?: Element | null } | null)?.target?.closest?.("[data-block-head]");
     const listBlock = onHead && isBlockId(node.id)
-      ? blocksRef.current.find((b) => b.id === node.id && !b.head && (b.kind === "lore" || b.kind === "opening" || b.kind === "state" || b.kind === "behavior"))
+      ? blocksRef.current.find((b) => b.id === node.id && !b.head && (b.kind === "lore" || b.kind === "opening" || b.kind === "state" || b.kind === "behavior" || b.kind === "audio" || b.kind === "image"))
       : undefined;
     if (listBlock) {
+      // A row is being written in: the head's open-all / shut-all is not
+      // what a click there means mid-sentence, and it shut the row being
+      // written. The row's own ▴ and empty canvas still close it.
+      if (openRowIdRef.current) return;
       const ids = listBlock.rows.map((r) => r.g.id).filter((id) => canEditRowInline(id));
       const anyOpen = ids.some((id) => openRowIdsRef.current.has(id));
       setHeadOpened((prev) => {
@@ -4976,7 +5428,7 @@ ${frontendFacts.sceneEvents.join(" · ")}`
     }
     if (isBlockId(node.id)) {
       if (blocksRef.current.some(block => block.id === node.id && block.kind === "context")) {
-        setSelection({ type: "node", id: node.id });
+        clickRow(node.id);
         return;
       }
       const headId = blockHeadIdRef.current.get(node.id);
@@ -4998,7 +5450,7 @@ ${frontendFacts.sceneEvents.join(" · ")}`
     }
     setQuietFrame(isFrameNodeId(node.id) ? node.id : null);
     setSelection({ type: "node", id: node.id });
-  }, []);
+  }, [clickRow]);
   const onEdgeClick = useCallback((_e: unknown, edge: Edge) => {
     setSelection({ type: "edge", id: graphEdgeId(edge) });
   }, []);
@@ -5029,6 +5481,7 @@ ${frontendFacts.sceneEvents.join(" · ")}`
     return prev && e.timeStamp - prev.t <= DOUBLE_CLICK_MS && Math.abs(e.clientX - prev.x) <= 8 && Math.abs(e.clientY - prev.y) <= 8 ? prev : null;
   };
   const onCanvasClickCapture = useCallback((e: React.MouseEvent) => {
+    if ((e.target as Element | null)?.closest?.("[data-floating-editor], [data-canvas-entry-overlay]")) return;
     // The click a box-drag ends with is not a click on the canvas: let
     // through, the pane read it as "clicked empty space" and dropped
     // everything the box had just picked up.
@@ -5083,11 +5536,12 @@ ${frontendFacts.sceneEvents.join(" · ")}`
     const panelId = block ? BLOCK_PAGE[block.kind] : undefined;
     if (!block || !panelId) return;
     if (panelId === "lorebook" || panelId === "variables" || panelId === "rules" || panelId === "first-message") {
-      useEditorStore.getState().setModuleScope(block.ownerId ? `mod:${block.ownerId}` : "core");
+      useEditorStore.getState().setModuleScope(block.ownerId && !isPackOwner(block.ownerId) ? `mod:${block.ownerId}` : "core");
     }
     onDrillPanel(panelId, { focus: true });
   }, [drillObject, onDrillPanel]);
   const onCanvasDoubleClickCapture = useCallback((e: React.MouseEvent) => {
+    if ((e.target as Element | null)?.closest?.("[data-floating-editor], [data-canvas-entry-overlay]")) return;
     if ((e.target as Element | null)?.closest?.("[data-frame-title-input]")) return;
     const prev = pairsWithRowPress(e);
     // A double-click that began on a frame's name renames it, wherever the
@@ -5122,6 +5576,9 @@ ${frontendFacts.sceneEvents.join(" · ")}`
   // pane's d3-zoom listener, so the gesture draws a box instead of panning.
   const [marquee, setMarquee] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
   const marqueeRef = useRef<typeof marquee>(null);
+  /** The last box swept on screen, so "make a pack" can tell whether it took
+   *  in the player screen too (a block, not a row the selection can hold). */
+  const lastMarqueeBoxRef = useRef<{ left: number; top: number; right: number; bottom: number } | null>(null);
   /** Set when a box-drag ends, for the click the release fires. */
   const swallowClickRef = useRef(false);
   const onCanvasPointerDownCapture = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
@@ -5166,6 +5623,7 @@ ${frontendFacts.sceneEvents.join(" · ")}`
       // A click with Shift held is not a box; leave the selection alone.
       if (box.right - box.left < 4 && box.bottom - box.top < 4) return;
       swallowClickRef.current = true;
+      lastMarqueeBoxRef.current = box;
       const hit = rowsInRect(host, box).filter((id) => !isBlockId(id) && isDeletableObject(id));
       setMultiSelected((prev) => {
         const next = new Set(additive ? prev : []);
@@ -5239,11 +5697,14 @@ ${frontendFacts.sceneEvents.join(" · ")}`
    *  sits in (or is). Nothing selected → Core. */
   const currentModuleId = useCallback((): string | undefined => {
     if (selection?.type !== "node") return undefined;
-    if (selection.id.startsWith("module:")) return selection.id.slice("module:".length);
+    if (selection.id.startsWith("module:")) {
+      const id = selection.id.slice("module:".length);
+      return isPackOwner(id) ? undefined : id;
+    }
     // A whole list block selected: its module, or the card.
     if (isBlockId(selection.id)) {
       const block = blocksRef.current.find((b) => b.id === selection.id);
-      if (block && !block.head) return block.ownerId;
+      if (block && !block.head) return isPackOwner(block.ownerId) ? undefined : block.ownerId;
     }
     const resolved = resolveCanvasInspectorNode(selection.id, graph.nodes);
     if (resolved?.section === "memory") return resolved.node.id.slice("module:".length);
@@ -5276,7 +5737,10 @@ ${frontendFacts.sceneEvents.join(" · ")}`
    * exactly one answer.
    */
   const addInto = useCallback(
-    (kind: "opening" | "lore" | "state" | "behavior", bookId: string | undefined, opts?: { loose?: boolean; via?: "menu" | "block" }) => {
+    (kind: "opening" | "lore" | "state" | "behavior", ownerId: string | undefined, opts?: { loose?: boolean; via?: "menu" | "block" }) => {
+      // An installed pack is not a place to keep things: what is made from
+      // its frame is the card's own.
+      const bookId = isPackOwner(ownerId) ? undefined : ownerId;
       const store = useEditorStore.getState();
       captureHubEvent("studio_object_added", {
         world_id: store.serverWorldId ?? store.worldDraft.id,
@@ -5383,19 +5847,21 @@ ${frontendFacts.sceneEvents.join(" · ")}`
     // Open it: a new module is empty, and a shut empty bar is the one thing on
     // the canvas that tells the creator nothing about what they just made.
     setOpenFrames((prev) => new Set(prev).add(blockId.frame(created.id)));
-    selectNewest(`module:${created.id}`);
-    // Then the board glides to it. A situation is a frame, which the
-    // selection's own pan leaves alone, so the new one was made off screen
-    // (on a one-card board the layout also jumps to make room for it) and
-    // the creator saw only its settings. Pan, never zoom; after the column
-    // has opened and the frame has been measured.
+    // Seen first, opened when clicked (owner, 11/10: 「添加后没有必要直接展开
+    // ……要让别人先看见」): it lights up as just made, and its settings wait
+    // for a click instead of covering the board.
+    flashRecent([`module:${created.id}`]);
+    // Then the board glides to it: on a one-card board the layout also jumps
+    // to make room, so the new one was made off screen. Pan, never zoom;
+    // after the column has opened and the frame has been measured.
     window.setTimeout(() => fitFocusedBlockRef.current(blockId.frame(created.id), 420), 450);
-  }, [addWorldbook, selectNewest, t]);
+  }, [addWorldbook, flashRecent, t]);
 
   /** One more AI, in a place: the scenario being worked in (or the one
    *  whose 「AI」 block was used), otherwise the card. An AI is one more API
    *  call and nothing else, so it comes with nothing of its own; it is named
-   *  AI, AI 2, … and opens in its row to be set up. One undo step. */
+   *  AI, AI 2, … and lights up in its place's AI block, set up when
+   *  clicked. One undo step. */
   const addAiNow = useCallback((place?: string, type?: AiType) => {
     const where = place ?? currentModuleId() ?? "card";
     const taken = new Set((useEditorStore.getState().worldDraft.worldbooks ?? []).map((b) => b.name));
@@ -5406,9 +5872,9 @@ ${frontendFacts.sceneEvents.join(" · ")}`
     const made = addAiTo(where, name, type);
     if (!made) return;
     const block = blockId.ais(where === "card" ? undefined : where);
-    setSelection({ type: "node", id: aiInspectorId(made.bookId) });
+    flashRecent([`module:${made.bookId}`]);
     window.setTimeout(() => fitFocusedBlockRef.current(block, 420), 300);
-  }, [currentModuleId, t]);
+  }, [currentModuleId, flashRecent, t]);
 
   // The card AI's kind switch adds an AI of the kind picked, on the card.
   useEffect(() => {
@@ -5479,15 +5945,6 @@ ${frontendFacts.sceneEvents.join(" · ")}`
   // The tray is on the card's tile, so what it makes belongs to the card.
   trayAddRef.current = (item) => addInto(item, undefined);
 
-  /** A scene image needs a picture before it is anything, so it is made in
-   *  its own editor: create it and land there with it selected. */
-  const handleAddSceneImage = useCallback(() => {
-    useEditorStore.getState().addSceneImage();
-    const list = useEditorStore.getState().worldDraft.sceneImages ?? [];
-    const created = list[list.length - 1];
-    if (created) useEditorStore.getState().focusObject("sceneImage", created.id);
-    onDrillPanel("scene-images");
-  }, [onDrillPanel]);
 
   /** A block's "+" adds the object that block is made of. */
   const addToBlock = useCallback(
@@ -5503,7 +5960,7 @@ ${frontendFacts.sceneEvents.join(" · ")}`
       // The frontend block is not a list you add rows to — its "+" means
       // "work on the interface", which is the builder. Without this the
       // control was on screen and did nothing.
-      else if (block.kind === "frontend") handleAddInterface();
+      else if (block.kind === "frontend") { requestUiEditor({ gallery: true }); handleAddInterface(); }
       // 「这里的 AI」's "+": an AI that lives in this place.
       else if (block.kind === "ais") addAiNow(block.ownerId ?? "card");
     },
@@ -5539,6 +5996,22 @@ ${frontendFacts.sceneEvents.join(" · ")}`
   }, [objectRowElement]);
 
   /** Jump to an object: reveal it, then centre its own editing area. */
+  const runSearchAction = useCallback((action: SearchAction) => {
+    setQuery("");
+    if (action === "code") onDrillPanel("code-view");
+    else if (action === "look") {
+      // Where this card's look is set: the interface editor for a built
+      // interface (each part's colours and type; a layout brings its own
+      // theme), the code for a hand-written one, and for the plain chat the
+      // looks to choose from.
+      const world = useEditorStore.getState().worldDraft;
+      if ((world.uiDoc?.pages ?? []).some((page) => page.elements.length > 0)) onDrillPanel("frontend");
+      else if (interfaceIsHandwritten) onDrillPanel("code-view");
+      else window.dispatchEvent(new Event(INTERFACE_SWITCHER_EVENT));
+    } else if (action === "switch") window.dispatchEvent(new Event(INTERFACE_SWITCHER_EVENT));
+    else if (action === "saveTemplate") setSaveBundleOpen(true);
+    else openMarketRef.current();
+  }, [onDrillPanel, interfaceIsHandwritten]);
   const jumpTo = useCallback(
     (objId: string) => {
       if (learningTarget.current?.id !== objId) learningTarget.current = null;
@@ -5932,6 +6405,23 @@ ${frontendFacts.sceneEvents.join(" · ")}`
     return () => observer.disconnect();
   }, [focusedBlock]);
 
+  // An inline editor owns one Back step, just like an explicit full editor.
+  useEffect(() => {
+    if (!active || (!openRowId && headOpened.size === 0)) return;
+    const back = (event: Event) => {
+      if (event.defaultPrevented) return;
+      event.preventDefault();
+      if (expandTimer.current) { clearTimeout(expandTimer.current); expandTimer.current = null; }
+      const field = document.activeElement;
+      if (field instanceof HTMLElement && field.closest("[data-canvas-writing-editor], [data-row-editor]")) field.blur();
+      setOpenRowId(null);
+      setHeadOpened(new Set());
+      setSelection(null);
+    };
+    window.addEventListener(STUDIO_BACK_EVENT, back, true);
+    return () => window.removeEventListener(STUDIO_BACK_EVENT, back, true);
+  }, [active, openRowId, headOpened]);
+
   // The stage's content tree asks for objects by id — same jump the search
   // uses, reached by event so the tree needs none of the graph machinery.
   useEffect(() => {
@@ -5979,6 +6469,31 @@ ${frontendFacts.sceneEvents.join(" · ")}`
     return () => window.removeEventListener(OPEN_AI_CALLS_EVENT, open);
   }, []);
   const [batchMoveOpen, setBatchMoveOpen] = useState(false);
+  /** The selection being turned into a resource pack (the creator is open). */
+  const [bundleFromSelection, setBundleFromSelection] = useState<BundleCreatorSelection | null>(null);
+  const makeBundleFromSelection = useCallback(() => {
+    const draft = useEditorStore.getState().worldDraft;
+    const entryIds = new Set<string>();
+    const variableIds = new Set<string>();
+    const behaviorIds = new Set<string>();
+    for (const id of multiSelectedRef.current) {
+      const at = id.indexOf(":");
+      const kind = id.slice(0, at), rest = id.slice(at + 1);
+      if (kind === "entry" || kind === "greeting") entryIds.add(rest);
+      else if (kind === "var") variableIds.add(rest);
+      else if (kind === "reaction") behaviorIds.add(rest);
+      // A whole situation: everything written in it goes into the pack.
+      else if (kind === "module") for (const e of draft.entries) if (e.worldbookId === rest) entryIds.add(e.id);
+    }
+    // Did the box also sweep over the player screen? Then the pack takes the
+    // card's interface with it.
+    const box = lastMarqueeBoxRef.current;
+    const screen = containerRef.current?.querySelector<HTMLElement>(`.react-flow__node[data-id="${CSS.escape(blockId.frontend)}"]`);
+    const r = screen?.getBoundingClientRect();
+    const includeInterface = !!(box && r && r.width && !(r.right < box.left || r.left > box.right || r.bottom < box.top || r.top > box.bottom));
+    setBatchMoveOpen(false);
+    setBundleFromSelection({ entryIds: [...entryIds], variableIds: [...variableIds], behaviorIds: [...behaviorIds], includeInterface });
+  }, []);
   // Both popovers close on any click outside them, the way the add menu does.
   useEffect(() => {
     if (!showDirectory && !batchMoveOpen) return;
@@ -6005,6 +6520,9 @@ ${frontendFacts.sceneEvents.join(" · ")}`
   useEffect(() => { if (!menu) { setMenuMoveOpen(false); setMenuFolderOpen(false); } }, [menu]);
   /** The toolbar's ＋ menu — the pane context menu's add section, visible. */
   const [addMenuOpen, setAddMenuOpen] = useState(false);
+  /** 添加 → 生成 showing what it can make. */
+  const [addGenerateOpen, setAddGenerateOpen] = useState(false);
+  useEffect(() => { if (!addMenuOpen) setAddGenerateOpen(false); }, [addMenuOpen]);
   const [viewMenuOpen, setViewMenuOpen] = useState(false);
   // Esc shuts whichever toolbar menu is open, as it does every other menu:
   // these two hold their own state, and the key used to do nothing.
@@ -6024,6 +6542,19 @@ ${frontendFacts.sceneEvents.join(" · ")}`
     window.addEventListener(LEARNING_STEP_EVENT, close);
     return () => window.removeEventListener(LEARNING_STEP_EVENT, close);
   }, []);
+  // A press outside shuts them too. The click-catching overlays under each
+  // menu can't do it on a phone: the board toolbar there sits in a blurred,
+  // container-queried host, which traps `position: fixed` inside its 244px.
+  useEffect(() => {
+    if (!viewMenuOpen && !addMenuOpen) return;
+    const onDown = (event: PointerEvent) => {
+      if ((event.target as HTMLElement | null)?.closest?.("[data-toolbar-menu]")) return;
+      setViewMenuOpen(false);
+      setAddMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", onDown, true);
+    return () => document.removeEventListener("pointerdown", onDown, true);
+  }, [viewMenuOpen, addMenuOpen]);
   useEffect(() => {
     if (!addMenuOpen) return;
     const close = (event: KeyboardEvent) => { if (event.key === "Escape") { event.stopPropagation(); setAddMenuOpen(false); } };
@@ -6280,6 +6811,33 @@ ${frontendFacts.sceneEvents.join(" · ")}`
     addNote(at);
   }, [addNoteOn, addNote, rf]);
 
+  /** A ＋ tile dragged out: the panel steps aside (after the browser has
+   *  taken its drag picture) so the board under it can take the drop. */
+  const closeAddMenuSoon = useCallback(() => { window.setTimeout(() => setAddMenuOpen(false), 0); }, []);
+  const addDragOver = useCallback((e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes(ADD_DRAG_MIME) || readOnly) return;
+    e.stopPropagation();
+    if (overBoardFurniture(e.target)) { e.dataTransfer.dropEffect = "none"; return; }
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+    // An AI lights up the place it would land in, with the frames' own drop
+    // ring and label.
+    if (e.dataTransfer.types.includes(`${ADD_DRAG_MIME}-ai`)) {
+      const place = aiDropPlace(e.target);
+      setDropFrameId(place ? blockId.frame(place === "card" ? null : place) : null);
+      setDragFrom(place ? ADD_AI_DRAG : null);
+    }
+  }, [readOnly]);
+  const addDrop = useCallback((e: React.DragEvent) => {
+    const kind = e.dataTransfer.getData(ADD_DRAG_MIME) as AddKind | "";
+    if (!kind || readOnly || overBoardFurniture(e.target)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (kind === "module") handleAddModule();
+    else if (kind === "ai") addAiNow(aiDropPlace(e.target) ?? undefined);
+    else addNote(rf.screenToFlowPosition({ x: e.clientX - NOTE_SIZE.w / 2, y: e.clientY - NOTE_SIZE.h / 2 }));
+  }, [readOnly, handleAddModule, addAiNow, addNote, rf]);
+
   const deleteNodeById = useCallback(
     (nodeId: string) => {
       if (readOnly || !isDeletableObject(nodeId)) return;
@@ -6292,6 +6850,10 @@ ${frontendFacts.sceneEvents.join(" · ")}`
         store.removeReaction(id);
       } else if (nodeId.startsWith("module:")) {
         store.removeWorldbook(id);
+      } else if (nodeId.startsWith("audio:")) {
+        store.removeAudioTrack(id);
+      } else if (nodeId.startsWith("image:")) {
+        store.removeSceneImage(id);
       } else {
         store.removeEntry(id);
       }
@@ -6492,7 +7054,7 @@ ${frontendFacts.sceneEvents.join(" · ")}`
     const made: string[] = [];
     inOneUndoStep(() => {
       for (const id of multiSelected) {
-        if (!isDeletableObject(id) || id.startsWith("module:")) continue;
+        if (!isCopyableObject(id)) continue;
         const copy = copyObject(id);
         if (copy) made.push(copy);
       }
@@ -6505,7 +7067,7 @@ ${frontendFacts.sceneEvents.join(" · ")}`
   /** Holds `ids` for the next paste. A situation is not copied this way
    *  (paste has nothing to make from one), so it is not counted as copied. */
   const copyIds = useCallback((ids: string[]): boolean => {
-    const picked = ids.filter((id) => isDeletableObject(id) && !id.startsWith("module:"));
+    const picked = ids.filter((id) => isCopyableObject(id));
     if (picked.length === 0) return false;
     clipboardRef.current = picked;
     feedback.notice(t("blueprint.clipboard.copied", { count: picked.length }));
@@ -6629,7 +7191,7 @@ ${frontendFacts.sceneEvents.join(" · ")}`
   /** Copies preserve authored behavior, regardless of which editor starts it. */
   const duplicateNodeById: (nodeId: string) => void = useCallback(
     (nodeId: string) => {
-      if (readOnly || !isDeletableObject(nodeId) || nodeId.startsWith("module:")) return;
+      if (readOnly || !isCopyableObject(nodeId)) return;
       const store = useEditorStore.getState();
       const id = nodeId.slice(nodeId.indexOf(":") + 1);
       const copyMark = t("blueprint.copySuffix");
@@ -6654,7 +7216,7 @@ ${frontendFacts.sceneEvents.join(" · ")}`
 
   // ── Inspector target derivation ──
   const inspectorTarget: InspectorTarget | null = useMemo(() => {
-    if (!active || !selection) return null;
+    if (!active || !selection || multiSelected.size > 0) return null;
     if (selection.type === "node" && quietFrame === selection.id) return null;
     if (selection.type === "node" && selection.id.startsWith("ai:")) {
       const key = selection.id.slice(3);
@@ -6675,7 +7237,9 @@ ${frontendFacts.sceneEvents.join(" · ")}`
         const sourceId = block.sourceBlockId ?? block.id;
         const rows = graph.nodes
           .filter((n) => blockIdForNode(n) === sourceId)
-          .map((n) => ({ id: n.id, title: displayTitle(n), kind: n.kind, hint: previewFor(n) }));
+          .map((n) => isSealedEntry(n.id)
+            ? { id: n.id, title: String(t("blueprint.sealed.entry")), kind: n.kind, hint: undefined }
+            : { id: n.id, title: displayTitle(n), kind: n.kind, hint: previewFor(n) });
         const title = block.kind === "lore"
           ? String(t(("blueprint.blocks.lore." + (block.trigger ?? "manual")) as never))
           : String(t(("blueprint.blocks." + block.kind) as never));
@@ -6683,10 +7247,10 @@ ${frontendFacts.sceneEvents.join(" · ")}`
       }
       // Selecting a frontend still highlights its wires. Its real editor is
       // opened by the edit action; a second pane describing it adds no value.
-      if (!g || g.kind === "event" || g.id === "frontend") return null;
-      // A setting, an opening, a scene image: the text IS the thing, and it
-      // opens in its own row on the board — no second copy anywhere else.
-      if (!resolved?.section && canEditRowInline(g.id)) return null;
+      // An entry kept by the original author has nothing here to edit.
+      if (!g || g.kind === "event" || g.id === "frontend" || isSealedEntry(g.id)) return null;
+      // Entries keep their form in the row; full editors remain an explicit action.
+      if (canEditRowInline(selection.id)) return null;
       return { type: "node", node: g, title: displayTitle(g), kindLabel: t(`blueprint.kinds.${g.kind}` as never), section: resolved?.section };
     }
     const e = graph.edges.find((x) => x.id === selection.id);
@@ -6695,7 +7259,7 @@ ${frontendFacts.sceneEvents.join(" · ")}`
     const to = graphById.get(e.to);
     const describe = `${from ? displayTitle(from) : e.from} → ${to ? displayTitle(to) : e.to}${e.label ? `  (${e.label})` : ""}`;
     return { type: "edge", edgeId: e.id, describe };
-  }, [active, selection, quietFrame, graph, graphById, displayTitle, placeAisByOwner, t]);
+  }, [active, selection, multiSelected.size, quietFrame, graph, graphById, displayTitle, placeAisByOwner, learningStage, t]);
   const expandedObjectId = inspectorTarget?.type === "node" && !inspectorTarget.section && drillPanelFor(inspectorTarget.node, interfaceIsHandwritten)
     ? inspectorTarget.node.id
     : null;
@@ -6753,6 +7317,7 @@ ${frontendFacts.sceneEvents.join(" · ")}`
     onSelectRelated={ids => selectPieces(ids, false)}
   /> : renderInspector();
   const floatingWide = !!visibleRelationshipId || (!!inspectorTarget && isWholeForm(inspectorTarget));
+  const entryDialogShown = inspectorTarget?.type === "node" && !visibleRelationshipId;
 
   // Selecting a row must never bury it under the inspector: nudge the
   // viewport just enough to keep the block it lives in on screen beside its editor.
@@ -6804,7 +7369,7 @@ ${frontendFacts.sceneEvents.join(" · ")}`
     // A whole form (the card, a situation, an AI) is what the add menu opens
     // on a just-made object, which may not be on screen yet. The small
     // editors stand beside a row that was clicked, so it already is.
-    if (!selectedNodeId || !floatingWide || viewLockedRef.current) return;
+    if (!selectedNodeId || !floatingWide || viewLockedRef.current || inspectorTarget?.type === "node") return;
     // A staged lesson frames its own block beside the column, and the
     // behaviour it opens there is already in the clear; a nudge on top of
     // that fought the frame's animation and left the block at the edge.
@@ -6921,7 +7486,7 @@ ${frontendFacts.sceneEvents.join(" · ")}`
     const observer = new ResizeObserver(() => { cancelAnimationFrame(raf); raf = requestAnimationFrame(attempt); });
     if (containerRef.current) observer.observe(containerRef.current);
     return () => { cancelAnimationFrame(raf); observer.disconnect(); };
-  }, [selectedNodeId, selection?.id, rf, floatingWide, objectBounds, objectRowElement, edgeInsets?.right]);
+  }, [selectedNodeId, selection?.id, rf, floatingWide, objectBounds, objectRowElement, edgeInsets?.right, inspectorTarget?.type]);
 
   /** An opened row grows by the height of an editor, and the board relays
    *  itself out over the next few frames — the tile's own height, the frames
@@ -7029,7 +7594,7 @@ ${frontendFacts.sceneEvents.join(" · ")}`
   // first screen was two rows of tools. They come back on their own as the
   // card grows or gains a situation, while a lesson is pointing at them, or
   // while anything in the view menu is switched on.
-  const smallBoard = graph.nodes.length < 15 && !frames.some((fr) => fr.ownerId);
+  const smallBoard = graph.nodes.length < 15 && !frames.some((fr) => fr.ownerId && !fr.packId);
   const showFinders = !isEmpty && (!smallBoard || teaching || inLesson || !!query || viewMenuOpen || showAllWires || viewLocked || showLegend || showTurnContext);
 
   const placeToolbar = (node: React.ReactNode) => (toolbarHost ? createPortal(node, toolbarHost) : node);
@@ -7046,8 +7611,8 @@ ${frontendFacts.sceneEvents.join(" · ")}`
         className={cn("studio-canvas relative min-w-0 flex-1", focusedBlock && "bp-block-focus", layoutGliding && "bp-animate-layout", showAllWires && "bp-wires-shown")}
         data-focused-block={focusedBlock ?? undefined}
         onDragOver={paneDragOver}
-        onDragOverCapture={(e) => { aiDragOver(e); trackPaneDrop(e); }}
-        onDropCapture={aiDrop}
+        onDragOverCapture={(e) => { aiDragOver(e); addDragOver(e); trackPaneDrop(e); }}
+        onDropCapture={(e) => { aiDrop(e); addDrop(e); }}
         onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setPaneDropHint(null); }}
         onDrop={paneDrop}
         onPointerDownCapture={onCanvasPointerDownCapture}
@@ -7057,6 +7622,7 @@ ${frontendFacts.sceneEvents.join(" · ")}`
         onTouchStartCapture={(e) => { if (e.touches.length > 1) takeCamera(); }}
       >
         <div aria-hidden className="studio-lamp-pool pointer-events-none absolute left-1/2 top-[-140px] z-0 h-[320px] w-[640px] -translate-x-1/2" />
+        <CanvasPackLayer boardRef={containerRef} enabled={!isPhone && !readOnly} />
         {floatingPane && selection && !isPhone && (
           <FloatingEditor
             key={selection.id}
@@ -7064,6 +7630,8 @@ ${frontendFacts.sceneEvents.join(" · ")}`
             anchor={floatingAnchor}
             onClose={closeAuxiliary}
             width={floatingWide ? FLOATING_WIDE : undefined}
+            dialog={entryDialogShown}
+            label={inspectorTarget?.type === "node" ? inspectorTarget.title : undefined}
           >{floatingPane}</FloatingEditor>
         )}
         {paneDropHint && (
@@ -7073,15 +7641,17 @@ ${frontendFacts.sceneEvents.join(" · ")}`
             className="pointer-events-none absolute z-30 flex items-center justify-center rounded-xl border-2 border-dashed border-amber-300/70 bg-amber-300/[0.07] px-3 text-center shadow-[0_0_24px_rgba(240,198,116,0.18)]"
             style={{ left: Math.max(8, Math.min(paneDropHint.x - paneDropHint.w / 2, (containerRef.current?.clientWidth ?? 9999) - paneDropHint.w - 8)), top: paneDropHint.y - 22, width: paneDropHint.w, minHeight: 64 }}
           >
-            <span className="text-[12px] font-semibold leading-snug text-amber-100/90">{t("blueprint.dropOutHint")}</span>
+            <span className="text-[12px] font-semibold leading-snug text-foreground/90">{t("blueprint.dropOutHint")}</span>
           </div>
         )}
         <ReactFlow
+          inert={entryDialogShown || undefined}
           nodes={stagedNodes}
           edges={rfEdges}
           nodeTypes={NODE_TYPES}
           edgeTypes={EDGE_TYPES}
           onMoveStart={onMoveStart}
+          onMove={onMove}
           onMoveEnd={onMoveEnd}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
@@ -7115,6 +7685,9 @@ ${frontendFacts.sceneEvents.join(" · ")}`
           proOptions={{ hideAttribution: true }}
         >
           <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} color="rgba(235,231,222,0.09)" className="!bg-transparent" />
+          {/* Over the board while a mouse drags it (see `liftBoard`); above the blocks
+              and wires, under the minimap and the other panels. */}
+          <div ref={boardCoverRef} aria-hidden className="absolute inset-0 z-[4] hidden cursor-grabbing" />
           {/* Smart guides: the line a dragged frame just snapped to, drawn in
               board coordinates between the two frames it aligns. */}
           {guides && (
@@ -7177,6 +7750,8 @@ ${frontendFacts.sceneEvents.join(" · ")}`
               />
             </ViewportPortal>
           )}
+          {/* Everyone else on the board: pointers, what they selected, following. */}
+          <LiveCursors worldId={serverWorldId} containerRef={containerRef} />
           {/* Only once there is something off screen to find.
               A minimap of a board you can already see whole is furniture that
               covers it: on a card with three blocks it was sitting on two of
@@ -7198,8 +7773,17 @@ ${frontendFacts.sceneEvents.join(" · ")}`
               is about. */}
           {multiSelected.size > 0 && !readOnly && (
             <div data-blueprint-popover data-batch-bar className={cn("absolute z-30 flex -translate-x-1/2 items-center gap-1 whitespace-nowrap studio-pill rounded-xl border px-2 py-1.5 shadow-xl", !batchPos && "bottom-16 left-1/2")} style={batchPos ? { left: batchPos.x, top: batchPos.y } : undefined}>
-              <span className="px-1.5 text-xs font-semibold text-amber-300">{t("blueprint.batch.selected", { count: multiSelected.size })}</span>
+              <span className="px-1.5 text-xs font-semibold text-foreground">{t("blueprint.batch.selected", { count: multiSelected.size })}</span>
               <div className="mx-0.5 h-4 w-px bg-border" />
+              <button
+                type="button"
+                onClick={makeBundleFromSelection}
+                title={t("blueprint.batch.makeBundleHint")}
+                className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-primary transition-colors hover:bg-primary/10"
+              >
+                <PackageIcon className="h-3.5 w-3.5" />
+                {t("blueprint.batch.makeBundle")}
+              </button>
               <div className="relative">
                 <button
                   type="button"
@@ -7258,6 +7842,13 @@ ${frontendFacts.sceneEvents.join(" · ")}`
               </button>
             </div>
           )}
+          {saveBundleOpen && <BundleCreator onClose={() => setSaveBundleOpen(false)} />}
+          {bundleFromSelection && (
+            <BundleCreator
+              selection={bundleFromSelection}
+              onClose={() => setBundleFromSelection(null)}
+            />
+          )}
           {boardOverflows && (
           <MiniMap
             pannable
@@ -7286,6 +7877,19 @@ ${frontendFacts.sceneEvents.join(" · ")}`
             }}
             nodeStrokeColor="transparent"
           />
+          )}
+          {soundPickerOpen && (
+            <SoundPicker
+              kind="audio"
+              title={t("soundPicker.audioTitle")}
+              onAdd={landSound}
+              onClose={() => setSoundPickerOpen(false)}
+              actions={{
+                upload: () => uploadMedia("audio"),
+                generate: () => { void ensureWorldId().then((worldId) => { if (!worldId) { feedback.error(t("overview.saveWorldFirst")); return; } setQuickGen({ target: { kind: "audio", type: "bgm" }, worldId }); }); },
+                ...(HAS_PACK_MARKET ? { market: () => openMarketRef.current() } : {}),
+              }}
+            />
           )}
           {voiceFor && (
             <VoicePickerPopover
@@ -7327,15 +7931,52 @@ ${frontendFacts.sceneEvents.join(" · ")}`
             walked the card off the left edge the moment anything was selected.
             The same double count that had the whole board framed against a
             phantom twice its size. */}
-        {turnContext && (
+        {(turnContext || lineup || (showSwitcher && !readOnly)) && (
           <div
-            className="absolute top-14 z-10"
+            className="absolute top-14 z-10 flex flex-col items-end gap-2"
             style={{ right: (edgeInsets?.right ?? 0) + 16 }}
           >
-            <TurnContextCard view={turnContext} onClose={() => setShowTurnContext(false)} />
+            {showSwitcher && !readOnly && (
+              <InterfaceSwitcher
+                onClose={() => setShowSwitcher(false)}
+                onMarket={() => { if (!isPhone && openPackMarketDrawer("interface")) return; onDrillPanel("marketplace"); }}
+              />
+            )}
+            {lineup && (
+              <AiLineupCard
+                lineup={lineup}
+                ran={ranLastTurn?.keys}
+                onClose={() => setShowAiLineup(false)}
+                more={[
+                  ...(hasSeveralAis(roster) ? [{ label: t("blueprint.aiTable.view"), onClick: () => { setShowAiLineup(false); setShowAiTable(true); } }] : []),
+                  { label: t("blueprint.aiCalls.view"), onClick: () => { setShowAiLineup(false); setShowAiCalls(true); } },
+                ]}
+                onGo={(item: LineupItem) => {
+                  if (item.key === SEAT_AI_KEY) { multiplayerMark?.onOpen(); return; }
+                  // To the 「这里的 AI」 block of the place it lives in.
+                  if (item.owner === undefined) return;
+                  const block = blocksRef.current.find((b) => b.kind === "ais" && (b.ownerId ?? "") === item.owner);
+                  if (block) jumpToRef.current(block.id);
+                  else if (item.owner) jumpToRef.current(`module:${item.owner}`);
+                }}
+              />
+            )}
+            {turnContext && <TurnContextCard view={turnContext} onClose={() => setShowTurnContext(false)} />}
           </div>
         )}
 
+
+        {quickGen && createPortal(
+          <QuickGenerate
+            target={quickGen.target}
+            worldId={quickGen.worldId}
+            context={{ title: worldDraft.name, text: worldDraft.description }}
+            references={quickGen.target.kind === "audio" ? [] : characterPortraits(worldDraft.entries)}
+            onLanded={(landed) => landQuick(quickGen.target, landed)}
+            onClose={() => setQuickGen(null)}
+          />,
+          document.body,
+        )}
 
         {/* Toolbar. The adds live on the block heads — but an EMPTY station
             renders no block at all, so a blank card had nowhere visible to add
@@ -7353,7 +7994,7 @@ ${frontendFacts.sceneEvents.join(" · ")}`
           )}>
             {!readOnly && (
             <>
-            <div className="relative">
+            <div className="relative" data-toolbar-menu>
               <button type="button" data-onboarding="add-content" title={t("blueprint.menu.add")} onClick={() => setAddMenuOpen((v) => !v)} className={cn(toolbarBtn, addMenuOpen && "text-amber-400")}>
                 <Plus className="h-3.5 w-3.5" />
                 <span className="@max-[46rem]:hidden">{t("blueprint.menu.add")}</span>
@@ -7361,86 +8002,97 @@ ${frontendFacts.sceneEvents.join(" · ")}`
               {addMenuOpen && (
                 <>
                   <div className="fixed inset-0 z-10" onClick={() => setAddMenuOpen(false)} />
-                  {/* Everything the card can grow, in the player's words, in
-                      two groups: what the story knows and what the player
-                      sees. Each lands where it belongs on the board (or opens
-                      the page it is made on). Nothing the old menu offered is
-                      gone (the situation, settings, variables, behaviours,
-                      scene images, the worker), and the openings, interface
-                      pages, packs and audio that were only on their own blocks
-                      or in 面板 are here too. */}
-                  <div className="absolute left-0 top-full z-20 mt-1.5 max-h-[min(640px,80vh)] w-[320px] overflow-y-auto studio-pill rounded-xl border py-1">
-                    {/* Added first, set up after, on the thing itself: a form in
-                        between asked its questions before there was anything
-                        to look at, and offered fewer answers than the thing's
-                        own settings do. */}
-                    <>
-                    {/* The card's structure first (owner, 10/6): a place, one
-                        more AI call, a note. */}
-                    <div data-learn="add-module"><MenuItem icon={Boxes} tint="text-amber-400" onClick={() => { handleAddModule(); setAddMenuOpen(false); }}>
-                      {t("blueprint.addMenu.module")}
-                    </MenuItem></div>
-                    <div data-learn="add-ai"><MenuItem icon={Bot} tint="text-pink-400" onClick={() => { addAiNow(); setAddMenuOpen(false); }}>
-                      {t("blueprint.addMenu.ai")}
-                    </MenuItem></div>
-                    <div data-add-note=""><MenuItem icon={StickyNote} tint="text-yellow-300" onClick={() => { addStickyNote(); setAddMenuOpen(false); }}>
-                      {t("blueprint.addMenu.note")}
-                    </MenuItem></div>
-                    <div className="mx-3 my-1 border-t border-white/[0.07]" />
-                    <p className="px-3 pb-0.5 pt-1 text-[11px] font-semibold tracking-wide text-muted-foreground">{t("blueprint.addMenu.story")}</p>
-                    <MenuItem icon={BookOpen} tint="text-violet-400" onClick={() => { handleAddEntry(); setAddMenuOpen(false); }}>
-                      {t("blueprint.addMenu.entry")}
-                    </MenuItem>
-                    <MenuItem icon={MessageCircle} tint="text-emerald-400" onClick={() => { blockActionsRef.current.addOpening(); setAddMenuOpen(false); }}>
-                      {t("blueprint.addMenu.opening")}
-                    </MenuItem>
-                    <MenuItem icon={VariableIcon} tint="text-sky-400" onClick={() => { addFromMenu("state"); setAddMenuOpen(false); }}>
-                      {t("blueprint.addMenu.variable")}
-                    </MenuItem>
-                    <MenuItem icon={Zap} tint="text-orange-400" onClick={() => { addFromMenu("behavior"); setAddMenuOpen(false); }}>
-                      {t("blueprint.addMenu.behavior")}
-                    </MenuItem>
-                    <div className="mx-3 my-1 border-t border-white/[0.07]" />
-                    <p className="px-3 pb-0.5 pt-1 text-[11px] font-semibold tracking-wide text-muted-foreground">{t("blueprint.addMenu.screen")}</p>
-                    <MenuItem icon={LayoutTemplate} tint="text-rose-400" onClick={() => { setAddMenuOpen(false); requestUiEditor({ gallery: true }); onDrillPanel("frontend"); }}>
-                      {t("blueprint.addMenu.pages")}
-                    </MenuItem>
-                    {/* A setup screen before play: the gallery's opening,
-                        name and cast pages write variables and pick the
-                        opening. */}
-                    <div data-add-setup=""><MenuItem icon={ListChecks} tint="text-emerald-300" onClick={() => { setAddMenuOpen(false); requestUiEditor({ gallery: true }); onDrillPanel("frontend"); }}>
-                      {t("blueprint.addMenu.setup")}
-                    </MenuItem></div>
-                    <MenuItem icon={Images} tint="text-pink-400" onClick={() => { handleAddSceneImage(); setAddMenuOpen(false); }}>
-                      {t("blueprint.addSceneImage")}
-                    </MenuItem>
-                    <MenuItem icon={Volume2} tint="text-teal-300" onClick={() => { setAddMenuOpen(false); pickTrayItem("audio"); }}>
-                      {t("blueprint.addMenu.audio")}
-                    </MenuItem>
-                    {/* The picture behind the chat. Its block only stood on a
-                        card that already had one, so there was no way to give
-                        a card its first. */}
-                    <MenuItem icon={ImageIcon} tint="text-zinc-300" onClick={() => { setAddMenuOpen(false); pickTrayItem("background"); }}>
-                      {t("blueprint.addMenu.background")}
-                    </MenuItem>
-                    {/* Ready-made things from the community close the menu. */}
-                    <div className="mx-3 my-1 border-t border-white/[0.07]" />
-                    <div data-add-market=""><MenuItem icon={LayoutGrid} tint="text-orange-300" onClick={() => { setAddMenuOpen(false); onDrillPanel("marketplace"); }}>
-                      {t("blueprint.addMenu.market")}
-                    </MenuItem></div>
-                    </>
+                  {/* Only what belongs to no block (owner, 11/05: 「很多添加应该
+                      是在模块内的」— a first look at fourteen kinds of thing
+                      was mostly words a newcomer could not use yet). Settings,
+                      openings, variables and behaviours are added on their
+                      own block's ＋ or the frame's shelf icons; pages on the
+                      player's screen block; audio and scene images on theirs
+                      or the 还可以加 line; packs and interface templates from
+                      资源市场 beside this button; the chat background from 面板. */}
+                  {/* Three likenesses of what lands on the board (owner, 11/10:
+                      the word list was 「太小，看着很怪」 on a canvas). Added
+                      first, set up after, on the thing itself. A click adds it
+                      as before; a tile dragged onto the board puts it where it
+                      is dropped (an AI into the scenario under it, a note on
+                      that spot). */}
+                  <div className="absolute left-0 top-full z-20 mt-1.5 grid w-[min(440px,calc(100vw-1.5rem))] grid-cols-4 gap-1.5 studio-pill !bg-[#181a24] rounded-xl border p-1.5 shadow-xl">
+                    <div data-learn="add-module" className="grid">
+                      <AddTile kind="module" label={t("blueprint.addMenu.module")} onAdd={() => { handleAddModule(); setAddMenuOpen(false); }} onDragStart={closeAddMenuSoon} />
+                    </div>
+                    <div data-learn="add-ai" className="grid">
+                      <AddTile kind="ai" label={t("blueprint.addMenu.ai")} onAdd={() => { addAiNow(); setAddMenuOpen(false); }} onDragStart={closeAddMenuSoon} />
+                    </div>
+                    <div data-add-note="" className="grid">
+                      <AddTile kind="note" label={t("blueprint.addMenu.note")} onAdd={() => { addStickyNote(); setAddMenuOpen(false); }} onDragStart={closeAddMenuSoon} />
+                    </div>
+                    {/* 生成: a picture or a sound made here lands on the card
+                        (owner, 11/15: 「Add 里加个 generation 更好」). What it
+                        makes is picked first; the generator then opens with a
+                        prompt from the card, its price and its models. */}
+                    <div data-add-generate="" className={cn("grid rounded-lg", addGenerateOpen && "bg-white/[0.06]")}>
+                      <AddTile kind="generate" label={t("blueprint.addMenu.generate")} onAdd={() => setAddGenerateOpen((v) => !v)} onDragStart={() => {}} />
+                    </div>
+                    {addGenerateOpen && (
+                      <div data-add-generate-targets="" className="col-span-4 flex flex-wrap gap-1 border-t border-white/[0.06] px-0.5 pt-1.5">
+                        {ADD_GENERATE_TARGETS.map(({ key, target }) => (
+                          <button key={key} type="button" data-add-generate-target={key}
+                            onClick={() => {
+                              setAddMenuOpen(false);
+                              void ensureWorldId().then((worldId) => {
+                                if (!worldId) { feedback.error(t("overview.saveWorldFirst")); return; }
+                                setQuickGen({ target, worldId });
+                              });
+                            }}
+                            className="rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[11.5px] text-foreground/85 transition-colors hover:border-white/20 hover:bg-white/[0.08] hover:text-foreground">
+                            {t(`blueprint.addMenu.gen.${key}` as never)}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </>
               )}
             </div>
+            {/* Resource packs, the card's other way to grow: next to ＋ and
+                always there. At the bar's far end it hid with the search box
+                on a new card (the board most in need of a ready-made screen),
+                and as the add menu's last row nobody found it. Toggles the
+                market drawer beside the board; a phone gets the full page. */}
+            {HAS_PACK_MARKET && (
+              <button
+                type="button"
+                data-toolbar-packs=""
+                aria-pressed={packDrawerOpen}
+                title={t("packCanvas.toolbar.hint")}
+                onClick={() => (packDrawerOpen ? closePackMarketDrawer() : openMarketRef.current())}
+                className={cn(
+                  "group/packs relative ml-1 flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border px-2.5 py-1 text-xs font-semibold transition-[background-color,border-color,box-shadow,color]",
+                  packDrawerOpen
+                    ? "border-[rgba(240,198,116,0.6)] bg-[rgba(240,198,116,0.2)] text-[#ffe2a3] shadow-[0_0_0_1px_rgba(240,198,116,0.15),0_4px_14px_-6px_rgba(240,198,116,0.55)]"
+                    : "border-[rgba(240,198,116,0.32)] bg-gradient-to-b from-[rgba(240,198,116,0.14)] to-[rgba(240,198,116,0.04)] text-[#f5d48a] hover:border-[rgba(240,198,116,0.55)] hover:from-[rgba(240,198,116,0.22)] hover:shadow-[0_4px_14px_-6px_rgba(240,198,116,0.5)]",
+                )}
+              >
+                <PackageIcon className="h-3.5 w-3.5 transition-transform group-hover/packs:-rotate-6" />
+                <span className="@max-[30rem]:hidden">{t("packCanvas.toolbar.label")}</span>
+                {packUpdateCount > 0 && (
+                  <span
+                    title={t("packCanvas.toolbar.updates", { count: packUpdateCount })}
+                    className="flex h-4 min-w-4 items-center justify-center rounded-full bg-[#f0c674] px-1 text-[10px] font-bold leading-none text-[#1a1408]"
+                  >
+                    {packUpdateCount}
+                  </span>
+                )}
+              </button>
+            )}
             </>
             )}
-            {!readOnly && (showFinders || (!isEmpty && frames.some((fr) => fr.ownerId))) && <div className="mx-0.5 h-5 w-px bg-border" />}
+            {!readOnly && (showFinders || (!isEmpty && frames.some((fr) => fr.ownerId && !fr.packId))) && <div className="mx-0.5 h-5 w-px bg-border" />}
             {/* The module directory: a card with twenty modules is a wall of
                 small squares at 31% zoom, and the only ways in were the search
                 box and the minimap. A list of modules, each a click from
                 focus, plus open-all / shut-all for the whole board. */}
-            {!isEmpty && frames.some((fr) => fr.ownerId) && (
+            {!isEmpty && frames.some((fr) => fr.ownerId && !fr.packId) && (
               <div className="relative" data-blueprint-popover>
                 <button
                   type="button"
@@ -7453,10 +8105,10 @@ ${frontendFacts.sceneEvents.join(" · ")}`
                 >
                   <Layers className="h-3.5 w-3.5" />
                   <span className="@max-[46rem]:sr-only">{t("blueprint.directory.title")}</span>
-                  <span className="rounded bg-white/10 px-1 text-[10px] text-foreground/70">{frames.filter((fr) => fr.ownerId).length}</span>
+                  <span className="rounded bg-white/10 px-1 text-[10px] text-foreground/70">{frames.filter((fr) => fr.ownerId && !fr.packId).length}</span>
                 </button>
                 {showDirectory && (
-                  <div className="absolute left-0 top-full z-30 studio-pill mt-1 w-64 rounded-xl border p-1">
+                  <div className="absolute left-0 top-full z-30 studio-pill !bg-[#181a24] mt-1 w-64 rounded-xl border p-1">
                     <div className="flex items-center gap-1 px-1 pb-1">
                       <button
                         type="button"
@@ -7521,7 +8173,8 @@ ${frontendFacts.sceneEvents.join(" · ")}`
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter" && searchResults[0]) jumpTo(searchResults[0].id);
+                    if (e.key === "Enter" && queryActions[0] && !searchResults[0]) runSearchAction(queryActions[0]);
+                    else if (e.key === "Enter" && searchResults[0]) jumpTo(searchResults[0].id);
                     if (e.key === "Escape") setQuery("");
                   }}
                   data-learn="search"
@@ -7530,7 +8183,25 @@ ${frontendFacts.sceneEvents.join(" · ")}`
                 />
                 {query.trim() && (
                   <div className="absolute right-0 top-full mt-1 max-h-[min(420px,65vh)] w-80 max-w-[calc(100vw-40px)] studio-pill overflow-y-auto rounded-xl border py-1">
-                    {searchResults.length === 0 && (
+                    {queryActions.map((action) => {
+                      const Icon = SEARCH_ACTION_ICON[action];
+                      return (
+                        <button
+                          key={action}
+                          type="button"
+                          data-search-action={action}
+                          onClick={() => runSearchAction(action)}
+                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-foreground transition-colors hover:bg-accent"
+                        >
+                          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-[#f0c674]/15 text-[#f0c674]">
+                            <Icon className="h-3 w-3" />
+                          </span>
+                          <span className="min-w-0 flex-1 truncate">{t(`blueprint.searchAction.${action}` as never)}</span>
+                        </button>
+                      );
+                    })}
+                    {queryActions.length > 0 && searchResults.length > 0 && <div className="mx-3 my-1 border-t border-white/[0.07]" />}
+                    {searchResults.length === 0 && queryActions.length === 0 && (
                       <div className="px-3 py-2 text-xs text-muted-foreground">{t("blueprint.searchEmpty")}</div>
                     )}
                     {searchResults.map((n) => {
@@ -7565,7 +8236,10 @@ ${frontendFacts.sceneEvents.join(" · ")}`
                   the locked view, the legend, the context estimate and the
                   assistant rail were six buttons in a bar floating over the
                   canvas, and a first look read them all. */}
-              <div className="relative" data-blueprint-popover>
+              {/* On a phone the toolbar is a 244px pill at the screen's left
+                  edge, so a menu right-aligned to this button ran off-screen;
+                  there it hangs from the pill's left edge instead. */}
+              <div className={isPhone ? undefined : "relative"} data-blueprint-popover data-toolbar-menu>
                 <button
                   type="button"
                   data-onboarding="connections"
@@ -7584,7 +8258,7 @@ ${frontendFacts.sceneEvents.join(" · ")}`
                     menu again. `w-max` + nowrap: an absolutely positioned box
                     otherwise shrinks to one CJK character per line. */}
                 {!isEmpty && showLegend && !viewMenuOpen && (
-                  <div ref={legendRef} className="absolute right-0 top-full z-20 mt-1.5 w-max studio-pill whitespace-nowrap rounded-xl border py-2 pl-3 pr-2">
+                  <div ref={legendRef} className={cn("absolute top-full z-20 mt-1.5 w-max studio-pill !bg-[#181a24] whitespace-nowrap rounded-xl border py-2 pl-3 pr-2", isPhone ? "left-0" : "right-0")}>
                     <div className="mb-1 flex items-center gap-3">
                       <span className="flex-1 text-[11px] font-semibold text-foreground/85">{t("blueprint.legend.title")}</span>
                       <button type="button" onClick={() => setShowLegend(false)} aria-label={t("blueprint.legend.close")} className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground">
@@ -7604,16 +8278,13 @@ ${frontendFacts.sceneEvents.join(" · ")}`
                 {viewMenuOpen && (
                   <>
                     <div className="fixed inset-0 z-10" onClick={() => setViewMenuOpen(false)} />
-                    <div className="absolute right-0 top-full z-20 mt-1.5 studio-pill w-[248px] overflow-hidden rounded-xl border py-1">
-                      <div data-learn="ai-calls"><ViewMenuItem icon={Bot} on={showAiCalls} onClick={() => { captureHubEvent("studio_view_toggle", { world_id: eventWorldId(), item: "ai-calls", on: true }); setShowAiCalls(true); setViewMenuOpen(false); }}>
-                        {t("blueprint.aiCalls.view")}
-                      </ViewMenuItem></div>
-                      {hasSeveralAis(roster) && (
-                        <div data-learn="ai-table"><ViewMenuItem icon={Table2} on={showAiTable} onClick={() => { captureHubEvent("studio_view_toggle", { world_id: eventWorldId(), item: "ai-table", on: true }); setShowAiTable(true); setViewMenuOpen(false); }}>
-                          {t("blueprint.aiTable.view")}
+                    <div className={cn("absolute top-full z-20 mt-1.5 studio-pill !bg-[#181a24] w-[248px] overflow-hidden rounded-xl border py-1", isPhone ? "left-0" : "right-0")}>
+                      {!isEmpty && (
+                        <div data-learn="ai-calls"><ViewMenuItem icon={Bot} on={showAiLineup} onClick={() => { captureHubEvent("studio_view_toggle", { world_id: eventWorldId(), item: "ai-lineup", on: !showAiLineup }); setShowAiLineup((v) => !v); setViewMenuOpen(false); }}>
+                          {t("blueprint.lineup.title")}
                         </ViewMenuItem></div>
                       )}
-                      <div data-learn="all-wires"><ViewMenuItem icon={Spline} on={showAllWires} hint={t(showAllWires ? "blueprint.wires.allHint" : "blueprint.wires.litHint")} onClick={() => { captureHubEvent("studio_view_toggle", { world_id: eventWorldId(), item: "wires", on: !showAllWires }); toggleAllWires(); }}>
+                      <div data-learn="all-wires"><ViewMenuItem icon={Spline} on={showAllWires} hint={t(showAllWires ? "blueprint.wires.allHint" : "blueprint.wires.litHint")} onClick={() => { captureHubEvent("studio_view_toggle", { world_id: eventWorldId(), item: "wires", on: !showAllWires }); setShowLegend(!showAllWires); toggleAllWires(); setViewMenuOpen(false); }}>
                         {t("blueprint.wires.all")}
                       </ViewMenuItem></div>
                       {!readOnly && (
@@ -7628,15 +8299,12 @@ ${frontendFacts.sceneEvents.join(" · ")}`
                       )}
                       {!isEmpty && (
                         <>
-                          <ViewMenuItem icon={Palette} on={showLegend} onClick={() => { captureHubEvent("studio_view_toggle", { world_id: eventWorldId(), item: "legend", on: !showLegend }); setShowLegend((v) => !v); setViewMenuOpen(false); }}>
-                            {t("blueprint.legend.title")}
-                          </ViewMenuItem>
                           <ViewMenuItem icon={MessageSquare} on={showTurnContext} onClick={() => { captureHubEvent("studio_view_toggle", { world_id: eventWorldId(), item: "estimate", on: !showTurnContext }); setShowTurnContext((v) => !v); setViewMenuOpen(false); }}>
                             {t("blueprint.turnCtx.estimateTitle", { defaultValue: "Context estimate" })}
                           </ViewMenuItem>
                         </>
                       )}
-                      {focus && (
+                      {focus && (focus.kind !== "rail" || isPhone) && (
                         <ViewMenuItem icon={focus.active ? Minimize2 : Maximize2} on={focus.active} onClick={() => { captureHubEvent("studio_view_toggle", { world_id: eventWorldId(), item: "rail", on: !focus.active }); focus.toggle(); setViewMenuOpen(false); }}>
                           {t(focus.kind === "rail" ? "blueprint.rail.hide" : "blueprint.focusMode")}
                         </ViewMenuItem>
@@ -7678,6 +8346,48 @@ ${frontendFacts.sceneEvents.join(" · ")}`
                   </span>
                 )}
               </div>
+              {/* What it touched, by name: each one takes the board to it.
+                  Counts alone were "3 added" with the three somewhere on a
+                  board that can be thousands of pixels tall. */}
+              {(() => {
+                const touched = [
+                  ...turn.diff.addedNodes.map((id) => ({ id, kind: "added" as const })),
+                  ...turn.diff.changedNodes.map((id) => ({ id, kind: "changed" as const })),
+                ].filter((item) => graphById.has(item.id));
+                if (!touched.length) return null;
+                return (
+                  <div className="mt-1 flex flex-wrap gap-1" data-turn-touched="">
+                    {touched.slice(0, 8).map((item) => (
+                      <span
+                        key={item.id}
+                        className={cn(
+                          "flex max-w-[180px] items-center rounded-full border text-[11px]",
+                          item.kind === "added" ? "border-emerald-400/40 text-emerald-200" : "border-[rgba(240,198,116,0.4)] text-[#f5d48a]",
+                        )}
+                      >
+                        <button type="button" onClick={() => jumpToRef.current(item.id)} className="min-w-0 truncate py-px pl-2 pr-1 transition-colors hover:text-foreground">
+                          {graphById.get(item.id)!.title}
+                        </button>
+                        {/* This one back, the rest kept (Word / Cursor keep
+                            and undo per change; the banner only had all). */}
+                        {!readOnly && (
+                          <button
+                            type="button"
+                            data-turn-undo-one=""
+                            title={t("blueprint.turn.undoOne")}
+                            aria-label={`${t("blueprint.turn.undoOne")}: ${graphById.get(item.id)!.title}`}
+                            onClick={() => undoTurnItem(item.id)}
+                            className="shrink-0 rounded-full py-px pl-0.5 pr-1.5 opacity-60 transition-opacity hover:opacity-100"
+                          >
+                            <Undo2 className="h-3 w-3" />
+                          </button>
+                        )}
+                      </span>
+                    ))}
+                    {touched.length > 8 && <span className="px-1 text-[11px] text-muted-foreground">+{touched.length - 8}</span>}
+                  </div>
+                );
+              })()}
             </div>
             {!readOnly && (
               <button
@@ -7758,7 +8468,7 @@ ${frontendFacts.sceneEvents.join(" · ")}`
               <>
                 {/* An object's own page and wires. A block or the card's
                     frame is not one object, and both items did nothing there. */}
-                {!menu.id.startsWith("block:") && !menu.id.startsWith("frame:") && (
+                {!menu.id.startsWith("block:") && !menu.id.startsWith("frame:") && !isSealedEntry(menu.id) && (
                   <>
                     <MenuItem icon={ExternalLink} onClick={() => { drillObject(menu.id, { focus: true }); setMenu(null); }}>
                       {t("blueprint.insp.openFull")}
@@ -7772,7 +8482,7 @@ ${frontendFacts.sceneEvents.join(" · ")}`
                     </MenuItem>
                   </>
                 )}
-                {menu.id.startsWith("entry:") && !readOnly && useEditorStore.getState().worldDraft.entries.find((e) => e.id === menu.id.slice("entry:".length))?.role === "character" && (
+                {menu.id.startsWith("entry:") && !readOnly && !isSealedEntry(menu.id) && useEditorStore.getState().worldDraft.entries.find((e) => e.id === menu.id.slice("entry:".length))?.role === "character" && (
                   <MenuItem icon={Volume2} onClick={() => {
                     const entryId = menu.id.slice("entry:".length);
                     const entry = useEditorStore.getState().worldDraft.entries.find((e) => e.id === entryId);
@@ -7787,7 +8497,7 @@ ${frontendFacts.sceneEvents.join(" · ")}`
                     of several picked things acts on all of them. */}
                 {(() => {
                   const targets = multiSelected.has(menu.id) ? [...multiSelected] : [menu.id];
-                  const copyable = targets.some((id) => isDeletableObject(id) && !id.startsWith("module:"));
+                  const copyable = targets.some((id) => isCopyableObject(id));
                   const movable = gates.length > 0 && targets.some((id) => isShareableObject(id));
                   const frontable = targets.some((id) => id.startsWith("entry:") || id.startsWith("greeting:"));
                   const deletable = targets.some((id) => isDeletableObject(id));
@@ -7959,7 +8669,7 @@ ${frontendFacts.sceneEvents.join(" · ")}`
 
         {focusedModule && (
           <div className="absolute left-4 top-16 z-20 flex max-w-[calc(100%-2rem)] studio-pill items-center gap-2 rounded-xl border px-3 py-2">
-            <button type="button" onClick={leaveModuleFocus} className="shrink-0 text-xs font-semibold text-amber-300 hover:text-amber-100">{t("blueprint.workspace.back")}</button>
+            <button type="button" onClick={leaveModuleFocus} className="shrink-0 text-xs font-semibold text-foreground/80 hover:text-foreground">{t("blueprint.workspace.back")}</button>
             <span className="text-muted-foreground/40">/</span>
             <span className="truncate text-xs text-foreground">{graphById.get(focusedModule)?.title ?? t("blueprint.workspace.module")}</span>
           </div>
@@ -8057,6 +8767,17 @@ class BlueprintErrorBoundary extends Component<
     }
     return this.props.children;
   }
+}
+
+/** The AIs of one place for its title: name and whether it answers the
+ *  player's turn. Switched off, or standing aside for the situation's own
+ *  AIs, it is not one of the voices there. */
+function speakersOf(place: PlaceAis | undefined): Array<{ name: string; answers: boolean }> {
+  if (!place) return [];
+  return place.rows
+    .filter((row) => !row.off && !row.away)
+    .map((row) => ({ name: row.name, answers: row.type === "turn" }))
+    .sort((a, b) => Number(b.answers) - Number(a.answers));
 }
 
 /** Host-agnostic canvas — the full-bleed stage renders this directly. */

@@ -137,3 +137,65 @@ test("propose_job streams the plan with an estimate and waits for Start, across 
   assert.equal(status.data.status, "awaiting_user");
   assert.equal(status.data.jobProposal?.plan.length, 3);
 });
+
+// Lavan, 2026-11-04: Start building on the advisor's sheet, then a job card
+// asking to start the same thing again. The sheet is the go-ahead.
+test("a build started from the confirmation sheet never parks for a second Start", async () => {
+  const f = await fixture();
+  const { createBuildProposal } = await import("../lib/studio-advisor.js");
+  const buildProposal = createBuildProposal("Fix the rooms panel", "Fix the rooms panel crash", ["Guard the room lists"])!;
+  const calls: GenerateParams[] = [];
+  const provider: LLMProvider = {
+    async *generateStream(params) {
+      calls.push(params);
+      if (calls.length === 1) {
+        yield { type: "tool_call_end", content: "", toolCall: { id: "job-call", type: "function",
+          function: { name: "propose_job", arguments: JSON.stringify({ plan: ["Guard the room lists"], steps: 4 }) } } };
+        yield { type: "done", content: "", stopReason: "tool_use" };
+      } else {
+        yield { type: "text", content: "Done: the room lists are guarded." };
+        yield { type: "done", content: "", stopReason: "stop" };
+      }
+    },
+    async listModels() { return []; },
+  };
+  const app = new Hono();
+  app.post("/loop", c => streamAgentLoop(c, { ...f, model: "test/job", provider, isByok: true,
+    context: { mode: "build", buildProposal }, apiKeyTier: "regular", iteration: 0, maxIterations: 4, tools: STUDIO_TOOLS,
+    messages: [{ role: "user", content: "Build the first version from the creative brief." }] }));
+  const text = await (await app.request("/loop", { method: "POST" })).text();
+  assert.ok(!text.includes("event: job_proposal"), "no second confirmation reaches the panel");
+  assert.equal(calls.length, 2, "the run carries on after the refused proposal");
+  assert.match(JSON.stringify(calls[0]!.messages), /<plan-confirmed>/);
+  assert.match(JSON.stringify(calls[1]!.messages), /already approved this work/);
+  const [run] = await db.select().from(agentRuns).where(eq(agentRuns.id, f.runId));
+  assert.notEqual(run!.status, "awaiting_user");
+});
+
+// Lavan, 2026-11-04: an English creator's confirmation sheet came out in Chinese.
+test("an English creator's sheet written in Chinese is refused and rewritten before it is shown", async t => {
+  const f = await fixture();
+  t.mock.method(S3Client.prototype, "send", async () => ({}));
+  t.mock.method(LocalDiskStorage.prototype, "putObject", async () => {});
+  t.mock.method(LocalDiskStorage.prototype, "getObjectBuffer", async () => { throw new Error("No stored source"); });
+  let calls = 0;
+  const provider: LLMProvider = {
+    async *generateStream() {
+      calls += 1;
+      if (calls === 1) yield { type: "tool_call_end", content: "", toolCall: { id: "zh", type: "function", function: { name: "save_brief",
+        arguments: JSON.stringify({ brief: "## 一句话\n修复房间消失", summary: "修复地下城房间突然消失的数据丢失问题", steps: ["自愈逻辑不再覆盖存档"] }) } } };
+      else if (calls === 2) yield { type: "tool_call_end", content: "", toolCall: { id: "en", type: "function", function: { name: "save_brief",
+        arguments: JSON.stringify({ brief: "## In one line\nFix vanishing rooms", summary: "Fix rooms vanishing from the dungeon", steps: ["Stop the self-repair from overwriting the save"] }) } } };
+      else yield { type: "text", content: "Ready for your confirmation." };
+      yield { type: "done", content: "", stopReason: calls < 3 ? "tool_use" : "stop" };
+    }, async listModels() { return []; },
+  };
+  const app = new Hono();
+  app.post("/loop", c => streamAgentLoop(c, { ...f, model: "test/plan", provider, isByok: true,
+    context: { mode: "advise" }, apiKeyTier: "regular", iteration: 0, maxIterations: 4,
+    tools: STUDIO_TOOLS, messages: [{ role: "user", content: "User reported their dungeon rooms all disappeared. Check what could cause it." }] }));
+  await (await app.request("/loop", { method: "POST" })).text();
+  const display = await loadStudioConversationForDisplay({ userId: f.userId, worldId: f.worldId, conversationId: f.conversationId });
+  const proposals = display!.messages.filter(m => m.buildProposal).map(m => (m.buildProposal as { summary: string }).summary);
+  assert.deepEqual(proposals, ["Fix rooms vanishing from the dungeon"], "only the English sheet is offered");
+});

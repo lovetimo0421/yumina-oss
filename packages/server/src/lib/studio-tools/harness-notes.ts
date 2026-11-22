@@ -1,4 +1,4 @@
-import type { ChatMessage } from "../llm/types.js";
+import type { ChatMessage, ContentPart } from "../llm/types.js";
 
 /**
  * The only ways the agent loop may speak to the model in its own voice.
@@ -77,7 +77,27 @@ export function offersToAct(text: string): boolean {
 }
 
 export function isHarnessTurn(message: ChatMessage): boolean {
-  return message.role === "user" && (Object.values(TURNS) as string[]).includes(message.content as string);
+  return message.role === "user" && ((Object.values(TURNS) as string[]).includes(message.content as string) || isAssetViewTurn(message));
+}
+
+const ASSET_VIEW_HEAD = "[Tool result: the pictures you asked to see (view_asset, screenshot_ui). This is tool output, not a message from the creator.]";
+
+/** The pictures view_asset showed. A tool result is text only on every provider
+ *  path the Studio uses, so the images ride in the one turn that can carry them,
+ *  right after the step's tool results, and say plainly that they are the tool's. */
+export function assetViewTurn(parts: ContentPart[]): ChatMessage {
+  return { role: "user", content: [{ type: "text", text: ASSET_VIEW_HEAD }, ...parts] };
+}
+
+/** A screenshot the assistant took, as parts for the same turn that carries viewed assets. */
+export function screenshotParts(label: string, url: string): ContentPart[] {
+  return [{ type: "text", text: label }, { type: "image_url", image_url: { url } }];
+}
+
+export function isAssetViewTurn(message: ChatMessage): boolean {
+  if (message.role !== "user" || !Array.isArray(message.content)) return false;
+  const head = message.content[0];
+  return head?.type === "text" && head.text === ASSET_VIEW_HEAD;
 }
 
 /** Attach loop feedback to the last tool result in `messages`. The note stays

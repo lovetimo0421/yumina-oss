@@ -30,12 +30,14 @@ export type FriendSummary = {
   name: string;
   image: string | null;
   alias: string | null;
+  /** Their @handle, as they typed it when they set one (displayUsername), else the stored one. */
+  username: string | null;
 };
 
 /** Mutual follows with display info, for the friends list and the invite picker. */
 export async function listFriends(userId: string, limit = 500): Promise<FriendSummary[]> {
   const result = await db.execute(sql`
-    SELECT u.id, u.name, u.image, f1.alias
+    SELECT u.id, u.name, u.image, f1.alias, COALESCE(u.display_username, u.username) AS username
     FROM follows f1
     JOIN follows f2
       ON f2.follower_id = f1.following_id AND f2.following_id = f1.follower_id
@@ -44,12 +46,13 @@ export async function listFriends(userId: string, limit = 500): Promise<FriendSu
     ORDER BY lower(u.name) ASC
     LIMIT ${limit}
   `);
-  return (result.rows as Array<{ id: string; name: string; image: string | null; alias: string | null }>).map(
+  return (result.rows as Array<{ id: string; name: string; image: string | null; alias: string | null; username: string | null }>).map(
     (row) => ({
       id: row.id,
       name: row.name,
       image: row.image ? resolveImageCdn(row.image) : null,
       alias: row.alias ?? null,
+      username: row.username ?? null,
     }),
   );
 }

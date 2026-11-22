@@ -1,6 +1,38 @@
 import type { LibraryItem } from "@/stores/library";
 
 export type LibraryGameSort = "title" | "recent" | "added";
+/** Built-in filters, or one of the player's collections ("collection:<id>"). */
+export type LibraryGameFilter = "all" | "favorites" | "updates" | "unplayed" | "hidden" | `collection:${string}`;
+
+export const collectionFilter = (id: string): LibraryGameFilter => `collection:${id}`;
+export const filterCollectionId = (filter: LibraryGameFilter): string | null =>
+  filter.startsWith("collection:") ? filter.slice("collection:".length) : null;
+
+/** Hidden games only show under "Hidden"; every other filter leaves them out. */
+export function filterLibraryGameItems(
+  items: readonly LibraryItem[],
+  filter: LibraryGameFilter,
+  favoriteIds: ReadonlySet<string>,
+): LibraryItem[] {
+  if (filter === "hidden") return items.filter((item) => item.shelf === "hidden");
+  const shown = items.filter((item) => item.shelf !== "hidden");
+  const collectionId = filterCollectionId(filter);
+  if (collectionId) return shown.filter((item) => item.collectionIds?.includes(collectionId) ?? false);
+  switch (filter) {
+    case "favorites": return shown.filter((item) => favoriteIds.has(item.worldId));
+    case "updates": return shown.filter((item) => item.hasUpdate);
+    case "unplayed": return shown.filter((item) => !item.lastPlayedAt);
+    default: return shown;
+  }
+}
+
+/** "Last played Nov 3" — the year only when it is not this year. */
+export function formatLastPlayed(iso: string, language: string, now = new Date()): string {
+  const date = new Date(iso);
+  return date.toLocaleDateString(language, date.getFullYear() === now.getFullYear()
+    ? { month: "short", day: "numeric" }
+    : { year: "numeric", month: "short", day: "numeric" });
+}
 
 export function sortLibraryGameItems(
   items: readonly LibraryItem[],

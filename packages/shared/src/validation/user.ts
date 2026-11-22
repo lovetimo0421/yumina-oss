@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { aiGenerationConfigSchema } from '../ai-generation.js';
+import { regexRulesSchema } from '../regex-rules.js';
+import { playerRoleModelsSchema } from '../ai-roles.js';
 import {
   MAX_DISPLAY_NAME_LENGTH,
   MAX_USERNAME_LENGTH,
@@ -45,6 +47,12 @@ export const aiConfigSchema = z.object({
   // every other setting — and nothing reached the account. Turns never read
   // this copy; they get the dial per request and treat non-numbers as unset.
   storyMemory: aiGenerationConfigSchema.shape.storyMemory.unwrap().nullable().optional(),
+  // Same "never chosen" null as storyMemory, for the recap's share of it.
+  recapShare: aiGenerationConfigSchema.shape.recapShare.unwrap().nullable().optional(),
+  // And for how often session memory updates.
+  memoryEvery: aiGenerationConfigSchema.shape.memoryEvery.unwrap().nullable().optional(),
+  // The player's find-and-replace rules (regex-rules.ts). Synced whole, like the other keys.
+  regexRules: regexRulesSchema.optional(),
   selectedModel: z.string().min(1).max(200).optional(),
   modelFallback: z.object({
     mode: z.enum(["ask", "auto", "stop"]),
@@ -63,6 +71,9 @@ export const aiConfigSchema = z.object({
     weight: z.number().int().min(0).max(100),
     locked: z.boolean().optional(),
   })).max(5).optional(),
+  // A model per background AI (world, memory, summary, state check). Sent
+  // whole on every change: the server merges aiConfig one level deep.
+  roleModels: playerRoleModelsSchema.optional(),
 }).strict();
 
 export type AiConfigSchema = z.infer<typeof aiConfigSchema>;

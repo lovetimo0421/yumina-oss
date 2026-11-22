@@ -25,6 +25,8 @@ export const VOICE_LIVE_CALLS_DDL = [
   `CREATE UNIQUE INDEX IF NOT EXISTS live_calls_one_open ON voice_live_calls (user_id) WHERE state <> 'closed'`,
   `CREATE UNIQUE INDEX IF NOT EXISTS live_calls_provider ON voice_live_calls (provider_id) WHERE provider_id IS NOT NULL`,
   `CREATE INDEX IF NOT EXISTS live_calls_open ON voice_live_calls (state, started_at) WHERE state <> 'closed'`,
+  // Owner 2026-10-24: calls end when nobody is playing; the last moment of player activity.
+  `ALTER TABLE voice_live_calls ADD COLUMN IF NOT EXISTS last_active_at timestamptz`,
 ] as const;
 
 export const voiceLiveCallsSql = () => VOICE_LIVE_CALLS_DDL.map(statement => `${statement};\n`).join("");

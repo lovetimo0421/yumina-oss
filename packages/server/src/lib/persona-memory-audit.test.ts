@@ -25,6 +25,8 @@ import { runExtensionInvalidation } from "./extension-hooks.js";
 import { registerSessionMemoryExtension } from "../extensions/session-memory/hooks.js";
 import { regenerateStorySummaryForSession } from "./session-compaction.js";
 import { branchSession } from "../routes/sessions.js";
+// These players already allowed background AIs to charge (background-consent.ts).
+const ALLOWED = { backgroundCharges: { allowAll: true } };
 
 const model = "google/gemini-3.1-flash-lite";
 const output = "Core facts:\n- OldTimelineMarker: the player left a red umbrella in the cafe.\nActive goals and open threads:\n- Return for the umbrella tomorrow.";
@@ -71,7 +73,7 @@ test("persona and memory lifecycle regressions", async (t) => {
           yield { type: "text", content: mode === "branch-summary-future" ? "Core facts:\n- FutureBranchMarker: the player found a gold key after leaving the cafe." : mode === "auto-repair" || mode === "repair-retry-cap" ? "Core facts:\n- CorrectedTimelineMarker: no umbrella exists.\nActive goals and open threads:\n- Have tea in the cafe." : output };
           yield { type: "done", content: "", stopReason: "stop", usage: { promptTokens: 100, completionTokens: 40, totalTokens: 140 } };
         });
-        await db.insert(user).values({ id: userId, name: "Audit", email: `${userId}@example.com` });
+        await db.insert(user).values({ id: userId, name: "Audit", email: `${userId}@example.com`, preferences: ALLOWED });
         try {
           await db.insert(creditWallets).values({ userId, balance: 100, addonBalance: 100 });
           const worldDef = { id: randomUUID(), name: "Audit Cafe", entries: [{ id: "g", role: "greeting", enabled: true, position: 0, content: "Welcome {{user}}. {{persona_backstory}}" }], variables: [], rules: [], components: [], settings: {} } as unknown as WorldDefinition;

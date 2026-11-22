@@ -48,8 +48,10 @@ export async function resolveCopyMaterialForViewer(
   world: CopyableWorld,
   viewerId: string,
   loadHeldMaterial: (worldId: string) => Promise<HeldCopyMaterial | null>,
+  /** An accepted editor collaborator on this world (see working-copy.ts). */
+  viewerIsEditor = false,
 ): Promise<WorldCopyMaterial> {
-  if (!viewerSeesWorkingCopy(world.status, world.creatorId, viewerId)) {
+  if (!viewerSeesWorkingCopy(world.status, world.creatorId, viewerId, viewerIsEditor)) {
     return selectWorldCopyMaterial(world, null);
   }
 

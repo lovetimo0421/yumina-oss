@@ -25,13 +25,15 @@
  * The 画布 pill, the split workspace and the pane headers of the earlier
  * phone shell are gone: they described a desktop that is not here.
  */
+import { CollabBar } from "@/features/collab/collab-bar";
+import { COLLAB_GOTO_SECTION_EVENT } from "@/features/collab/collab-store";
 import { isPlaceholderCardName } from "@/lib/world-templates";
 import { STUDIO_ASK_EVENT, type StudioAskDetail } from "./lib/block-ask";
 import { VariantTranslateBanner } from "@/features/editor/variant-translate-banner";
-import { LANGUAGE_SHORT, currentVariantTrigger, variantRowLabels } from "@/lib/languages";
+import { VariantTabBar } from "@/features/editor/variant-tab-bar";
 import { changeReviewTitle, type ReviewPart } from "./components/change-review";
 import { ChangeReviewBody } from "./components/change-review-view";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "@tanstack/react-router";
 import { importWithChunkRecovery } from "@/lib/stale-chunk-reload";
 import { DOCS_URLS } from "@/lib/docs-urls";
@@ -42,19 +44,15 @@ import {
   ArrowLeft,
   BookOpen,
   Check,
-  ChevronDown,
   Download,
   GraduationCap,
   History,
   LayoutGrid,
-  Loader2,
   MoreVertical,
-  Package,
   Play,
   Redo2,
   SlidersHorizontal,
   Square,
-  Star,
   Undo2,
   Upload,
   X,
@@ -78,6 +76,7 @@ import { ReviewStateControl } from "../editor/review-state-control";
 import { feedback } from "@/lib/feedback";
 import { AudioSection } from "../editor/sections/audio";
 import { SceneImagesSection } from "../editor/sections/scene-images";
+import { BackgroundsSection } from "../editor/sections/backgrounds";
 import { BehaviorsSection } from "../editor/sections/behaviors-section";
 import { EntriesSection } from "../editor/sections/entries";
 import { VariablesSection } from "../editor/sections/variables";
@@ -87,7 +86,6 @@ import {
   AudioPanel,
   SceneImagesPanel,
   BackgroundsPanel,
-  MechanicPacksPanel,
   BundlesPanel,
   CanvasPanel,
   CodeViewPanel,
@@ -110,7 +108,10 @@ import { LEARNING_OPEN_EVENT, LEARNING_PANEL_EVENT } from "./learn/learning-cata
 import { takeRequestedPanel } from "@/lib/studio-entry";
 import { ownsTypingUndo } from "./lib/text-entry-target";
 import { rememberEditorChoice, type EditorChoice } from "@/features/editor/lib/editor-mode";
+import { setCardEditorMode } from "@/features/editor/lib/card-editor-mode";
 import { VisualSurfaceSwitch } from "@/features/editor/visual-surface-switch";
+import { useAuthGuard } from "@/hooks/use-auth-guard";
+import type { GuestStudioExits } from "./studio-shell";
 import { MobileBoard } from "./mobile-board";
 import { PhoneAssistantSheet, SHEET_PEEK_H, type SheetState } from "./phone-assistant-sheet";
 import { AiPresenceLayer } from "./ai-presence";
@@ -144,6 +145,11 @@ type MobileStudioPanelId =
 /** The board is home; these are not pages of their own on a phone: the
  *  assistant is the drawer over the board, a playtest takes the screen. */
 const NOT_A_PAGE = new Set<MobileStudioPanelId>(["board", "ai-chat", "playtest"]);
+// Pages, but not listed under ⋮ → 面板 (each still opens when something links
+// to it): 界面预览 and 预览控件 read as a second 玩家界面 next to the real one,
+// and 资源市场 is the box on the board's toolbar. The desktop's 面板 menu
+// leaves them out the same way.
+const NOT_IN_PICKER = new Set<MobileStudioPanelId>(["canvas", "sidebar", "marketplace"]);
 
 type MobileReviewPayload = {
   title: string;
@@ -170,7 +176,8 @@ const MOBILE_PANEL_COMPONENTS: Record<MobileStudioPanelId, React.FC<IDockviewPan
   audio: AudioPanel,
   "scene-images": SceneImagesPanel,
   backgrounds: BackgroundsPanel,
-  packs: MechanicPacksPanel,
+  // 玩法包 is a shelf of the resource market now; an old door to it opens the market.
+  packs: BundlesPanel,
   canvas: CanvasPanel,
   "frontend": FrontendPage,
   "code-view": CodeViewPanel,
@@ -193,7 +200,7 @@ const MOBILE_PANEL_LABEL_KEYS: Record<MobileStudioPanelId, string> = {
   audio: "studio.panels.audio",
   "scene-images": "studio.panels.sceneImages",
   backgrounds: "studio.panels.backgrounds",
-  packs: "studio.panels.packs",
+  packs: "studio.panels.marketplace",
   canvas: "studio.panels.canvas",
   "frontend": "studio.stage.tabFrontend",
   "code-view": "studio.panels.frontEndCode",
@@ -379,6 +386,15 @@ function MobilePanelRenderer({ panelId }: { panelId: MobileStudioPanelId }) {
   if (panelId === "scene-images") {
     return <SceneImagesSection compact mobileListMode />;
   }
+  if (panelId === "backgrounds") {
+    // List, then one background full-screen: stacked, the list grew with
+    // every picture until the settings under it had no room left.
+    return (
+      <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
+        <BackgroundsSection mobileListMode />
+      </div>
+    );
+  }
 
   const Component = MOBILE_PANEL_COMPONENTS[panelId];
   return <Component {...({} as IDockviewPanelProps)} />;
@@ -403,7 +419,7 @@ function MorePanelsSheet({
     PANEL_MENU_GROUPS.map(group => ({
       labelKey: group.labelKey,
       items: group.items.filter((item): item is typeof item & { id: MobileStudioPanelId } =>
-        isMobileStudioPanelId(item.id) && !NOT_A_PAGE.has(item.id)),
+        isMobileStudioPanelId(item.id) && !NOT_A_PAGE.has(item.id) && !NOT_IN_PICKER.has(item.id)),
     })).filter(group => group.items.length > 0)
   ), []);
 
@@ -558,7 +574,15 @@ function MobileReviewFrame({
   );
 }
 
-export function MobileStudioShell() {
+export function MobileStudioShell({ guest }: { guest?: GuestStudioExits } = {}) {
+  // On a card someone shared with them: publishing needs the creator's leave,
+  // and taking a copy of the card stays the creator's call.
+  const cardAccess = useEditorStore(s => s.access);
+  // An editor the creator let publish may submit updates of a card that is
+  // already live; putting a card out for the first time stays the creator's.
+  const cardStatus = useEditorStore(s => s.worldStatus);
+  const canPublishCard = !cardAccess || cardAccess.role === "owner" || (cardAccess.canPublish && cardStatus === "published");
+  const ownsCard = !cardAccess || cardAccess.role === "owner";
   const { t } = useTranslation("editor");
   const { t: tLearning } = useTranslation("learning");
   const router = useRouter();
@@ -571,15 +595,16 @@ export function MobileStudioShell() {
   const canRedo = useEditorStore(s => s.canRedo);
   const undo = useEditorStore(s => s.undo);
   const redo = useEditorStore(s => s.redo);
-  const variants = useEditorStore(s => s.variants);
-  const variantsLoading = useEditorStore(s => s.variantsLoading);
-  const variantLabel = useEditorStore(s => s.variantLabel);
-  const readOnlyInspect = useEditorStore(s => s.readOnlyInspect);
+  // A guest sees the phone studio the way an inspector does: nothing to change.
+  const readOnlyInspect = useEditorStore(s => s.readOnlyInspect || s.guestMode);
+  const { requireAuth } = useAuthGuard();
   const mode = useStudioStore(s => s.mode);
   const setMode = useStudioStore(s => s.setMode);
   // "board" is home: the canvas under everything. Any other panel is a page
   // standing over it, with a way back.
   const [activePanel, setActivePanel] = useState<MobileStudioPanelId>("board");
+  const boardBack = useRef<(() => boolean) | null>(null);
+  const [boardPageOpen, setBoardPageOpen] = useState(false);
   const [sheet, setSheet] = useState<SheetState>("peek");
   useAgentPresence();
   const [moreOpen, setMoreOpen] = useState(false);
@@ -597,11 +622,13 @@ export function MobileStudioShell() {
     setMoreOpen(false);
     setReviewPayload(null);
     setReviewLoading(false);
+    // The assistant and the playtest need a saved card a guest cannot have yet.
+    if (guest && (panelId === "ai-chat" || panelId === "playtest")) { requireAuth("create worlds"); return; }
     if (panelId === "ai-chat") { setActivePanel("board"); setMode("edit"); setSheet("open"); return; }
     if (panelId === "playtest") { setMode("playtest"); return; }
     setActivePanel(panelId);
     setMode("edit");
-  }, [setMode]);
+  }, [setMode, guest, requireAuth]);
 
   useEffect(() => {
     setMoreOpen(false);
@@ -645,22 +672,6 @@ export function MobileStudioShell() {
     setShowPublishModal(true);
   }, [saveDraft, t]);
 
-  const handleVariantSwitch = useCallback(
-    async (targetWorldId: string) => {
-      if (targetWorldId === serverWorldId || saving) return;
-      const store = useEditorStore.getState();
-      if (store.isDirty) {
-        const saved = await store.saveDraft();
-        if (!saved) return;
-      }
-      router.navigate({
-        to: "/app/studio/$worldId",
-        params: { worldId: targetWorldId },
-      });
-    },
-    [router, saving, serverWorldId],
-  );
-
   useEffect(() => {
     const open = (event: Event) => {
       const { panelId: requested, canvasTarget } = (event as CustomEvent<{ panelId: string; canvasTarget?: string }>).detail;
@@ -669,6 +680,9 @@ export function MobileStudioShell() {
       // so nobody has to guess which row hides the text box.
       const panelId = requested === "blueprint" ? (canvasTarget === "setting" ? "lorebook" : "board") : requested;
       if (!isMobileStudioPanelId(panelId)) return;
+      // Leaving the assistant's lesson: its drawer goes back down, or it
+      // covers the board the next lesson is about.
+      if (panelId !== "ai-chat") setSheet("peek");
       showPanel(panelId);
       if (canvasTarget === "setting") {
         const entry = useEditorStore.getState().worldDraft.entries.find(item => item.role !== "greeting" && !item.presetId);
@@ -677,6 +691,17 @@ export function MobileStudioShell() {
     };
     window.addEventListener(LEARNING_PANEL_EVENT, open);
     return () => window.removeEventListener(LEARNING_PANEL_EVENT, open);
+  }, [showPanel]);
+
+  // A tap on a collaborator's face goes to the part of the card they are in.
+  useEffect(() => {
+    const go = (event: Event) => {
+      const section = (event as CustomEvent<{ section?: string }>).detail?.section;
+      const panelId = section === "entries" ? "lorebook" : section;
+      if (panelId && isMobileStudioPanelId(panelId)) showPanel(panelId);
+    };
+    window.addEventListener(COLLAB_GOTO_SECTION_EVENT, go);
+    return () => window.removeEventListener(COLLAB_GOTO_SECTION_EVENT, go);
   }, [showPanel]);
 
   const openAgentWorkspace = useCallback(() => showPanel("ai-chat"), [showPanel]);
@@ -770,11 +795,12 @@ export function MobileStudioShell() {
   // route, which renders whichever editor this card's mode now says. The
   // choice is remembered first, or /edit would send them straight back here.
   const leaveStudio = (choice: Exclude<EditorChoice, "visual">) => {
+    if (guest) { guest.onLeaveCanvas(); return; }
     if (!serverWorldId) {
       navigateBackSafely(router.history, "/app/library");
       return;
     }
-    if (choice === "simple") setField("editorMode", "simple");
+    if (choice === "simple") setCardEditorMode("simple");
     rememberEditorChoice(serverWorldId, choice);
     void router.navigate({
       to: "/app/worlds/$worldId/edit",
@@ -783,7 +809,13 @@ export function MobileStudioShell() {
   };
   const switchToSimple = () => leaveStudio("simple");
 
+  // Inside a page (an entry, a panel) the arrow steps back to the board, like
+  // the page's own X: a tap meant to close the page used to leave Studio.
+  const inPage = onPage || boardPageOpen;
   const backToLibrary = () => {
+    if (onPage) { setActivePanel("board"); return; }
+    if (boardBack.current?.()) return;
+    if (guest) { guest.onBack(); return; }
     // The library with this card selected, like the desktop canvas's back
     // arrow. The card's own address on the way out, not history-back.
     if (serverWorldId) {
@@ -806,8 +838,8 @@ export function MobileStudioShell() {
             type="button"
             onClick={backToLibrary}
             className="hover-surface inline-flex h-9 w-8 shrink-0 items-center justify-center rounded-xl text-muted-foreground"
-            title={t("studio.backToLibrary")}
-            aria-label={t("studio.backToLibrary")}
+            title={t(inPage ? "studio.mobile.tabCanvas" : "studio.backToLibrary")}
+            aria-label={t(inPage ? "studio.mobile.tabCanvas" : "studio.backToLibrary")}
           >
             <ArrowLeft className="h-4 w-4" />
           </button>
@@ -819,75 +851,13 @@ export function MobileStudioShell() {
             placeholder={t("shell.namePlaceholder", { defaultValue: "Untitled" })}
             readOnly={readOnlyInspect}
             className={cn(
-              "h-9 min-w-0 flex-1 truncate rounded-lg bg-transparent px-1 text-[15px] font-semibold text-foreground placeholder:text-amber-200/55 focus:outline-none",
+              "h-9 min-w-0 flex-1 truncate rounded-lg bg-transparent px-1 text-[15px] font-semibold text-foreground placeholder:text-muted-foreground/55 focus:outline-none",
               isPlaceholderCardName(worldDraft.name) && !readOnlyInspect && "ring-1 ring-amber-400/40",
             )}
           />
-          {variants.length >= 2 && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  className="inline-flex h-8 max-w-[4.5rem] shrink-0 items-center gap-1 rounded-full border border-border/70 px-2 text-[11px] font-medium text-muted-foreground"
-                >
-                  <span className="truncate">
-                    {currentVariantTrigger(variants, serverWorldId, variantLabel, t("studio.variant"))}
-                  </span>
-                  {variantsLoading ? <Loader2 className="h-3 w-3 shrink-0 animate-spin" /> : <ChevronDown className="h-3 w-3 shrink-0" />}
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-56">
-                {variants.map((variant) => {
-                  const isActive = variant.id === serverWorldId;
-                  const sameLangCount = variants.filter((x) => (x.language ?? "") === (variant.language ?? "")).length;
-                  const showStar = variant.isPrimaryVariant && sameLangCount >= 2;
-                  // Show 设为主 for any same-language 副 (discoverable); a draft one
-                  // is muted + guides to publish first.
-                  const canPromote = variant.isPrimaryVariant === false && sameLangCount >= 2;
-                  const promoteReady = canPromote && variant.status === "published";
-                  return (
-                    <DropdownMenuItem
-                      key={variant.id}
-                      onClick={() => handleVariantSwitch(variant.id)}
-                      disabled={isActive || saving}
-                      className={cn("flex items-center gap-2 text-xs", isActive && "bg-primary/10")}
-                    >
-                      <span className="min-w-0 flex-1 truncate">{variantRowLabels(variants).get(variant.id) ?? (variant.variantLabel || variant.name)}</span>
-                      {variant.language && (
-                        <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-bold text-muted-foreground">
-                          {LANGUAGE_SHORT[variant.language] ?? variant.language.toUpperCase()}
-                        </span>
-                      )}
-                      {showStar && <Star className="h-3.5 w-3.5 shrink-0 fill-[#C9A25E] text-[#C9A25E]" aria-label={t("variantBar.primaryBadge", "主")} />}
-                      {/* Only a published version can be promoted. The button
-                          stays visible but disabled, labelled "(publish
-                          first)", so the reason sits on the control. */}
-                      {canPromote && (
-                        <button
-                          type="button"
-                          disabled={!promoteReady}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            void useEditorStore.getState().setPrimary(variant.id);
-                          }}
-                          title={promoteReady ? t("variantBar.setPrimary", "Set as primary") : t("variantBar.setPrimaryDraft", "Set as primary (publish first)")}
-                          className={cn(
-                            "shrink-0 rounded-full p-1 transition-colors",
-                            promoteReady
-                              ? "text-muted-foreground/60 active:bg-[#C9A25E]/15 active:text-[#C9A25E]"
-                              : "cursor-not-allowed text-muted-foreground/30",
-                          )}
-                        >
-                          <Star className="h-3.5 w-3.5" />
-                        </button>
-                      )}
-                      {isActive && <Check className="h-3.5 w-3.5 text-primary" />}
-                    </DropdownMenuItem>
-                  );
-                })}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
+          <VariantTabBar header readOnly={readOnlyInspect} destination="/app/studio/$worldId" />
+          {/* Who else is here, and inviting people. */}
+          <CollabBar compact />
           {/* Studio, on — the same pill as the 完整 editor's, which turns it
               on. Off is the way back to 完整; 简单模式 is in ⋮. */}
           <VisualSurfaceSwitch
@@ -903,7 +873,10 @@ export function MobileStudioShell() {
             type="button"
             data-onboarding="playtest"
             title={t(isPlaytest ? "studio.stopPlay" : "studio.play")}
-            onClick={() => setMode(isPlaytest ? "edit" : "playtest")}
+            onClick={() => {
+              if (guest && !isPlaytest) { requireAuth("create worlds"); return; }
+              setMode(isPlaytest ? "edit" : "playtest");
+            }}
             className={cn(
               "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-colors",
               isPlaytest ? "border-emerald-400/50 bg-emerald-500/15 text-emerald-200" : "border-emerald-500/40 text-emerald-300 active:bg-emerald-500/10",
@@ -917,10 +890,10 @@ export function MobileStudioShell() {
           )}
           {/* Publish + review state in one control (green when live & clean;
               otherwise shows the state + opens a popover with the action). */}
-          {!readOnlyInspect && features.publishing && (
-            <ReviewStateControl onPublish={handlePublishClick} size="sm" disabled={saving || !serverWorldId} />
+          {!readOnlyInspect && canPublishCard && features.publishing && (
+            <ReviewStateControl onPublish={handlePublishClick} size="sm" compact className="max-[480px]:px-2.5" disabled={saving || !serverWorldId} />
           )}
-          {!readOnlyInspect && !features.publishing && (
+          {!readOnlyInspect && ownsCard && !features.publishing && (
             <ExportCardMenu worldId={serverWorldId} size="sm" disabled={saving || !serverWorldId} />
           )}
           <DropdownMenu>
@@ -976,19 +949,19 @@ export function MobileStudioShell() {
               </DropdownMenuItem>
               {features.bundles && (
                 <>
+                  {/* 资源市场 is the box on the board's toolbar; here it was a second door. */}
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => showPanel("marketplace")} className="min-h-11 gap-2 text-xs">
-                    <Package className="h-3.5 w-3.5 text-muted-foreground" />
-                    {t("studio.panels.marketplace")}
-                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => setShowImportModal(true)} className="min-h-11 gap-2 text-xs">
                     <Download className="h-3.5 w-3.5 text-muted-foreground" />
                     {t("studio.importBundle")}
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setShowBundleCreator(true)} className="min-h-11 gap-2 text-xs">
-                    <Upload className="h-3.5 w-3.5 text-muted-foreground" />
-                    {t("studio.exportBundle")}
-                  </DropdownMenuItem>
+                  {/* A resource pack is the author's to hand out. */}
+                  {ownsCard && (
+                    <DropdownMenuItem onClick={() => setShowBundleCreator(true)} className="min-h-11 gap-2 text-xs">
+                      <Upload className="h-3.5 w-3.5 text-muted-foreground" />
+                      {t("studio.exportBundle")}
+                    </DropdownMenuItem>
+                  )}
                 </>
               )}
               {serverWorldId && !readOnlyInspect && (
@@ -1010,7 +983,7 @@ export function MobileStudioShell() {
       <main className="relative min-h-0 flex-1 overflow-hidden">
         {/* The board, always mounted: every page below stands over it, so
             coming back finds it where it was. */}
-        <MobileBoard bottomInset={SHEET_PEEK_H} />
+        <MobileBoard bottomInset={guest ? 0 : SHEET_PEEK_H} backRef={boardBack} onPageChange={setBoardPageOpen} />
 
         {onPage && (
           <section className="absolute inset-0 z-30 flex min-h-0 flex-col bg-background" data-phone-panel-page={activePanel}>
@@ -1048,7 +1021,7 @@ export function MobileStudioShell() {
           </div>
         )}
 
-        <PhoneAssistantSheet state={sheet} onState={setSheet} hidden={onPage || reviewing || (isPlaytest && !aiPlaying)}>
+        <PhoneAssistantSheet state={sheet} onState={setSheet} hidden={!!guest || onPage || reviewing || (isPlaytest && !aiPlaying)}>
           <AiChatPanel {...({} as IDockviewPanelProps)} />
         </PhoneAssistantSheet>
       </main>

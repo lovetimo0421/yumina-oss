@@ -1,4 +1,5 @@
 import { IMAGE_MODEL_CAPABILITIES } from "./image-models.js";
+import { MODEL_THINKING, type ModelThinking } from "./model-thinking.js";
 // ─── Unified Model Registry ─────────────────────────────────────────
 // Single source of truth for all Yumina models. Both server (agent.ts
 // allowlist) and client (play/studio pickers) import from here.
@@ -9,9 +10,11 @@ export type CostTier = "budget" | "standard" | "premium" | "ultra";
 export type ModelScope = "play" | "studio" | "both";
 
 /** Previously selectable official models with no working provider. BYOK is independent. */
-export const RETIRED_PLAY_MODEL_IDS = new Set(["nousresearch/hermes-4-70b", "mistralai/mistral-large-2512", "anthropic/claude-3-haiku"]);
+export const RETIRED_PLAY_MODEL_IDS = new Set(["nousresearch/hermes-4-70b", "mistralai/mistral-large-2512", "anthropic/claude-3-haiku", "nousresearch/hermes-3-llama-3.1-405b", "sao10k/l3.3-euryale-70b"]);
 // Gemini 2.5 and MiMo V2.5 left the list on 2026-10-18 through DEPRECATED_MODEL_REDIRECTS
 // (server lib/llm/model-redirects.ts), which moves saved selections to their successors.
+// Hermes 3 405B and Euryale L3.3 70B left OpenRouter in November 2026 the same way. Kimi K2.5
+// stays until OpenRouter shuts it down (SCHEDULED_MODEL_REDIRECTS in model-redirects.ts).
 
 export interface TimeBasedAvgCostMushies {
   peak: number;
@@ -20,6 +23,8 @@ export interface TimeBasedAvgCostMushies {
 
 export interface YuminaModel {
   supportsImages?: boolean;
+  /** Whether it thinks and whether that can be switched off (MODEL_THINKING). */
+  thinking?: ModelThinking;
   /** Verified catalog limit used before the live provider catalog warms. */
   contextWindow?: number;
   /** Date added to the Play catalog, for newest-first sorting. */
@@ -51,16 +56,20 @@ export interface YuminaModel {
 // Lunaris uses 6,000 input tokens to fit its 8K window. These are comparison
 // estimates, not measured averages; actual billing uses provider-reported cost.
 export const YUMINA_MODELS: YuminaModel[] = [
+  {"id":"google/gemini-4-hydrogen","descKey":"aiProvider.models.google_gemini_4_hydrogen","name":"Gemini 4 Hydrogen","scope":"both","tier":"premium","minPlan":"go","avgCostMushies":44.6,"inputPrice":1.5,"outputPrice":7.5,"contextWindow":1048576,"addedAt":"2026-11-12","recommendationRank":80},
   {"id":"openrouter/free","descKey":"aiProvider.models.yuminaFree","name":"Yumina Free","scope":"play","tier":"budget","minPlan":"free","avgCostMushies":0,"inputPrice":0,"outputPrice":0,"contextWindow":200000,"recommendationRank":50},
-  {"id":"deepseek/deepseek-v4-flash","descKey":"aiProvider.models.deepseekV4Flash","name":"DeepSeek V4 Flash","scope":"play","tier":"budget","minPlan":"free","avgCostMushies":1.4,"inputPrice":0.04844,"outputPrice":0.09688,"contextWindow":1048576,"recommendationRank":52},
+  {"id":"deepseek/deepseek-v4-flash","descKey":"aiProvider.models.deepseekV4Flash","name":"DeepSeek V4 Flash","scope":"play","tier":"budget","minPlan":"free","avgCostMushies":2.5,"inputPrice":0.091,"outputPrice":0.182,"contextWindow":1048576,"recommendationRank":52},
   {"id":"deepseek/deepseek-v3.2","descKey":"aiProvider.models.deepseek","name":"DeepSeek V3.2","scope":"play","tier":"budget","minPlan":"free","avgCostMushies":7.3,"inputPrice":0.269,"outputPrice":0.4,"contextWindow":163840,"recommendationRank":53},
   {"id":"qwen/qwen3-vl-235b-a22b-instruct","descKey":"aiProvider.models.qwen3Vl","name":"Qwen3 VL 235B","scope":"play","tier":"budget","minPlan":"free","avgCostMushies":7,"inputPrice":0.21,"outputPrice":1.9,"contextWindow":262144,"recommendationRank":54},
-  {"id":"mistralai/mistral-nemo","descKey":"aiProvider.models.mistralNemo","name":"Mistral Nemo","scope":"play","tier":"budget","minPlan":"free","avgCostMushies":0.6,"inputPrice":0.019,"outputPrice":0.03,"contextWindow":131072,"recommendationRank":56},
-  {"id":"mistralai/mistral-small-3.2-24b-instruct","descKey":"aiProvider.models.mistralSmall32","name":"Mistral Small 3.2","scope":"play","tier":"budget","minPlan":"free","avgCostMushies":2.7,"inputPrice":0.09375,"outputPrice":0.25,"contextWindow":256000,"recommendationRank":57},
+  {"id":"mistralai/mistral-nemo","descKey":"aiProvider.models.mistralNemo","name":"Mistral Nemo","scope":"play","tier":"budget","minPlan":"free","avgCostMushies":0.8,"inputPrice":0.029,"outputPrice":0.03,"contextWindow":131072,"recommendationRank":56},
+  {"id":"mistralai/mistral-small-3.2-24b-instruct","descKey":"aiProvider.models.mistralSmall32","name":"Mistral Small 3.2","scope":"play","tier":"budget","minPlan":"free","avgCostMushies":2.1,"inputPrice":0.075,"outputPrice":0.2,"contextWindow":256000,"recommendationRank":57},
   {"id":"google/gemini-3.1-flash-lite","descKey":"aiProvider.models.gemini31FlashLite","name":"Gemini 3.1 Flash Lite","scope":"play","tier":"standard","minPlan":"free","avgCostMushies":7.7,"inputPrice":0.25,"outputPrice":1.5,"contextWindow":1048576,"recommendationRank":59},
   {"id":"google/gemini-3.5-flash","descKey":"aiProvider.models.gemini35Flash","name":"Gemini 3.5 Flash","scope":"play","tier":"standard","minPlan":"free","avgCostMushies":45.9,"inputPrice":1.5,"outputPrice":9,"contextWindow":1048576,"recommendationRank":60},
-  {"id":"z-ai/glm-5.3-flash","descKey":"aiProvider.models.glm53Flash","name":"GLM 5.3 Flash","scope":"play","tier":"budget","minPlan":"free","avgCostMushies":2.6,"inputPrice":0.09,"outputPrice":0.3,"contextWindow":1310720,"recommendationRank":62},
+  {"id":"z-ai/glm-5.3-flash","descKey":"aiProvider.models.glm53Flash","name":"GLM 5.3 Flash","scope":"play","tier":"budget","minPlan":"free","avgCostMushies":1,"inputPrice":0.0335,"outputPrice":0.083,"contextWindow":1310720,"recommendationRank":62},
   {"id":"tencent/hy3","descKey":"aiProvider.models.tencentHy3","name":"Hunyuan 3","scope":"play","tier":"budget","minPlan":"free","avgCostMushies":3.9,"avgCostMushiesByPeriod":{"peak":3.9,"offPeak":2.4},"inputPrice":0.132,"outputPrice":0.528,"contextWindow":262144,"recommendationRank":63},
+  {"id":"tencent/hy4","descKey":"aiProvider.models.tencentHy4","name":"Hunyuan 4","scope":"play","tier":"standard","minPlan":"free","avgCostMushies":11.7,"inputPrice":0.417,"outputPrice":1.2505,"contextWindow":1048576,"addedAt":"2026-11-12","recommendationRank":84},
+  {"id":"tencent/hy4-flash","descKey":"aiProvider.models.tencentHy4Flash","name":"Hunyuan 4 Flash","scope":"play","tier":"budget","minPlan":"free","avgCostMushies":2,"inputPrice":0.07,"outputPrice":0.281,"contextWindow":1048576,"addedAt":"2026-11-16","recommendationRank":86},
+  {"id":"thinkingmachines/inkling-2-small","descKey":"aiProvider.models.inkling2Small","name":"Inkling 2 Small","scope":"play","tier":"standard","minPlan":"free","avgCostMushies":8.5,"inputPrice":0.3,"outputPrice":1,"contextWindow":1048576,"addedAt":"2026-11-14","recommendationRank":85},
   {"id":"meituan/longcat-2.0","descKey":"aiProvider.models.longcat2","name":"LongCat 2.0","scope":"play","tier":"standard","minPlan":"free","avgCostMushies":8.7,"inputPrice":0.3,"outputPrice":1.2,"contextWindow":1048756,"recommendationRank":64},
   {"id":"google/gemini-3.5-flash-lite","descKey":"aiProvider.models.gemini35FlashLite","name":"Gemini 3.5 Flash Lite","scope":"play","tier":"standard","minPlan":"free","avgCostMushies":9.8,"inputPrice":0.3,"outputPrice":2.5,"contextWindow":1048576,"recommendationRank":65},
   {"id":"stepfun/step-3.7-flash","descKey":"aiProvider.models.step37Flash","name":"Step 3.7 Flash","scope":"play","tier":"standard","minPlan":"free","avgCostMushies":6.1,"inputPrice":0.2,"outputPrice":1.15,"contextWindow":262144,"recommendationRank":66},
@@ -69,7 +78,7 @@ export const YUMINA_MODELS: YuminaModel[] = [
   {"id":"openai/gpt-5.4-mini","descKey":"aiProvider.models.gpt54Mini","name":"GPT-5.4 Mini","scope":"play","tier":"premium","minPlan":"go","avgCostMushies":23,"inputPrice":0.75,"outputPrice":4.5,"contextWindow":400000,"recommendationRank":70},
   {"id":"google/gemini-3.8-flash","descKey":"aiProvider.models.gemini38Flash","name":"Gemini 3.8 Flash","scope":"play","tier":"premium","minPlan":"go","avgCostMushies":22.4,"inputPrice":0.75,"outputPrice":3.75,"contextWindow":1048576,"recommendationRank":71},
   {"id":"moonshotai/kimi-k2-0905","descKey":"aiProvider.models.kimiK2","name":"Kimi K2","scope":"both","tier":"standard","minPlan":"free","avgCostMushies":17.5,"inputPrice":0.6,"outputPrice":2.5,"contextWindow":262144,"recommendationRank":72},
-  {"id":"z-ai/glm-4.6","descKey":"aiProvider.models.glm46","name":"GLM 4.6","scope":"both","tier":"standard","minPlan":"free","avgCostMushies":12.5,"inputPrice":0.43,"outputPrice":1.75,"contextWindow":204800,"recommendationRank":73},
+  {"id":"z-ai/glm-4.6","descKey":"aiProvider.models.glm46","name":"GLM 4.6","scope":"both","tier":"standard","minPlan":"free","avgCostMushies":14.5,"inputPrice":0.5,"outputPrice":2,"contextWindow":204800,"recommendationRank":73},
   {"id":"deepseek/deepseek-v4-pro","descKey":"aiProvider.models.deepseekV4Pro","name":"DeepSeek V4 Pro","scope":"both","tier":"standard","minPlan":"free","avgCostMushies":17.4,"inputPrice":0.635274,"outputPrice":1.270548,"contextWindow":1048576,"recommendationRank":74},
   {"id":"google/gemini-3-flash-preview","descKey":"aiProvider.models.gemini3Flash","name":"Gemini 3 Flash","scope":"both","tier":"standard","minPlan":"free","avgCostMushies":15.3,"inputPrice":0.5,"outputPrice":3,"contextWindow":1048576,"recommendationRank":75},
   {"id":"anthropic/claude-haiku-4.5","descKey":"aiProvider.models.claudeHaiku","name":"Claude Haiku 4.5","scope":"both","tier":"premium","minPlan":"go","avgCostMushies":29.8,"inputPrice":1,"outputPrice":5,"contextWindow":200000,"recommendationRank":76},
@@ -82,28 +91,26 @@ export const YUMINA_MODELS: YuminaModel[] = [
   {"id":"anthropic/claude-opus-5","descKey":"aiProvider.models.claudeOpus5","name":"Claude Opus 5","scope":"both","tier":"ultra","minPlan":"plus","avgCostMushies":148.8,"inputPrice":5,"outputPrice":25,"contextWindow":1000000,"recommendationRank":83},
   {"id":"openai/gpt-5.6-luna","descKey":"aiProvider.models.gpt56Luna","name":"GPT-5.6 Luna","scope":"both","tier":"budget","minPlan":"free","avgCostMushies":6.2,"inputPrice":0.2,"outputPrice":1.2,"contextWindow":1050000,"recommendationRank":84},
   {"id":"minimax/minimax-m3","descKey":"aiProvider.models.minimaxM3","name":"MiniMax M3","scope":"both","tier":"standard","minPlan":"free","avgCostMushies":8.7,"inputPrice":0.3,"outputPrice":1.2,"contextWindow":1048576,"recommendationRank":85},
-  {"id":"moonshotai/kimi-k2.6","descKey":"aiProvider.models.kimiK26","name":"Kimi K2.6","scope":"both","tier":"premium","minPlan":"go","avgCostMushies":27.7,"inputPrice":0.95,"outputPrice":4,"contextWindow":262144,"recommendationRank":86},
-  {"id":"openai/gpt-5.6-sol","descKey":"aiProvider.models.gpt56Sol","name":"GPT-5.6 Sol","scope":"both","tier":"ultra","minPlan":"plus","avgCostMushies":59.6,"inputPrice":2,"outputPrice":10,"contextWindow":1050000,"recommendationRank":87},
-  {"id":"z-ai/glm-5.2","descKey":"aiProvider.models.z_ai_glm_5_2","name":"GLM 5.2","scope":"play","tier":"standard","minPlan":"free","avgCostMushies":15.7,"inputPrice":0.5544,"outputPrice":1.7424,"contextWindow":1048576,"addedAt":"2026-09-19","recommendationRank":1},
+  {"id":"moonshotai/kimi-k2.5","descKey":"aiProvider.models.moonshotai_kimi_k2_5","name":"Kimi K2.5","scope":"play","tier":"standard","minPlan":"free","avgCostMushies":13.4,"inputPrice":0.45,"outputPrice":2.25,"contextWindow":262144,"addedAt":"2026-09-19","recommendationRank":17},
+  {"id":"moonshotai/kimi-k2.6","descKey":"aiProvider.models.kimiK26","name":"Kimi K2.6","scope":"both","tier":"standard","minPlan":"free","avgCostMushies":19.5,"inputPrice":0.65,"outputPrice":3.41,"contextWindow":262144,"recommendationRank":86},
+  {"id":"openai/gpt-5.6-sol","descKey":"aiProvider.models.gpt56Sol","name":"GPT-5.6 Sol","scope":"both","tier":"ultra","minPlan":"plus","avgCostMushies":119.1,"inputPrice":4,"outputPrice":20,"contextWindow":1050000,"recommendationRank":87},
+  {"id":"z-ai/glm-5.2","descKey":"aiProvider.models.z_ai_glm_5_2","name":"GLM 5.2","scope":"play","tier":"standard","minPlan":"free","avgCostMushies":5.9,"inputPrice":0.006,"outputPrice":6.8,"contextWindow":1048576,"addedAt":"2026-09-19","recommendationRank":1},
   {"id":"nvidia/nemotron-3-ultra-550b-a55b","descKey":"aiProvider.models.nvidia_nemotron_3_ultra_550b_a55b","name":"Nemotron 3 Ultra","scope":"play","tier":"standard","minPlan":"free","avgCostMushies":17.4,"inputPrice":0.6,"outputPrice":2.4,"contextWindow":262144,"addedAt":"2026-09-19","recommendationRank":5},
-  {"id":"google/gemma-4-31b-it","descKey":"aiProvider.models.google_gemma_4_31b_it","name":"Gemma 4 31B","scope":"play","tier":"budget","minPlan":"free","avgCostMushies":2.6,"inputPrice":0.09,"outputPrice":0.34,"contextWindow":262144,"addedAt":"2026-09-19","recommendationRank":7},
+  {"id":"google/gemma-4-31b-it","descKey":"aiProvider.models.google_gemma_4_31b_it","name":"Gemma 4 31B","scope":"play","tier":"budget","minPlan":"free","avgCostMushies":5.5,"inputPrice":0.2,"outputPrice":0.4,"contextWindow":262144,"addedAt":"2026-09-19","recommendationRank":7},
   {"id":"deepseek/deepseek-v4.1-flash","descKey":"aiProvider.models.deepseek_deepseek_v4_1_flash","name":"DeepSeek V4.1 Flash","scope":"play","tier":"budget","minPlan":"free","avgCostMushies":4.4,"avgCostMushiesByPeriod":{"peak":8.7,"offPeak":4.4},"inputPrice":0.15,"outputPrice":0.6,"contextWindow":1048576,"addedAt":"2026-09-19","recommendationRank":8},
   {"id":"aion-labs/aion-2.0","descKey":"aiProvider.models.aion_labs_aion_2_0","name":"Aion 2","scope":"play","tier":"standard","minPlan":"free","avgCostMushies":21.8,"inputPrice":0.8,"outputPrice":1.6,"contextWindow":131072,"addedAt":"2026-09-19","recommendationRank":9},
-  {"id":"nousresearch/hermes-3-llama-3.1-405b","descKey":"aiProvider.models.nousresearch_hermes_3_llama_3_1_405b","name":"Hermes 3 405B","scope":"play","tier":"standard","minPlan":"free","avgCostMushies":26.4,"inputPrice":1,"outputPrice":1,"contextWindow":131072,"addedAt":"2026-09-19","recommendationRank":11},
   {"id":"aion-labs/aion-3.0-mini","descKey":"aiProvider.models.aion_labs_aion_3_0_mini","name":"Aion 3 Mini","scope":"play","tier":"standard","minPlan":"free","avgCostMushies":19.1,"inputPrice":0.7,"outputPrice":1.4,"contextWindow":131072,"addedAt":"2026-09-19","recommendationRank":12},
-  {"id":"sao10k/l3.3-euryale-70b","descKey":"aiProvider.models.sao10k_l3_3_euryale_70b","name":"Euryale L3.3 70B","scope":"play","tier":"standard","minPlan":"free","avgCostMushies":17.3,"inputPrice":0.65,"outputPrice":0.75,"contextWindow":131072,"addedAt":"2026-09-19","recommendationRank":13},
   {"id":"sao10k/l3-lunaris-8b","descKey":"aiProvider.models.sao10k_l3_lunaris_8b","name":"Lunaris 8B","scope":"play","tier":"budget","minPlan":"free","avgCostMushies":0.4,"inputPrice":0.04,"outputPrice":0.05,"contextWindow":8192,"addedAt":"2026-09-19","recommendationRank":14},
   {"id":"thedrummer/unslopnemo-12b","descKey":"aiProvider.models.thedrummer_unslopnemo_12b","name":"UnslopNemo 12B","scope":"play","tier":"standard","minPlan":"free","avgCostMushies":10.6,"inputPrice":0.4,"outputPrice":0.4,"contextWindow":1024000,"addedAt":"2026-09-19","recommendationRank":15},
-  {"id":"z-ai/glm-4.7","descKey":"aiProvider.models.z_ai_glm_4_7","name":"GLM 4.7","scope":"play","tier":"standard","minPlan":"free","avgCostMushies":11.7,"inputPrice":0.4,"outputPrice":1.75,"contextWindow":204800,"addedAt":"2026-09-19","recommendationRank":16},
-  {"id":"moonshotai/kimi-k2.5","descKey":"aiProvider.models.moonshotai_kimi_k2_5","name":"Kimi K2.5","scope":"play","tier":"standard","minPlan":"free","avgCostMushies":13.4,"inputPrice":0.45,"outputPrice":2.25,"contextWindow":262144,"addedAt":"2026-09-19","recommendationRank":17},
-  {"id":"deepseek/deepseek-chat-v3-0324","descKey":"aiProvider.models.deepseek_deepseek_chat_v3_0324","name":"DeepSeek V3 0324","scope":"play","tier":"standard","minPlan":"free","avgCostMushies":7.3,"inputPrice":0.25,"outputPrice":1,"contextWindow":163840,"addedAt":"2026-09-19","recommendationRank":18},
+  {"id":"z-ai/glm-4.7","descKey":"aiProvider.models.z_ai_glm_4_7","name":"GLM 4.7","scope":"play","tier":"standard","minPlan":"free","avgCostMushies":17.2,"inputPrice":0.6,"outputPrice":2.2,"contextWindow":204800,"addedAt":"2026-09-19","recommendationRank":16},
+  {"id":"deepseek/deepseek-chat-v3-0324","descKey":"aiProvider.models.deepseek_deepseek_chat_v3_0324","name":"DeepSeek V3 0324","scope":"play","tier":"standard","minPlan":"free","avgCostMushies":8.4,"inputPrice":0.29,"outputPrice":1.14,"contextWindow":163840,"addedAt":"2026-09-19","recommendationRank":18},
   {"id":"qwen/qwen3-32b","descKey":"aiProvider.models.qwen_qwen3_32b","name":"Qwen3 32B","scope":"play","tier":"budget","minPlan":"free","avgCostMushies":2.3,"inputPrice":0.08,"outputPrice":0.28,"contextWindow":131072,"addedAt":"2026-09-19","recommendationRank":19},
   {"id":"deepseek/deepseek-v4-pro-0813","descKey":"aiProvider.models.deepseek_deepseek_v4_pro_0813","name":"DeepSeek V4 Pro 0813","scope":"play","tier":"standard","minPlan":"free","avgCostMushies":16.3,"inputPrice":0.57816,"outputPrice":1.73448,"contextWindow":1048576,"addedAt":"2026-09-19","recommendationRank":24},
   {"id":"aion-labs/aion-3.0","descKey":"aiProvider.models.aion_labs_aion_3_0","name":"Aion 3","scope":"play","tier":"premium","minPlan":"go","avgCostMushies":81.8,"inputPrice":3,"outputPrice":6,"contextWindow":131072,"addedAt":"2026-09-19","recommendationRank":-8},
   {"id":"x-ai/grok-4.6","descKey":"aiProvider.models.x_ai_grok_4_6","name":"Grok 4.6","scope":"play","tier":"premium","minPlan":"go","avgCostMushies":56.2,"inputPrice":2,"outputPrice":6,"contextWindow":500000,"addedAt":"2026-09-19","recommendationRank":-7},
   {"id":"openai/gpt-5.6-terra","descKey":"aiProvider.models.openai_gpt_5_6_terra","name":"GPT-5.6 Terra","scope":"play","tier":"premium","minPlan":"go","avgCostMushies":61.2,"inputPrice":2,"outputPrice":12,"contextWindow":1050000,"addedAt":"2026-09-19","recommendationRank":-6},
   {"id":"qwen/qwen3.8-max-0902","descKey":"aiProvider.models.qwen_qwen3_8_max_0902","name":"Qwen3.8 Max (0902)","scope":"both","tier":"premium","minPlan":"go","avgCostMushies":56.2,"inputPrice":2,"outputPrice":6,"contextWindow":1000000,"addedAt":"2026-09-19","recommendationRank":-4},
-  {"id":"moonshotai/kimi-k3","descKey":"aiProvider.models.moonshotai_kimi_k3","name":"Kimi K3","scope":"both","tier":"ultra","minPlan":"plus","avgCostMushies":62.7,"inputPrice":2.0695,"outputPrice":11.5892,"contextWindow":1048576,"addedAt":"2026-09-19","recommendationRank":112},
+  {"id":"moonshotai/kimi-k3","descKey":"aiProvider.models.moonshotai_kimi_k3","name":"Kimi K3","scope":"both","tier":"ultra","minPlan":"plus","avgCostMushies":18.4,"inputPrice":0.192,"outputPrice":16,"contextWindow":1048576,"addedAt":"2026-09-19","recommendationRank":112},
   {"id":"anthropic/claude-fable-5.1","descKey":"aiProvider.models.anthropic_claude_fable_5_1","name":"Claude Fable 5.1","scope":"play","tier":"ultra","minPlan":"plus","avgCostMushies":297.6,"inputPrice":10,"outputPrice":50,"contextWindow":1000000,"addedAt":"2026-09-19","recommendationRank":113},
   {"id":"anthropic/claude-opus-4.8","descKey":"aiProvider.models.anthropic_claude_opus_4_8","name":"Claude Opus 4.8","scope":"play","tier":"ultra","minPlan":"plus","avgCostMushies":148.8,"inputPrice":5,"outputPrice":25,"contextWindow":1000000,"addedAt":"2026-09-19","recommendationRank":114},
   {"id":"openai/gpt-5.5","descKey":"aiProvider.models.openai_gpt_5_5","name":"GPT-5.5","scope":"play","tier":"ultra","minPlan":"plus","avgCostMushies":153,"inputPrice":5,"outputPrice":30,"contextWindow":1050000,"addedAt":"2026-09-19","recommendationRank":115},
@@ -112,6 +119,7 @@ export const YUMINA_MODELS: YuminaModel[] = [
   {"id":"openai/gpt-4.1","descKey":"aiProvider.models.openai_gpt_4_1","name":"GPT-4.1","scope":"play","tier":"premium","minPlan":"go","avgCostMushies":57.9,"inputPrice":2,"outputPrice":8,"contextWindow":1047576,"addedAt":"2026-09-19","recommendationRank":-11},
   {"id":"anthropic/claude-opus-4.5","descKey":"aiProvider.models.anthropic_claude_opus_4_5","name":"Claude Opus 4.5","scope":"play","tier":"ultra","minPlan":"plus","avgCostMushies":148.8,"inputPrice":5,"outputPrice":25,"contextWindow":200000,"addedAt":"2026-09-19","recommendationRank":166},
   {"id":"google/gemini-4-argon","descKey":"aiProvider.models.google_gemini_4_argon","name":"Gemini 4 Argon","scope":"both","tier":"premium","minPlan":"go","avgCostMushies":59.6,"inputPrice":2,"outputPrice":10,"contextWindow":1048576,"addedAt":"2026-10-13","recommendationRank":79},
+  {"id":"google/gemini-4-carbon","descKey":"aiProvider.models.google_gemini_4_carbon","name":"Gemini 4 Carbon","scope":"both","tier":"premium","minPlan":"go","avgCostMushies":59.6,"inputPrice":2,"outputPrice":10,"contextWindow":1048576,"addedAt":"2026-11-10","recommendationRank":80},
   {"id":"anthropic/claude-sonnet-5.5","descKey":"aiProvider.models.anthropic_claude_sonnet_5_5","name":"Claude Sonnet 5.5","scope":"both","tier":"ultra","minPlan":"plus","avgCostMushies":59.6,"inputPrice":2,"outputPrice":10,"contextWindow":1000000,"addedAt":"2026-10-13","recommendationRank":81},
   {"id":"openai/gpt-6.1-sol","descKey":"aiProvider.models.openai_gpt_6_1_sol","name":"GPT-6.1 Sol","scope":"both","tier":"ultra","minPlan":"plus","avgCostMushies":59.6,"inputPrice":2,"outputPrice":10,"contextWindow":1050000,"addedAt":"2026-10-13","recommendationRank":87},
   {"id":"anthropic/claude-opus-4.6","descKey":"aiProvider.models.anthropic_claude_opus_4_6","name":"Claude Opus 4.6","scope":"play","tier":"ultra","minPlan":"plus","avgCostMushies":148.8,"inputPrice":5,"outputPrice":25,"contextWindow":1000000,"addedAt":"2026-10-13","recommendationRank":115},
@@ -127,6 +135,17 @@ export const YUMINA_MODELS: YuminaModel[] = [
   {"id":"xiaomi/mimo-v2.6-pro","descKey":"aiProvider.models.xiaomi_mimo_v2_6_pro","name":"MiMo V2.6 Pro","scope":"play","tier":"standard","minPlan":"free","avgCostMushies":11.9,"inputPrice":0.435,"outputPrice":0.87,"contextWindow":1050000,"addedAt":"2026-10-13","recommendationRank":2},
   {"id":"z-ai/glm-5.3","descKey":"aiProvider.models.z_ai_glm_5_3","name":"GLM 5.3","scope":"both","tier":"budget","minPlan":"free","avgCostMushies":3.2,"inputPrice":0.079,"outputPrice":1.4,"contextWindow":1048576,"addedAt":"2026-10-18","recommendationRank":3},
   {"id":"deepseek/deepseek-v4.1-flash-1017","descKey":"aiProvider.models.deepseek_deepseek_v4_1_flash_1017","name":"DeepSeek V4.1 Flash 1017","scope":"both","tier":"budget","minPlan":"free","avgCostMushies":4.4,"inputPrice":0.15,"outputPrice":0.6,"contextWindow":1048576,"addedAt":"2026-10-18","recommendationRank":8},
+  {"id":"bytedance-seed/seed-2-1-turbo","descKey":"aiProvider.models.bytedance_seed_seed_2_1_turbo","name":"Doubao Seed 2.1 Turbo","scope":"play","tier":"standard","minPlan":"free","avgCostMushies":14.9,"inputPrice":0.5,"outputPrice":2.5,"contextWindow":262144,"addedAt":"2026-10-24","recommendationRank":9},
+  {"id":"moonshotai/kimi-k3.1-pro","descKey":"aiProvider.models.moonshotai_kimi_k3_1_pro","name":"Kimi K3.1 Pro","scope":"both","tier":"ultra","minPlan":"plus","avgCostMushies":59.6,"inputPrice":2,"outputPrice":10,"contextWindow":1048576,"addedAt":"2026-11-07","recommendationRank":88},
+  {"id":"anthropic/claude-fable-5.2","descKey":"aiProvider.models.anthropic_claude_fable_5_2","name":"Claude Fable 5.2","scope":"play","tier":"ultra","minPlan":"plus","avgCostMushies":238.1,"inputPrice":8,"outputPrice":40,"contextWindow":1000000,"addedAt":"2026-11-09","recommendationRank":113},
+  {"id":"openai/gpt-6.1-terra","descKey":"aiProvider.models.openai_gpt_6_1_terra","name":"GPT-6.1 Terra","scope":"both","tier":"premium","minPlan":"go","avgCostMushies":29.8,"inputPrice":1,"outputPrice":5,"contextWindow":1050000,"addedAt":"2026-11-09","recommendationRank":-6},
+  {"id":"openai/gpt-6.2-sol","descKey":"aiProvider.models.openai_gpt_6_2_sol","name":"GPT-6.2 Sol","scope":"both","tier":"ultra","minPlan":"plus","avgCostMushies":59.6,"inputPrice":2,"outputPrice":10,"contextWindow":1050000,"addedAt":"2026-11-18","recommendationRank":87},
+  {"id":"openai/gpt-6.2-astra","descKey":"aiProvider.models.openai_gpt_6_2_astra","name":"GPT-6.2 Astra","scope":"both","tier":"ultra","minPlan":"plus","avgCostMushies":238.1,"inputPrice":8,"outputPrice":40,"contextWindow":1050000,"addedAt":"2026-11-18","recommendationRank":116},
+  {"id":"google/gemini-4-neon","descKey":"aiProvider.models.google_gemini_4_neon","name":"Gemini 4 Neon","scope":"play","tier":"ultra","minPlan":"plus","avgCostMushies":89.3,"inputPrice":3,"outputPrice":15,"contextWindow":1048576,"addedAt":"2026-11-20","recommendationRank":80},
+  {"id":"aion-labs/aion-3.5","descKey":"aiProvider.models.aion_labs_aion_3_5","name":"Aion 3.5","scope":"play","tier":"premium","minPlan":"go","avgCostMushies":81.8,"inputPrice":3,"outputPrice":6,"contextWindow":262144,"addedAt":"2026-11-09","recommendationRank":-8},
+  {"id":"minimax/minimax-m3.1-flash","descKey":"aiProvider.models.minimax_minimax_m3_1_flash","name":"MiniMax M3.1 Flash","scope":"both","tier":"budget","minPlan":"free","avgCostMushies":4.3,"inputPrice":0.15,"outputPrice":0.6,"contextWindow":1048576,"addedAt":"2026-11-09","recommendationRank":85},
+  {"id":"nousresearch/hermes-4-405b","descKey":"aiProvider.models.nousresearch_hermes_4_405b","name":"Hermes 4 405B","scope":"play","tier":"standard","minPlan":"free","avgCostMushies":28.1,"inputPrice":1,"outputPrice":3,"contextWindow":131072,"addedAt":"2026-11-09","recommendationRank":11},
+  {"id":"thedrummer/cydonia-24b-v4.1","descKey":"aiProvider.models.thedrummer_cydonia_24b_v4_1","name":"Cydonia 24B v4.1","scope":"play","tier":"budget","minPlan":"free","avgCostMushies":8.1,"inputPrice":0.3,"outputPrice":0.5,"contextWindow":131072,"addedAt":"2026-11-09","recommendationRank":15},
   {"id":"openai/gpt-5.1-codex-mini","name":"GPT-5.1 Codex Mini","scope":"studio","inputPrice":0.25,"outputPrice":2},
   {"id":"openai/gpt-5.3-codex","name":"GPT-5.3 Codex","scope":"studio","inputPrice":1.75,"outputPrice":14},
   {"id":"qwen/qwen3.7-max","name":"Qwen 3.7 Max","scope":"studio","inputPrice":2.5,"outputPrice":7.5},
@@ -151,7 +170,7 @@ export interface StudioModel extends YuminaModel {
 // the order, so registry entries can be appended in any order above.
 
 export const PLAY_MODELS: PlayModel[] = (YUMINA_MODELS.filter((m) => m.scope === "play" || m.scope === "both") as PlayModel[])
-  .map(m => ({ ...m, supportsImages: IMAGE_MODEL_CAPABILITIES[m.id] }))
+  .map(m => ({ ...m, supportsImages: IMAGE_MODEL_CAPABILITIES[m.id], thinking: MODEL_THINKING[m.id] }))
   .sort((a, b) => (a.avgCostMushies ?? 0) - (b.avgCostMushies ?? 0));
 export const STUDIO_MODELS = (YUMINA_MODELS.filter((m) => m.scope === "studio" || m.scope === "both") as StudioModel[])
   .sort((a, b) => (a.inputPrice + a.outputPrice) - (b.inputPrice + b.outputPrice));
@@ -172,13 +191,20 @@ export const MAX_PINNED_MODELS = 8;
  *  list, not the full picker, is the product's model lineup in practice. Ordered
  *  as a ladder from "runs longest on the free grant" to "the paid aspiration".
  *  `deepseek/deepseek-v4-flash` was dropped: 18.9% of its production turns on
- *  variable-bearing cards emit a directive, so panels look broken on it. */
+ *  variable-bearing cards emit a directive, so panels look broken on it.
+ *
+ *  2026-11-15, from a week of production turns (cost per 1,000 turns / regenerate
+ *  rate / own-directive rate on guarded cards): Hy3 ($1.71 / 34% / n<10) and
+ *  MiniMax M3 ($4.87 / 25% / 86%) left for DeepSeek V4.1 Flash 1017 ($1.53 / 12% /
+ *  34%, first word under 2 s) and MiMo V2.6 Pro ($7.10 / 10% / 84%, first word
+ *  ~2 s, no thinking by default), the two cheap models the largest roleplay app on
+ *  OpenRouter runs most of its traffic on. */
 export const DEFAULT_PINNED_MODELS = [
+  "deepseek/deepseek-v4.1-flash-1017",
   "z-ai/glm-5.3-flash",
-  "tencent/hy3",
   "google/gemini-3.1-flash-lite",
+  "xiaomi/mimo-v2.6-pro",
   "google/gemini-3-flash-preview",
-  "minimax/minimax-m3",
   "anthropic/claude-sonnet-4.6",
 ];
 
@@ -193,13 +219,51 @@ export const DEFAULT_PINNED_MODELS = [
  *  reason before they write, and at a 900-token budget Hy3 and Inkling Small
  *  emit no prose at all. 51 published cards cap maxTokens below 1500, so a pool
  *  entry that starves there would hand new users a blank reply. Those models sit
- *  in the pinned row instead, where the user opts in deliberately. */
+ *  in the pinned row instead, where the user opts in deliberately.
+ *
+ *  2026-11-15: DeepSeek V3.2 broke rule (b), 26 s to the first word in a streamed
+ *  test and 48 s a turn in production, so it left with MiniMax M3 (25% of its
+ *  turns regenerated) and Gemini 3.1 Flash Lite (16%, and the fewest own
+ *  directives of the pool). MiMo V2.6 Pro (first word ~2 s, 84% own directives,
+ *  10% regenerated) and DeepSeek V4.1 Flash 1017 (first word under 2 s, $1.53 per
+ *  1,000 turns) take their weight. */
 export const DEFAULT_POOL: Array<{ modelId: string; weight: number }> = [
-  { modelId: "google/gemini-3-flash-preview", weight: 35 },
-  { modelId: "google/gemini-3.5-flash-lite", weight: 25 },
-  { modelId: "google/gemini-3.1-flash-lite", weight: 20 },
-  { modelId: "minimax/minimax-m3", weight: 10 },
-  { modelId: "deepseek/deepseek-v3.2", weight: 10 },
+  { modelId: "xiaomi/mimo-v2.6-pro", weight: 30 },
+  { modelId: "deepseek/deepseek-v4.1-flash-1017", weight: 30 },
+  { modelId: "google/gemini-3-flash-preview", weight: 25 },
+  { modelId: "google/gemini-3.5-flash-lite", weight: 15 },
+];
+
+/** Pin rows and pools exactly as earlier releases shipped them (the five
+ *  largest identical stored pin rows and three pools on production, 2026-11-15:
+ *  ~49,000 and ~48,000 accounts). An account still holding one never chose it, so
+ *  stores/config.ts moves it to today's default. Append the outgoing default
+ *  here whenever DEFAULT_PINNED_MODELS or DEFAULT_POOL changes. */
+export const SHIPPED_DEFAULT_PINNED_MODELS: ReadonlyArray<readonly string[]> = [
+  ["z-ai/glm-5.3-flash", "tencent/hy3", "google/gemini-3.1-flash-lite", "google/gemini-3-flash-preview", "minimax/minimax-m3", "anthropic/claude-sonnet-4.6"],
+  ["google/gemini-3.1-flash-lite-preview", "google/gemini-3-flash-preview", "anthropic/claude-sonnet-4.6", "deepseek/deepseek-v4-flash"],
+  ["google/gemini-3.1-flash-lite", "google/gemini-3-flash-preview", "anthropic/claude-sonnet-4.6", "deepseek/deepseek-v4-flash"],
+  ["google/gemini-3-flash-preview", "google/gemini-2.5-flash-lite", "anthropic/claude-sonnet-4.6", "x-ai/grok-4.1-fast"],
+  ["google/gemini-3-flash-preview", "anthropic/claude-sonnet-4.6", "deepseek/deepseek-v4-flash"],
+];
+export const SHIPPED_DEFAULT_POOLS: ReadonlyArray<ReadonlyArray<{ modelId: string; weight: number }>> = [
+  [
+    { modelId: "google/gemini-3-flash-preview", weight: 35 },
+    { modelId: "google/gemini-3.5-flash-lite", weight: 25 },
+    { modelId: "google/gemini-3.1-flash-lite", weight: 20 },
+    { modelId: "minimax/minimax-m3", weight: 10 },
+    { modelId: "deepseek/deepseek-v3.2", weight: 10 },
+  ],
+  [
+    { modelId: "google/gemini-3.1-flash-lite-preview", weight: 25 },
+    { modelId: "google/gemini-3-flash-preview", weight: 35 },
+    { modelId: "deepseek/deepseek-v3.2", weight: 40 },
+  ],
+  [
+    { modelId: "google/gemini-3.1-flash-lite", weight: 25 },
+    { modelId: "google/gemini-3-flash-preview", weight: 35 },
+    { modelId: "deepseek/deepseek-v3.2", weight: 40 },
+  ],
 ];
 
 export const DEFAULT_MIX_MODE = false;

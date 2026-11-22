@@ -19,7 +19,7 @@ import type { ResolvedBackground } from "@yumina/engine";
  * It renders nothing at all when there is no background, so a card that never
  * set one pays no DOM for this.
  */
-export function ChatBackground({ background }: { background: ResolvedBackground | null }) {
+export function ChatBackground({ background, readingMode }: { background: ResolvedBackground | null; readingMode?: "dark" | "light" | null }) {
   if (!background?.url) return null;
 
   const objectPosition =
@@ -67,8 +67,8 @@ export function ChatBackground({ background }: { background: ResolvedBackground 
           transition: "opacity 220ms ease",
         }}
       />
-      {background.dim > 0 && (
-        <div style={{ position: "absolute", inset: 0, background: `rgba(0,0,0,${background.dim})` }} />
+      {(background.dim > 0 || readingMode === "light") && (
+        <div style={{ position: "absolute", inset: 0, background: readingMode === "light" ? "rgba(247,244,238,0.88)" : `rgba(0,0,0,${background.dim})` }} />
       )}
     </div>
   );

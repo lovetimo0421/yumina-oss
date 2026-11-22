@@ -1,17 +1,31 @@
+# One rule set for everyone. The crawlers behind AI search and AI answers are
+# named so it is plain they are welcome on public pages; see /llms.txt. Training
+# crawlers get the same rules through *, with the Content-Signal below.
 User-agent: *
+User-agent: OAI-SearchBot
+User-agent: ChatGPT-User
+User-agent: Claude-User
+User-agent: Claude-SearchBot
+User-agent: PerplexityBot
+User-agent: Perplexity-User
 # Content Signals (contentsignals.org): search engines and AI answers may use
 # public pages; training rights are not granted here.
 Content-Signal: search=yes, ai-input=yes, ai-train=no
 Allow: /app/hub
 Allow: /app/community
+Allow: /app/tag/
 Allow: /app/bundles
 Allow: /app/worlds
 Allow: /app/users/
 Allow: /login
 Allow: /register
+Allow: /pricing
+Allow: /atelier
+Allow: /updates
 Allow: /blog
 Allow: /blog/
 Allow: /llms.txt
+Allow: /llms-full.txt
 
 Disallow: /api/
 Allow: /api/partners/krew/config$

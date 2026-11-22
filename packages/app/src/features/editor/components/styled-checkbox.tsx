@@ -6,6 +6,8 @@ interface StyledCheckboxProps {
   label: string;
   disabled?: boolean;
   hint?: string;
+  /** Longer explanation, shown on hover. */
+  title?: string;
 }
 
 /** Editor-flavored checkbox: rounded square with primary-tinted check
@@ -17,10 +19,12 @@ export function StyledCheckbox({
   label,
   disabled,
   hint,
+  title,
 }: StyledCheckboxProps) {
   return (
     <button
       type="button"
+      title={title}
       onClick={() => !disabled && onChange(!checked)}
       className={cn(
         "group flex items-center gap-2",

@@ -10,7 +10,7 @@
  * and open the emitted index.html straight off disk.
  *
  * Query string: ?lang=zh|en|ja|es|zh-Hant  ?plan=free|go|plus|pro|ultra
- *               ?lineup=1|2  ?view=plans|settings|profile
+ *               ?lineup=1|2  ?view=plans|settings|profile|testers|admin
  */
 import { StrictMode, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -30,6 +30,8 @@ import { useCreditStore, type LineupV2Plan } from "@/stores/credits";
 import { PlansPage } from "@/features/plans/plans-page";
 import { AiConfigTab } from "@/features/settings/ai-config-tab";
 import { ProfilePlanSummary } from "@/features/profile/profile-plan-summary";
+import { TestersView } from "./testers-view";
+import { AdminTestingView } from "./admin-testing-view";
 
 const params = new URLSearchParams(window.location.search);
 const PLAN = params.get("plan") ?? "plus";
@@ -95,9 +97,9 @@ useCreditStore.setState({
 });
 
 // ── Chrome ────────────────────────────────────────────────────────────────
-type View = "plans" | "settings" | "profile";
-const VIEWS: View[] = ["plans", "settings", "profile"];
-const VIEW_LABEL: Record<View, string> = { plans: "Plans", settings: "AI settings", profile: "Profile card" };
+type View = "plans" | "settings" | "profile" | "testers" | "admin";
+const VIEWS: View[] = ["plans", "settings", "profile", "testers", "admin"];
+const VIEW_LABEL: Record<View, string> = { plans: "Plans", settings: "AI settings", profile: "Profile card", testers: "Testers", admin: "Admin testing" };
 
 function Frame() {
   const [tab, setTab] = useState<View>(() => {
@@ -133,6 +135,8 @@ function Frame() {
           <AiConfigTab />
         </div>
       )}
+      {tab === "testers" && <TestersView />}
+      {tab === "admin" && <AdminTestingView />}
       {tab === "profile" && (
         <div className="mx-auto max-w-md px-4 py-8">
           <div className="overflow-hidden rounded-2xl border border-white/[0.06] bg-white/[0.02]">

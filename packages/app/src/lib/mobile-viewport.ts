@@ -87,7 +87,9 @@ export function hasTextEntryFocus(element: Element | null): boolean {
   return element.isContentEditable === true;
 }
 
-const OUTER_SHELL_SELECTOR = "html, body, #root, .app-shell-root, .app-shell-content";
+// Only editor main wrappers are locked; other routes can intentionally scroll
+// app-shell-main. Include editors in legacy overflow:hidden offset recovery.
+const OUTER_SHELL_SELECTOR = "html, body, #root, .app-shell-root, .app-shell-content, .app-shell-main-editor";
 
 export type ViewportRecovery = {
   reason: "viewport_resume";
@@ -98,7 +100,7 @@ export type ViewportRecovery = {
   keyboardInset: number;
 } | {
   reason: "outer_scroll";
-  scrollTarget: "html" | "body" | "root" | "shell" | "shell_content";
+  scrollTarget: "html" | "body" | "root" | "shell" | "shell_content" | "editor_main";
   previousScrollTop: number;
   scrollTop: number;
   layoutHeight: number;
@@ -211,7 +213,8 @@ export function installMobileViewport(
           onRecovery?.({
             reason: "outer_scroll",
             scrollTarget: element === root ? "html" : element === document.body ? "body" :
-              element.id === "root" ? "root" : element.classList.contains("app-shell-root") ? "shell" : "shell_content",
+              element.id === "root" ? "root" : element.classList.contains("app-shell-root") ? "shell" :
+                element.classList.contains("app-shell-main-editor") ? "editor_main" : "shell_content",
             previousScrollTop: top,
             scrollTop: element.scrollTop,
             layoutHeight: view.innerHeight,
@@ -237,6 +240,7 @@ export function installMobileViewport(
       // Native pages retain their full-height canvas while WebKit pans a field.
       if (!hasTextEntryFocus(document.activeElement)) updateIdleHeight();
       root.style.removeProperty("--mobile-viewport-top");
+      root.style.removeProperty("--mobile-viewport-page-top");
       write("--keyboard-inset", "0px");
       stopKeyboardTimer();
       repairScrollPending = revealFocusPending = false;
@@ -291,6 +295,14 @@ export function installMobileViewport(
       // shell at that origin without transforming its fixed/portal children.
       const offset = Number.isFinite(vv.offsetTop) ? Math.max(0, vv.offsetTop) : 0;
       write("--mobile-viewport-top", `${offset}px`);
+      // Home Screen play/DM shells are absolute to avoid WebKit's fixed-body
+      // clipping. Their origin is the document, not the layout viewport:
+      // offsetTop alone leaves a gap equal to the outer document's focus
+      // scroll. Keep a separate coordinate so fixed shells and safe-area
+      // calculations still use offsetTop. Never reset scroll/focus mid-IME.
+      const pageTop = Number.isFinite(vv.pageTop) ? vv.pageTop
+        : offset + (Number.isFinite(view.scrollY) ? view.scrollY : 0);
+      write("--mobile-viewport-page-top", `${Math.max(0, pageTop)}px`);
       revealFocusPending = textEntryFocused && (revealFocusPending || previousHeight !== height || previousFocus !== activeElement);
       if (!touchActive && revealFocusPending) {
         revealFocusPending = false;
@@ -317,6 +329,7 @@ export function installMobileViewport(
       revealFocusPending = false;
       updateIdleHeight();
       root.style.removeProperty("--mobile-viewport-top");
+      root.style.removeProperty("--mobile-viewport-page-top");
     }
     previousFocus = activeElement;
     if (ownsVisualViewport && vv && keyboardTimer === null) {
@@ -362,6 +375,7 @@ export function installMobileViewport(
     write("--keyboard-inset", "0px");
     root.style.removeProperty("--mobile-vh");
     root.style.removeProperty("--mobile-viewport-top");
+    root.style.removeProperty("--mobile-viewport-page-top");
     root.removeAttribute("data-sandbox-keyboard");
     previousFocus = null;
     retainingKeyboardViewport = false;
@@ -477,6 +491,7 @@ export function installMobileViewport(
     root.style.removeProperty("--keyboard-inset");
     root.style.removeProperty("--mobile-vh");
     root.style.removeProperty("--mobile-viewport-top");
+    root.style.removeProperty("--mobile-viewport-page-top");
     root.removeAttribute("data-mobile-viewport");
     root.removeAttribute("data-mobile-page-scroll");
     root.removeAttribute("data-mobile-message-canvas");

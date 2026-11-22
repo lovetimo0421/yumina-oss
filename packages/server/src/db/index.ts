@@ -415,6 +415,8 @@ const TABLE_DDLS = [
     allow_reviews BOOLEAN NOT NULL DEFAULT true,
     allow_live_canon BOOLEAN NOT NULL DEFAULT false,
     allow_live_canon_additions BOOLEAN NOT NULL DEFAULT false,
+    retained JSONB,
+    sealed_content BOOLEAN NOT NULL DEFAULT false,
     age_rating TEXT NOT NULL DEFAULT 'all', visibility TEXT NOT NULL DEFAULT 'public',
     download_count INTEGER NOT NULL DEFAULT 0,
     tags JSONB NOT NULL DEFAULT '[]', gallery_images JSONB DEFAULT '[]',
@@ -578,6 +580,18 @@ const TABLE_DDLS = [
     created_at TIMESTAMP DEFAULT NOW(), updated_at TIMESTAMP DEFAULT NOW(),
     CONSTRAINT user_world_personas_user_world_uniq UNIQUE (user_id, world_id)
   )`,
+  // Per-world prompt switches. Dev + prod get this via explicit SQL first
+  // (DB-before-code); this entry keeps PGlite / fresh local DBs in sync.
+  `CREATE TABLE IF NOT EXISTS user_world_prompts (
+    user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+    world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+    prompt_id TEXT NOT NULL REFERENCES user_prompts(id) ON DELETE CASCADE,
+    enabled BOOLEAN NOT NULL,
+    updated_at TIMESTAMP DEFAULT NOW(),
+    CONSTRAINT user_world_prompts_uniq UNIQUE (user_id, world_id, prompt_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS user_world_prompts_prompt_idx ON user_world_prompts (prompt_id)`,
+  `CREATE INDEX IF NOT EXISTS user_world_prompts_world_idx ON user_world_prompts (world_id)`,
   `CREATE TABLE IF NOT EXISTS asset_folders (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
@@ -635,6 +649,27 @@ const TABLE_DDLS = [
     bundle_id TEXT NOT NULL REFERENCES bundles(id) ON DELETE CASCADE,
     created_at TIMESTAMP DEFAULT NOW(), UNIQUE(user_id, bundle_id)
   )`,
+  // Bundle versions + install tracking (2026-10-29). Apply path is the explicit
+  // SQL in scripts/2026-10-29-bundle-step2.sql; these only self-heal fresh/local DBs.
+  `CREATE TABLE IF NOT EXISTS bundle_versions (
+    id TEXT PRIMARY KEY,
+    bundle_id TEXT NOT NULL REFERENCES bundles(id) ON DELETE CASCADE,
+    version INTEGER NOT NULL,
+    content JSONB NOT NULL,
+    cover_image TEXT,
+    note TEXT,
+    created_at TIMESTAMP DEFAULT NOW(),
+    created_by TEXT REFERENCES "user"(id) ON DELETE SET NULL,
+    CONSTRAINT bundle_versions_bundle_version_uq UNIQUE(bundle_id, version)
+  )`,
+  `CREATE TABLE IF NOT EXISTS bundle_installs (
+    world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+    install_id TEXT NOT NULL,
+    bundle_id TEXT NOT NULL REFERENCES bundles(id) ON DELETE CASCADE,
+    version INTEGER,
+    updated_at TIMESTAMP DEFAULT NOW(),
+    PRIMARY KEY (world_id, install_id)
+  )`,
   `CREATE TABLE IF NOT EXISTS favorites (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
@@ -666,6 +701,15 @@ const TABLE_DDLS = [
     expires_at TIMESTAMP NOT NULL,
     responded_at TIMESTAMP
   )`,
+  `CREATE TABLE IF NOT EXISTS world_testers (
+    world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+    invited_by TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    removed_at TIMESTAMP,
+    PRIMARY KEY (world_id, user_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS world_testers_user_idx ON world_testers(user_id)`,
   `CREATE TABLE IF NOT EXISTS user_blocks (
     blocker_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
     blocked_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
@@ -1026,6 +1070,9 @@ const INDEX_DDLS = [
   `CREATE INDEX IF NOT EXISTS asset_folders_user_id_idx ON asset_folders(user_id)`,
   `CREATE INDEX IF NOT EXISTS posts_author_id_idx ON posts(author_id)`,
   `CREATE INDEX IF NOT EXISTS bundles_user_id_idx ON bundles(user_id)`,
+  `CREATE INDEX IF NOT EXISTS bundles_review_pending_idx ON bundles(updated_at) WHERE review_status = 'pending_review'`,
+  `CREATE INDEX IF NOT EXISTS bundles_pending_edit_idx ON bundles(pending_submitted_at) WHERE pending_status = 'pending'`,
+  `CREATE INDEX IF NOT EXISTS bundle_installs_bundle_idx ON bundle_installs(bundle_id)`,
   `CREATE INDEX IF NOT EXISTS dmrc_user_id_idx ON direct_message_read_cursors(user_id)`,
   `CREATE INDEX IF NOT EXISTS account_provider_account_idx ON account(provider_id, account_id)`,
   `CREATE INDEX IF NOT EXISTS support_prompt_events_session_id_idx ON support_prompt_events(session_id)`,
@@ -1040,12 +1087,251 @@ const INDEX_DDLS = [
 ];
 
 const COLUMN_ALTERS = [
+  `ALTER TABLE "user" ADD COLUMN IF NOT EXISTS limited_content_only BOOLEAN NOT NULL DEFAULT false`,
+  `ALTER TABLE invite_codes ADD COLUMN IF NOT EXISTS allow_limitless BOOLEAN NOT NULL DEFAULT true`,
   `ALTER TABLE world_versions ADD COLUMN IF NOT EXISTS published_at TIMESTAMP`,
   `ALTER TABLE world_versions ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual'`,
   `ALTER TABLE world_versions ADD COLUMN IF NOT EXISTS thumbnail_url TEXT`,
   `ALTER TABLE world_versions ADD COLUMN IF NOT EXISTS age_rating TEXT`,
   `ALTER TABLE world_pending_edits ADD COLUMN IF NOT EXISTS preserve_draft BOOLEAN NOT NULL DEFAULT false`,
   `ALTER TABLE notifications ADD COLUMN IF NOT EXISTS dedupe_key TEXT`,
+  // Tip earnings spent on mushies. Dev + prod get this via explicit SQL first.
+  `ALTER TABLE creator_earnings ADD COLUMN IF NOT EXISTS spent_amount INTEGER NOT NULL DEFAULT 0`,
+  // Library shelves (finished / dropped). Dev + prod get this via explicit SQL first.
+  `ALTER TABLE user_library ADD COLUMN IF NOT EXISTS shelf TEXT`,
+  // Library collections. Dev + prod get these via explicit SQL first
+  // (scripts/2026-11-18-library-collections.sql).
+  `CREATE TABLE IF NOT EXISTS library_collections (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT now()
+  )`,
+  `CREATE INDEX IF NOT EXISTS library_collections_user_idx ON library_collections (user_id)`,
+  `CREATE TABLE IF NOT EXISTS library_collection_worlds (
+    collection_id TEXT NOT NULL REFERENCES library_collections(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+    world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+    created_at TIMESTAMP NOT NULL DEFAULT now(),
+    PRIMARY KEY (collection_id, world_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS library_collection_worlds_user_idx ON library_collection_worlds (user_id)`,
+  // Image gallery (生图广场). Dev + prod get these via explicit SQL first.
+  `CREATE TABLE IF NOT EXISTS image_posts (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+    job_id TEXT,
+    asset_id TEXT NOT NULL REFERENCES user_assets(id) ON DELETE CASCADE,
+    title TEXT NOT NULL DEFAULT '',
+    recipe JSONB NOT NULL,
+    width INTEGER,
+    height INTEGER,
+    status TEXT NOT NULL DEFAULT 'pending',
+    is_sensitive BOOLEAN NOT NULL DEFAULT false,
+    reject_reason TEXT,
+    reviewed_by TEXT,
+    reviewed_at TIMESTAMP,
+    like_count INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP NOT NULL DEFAULT now(),
+    approved_at TIMESTAMP
+  )`,
+  // Story illustrations, AI first review and reports (11/06). An asset is no
+  // longer required: a story post points at its turn-image key instead.
+  `ALTER TABLE image_posts ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'generation'`,
+  `ALTER TABLE image_posts ALTER COLUMN asset_id DROP NOT NULL`,
+  `ALTER TABLE image_posts ADD COLUMN IF NOT EXISTS image_key TEXT`,
+  `ALTER TABLE image_posts ADD COLUMN IF NOT EXISTS world_id TEXT REFERENCES worlds(id) ON DELETE SET NULL`,
+  `ALTER TABLE image_posts ADD COLUMN IF NOT EXISTS ai_review JSONB`,
+  `ALTER TABLE image_posts ADD COLUMN IF NOT EXISTS report_count INTEGER NOT NULL DEFAULT 0`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS image_posts_image_key_uidx ON image_posts(image_key)`,
+  `CREATE TABLE IF NOT EXISTS turn_images (
+    image_key TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+    session_id TEXT,
+    prompt TEXT NOT NULL DEFAULT '',
+    negative TEXT NOT NULL DEFAULT '',
+    nsfw BOOLEAN NOT NULL DEFAULT false,
+    style TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT now()
+  )`,
+  `CREATE INDEX IF NOT EXISTS turn_images_user_idx ON turn_images(user_id, created_at)`,
+  `ALTER TABLE turn_images ADD COLUMN IF NOT EXISTS message_id TEXT`,
+  `ALTER TABLE turn_images ADD COLUMN IF NOT EXISTS route TEXT`,
+  `ALTER TABLE turn_images ADD COLUMN IF NOT EXISTS auto BOOLEAN`,
+  // LoRA square and the Comfy library cache (11/14): scripts/2026-11-14-lora-square.sql, applied by hand first.
+  `ALTER TABLE turn_images ADD COLUMN IF NOT EXISTS lora_ids JSONB`,
+  `ALTER TABLE generation_models ADD COLUMN IF NOT EXISTS use_count INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE generation_models ADD COLUMN IF NOT EXISTS last_used_at TIMESTAMP`,
+  `ALTER TABLE generation_models ADD COLUMN IF NOT EXISTS sample_asset_ids JSONB NOT NULL DEFAULT '[]'::jsonb`,
+  `CREATE INDEX IF NOT EXISTS generation_models_last_used_idx ON generation_models (last_used_at)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS image_posts_asset_uidx ON image_posts(asset_id)`,
+  `CREATE INDEX IF NOT EXISTS image_posts_public_idx ON image_posts(status, approved_at)`,
+  `CREATE INDEX IF NOT EXISTS image_posts_user_idx ON image_posts(user_id, created_at)`,
+  `CREATE TABLE IF NOT EXISTS image_post_likes (
+    post_id TEXT NOT NULL REFERENCES image_posts(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+    created_at TIMESTAMP NOT NULL DEFAULT now(),
+    PRIMARY KEY (post_id, user_id)
+  )`,
+  // Workbench library (elements, skills, works): scripts/add-workbench.sql, applied by hand first.
+  `CREATE TABLE IF NOT EXISTS workbench_elements (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  cover_asset_id TEXT REFERENCES user_assets(id) ON DELETE SET NULL,
+  asset_ids JSONB NOT NULL DEFAULT '[]',
+  voice JSONB,
+  rig_id TEXT,
+  visibility TEXT NOT NULL DEFAULT 'private',
+  use_count INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMP NOT NULL DEFAULT now(),
+  updated_at TIMESTAMP NOT NULL DEFAULT now(),
+  CONSTRAINT workbench_elements_kind_check CHECK (kind IN ('character','scene','prop','voice','style')),
+  CONSTRAINT workbench_elements_visibility_check CHECK (visibility IN ('private','public'))
+)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS workbench_elements_user_name_uidx ON workbench_elements(user_id, lower(name))`,
+  `CREATE INDEX IF NOT EXISTS workbench_elements_public_idx ON workbench_elements(visibility, use_count)`,
+  `CREATE TABLE IF NOT EXISTS workbench_element_uses (
+  user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+  element_id TEXT NOT NULL REFERENCES workbench_elements(id) ON DELETE CASCADE,
+  created_at TIMESTAMP NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, element_id)
+)`,
+  `CREATE TABLE IF NOT EXISTS share_season_awards (
+  track TEXT NOT NULL,
+  item_id TEXT NOT NULL,
+  user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+  grade TEXT NOT NULL,
+  mushies INTEGER NOT NULL DEFAULT 0,
+  decided_by TEXT,
+  decided_at TIMESTAMP NOT NULL DEFAULT now(),
+  PRIMARY KEY (track, item_id)
+)`,
+  `CREATE INDEX IF NOT EXISTS share_season_awards_user_idx ON share_season_awards(user_id)`,
+  `CREATE TABLE IF NOT EXISTS bundle_takes (
+  bundle_id TEXT NOT NULL REFERENCES bundles(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+  created_at TIMESTAMP NOT NULL DEFAULT now(),
+  PRIMARY KEY (bundle_id, user_id)
+)`,
+  `CREATE TABLE IF NOT EXISTS image_post_takes (
+  post_id TEXT NOT NULL REFERENCES image_posts(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+  created_at TIMESTAMP NOT NULL DEFAULT now(),
+  PRIMARY KEY (post_id, user_id)
+)`,
+  `CREATE INDEX IF NOT EXISTS image_post_takes_user_idx ON image_post_takes(user_id)`,
+  `CREATE TABLE IF NOT EXISTS workbench_skills (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  cover_asset_id TEXT REFERENCES user_assets(id) ON DELETE SET NULL,
+  mode TEXT NOT NULL,
+  recipe JSONB NOT NULL,
+  slots JSONB NOT NULL DEFAULT '[]',
+  visibility TEXT NOT NULL DEFAULT 'private',
+  status TEXT NOT NULL DEFAULT 'pending',
+  ai_review JSONB,
+  reject_reason TEXT,
+  reviewed_by TEXT,
+  reviewed_at TIMESTAMP,
+  source_job_id TEXT,
+  is_official BOOLEAN NOT NULL DEFAULT false,
+  use_count INTEGER NOT NULL DEFAULT 0,
+  like_count INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMP NOT NULL DEFAULT now(),
+  updated_at TIMESTAMP NOT NULL DEFAULT now(),
+  CONSTRAINT workbench_skills_mode_check CHECK (mode IN ('image','video','audio','live','tool','chain')),
+  CONSTRAINT workbench_skills_visibility_check CHECK (visibility IN ('private','public')),
+  CONSTRAINT workbench_skills_status_check CHECK (status IN ('pending','approved','rejected'))
+)`,
+  `CREATE INDEX IF NOT EXISTS workbench_skills_public_idx ON workbench_skills(visibility, status, created_at)`,
+  `CREATE INDEX IF NOT EXISTS workbench_skills_user_idx ON workbench_skills(user_id, created_at)`,
+  `CREATE TABLE IF NOT EXISTS workbench_skill_likes (
+  skill_id TEXT NOT NULL REFERENCES workbench_skills(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+  created_at TIMESTAMP NOT NULL DEFAULT now(),
+  PRIMARY KEY (skill_id, user_id)
+)`,
+  `CREATE TABLE IF NOT EXISTS workbench_skill_marks (
+  skill_id TEXT NOT NULL REFERENCES workbench_skills(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+  saved BOOLEAN NOT NULL DEFAULT false,
+  used_at TIMESTAMP,
+  PRIMARY KEY (skill_id, user_id)
+)`,
+  `CREATE INDEX IF NOT EXISTS workbench_skill_marks_user_idx ON workbench_skill_marks(user_id, used_at)`,
+  `CREATE TABLE IF NOT EXISTS workbench_skill_reviews (
+  skill_id text NOT NULL REFERENCES workbench_skills(id) ON DELETE CASCADE,
+  user_id text NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+  rating integer NOT NULL,
+  content text NOT NULL DEFAULT '',
+  created_at timestamp NOT NULL DEFAULT now(),
+  updated_at timestamp NOT NULL DEFAULT now(),
+  PRIMARY KEY (skill_id, user_id)
+)`,
+  `CREATE INDEX IF NOT EXISTS workbench_skill_reviews_skill_idx ON workbench_skill_reviews(skill_id, updated_at)`,
+  `CREATE TABLE IF NOT EXISTS plaza_reviews (
+  target_type text NOT NULL,
+  target_id text NOT NULL,
+  user_id text NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+  rating integer NOT NULL,
+  content text NOT NULL DEFAULT '',
+  created_at timestamp NOT NULL DEFAULT now(),
+  updated_at timestamp NOT NULL DEFAULT now(),
+  PRIMARY KEY (target_type, target_id, user_id)
+)`,
+  `CREATE INDEX IF NOT EXISTS plaza_reviews_target_idx ON plaza_reviews(target_type, target_id, updated_at)`,
+  `CREATE TABLE IF NOT EXISTS plaza_comments (
+  id text PRIMARY KEY,
+  target_type text NOT NULL,
+  target_id text NOT NULL,
+  user_id text NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+  parent_id text,
+  rating integer,
+  content text NOT NULL DEFAULT '',
+  like_count integer NOT NULL DEFAULT 0,
+  created_at timestamp NOT NULL DEFAULT now()
+)`,
+  `CREATE INDEX IF NOT EXISTS plaza_comments_target_idx ON plaza_comments(target_type, target_id, created_at)`,
+  `CREATE INDEX IF NOT EXISTS plaza_comments_parent_idx ON plaza_comments(parent_id)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS plaza_comments_one_rating ON plaza_comments(target_type, target_id, user_id) WHERE rating IS NOT NULL`,
+  `CREATE TABLE IF NOT EXISTS plaza_comment_likes (
+  comment_id text NOT NULL REFERENCES plaza_comments(id) ON DELETE CASCADE,
+  user_id text NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+  PRIMARY KEY (comment_id, user_id)
+)`,
+  `ALTER TABLE image_posts ADD COLUMN IF NOT EXISTS description text NOT NULL DEFAULT ''`,
+  `ALTER TABLE image_posts ADD COLUMN IF NOT EXISTS tags jsonb`,
+  `ALTER TABLE image_posts ADD COLUMN IF NOT EXISTS hide_prompt boolean NOT NULL DEFAULT false`,
+  `ALTER TABLE plaza_comments ADD COLUMN IF NOT EXISTS hidden_at timestamp`,
+  `ALTER TABLE plaza_comments ADD COLUMN IF NOT EXISTS hidden_by text`,
+  `ALTER TABLE plaza_comments ADD COLUMN IF NOT EXISTS report_count integer NOT NULL DEFAULT 0`,
+  // After workbench_skills exists: on a database that never had it, an ALTER placed earlier would fail.
+  `ALTER TABLE workbench_skills ADD COLUMN IF NOT EXISTS recipe_hidden BOOLEAN NOT NULL DEFAULT false`,
+  `ALTER TABLE image_posts ADD COLUMN IF NOT EXISTS media_kind TEXT NOT NULL DEFAULT 'image'`,
+  `ALTER TABLE image_posts ADD COLUMN IF NOT EXISTS rig_id TEXT`,
+  `ALTER TABLE image_posts ADD COLUMN IF NOT EXISTS cover_asset_id TEXT REFERENCES user_assets(id) ON DELETE SET NULL`,
+  `ALTER TABLE image_posts ADD COLUMN IF NOT EXISTS work_recipe JSONB`,
+  `ALTER TABLE image_posts ADD COLUMN IF NOT EXISTS element_ids JSONB`,
+  `CREATE INDEX IF NOT EXISTS image_posts_kind_public_idx ON image_posts(media_kind, status, approved_at)`,
+  `ALTER TABLE workbench_elements ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'approved'`,
+  `ALTER TABLE workbench_elements ADD COLUMN IF NOT EXISTS is_sensitive BOOLEAN NOT NULL DEFAULT false`,
+  `ALTER TABLE workbench_elements ADD COLUMN IF NOT EXISTS approved_snapshot JSONB`,
+  `ALTER TABLE workbench_elements ADD COLUMN IF NOT EXISTS ai_review JSONB`,
+  `ALTER TABLE workbench_elements ADD COLUMN IF NOT EXISTS reject_reason TEXT`,
+  `ALTER TABLE workbench_elements ADD COLUMN IF NOT EXISTS reviewed_by TEXT`,
+  `ALTER TABLE workbench_elements ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP`,
+  `CREATE INDEX IF NOT EXISTS workbench_elements_review_idx ON workbench_elements(status, created_at)`,
+  `ALTER TABLE workbench_elements ADD COLUMN IF NOT EXISTS archive JSONB NOT NULL DEFAULT '{}'`,
+  `ALTER TABLE generation_provider_spend ADD COLUMN IF NOT EXISTS user_id TEXT`,
+  `CREATE INDEX IF NOT EXISTS generation_provider_spend_user_created_idx ON generation_provider_spend (user_id, created_at)`,
+  `CREATE TABLE IF NOT EXISTS generation_tool_spend (job_id TEXT PRIMARY KEY, user_id TEXT NOT NULL, usd REAL NOT NULL, created_at TIMESTAMP NOT NULL DEFAULT now())`,
+  `CREATE INDEX IF NOT EXISTS generation_tool_spend_created_idx ON generation_tool_spend (created_at)`,
+  `CREATE INDEX IF NOT EXISTS generation_tool_spend_user_created_idx ON generation_tool_spend (user_id, created_at)`,
   `ALTER TABLE account_deletion_cleanup_jobs ADD COLUMN IF NOT EXISTS verification_identifiers JSONB NOT NULL DEFAULT '[]'`,
   `ALTER TABLE account_deletion_cleanup_jobs ADD COLUMN IF NOT EXISTS stripe_connect_id TEXT`,
   `ALTER TABLE deleted_account_tombstones ADD COLUMN IF NOT EXISTS was_suspended BOOLEAN NOT NULL DEFAULT false`,
@@ -1080,6 +1366,9 @@ const COLUMN_ALTERS = [
   `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS playtime_lease_id TEXT`,
   `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS playtime_last_seen_at TIMESTAMP`,
   `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS name TEXT`,
+  // Save picker pins. Dev + prod get this via scripts/2026-11-21-session-pins.sql
+  // BEFORE the code ships; this line only self-heals fresh local DBs.
+  `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS pinned_at TIMESTAMP`,
   // Run-scope ledger (副本记忆) — dev/testing/prod get this via manual SQL
   // BEFORE the code that reads it ships (DB-before-code rule); this line only
   // self-heals fresh local DBs.
@@ -1122,6 +1411,30 @@ const COLUMN_ALTERS = [
   `ALTER TABLE user_prompts ADD COLUMN IF NOT EXISTS position REAL`,
   `ALTER TABLE bundles ADD COLUMN IF NOT EXISTS cover_image TEXT`,
   `ALTER TABLE bundles ADD COLUMN IF NOT EXISTS like_count INTEGER NOT NULL DEFAULT 0`,
+  // Bundle kind + 示范卡 + human review (2026-10-28). Apply path is the explicit
+  // SQL in scripts/2026-10-28-bundle-review.sql, run against dev and prod
+  // BEFORE the code ships; these entries only self-heal fresh/local DBs.
+  `ALTER TABLE bundles ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'module'`,
+  `ALTER TABLE bundles ADD COLUMN IF NOT EXISTS demo_world_id TEXT REFERENCES worlds(id) ON DELETE SET NULL`,
+  `ALTER TABLE bundles ADD COLUMN IF NOT EXISTS review_status TEXT NOT NULL DEFAULT 'approved'`,
+  `ALTER TABLE bundles ADD COLUMN IF NOT EXISTS review_note TEXT`,
+  `ALTER TABLE bundles ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP`,
+  `ALTER TABLE bundles ADD COLUMN IF NOT EXISTS reviewed_by TEXT REFERENCES "user"(id) ON DELETE SET NULL`,
+  `ALTER TABLE bundles ADD COLUMN IF NOT EXISTS pending_content JSONB`,
+  `ALTER TABLE bundles ADD COLUMN IF NOT EXISTS pending_cover_image TEXT`,
+  `ALTER TABLE bundles ADD COLUMN IF NOT EXISTS pending_status TEXT`,
+  `ALTER TABLE bundles ADD COLUMN IF NOT EXISTS pending_note TEXT`,
+  `ALTER TABLE bundles ADD COLUMN IF NOT EXISTS pending_submitted_at TIMESTAMP`,
+  `ALTER TABLE bundles ADD COLUMN IF NOT EXISTS pending_reviewed_at TIMESTAMP`,
+  `ALTER TABLE bundles ADD COLUMN IF NOT EXISTS pending_reviewed_by TEXT REFERENCES "user"(id) ON DELETE SET NULL`,
+  // AI first look (scripts/2026-11-07-ai-review.sql ran on dev + prod first).
+  `ALTER TABLE bundles ADD COLUMN IF NOT EXISTS ai_review JSONB`,
+  // Bundle versions (2026-10-29): scripts/2026-10-29-bundle-step2.sql.
+  `ALTER TABLE bundles ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1`,
+  `ALTER TABLE bundles ADD COLUMN IF NOT EXISTS pending_update_note TEXT`,
+  `ALTER TABLE bundles ADD COLUMN IF NOT EXISTS featured_at TIMESTAMP`,
+  // Card a pack was made from (scripts/2026-11-18-bundle-source-world.sql).
+  `ALTER TABLE bundles ADD COLUMN IF NOT EXISTS source_world_id TEXT REFERENCES worlds(id) ON DELETE SET NULL`,
   `ALTER TABLE worlds ADD COLUMN IF NOT EXISTS multilanguage_overview JSONB`,
   `ALTER TABLE worlds ADD COLUMN IF NOT EXISTS favorite_count INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE worlds ADD COLUMN IF NOT EXISTS review_count INTEGER NOT NULL DEFAULT 0`,
@@ -1133,6 +1446,8 @@ const COLUMN_ALTERS = [
   `ALTER TABLE worlds ADD COLUMN IF NOT EXISTS allow_custom_api BOOLEAN NOT NULL DEFAULT true`,
   `ALTER TABLE worlds ADD COLUMN IF NOT EXISTS allow_live_canon BOOLEAN NOT NULL DEFAULT false`,
   `ALTER TABLE worlds ADD COLUMN IF NOT EXISTS allow_live_canon_additions BOOLEAN NOT NULL DEFAULT false`,
+  `ALTER TABLE worlds ADD COLUMN IF NOT EXISTS retained JSONB`,
+  `ALTER TABLE worlds ADD COLUMN IF NOT EXISTS sealed_content BOOLEAN NOT NULL DEFAULT false`,
   `ALTER TABLE worlds ADD COLUMN IF NOT EXISTS blur_cover BOOLEAN`,
   `ALTER TABLE worlds ADD COLUMN IF NOT EXISTS language TEXT`,
   `ALTER TABLE worlds ADD COLUMN IF NOT EXISTS language_group_id TEXT`,
@@ -1652,10 +1967,13 @@ export async function ensureTables() {
       ON CONFLICT (invitee_id) DO NOTHING`));
   }
   await ensureWorldsSchemaDerived();
+  await ensureBundleInstallsSync();
   await db.execute(sql.raw(NATIVE_PLAYTIME_HISTORY_SNAPSHOT));
   await ensureMessagesSwipeCount();
   await ensureVoiceBillingSchema();
   await ensureVoiceLiveCallsSchema();
+  await ensureStoryRoomsSchema();
+  await ensureLeaderboardsSchema();
   console.log("[DEV] PGlite tables + indexes created");
 }
 
@@ -1799,6 +2117,55 @@ export async function ensureWorldsSchemaDerived() {
 }
 
 /**
+ * bundle_installs mirrors each world's LIVE schema.installedBundles[] (records
+ * with a sourceBundleId), maintained by an AFTER INSERT OR UPDATE OF schema
+ * trigger so every writer of worlds.schema — editor save, Studio assistant,
+ * collab, version restore, held-edit approval, import, fork, admin scripts —
+ * keeps it current without each call site remembering to. Cheap: it only
+ * fires when the schema column is written and returns at once when
+ * installedBundles did not change. Failure-tolerant: any error inside is
+ * caught and logged as a WARNING, so it can never fail a save.
+ * Apply path: scripts/2026-10-29-bundle-step2.sql (same statements).
+ */
+export const BUNDLE_INSTALLS_SYNC_DDL = [
+  `CREATE OR REPLACE FUNCTION bundle_installs_sync() RETURNS trigger AS $fn$
+    BEGIN
+      IF TG_OP = 'UPDATE' AND (OLD.schema->'installedBundles') IS NOT DISTINCT FROM (NEW.schema->'installedBundles') THEN
+        RETURN NULL;
+      END IF;
+      BEGIN
+        DELETE FROM bundle_installs WHERE world_id = NEW.id;
+        INSERT INTO bundle_installs (world_id, install_id, bundle_id, version, updated_at)
+        SELECT NEW.id, rec->>'installId', rec->>'sourceBundleId',
+               CASE WHEN jsonb_typeof(rec->'version') = 'number' THEN floor((rec->>'version')::numeric)::int END,
+               now()
+          FROM jsonb_array_elements(CASE WHEN jsonb_typeof(NEW.schema->'installedBundles') = 'array'
+                                         THEN NEW.schema->'installedBundles' ELSE '[]'::jsonb END) AS rec
+          JOIN bundles b ON b.id = rec->>'sourceBundleId'
+         WHERE jsonb_typeof(rec) = 'object'
+           AND coalesce(rec->>'installId', '') <> ''
+        ON CONFLICT (world_id, install_id) DO NOTHING;
+      EXCEPTION WHEN OTHERS THEN
+        RAISE WARNING 'bundle_installs sync failed for world %: %', NEW.id, SQLERRM;
+      END;
+      RETURN NULL;
+    END $fn$ LANGUAGE plpgsql`,
+  `DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'bundle_installs_sync_trg') THEN
+      CREATE TRIGGER bundle_installs_sync_trg
+        AFTER INSERT OR UPDATE OF schema ON worlds
+        FOR EACH ROW EXECUTE FUNCTION bundle_installs_sync();
+    END IF;
+  END $$`,
+];
+
+/** Fallback self-heal for the bundle_installs trigger (never on production). */
+export async function ensureBundleInstallsSync() {
+  if (process.env.NODE_ENV === "production") return;
+  for (const statement of BUNDLE_INSTALLS_SYNC_DDL) await db.execute(sql.raw(statement));
+}
+
+/**
  * messages.swipe_count = jsonb_array_length(swipes), maintained by a BEFORE
  * INSERT OR UPDATE OF swipes trigger so EVERY writer (send, regenerate, swipe
  * delete, session greetings, the raw-SQL snapshot rewrite) keeps it in sync.
@@ -1893,6 +2260,20 @@ export async function ensureRecentAdditiveSchema() {
   }
   await ensureVoiceBillingSchema();
   await ensureVoiceLiveCallsSchema();
+}
+
+/** Fallback self-heal for card leaderboards. The apply path is
+ * scripts/leaderboards.sql, run by hand (dev, then prod) before the code ships. */
+export async function ensureLeaderboardsSchema() {
+  const { installLeaderboards } = await import("./leaderboards.js");
+  await installLeaderboards(db);
+}
+
+/** Fallback self-heal for story rooms. The apply path is scripts/story-rooms.sql,
+ * run by hand (dev, then prod) before the code ships. */
+export async function ensureStoryRoomsSchema() {
+  const { installStoryRooms } = await import("./story-rooms.js");
+  await installStoryRooms(db);
 }
 
 /** Fallback self-heal for credits-paid GPT-Live calls. The apply path is
@@ -2584,6 +2965,8 @@ export async function ensureWorldReviewTables() {
       await db.execute(sql.raw(`ALTER TABLE world_review_submissions ADD COLUMN IF NOT EXISTS ignored_by TEXT`));
       await db.execute(sql.raw(`ALTER TABLE world_review_submissions ADD COLUMN IF NOT EXISTS version_id TEXT`));
       await db.execute(sql.raw(`ALTER TABLE world_review_submissions ADD COLUMN IF NOT EXISTS base_version_id TEXT`));
+      // AI first look (scripts/2026-11-07-ai-review.sql ran on dev + prod first).
+      await db.execute(sql.raw(`ALTER TABLE world_review_submissions ADD COLUMN IF NOT EXISTS ai_review JSONB`));
     } catch (err) {
       console.warn("[DEV] ensureWorldReviewTables pglite path warning:", err);
     }
@@ -2624,6 +3007,8 @@ export async function ensureWorldReviewTables() {
     `CREATE INDEX IF NOT EXISTS world_review_submissions_ignored_idx ON world_review_submissions(group_key, ignored_at)`,
     `ALTER TABLE world_review_submissions ADD COLUMN IF NOT EXISTS version_id TEXT`,
     `ALTER TABLE world_review_submissions ADD COLUMN IF NOT EXISTS base_version_id TEXT`,
+    // AI first look (scripts/2026-11-07-ai-review.sql ran on dev + prod first).
+    `ALTER TABLE world_review_submissions ADD COLUMN IF NOT EXISTS ai_review JSONB`,
   ]);
 }
 
@@ -2775,6 +3160,60 @@ export async function ensureSessionContextColumns() {
     `CREATE INDEX IF NOT EXISTS summaryception_snippets_session_idx ON summaryception_snippets(session_id)`,
   ]);
 }
+
+/**
+ * Studio co-editing (world_collaborators, world_versions.actor_id). Applied
+ * to each database by explicit SQL before the code ships
+ * (drizzle/0063_world_collaborators.sql); this is only the startup fallback.
+ *
+ * Probe-first (healAdditiveSchema): on an up-to-date database boot sends no
+ * DDL, so it never takes ACCESS EXCLUSIVE on world_versions / world_snapshots
+ * just to learn the columns exist. The actor_id foreign key is added NOT VALID
+ * and validated separately, and only when pg_constraint lacks it.
+ */
+export async function ensureWorldCollaboratorSchema() {
+  await healAdditiveSchema("world collaborators", [
+    `CREATE TABLE IF NOT EXISTS world_collaborators (
+      id text PRIMARY KEY,
+      world_id text NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+      user_id text NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+      role text NOT NULL DEFAULT 'editor',
+      can_publish boolean NOT NULL DEFAULT false,
+      status text NOT NULL DEFAULT 'pending',
+      invited_by text REFERENCES "user"(id) ON DELETE SET NULL,
+      created_at timestamp NOT NULL DEFAULT now(),
+      accepted_at timestamp
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS world_collaborators_world_user_uniq ON world_collaborators (world_id, user_id)`,
+    `CREATE INDEX IF NOT EXISTS world_collaborators_user_idx ON world_collaborators (user_id, status)`,
+    `ALTER TABLE world_versions ADD COLUMN IF NOT EXISTS actor_id text`,
+    `ALTER TABLE world_snapshots ADD COLUMN IF NOT EXISTS edits jsonb`,
+  ]);
+  await healAdditiveSchema("world invite links", WORLD_INVITE_LINK_DDLS);
+  const fk = await db.execute(sql`SELECT 1 FROM pg_constraint
+    WHERE conname = 'world_versions_actor_id_fkey' AND conrelid = 'world_versions'::regclass`);
+  if (fk.rows.length === 0) {
+    console.warn("[DB] world collaborators: self-heal adding world_versions.actor_id foreign key");
+    await db.execute(sql.raw(`ALTER TABLE world_versions ADD CONSTRAINT world_versions_actor_id_fkey
+      FOREIGN KEY (actor_id) REFERENCES "user"(id) ON DELETE SET NULL NOT VALID`));
+    await db.execute(sql.raw(`ALTER TABLE world_versions VALIDATE CONSTRAINT world_versions_actor_id_fkey`));
+  }
+}
+
+/** Invite links (drizzle/0064_world_invite_links.sql); startup fallback only. */
+const WORLD_INVITE_LINK_DDLS = [
+  `CREATE TABLE IF NOT EXISTS world_invite_links (
+    id text PRIMARY KEY,
+    world_id text NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+    token text NOT NULL,
+    role text NOT NULL DEFAULT 'viewer',
+    created_by text NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+    created_at timestamp NOT NULL DEFAULT now(),
+    revoked_at timestamp
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS world_invite_links_token_uniq ON world_invite_links (token)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS world_invite_links_live_uniq ON world_invite_links (world_id) WHERE revoked_at IS NULL`,
+];
 
 /**
  * Events launched after the original production schema flow and need to be
@@ -3645,7 +4084,7 @@ export async function ensureFeedTrainingTables(): Promise<void> {
 
 /** Sessions reaching this playtime count as a "qualified play" (the
  * anti-clickbait bar — mirrors Roblox's qualified-play-through framing). */
-const QUALIFIED_PLAY_SECONDS = 300;
+export const QUALIFIED_PLAY_SECONDS = 300;
 
 /** Once feed_events has this much history, its impression/click columns
  * take over from the PostHog-backfilled seed. Before that a 7d window
@@ -3679,6 +4118,15 @@ function isRecoveryConflict(err: unknown): boolean {
  * A retry gets a fresh snapshot and usually completes; if the replica keeps
  * cancelling, run the statement once on the primary rather than skip the tick.
  */
+/**
+ * The primary fallback below is rationed: at evening peak the replica cancels
+ * these scans often, and each fallback put a ~50 s scan (the feed aggregate)
+ * on the primary every 20-minute tick, right when players feel it. Skipping a
+ * tick only leaves the engagement stats one tick older.
+ */
+const PRIMARY_AGGREGATE_FALLBACK_EVERY_MS = 2 * 60 * 60_000;
+let lastPrimaryAggregateFallbackAt = 0;
+
 async function executeReplicaAggregate(query: SQL): Promise<Awaited<ReturnType<DrizzleDB["execute"]>>> {
   const attempts = 3;
   for (let attempt = 1; ; attempt++) {
@@ -3687,6 +4135,12 @@ async function executeReplicaAggregate(query: SQL): Promise<Awaited<ReturnType<D
     } catch (err) {
       if (!isRecoveryConflict(err)) throw err;
       if (attempt >= attempts) {
+        const now = Date.now();
+        if (now - lastPrimaryAggregateFallbackAt < PRIMARY_AGGREGATE_FALLBACK_EVERY_MS) {
+          console.warn(`[Rollup] replica cancelled the aggregate ${attempts}× (recovery conflict); skipping this tick (primary fallback is rationed)`);
+          throw err;
+        }
+        lastPrimaryAggregateFallbackAt = now;
         console.warn(`[Rollup] replica cancelled the aggregate ${attempts}× (recovery conflict); running once on the primary`);
         return await db.execute(query);
       }
@@ -3855,7 +4309,7 @@ async function refreshWorldEngagementStats(): Promise<number> {
         (COUNT(*) FILTER (WHERE v.event_type = 'click' AND v.created_at >= now() - interval '7 days'))::int AS clicks_7d,
         (COUNT(*) FILTER (WHERE v.event_type = 'impression'))::int AS impressions_total,
         (COUNT(*) FILTER (WHERE v.event_type = 'click'))::int AS clicks_total,
-        COALESCE(SUM(sqrt(GREATEST(COALESCE(c.ctr, o.ctr), 1e-4) / NULLIF(o.ctr, 0)))
+        COALESCE(SUM(power(GREATEST(COALESCE(c.ctr, o.ctr), 1e-4) / NULLIF(o.ctr, 0), CASE WHEN v.band < 3 THEN 0.9 ELSE 0.5 END))
           FILTER (WHERE v.event_type = 'impression' AND v.created_at >= now() - interval '7 days'), 0)::float AS weighted_impressions_7d
       FROM banded v
       JOIN curve c USING (band) CROSS JOIN overall o
@@ -3942,6 +4396,24 @@ async function refreshAnalyticsRollupsQuiet(days: number): Promise<void> {
       });
     }
   }
+  // Trainer canary: the nightly Discover trainer records every value run in
+  // ranker_models (published or rejected). Nothing for 30 h means the run
+  // failed or stalled before training, which went unnoticed for four nights
+  // on 2026-10-28..31 (ClickHouse row cap). PostHog alerts on this event.
+  try {
+    const r = await db.execute(sql`
+      SELECT EXTRACT(EPOCH FROM (now() - MAX(trained_at))) / 3600 AS hours FROM ranker_models
+    `);
+    const hours = Number((r as unknown as { rows?: Array<{ hours?: unknown }> }).rows?.[0]?.hours);
+    if (Number.isFinite(hours) && hours > 30) {
+      console.error(`[Rollup] STALE: discovery trainer last recorded a run ${hours.toFixed(1)} h ago`);
+      posthog.capture({
+        distinctId: "server",
+        event: "discovery_trainer_stale",
+        properties: { hours_since_last_run: Math.round(hours * 10) / 10 },
+      });
+    }
+  } catch { /* canary is best-effort */ }
   if(process.env.ADMIN_ANALYTICS_ENABLED==='true')return;
   // Staleness canary: if the freshest activity day is >2 days old the pipeline
   // is dead regardless of what the individual ticks claim — alert on the state,
@@ -4089,4 +4561,24 @@ export async function ensureUserMuteColumns() {
 
 export async function ensureWorldVersionSchema(): Promise<void> {
   await healAdditiveSchema("world versions", [WORLD_VERSION_SCHEMA_SQL]);
+}
+
+async function worldFeedbackPrepared() {
+  const marker = await db.execute(sql`SELECT to_regclass('world_feedback_migrations') AS name`);
+  if (!marker.rows[0]?.name) return false;
+  const applied = await db.execute(sql`SELECT 1 FROM world_feedback_migrations WHERE id = 'grandfather-feedback-v4'`);
+  return applied.rows.length > 0;
+}
+
+// A private embedded database has one process, which provisions it before serving.
+export async function prepareEmbeddedWorldFeedback() {
+  if (!IS_PGLITE) throw new Error("Embedded feedback provisioning requires PGlite");
+  if (await worldFeedbackPrepared()) return;
+  const { WORLD_FEEDBACK_DDL } = await import("./world-feedback-ddl.js");
+  await executeSqlScript(`BEGIN;\n${WORLD_FEEDBACK_DDL}\nCOMMIT;`);
+}
+
+export async function verifyWorldFeedbackSchema() {
+  if (await worldFeedbackPrepared()) return;
+  throw new Error("World feedback schema is not prepared (grandfather-feedback-v4). Run the operator migration before deploying.");
 }

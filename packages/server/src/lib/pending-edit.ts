@@ -27,8 +27,9 @@ import { embedAndStoreWorld } from "./embeddings.js";
 import { onWorldEditPublished } from "./achievements/engine.js";
 import { resolveImageCdn } from "./cdn-url.js";
 import { nextWorldSaveTime } from "./world-save-guard.js";
+import { redactSchemaFor, restoreSealed } from "./sealed-entries.js";
 import type { RejectionReason } from "./review.js";
-import { isUserMuted, MAX_WORLD_UPDATE_CONTENT, MAX_WORLD_UPDATE_TITLE } from "@yumina/shared";
+import { isUserMuted, MAX_WORLD_UPDATE_CONTENT, MAX_WORLD_UPDATE_TITLE, foreignGamePath } from "@yumina/shared";
 import {
   resolveCopyMaterialForViewer,
   type WorldCopyMaterial,
@@ -36,6 +37,10 @@ import {
 import type { ReviewContext } from './review-transaction.js';
 import type { LedgerDatabase } from './transaction-hash.js';
 import { rebaseAgentWrite, type AgentWriteConflict } from "./studio-tools/rebase-agent-write.js";
+import { publishWorldEvent } from "./world-events.js";
+import { canEdit, getWorldAccess, mayWithdrawSubmission, notifySubmissionWithdrawn, UpdateInReviewError } from "./world-collaborators.js";
+import { announceWhenCommitted } from "./collab-save.js";
+import { injectServerTextWrite } from "./collab-text.js";
 
 // A db handle OR a transaction handle — both expose the same query builders.
 // Typed loosely so a drizzle PgTransaction can be passed where `db` is expected
@@ -318,7 +323,10 @@ export async function holdMaterialEditIfNeeded(args: Parameters<typeof planMater
  */
 export async function applyWorldCover(args: {
   worldId: string;
-  creatorId: string;
+  /** Who is setting the cover: the creator or an editor collaborator. */
+  actorId?: string;
+  /** @deprecated Same as actorId (the acting user) — kept for older callers. */
+  creatorId?: string;
   newKey: string;
   target?: "portrait" | "landscape";
   discoverPreview?: boolean;
@@ -326,11 +334,18 @@ export async function applyWorldCover(args: {
   | { ok: true; thumbnailUrl: string; held: boolean; previousUpdatedAt: string | null; updatedAt: string }
   | { ok: false; status: 404 | 409; error: string; code?: string }
 > {
-  const { worldId, creatorId, newKey } = args;
+  const { worldId, newKey } = args;
+  const actorId = args.actorId ?? args.creatorId;
   const resolved = resolveImageCdn(newKey) ?? newKey;
   return db.transaction(async tx => {
     const state = await readVersionState(tx, worldId);
-    if (!state || state.creatorId !== creatorId) return { ok: false as const, status: 404 as const, error: "World not found or not authorized" };
+    const access = state && actorId ? await getWorldAccess(actorId, worldId, tx) : null;
+    if (!state || !actorId || !canEdit(access)) {
+      return { ok: false as const, status: 404 as const, error: "World not found or not authorized" };
+    }
+    // The held edit belongs to the card's creator even when an editor made it:
+    // its createdBy cascades with the user it names.
+    const creatorId = state.creatorId;
     const previous = state.row.updatedAt ? new Date(String(state.row.updatedAt)) : null;
     const targetKey = args.target === "landscape" ? (state.working.schema as Record<string, unknown>).landscapeCover : state.working.metadata.thumbnailUrl;
     if (targetKey === newKey) {
@@ -368,8 +383,14 @@ export async function applyWorldCover(args: {
         proposedThumbnailUrl, proposedAgeRating: state.working.metadata.ageRating ?? "all",
         existing: existing ? { ...existing, status: "draft" } : null });
       if (existing?.status === "pending") {
-        await tx.update(worldReviewSubmissions).set({ decision: "withdrawn", decidedBy: creatorId, decidedAt: updatedAt })
+        // An editor who can't publish must not pull the creator's update out of review.
+        if (!mayWithdrawSubmission(access)) {
+          const refused = new UpdateInReviewError();
+          return { ok: false as const, status: 409 as const, error: refused.message, code: refused.code };
+        }
+        await tx.update(worldReviewSubmissions).set({ decision: "withdrawn", decidedBy: actorId, decidedAt: updatedAt })
           .where(and(eq(worldReviewSubmissions.worldId, worldId), eq(worldReviewSubmissions.decision, "pending")));
+        notifySubmissionWithdrawn({ worldId, creatorId, actorId });
       }
       await applyHoldPlan(plan, tx);
       await tx.update(worlds).set({ updatedAt }).where(eq(worlds.id, worldId));
@@ -377,6 +398,74 @@ export async function applyWorldCover(args: {
     }
     await tx.update(worlds).set({ thumbnailUrl: proposedThumbnailUrl, ...(landscape || args.discoverPreview ? { schema: proposedSchema } : {}), updatedAt }).where(eq(worlds.id, worldId));
     return { ok: true as const, thumbnailUrl: resolved, held: false, ...tokens };
+  });
+}
+
+/** Most images a card's gallery holds. */
+export const MAX_WORLD_GALLERY_IMAGES = 8;
+
+/**
+ * Add one image to a card's gallery, or take one out. The creator's change
+ * writes the card as it always has. An editor collaborator's change to a
+ * PUBLISHED card lands in its held working copy instead, like every other
+ * edit of theirs (the gallery is part of a card update), so it reaches players
+ * only through the creator's next update. Index-based removal reads the same
+ * copy the caller sees: the held one for a collaborator on a published card.
+ */
+export async function applyWorldGallery(args: {
+  worldId: string;
+  actorId: string;
+  change: { add: string } | { removeIndex: number };
+}): Promise<
+  | { ok: true; galleryImages: string[]; held: boolean }
+  | { ok: false; status: 400 | 404 | 409; error: string; code?: string }
+> {
+  const { worldId, actorId, change } = args;
+  return db.transaction(async (tx) => {
+    const state = await readVersionState(tx, worldId);
+    const access = state ? await getWorldAccess(actorId, worldId, tx) : null;
+    if (!state || !canEdit(access)) return { ok: false as const, status: 404 as const, error: "World not found or not authorized" };
+    const viaHold = state.status === "published" && access.role !== "owner";
+    const current = ((viaHold ? state.working.metadata.galleryImages : state.live.metadata.galleryImages) ?? []) as string[];
+    let next: string[];
+    if ("add" in change) {
+      if (current.length >= MAX_WORLD_GALLERY_IMAGES) {
+        return { ok: false as const, status: 400 as const, error: `Maximum ${MAX_WORLD_GALLERY_IMAGES} gallery images allowed` };
+      }
+      next = [...current, change.add];
+    } else {
+      if (change.removeIndex >= current.length) return { ok: false as const, status: 400 as const, error: "Index out of range" };
+      next = current.filter((_, i) => i !== change.removeIndex);
+    }
+    if (!viaHold) {
+      await tx.update(worlds).set({ galleryImages: next, updatedAt: new Date() }).where(eq(worlds.id, worldId));
+      return { ok: true as const, galleryImages: next, held: false };
+    }
+    const existing = await getPendingEdit(worldId, tx);
+    if (existing?.status === "pending") {
+      if (!mayWithdrawSubmission(access)) {
+        const refused = new UpdateInReviewError();
+        return { ok: false as const, status: 409 as const, error: refused.message, code: refused.code };
+      }
+      await tx.update(worldReviewSubmissions).set({ decision: "withdrawn", decidedBy: actorId, decidedAt: new Date() })
+        .where(and(eq(worldReviewSubmissions.worldId, worldId), eq(worldReviewSubmissions.decision, "pending"),
+          eq(worldReviewSubmissions.submissionType, "edit")));
+      notifySubmissionWithdrawn({ worldId, creatorId: state.creatorId, actorId });
+    }
+    const updatedAt = nextWorldSaveTime(state.row.updatedAt ? new Date(String(state.row.updatedAt)) : null);
+    const plan = planMaterialHold({
+      worldId, creatorId: state.creatorId,
+      live: { schema: state.live.schema, thumbnailUrl: state.live.metadata.thumbnailUrl ?? null,
+        ageRating: state.live.metadata.ageRating ?? "all", languageGroupId: state.row.languageGroupId as string | null, updatedAt },
+      proposedSchema: state.working.schema, liveMetadata: state.live.metadata,
+      proposedMetadata: { ...state.working.metadata, galleryImages: next },
+      proposedThumbnailUrl: state.working.metadata.thumbnailUrl ?? null,
+      proposedAgeRating: state.working.metadata.ageRating ?? "all",
+      existing: existing ? { ...existing, status: "draft" } : null,
+    });
+    await applyHoldPlan(plan, tx);
+    await tx.update(worlds).set({ updatedAt }).where(eq(worlds.id, worldId));
+    return { ok: true as const, galleryImages: next, held: !!plan.upsert };
   });
 }
 
@@ -390,10 +479,14 @@ export async function resolveWorkingSchema(
   worldId: string,
   status: string,
   liveSchema: Record<string, unknown>,
+  /** The card's owner, who the Studio is working for. Entries someone else
+   *  kept on this copy are blanked: the assistant, and whatever model or
+   *  provider it runs on, never reads them (lib/sealed-entries.ts). */
+  ownerId: string,
 ): Promise<Record<string, unknown>> {
-  if (status !== "published") return liveSchema;
-  const pending = await getPendingEdit(worldId);
-  return pending ? pending.schema : liveSchema;
+  const pending = status === "published" ? await getPendingEdit(worldId) : null;
+  const working = pending ? pending.schema : liveSchema;
+  return redactSchemaFor({ id: worldId, creatorId: ownerId, schema: working }, working, ownerId, "edit");
 }
 
 /**
@@ -508,9 +601,29 @@ export interface StudioWorldWriteResult {
  * also stay in the working copy until the creator publishes them. A fresh edit supersedes any already-
  * submitted hold (it is withdrawn from the queue back to draft).
  */
+/**
+ * A Studio write by someone who may no longer edit the card (removed, made a
+ * viewer, or the card is gone mid-run). Thrown, not returned, so no caller can
+ * mistake the dropped write for a saved one and report edits that never landed.
+ */
+export class WorldWriteDeniedError extends Error {
+  readonly code = "WORLD_WRITE_DENIED";
+  constructor(worldId: string) {
+    super(`No longer allowed to edit world ${worldId}`);
+    this.name = "WorldWriteDeniedError";
+  }
+}
+
 export async function writeStudioWorldSchema(args: {
   worldId: string;
-  creatorId: string;
+  /**
+   * Who is writing: the creator or an editor collaborator. Authorizes the
+   * write; the held edit it may create is still recorded under the world's
+   * creator (its createdBy cascades with that user).
+   */
+  actorId?: string;
+  /** @deprecated Same as actorId (the acting user) — kept for older callers. */
+  creatorId?: string;
   schema: Record<string, unknown>;
   /** Share the caller's transaction when saving a recoverable agent step. */
   database?: LedgerDatabase;
@@ -530,7 +643,9 @@ export async function writeStudioWorldSchema(args: {
     return executor.transaction((tx) => writeStudioWorldSchema(args, tx as WorldEditExecutor));
   }
   const tx = transaction;
-  const { worldId, creatorId } = args;
+  const { worldId } = args;
+  const actorId = args.actorId ?? args.creatorId;
+  if (!actorId) throw new WorldWriteDeniedError(worldId);
   // Read only AFTER acquiring the lock: a restore or another writer may have
   // changed the live/held copy while this request waited for its turn.
   await tx.execute(sql`SELECT id FROM worlds WHERE id = ${worldId} FOR UPDATE`);
@@ -544,12 +659,16 @@ export async function writeStudioWorldSchema(args: {
       ageRating: worlds.ageRating,
       languageGroupId: worlds.languageGroupId,
       updatedAt: worlds.updatedAt,
+      creatorId: worlds.creatorId,
     })
     .from(worlds)
-    .where(and(eq(worlds.id, worldId), eq(worlds.creatorId, creatorId)))
+    .where(eq(worlds.id, worldId))
     .limit(1);
 
-  if (!live) return { held: false, reasons: [] };
+  // The creator, or an editor collaborator.
+  const access = live ? await getWorldAccess(actorId, worldId, tx) : null;
+  if (!live || !canEdit(access)) throw new WorldWriteDeniedError(worldId);
+  const creatorId = live.creatorId;
 
   let schema = args.schema;
   let rebased: StudioWorldWriteResult["rebased"];
@@ -565,6 +684,16 @@ export async function writeStudioWorldSchema(args: {
     rebased = { conflicts: result.conflicts };
   }
 
+  // The Studio worked on blanked copies of entries someone else kept: put the
+  // real text back, and hand the caller the blanked form again.
+  {
+    const stored = live.status === "published"
+      ? ((await getPendingEdit(worldId, tx))?.schema ?? live.schema)
+      : live.schema;
+    schema = restoreSealed(stored, schema, creatorId);
+  }
+  const forCaller = redactSchemaFor({ id: worldId, creatorId, schema }, schema, creatorId, "edit");
+
   // A Studio rename arrives inside the schema (the agent edits schema.name).
   // worlds.name is the display truth the editor now loads, so a schema-only
   // rename would otherwise be invisible there and synced back over on the
@@ -578,14 +707,33 @@ export async function writeStudioWorldSchema(args: {
   const descriptionSet = proposedDescription !== null && proposedDescription !== (live.description ?? "") ? { description: proposedDescription } : {};
   const updatedAt = nextWorldSaveTime(live.updatedAt);
 
-  const written = { schema, updatedAt, ...(rebased ? { rebased } : {}) };
+  const written = { schema: forCaller, updatedAt, ...(rebased ? { rebased } : {}) };
+  // Open editors pull the new copy once it is committed (this runs inside
+  // the caller's transaction), and anyone typing in a field this write
+  // changed sees the change arrive in that field. Entries someone else kept
+  // on this copy are compared blank on both sides, so their text never rides
+  // the live-text relay (the editors only ever loaded the blanked form).
+  const announce = (before: unknown) => announceWhenCommitted(worldId, updatedAt, () => {
+    publishWorldEvent(worldId, {
+      kind: "saved", updatedAt: updatedAt.toISOString(),
+      previousUpdatedAt: live.updatedAt?.toISOString() ?? null, clientId: null, actorUserId: actorId,
+    });
+    if (before && typeof before === "object") {
+      const beforeForTeam = redactSchemaFor({ id: worldId, creatorId, schema: before }, before, creatorId, "edit");
+      void injectServerTextWrite(worldId, beforeForTeam as Record<string, unknown>, forCaller, { actorUserId: actorId }).catch(() => {});
+    }
+  });
 
   if (live.status !== "published") {
     await tx.update(worlds).set({ schema, ...nameSet, ...descriptionSet, updatedAt }).where(eq(worlds.id, worldId));
+    announce(live.schema);
     return { held: false, reasons: [], ...written };
   }
 
   const existing = await getPendingEdit(worldId, tx);
+  // The creator's update waits in review: an editor who can't publish must not
+  // withdraw it by writing (their assistant / outside AI reports the refusal).
+  if (existing?.status === "pending" && !mayWithdrawSubmission(access)) throw new UpdateInReviewError();
   const plan = planMaterialHold({
     worldId,
     creatorId,
@@ -608,12 +756,13 @@ export async function writeStudioWorldSchema(args: {
   if (existing?.status === "pending") {
     await tx
       .update(worldReviewSubmissions)
-      .set({ decision: "withdrawn", decidedBy: creatorId, decidedAt: new Date() })
+      .set({ decision: "withdrawn", decidedBy: actorId, decidedAt: new Date() })
       .where(and(
         eq(worldReviewSubmissions.worldId, worldId),
         eq(worldReviewSubmissions.decision, "pending"),
         eq(worldReviewSubmissions.submissionType, "edit"),
       ));
+    notifySubmissionWithdrawn({ worldId, creatorId, actorId });
   }
   await applyHoldPlan(plan, tx);
   if (!plan.upsert) {
@@ -625,6 +774,7 @@ export async function writeStudioWorldSchema(args: {
     await tx.update(worlds).set({ updatedAt }).where(eq(worlds.id, worldId));
   }
 
+  announce(existing?.schema ?? live.schema);
   return { held: !!plan.upsert, reasons: plan.reasons, ...written };
 }
 
@@ -636,8 +786,11 @@ export async function writeStudioWorldSchema(args: {
 export async function submitPendingEdit(args: {
   worldId: string;
   creatorId: string;
+  /** Who pressed submit when it isn't the creator: an editor allowed to publish. */
+  actorId?: string;
 }): Promise<{ ok: true; autoApproved: boolean } | { ok: false; error: string; code: string }> {
   const { worldId, creatorId } = args;
+  const actorId = args.actorId ?? creatorId;
 
   const [w] = await db
     .select({
@@ -655,16 +808,22 @@ export async function submitPendingEdit(args: {
   if (!w) return { ok: false, error: "World not found", code: "NOT_FOUND" };
 
   const [creator] = await db
-    .select({ name: user.name, isBanned: user.isBanned, skipReview: user.skipReview })
+    .select({ name: user.name, isBanned: user.isBanned })
     .from(user)
     .where(eq(user.id, creatorId))
     .limit(1);
   if (creator?.isBanned) {
     return { ok: false, error: "Your account is restricted. You cannot submit for review.", code: "BANNED" };
   }
-  const skipReview = creator?.skipReview ?? false;
+  // An editor collaborator allowed to publish submits in their own name: a
+  // restricted account can't send writing to review through someone's card.
+  if (actorId !== creatorId) {
+    const [actor] = await db.select({ isBanned: user.isBanned }).from(user).where(eq(user.id, actorId)).limit(1);
+    if (actor?.isBanned) {
+      return { ok: false, error: "Your account is restricted. You cannot submit for review.", code: "BANNED" };
+    }
+  }
 
-  const groupKey = w.languageGroupId ?? worldId;
   const now = new Date();
 
   // Lock the held-edit row for the duration so a concurrent hold (e.g. a Studio
@@ -675,6 +834,11 @@ export async function submitPendingEdit(args: {
     // Same world-before-draft lock order as saves and version switches.
     const live = await lockVersionWorld(tx, worldId, creatorId);
     if (!live || live.status !== "published") return { ok: false as const, error: "Published world not found", code: "NOT_FOUND" };
+    // The group as it is now, under the world lock. The held edit keeps the key
+    // it was created with, and the card may have joined or left a language group
+    // since: the edit and its submission must agree, or no approve (AI or admin)
+    // can find the edit and the card waits forever (11/13, Raley Serenhitas).
+    const groupKey = live.languageGroupId ?? worldId;
     const [pending] = await tx
       .select()
       .from(worldPendingEdits)
@@ -683,6 +847,9 @@ export async function submitPendingEdit(args: {
       .limit(1);
     if (!pending) return { ok: false as const, error: "No pending changes to submit", code: "NO_PENDING_EDIT" };
     if (pending.status === "pending") return { ok: false as const, error: "Already submitted for review", code: "ALREADY_SUBMITTED" };
+    // Same rule as a first submission (routes/worlds.ts): an edit cannot give a
+    // live card a game page that is not one of the platform's own.
+    if (foreignGamePath(pending.schema)) return { ok: false as const, error: "This card's game page is not one the platform provides, so it cannot be published. Remove the game page setting, or upload the game as a web game instead.", code: "GAME_PATH_NOT_ALLOWED" };
 
     // Snapshot what is being submitted so the publish lineage keeps its
     // live provenance — and what it replaces, so the review can show the diff
@@ -695,7 +862,7 @@ export async function submitPendingEdit(args: {
 
     await tx
       .update(worldPendingEdits)
-      .set({ status: "pending", submittedAt: now, rejectionReason: null, rejectionDetail: null, updatedAt: now })
+      .set({ status: "pending", groupKey, submittedAt: now, rejectionReason: null, rejectionDetail: null, updatedAt: now })
       .where(eq(worldPendingEdits.worldId, worldId));
 
     const [submission] = await tx.insert(worldReviewSubmissions).values({
@@ -715,11 +882,14 @@ export async function submitPendingEdit(args: {
       snapshotAllowReviews: w.allowReviews,
     }).returning();
     if (!submission) throw new Error("Submission could not be saved");
-    return { ok: true as const, requiresReview: pending.reasons.length > 0, submissionId: submission.id };
+    return { ok: true as const, requiresReview: pending.reasons.length > 0, submissionId: submission.id, groupKey };
   });
   if (!outcome.ok) return outcome;
+  const { groupKey } = outcome;
 
-  if (skipReview || !outcome.requiresReview) {
+  // No trusted-creator bypass any more (11/07): only an edit with nothing
+  // material in it skips review; everything else gets the AI first look.
+  if (!outcome.requiresReview) {
     // Trusted creator: commit the just-submitted held edit straight to live
     // instead of queuing it. Reuses commitPendingEditsForGroup so the
     // diff/commit/embed/sibling-sync machinery is identical to an admin approve
@@ -739,14 +909,14 @@ export async function submitPendingEdit(args: {
         committed = true;
         await db.insert(adminActions).values({
           adminId: null,
-          actionType: skipReview ? "skip_review_auto_publish_edit" : "nonmaterial_auto_publish_edit",
+          actionType: "nonmaterial_auto_publish_edit",
           targetType: "world_review_group",
           targetId: groupKey,
-          metadata: { creatorId, worldId, source: skipReview ? "skipReview" : "nonmaterial" },
+          metadata: { creatorId, worldId, source: "nonmaterial" },
         }).catch(() => {});
       }
     } catch (err) {
-      console.error("[skipReview] gate-2 auto-commit failed:", (err as Error)?.message);
+      console.error("[review] non-material auto-commit failed:", (err as Error)?.message);
     }
     // `committed` lets the client show "approved & live" instead of the
     // misleading "submitted — your live card stays up until approved" toast.
@@ -754,18 +924,22 @@ export async function submitPendingEdit(args: {
       : { ok: false, code: "PUBLISH_SUPERSEDED", error: "Publication did not complete. Reload your draft and try again." };
   }
 
-  // Ping admins (same notification type the first-publish flow uses).
-  const admins = await db.select({ id: user.id }).from(user).where(eq(user.role, "admin"));
-  if (admins.length > 0) {
-    notifyCoalescedByGroup(admins.map((a) => a.id), "new_review_pending", groupKey, {
+  // The AI looks first; admins are pinged (same notification type the
+  // first-publish flow uses) only if it hands the change to a person.
+  // Dynamic import: world-ai-review-run imports this module (commit on approve).
+  const { queueWorldAiReview } = await import("./world-ai-review-run.js");
+  queueWorldAiReview(groupKey, async () => {
+    const admins = await db.select({ id: user.id }).from(user).where(eq(user.role, "admin"));
+    if (admins.length === 0) return;
+    await notifyCoalescedByGroup(admins.map((a) => a.id), "new_review_pending", groupKey, {
       worldId,
       worldName: w.name,
       thumbnailUrl: w.thumbnailUrl,
       authorUserId: creatorId,
       authorName: creator?.name ?? "Someone",
       groupKey,
-    }, { actorUserId: creatorId }).catch(() => {});
-  }
+    }, { actorUserId: creatorId });
+  });
 
   return { ok: true, autoApproved: false };
 }
@@ -774,8 +948,11 @@ export async function submitPendingEdit(args: {
 export async function withdrawPendingEdit(args: {
   worldId: string;
   creatorId: string;
+  /** Who pressed withdraw when it isn't the creator: an editor allowed to publish. */
+  actorId?: string;
 }): Promise<{ ok: true } | { ok: false; error: string; code: string }> {
-  const { worldId, creatorId } = args;
+  const { worldId } = args;
+  const decidedBy = args.actorId ?? args.creatorId;
   const pending = await getPendingEdit(worldId);
   if (!pending) return { ok: false, error: "No pending changes", code: "NO_PENDING_EDIT" };
   if (pending.status !== "pending") return { ok: false, error: "Not in review", code: "NOT_IN_REVIEW" };
@@ -791,7 +968,7 @@ export async function withdrawPendingEdit(args: {
       .where(and(eq(worldPendingEdits.worldId, worldId), eq(worldPendingEdits.status, "pending")));
     await tx
       .update(worldReviewSubmissions)
-      .set({ decision: "withdrawn", decidedBy: creatorId, decidedAt: now })
+      .set({ decision: "withdrawn", decidedBy, decidedAt: now })
       .where(and(
         eq(worldReviewSubmissions.worldId, worldId),
         eq(worldReviewSubmissions.decision, "pending"),
@@ -851,6 +1028,13 @@ export async function commitPendingEditsForGroup(
       ))
       .for("update");
     if (pendings.length === 0) return null;
+    // Checked when the edit was submitted, and again here where it goes live:
+    // the rows are locked, so what is checked is what is written.
+    const foreignGame = pendings.find((p) => foreignGamePath(p.schema));
+    if (foreignGame) {
+      console.warn(`[pending-edit] refused to commit ${foreignGame.worldId}: its game page is not a first-party one`);
+      return null;
+    }
 
     const worldIds = pendings.map((p) => p.worldId);
     const liveRows = await tx
@@ -867,6 +1051,7 @@ export async function commitPendingEditsForGroup(
         schema: worlds.schema,
         ageRating: worlds.ageRating,
         reviewedAt: worlds.reviewedAt,
+        visibility: worlds.visibility,
       })
       .from(worlds)
       .innerJoin(user, eq(user.id, worlds.creatorId))
@@ -959,6 +1144,7 @@ export async function commitPendingEditsForGroup(
     notify(primaryLive.creatorId, "world_review_approved", {
       groupKey,
       primaryWorldId: primary.worldId,
+      visibility: primaryLive.visibility,
       worldName: primaryLive.name,
       thumbnailUrl: primary.thumbnailUrl ?? primaryLive.thumbnailUrl,
       variantCount: pendings.length,
@@ -968,7 +1154,7 @@ export async function commitPendingEditsForGroup(
   // testing's search index stays in step with each approved edit; main's
   // embedding pass reads the live rows it already collected.
   for (const p of pendings) await syncSearchDocNormalized(db, p.worldId).catch(() => {});
-  for (const live of publishedForEmbedding) {
+  for (const live of publishedForEmbedding.filter(live => live.visibility !== "unlisted")) {
     embedAndStoreWorld({
       worldId: live.id,
       name: live.name,

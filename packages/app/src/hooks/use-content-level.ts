@@ -26,6 +26,8 @@ export function useContentLevel(): ContentLevel {
   const { data: session } = useSession();
   const profile = useUserProfileStore((s) => s.profile);
 
+  if (profile?.limitedContentOnly) return "safe";
+
   if (session?.user) {
     return normalizeContentLevel(
       profile?.preferences?.contentLevel as string | undefined,
@@ -42,6 +44,7 @@ export function useContentLevel(): ContentLevel {
  */
 export function getContentLevel(): ContentLevel {
   const profile = useUserProfileStore.getState().profile;
+  if (profile?.limitedContentOnly) return "safe";
   if (profile) {
     return normalizeContentLevel(
       profile.preferences?.contentLevel as string | undefined,

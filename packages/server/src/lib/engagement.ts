@@ -103,9 +103,54 @@ export function modelArmEligible(model: Pick<RankerModelHandle, "featureNames"> 
  * shared, deterministic document per language, so a guest experiment would
  * need its own assignment and cache keys.
  */
-export function feedVariantFor(userId?: string | null, modelArmOpen = false): FeedVariant {
+/**
+ * Cold-slate model experiment (2026-11-15). For SIGNED-IN cold-tier accounts
+ * the newcomer slate (composeColdStartSlate) scores each card by the
+ * published time-spent model's predicted minutes instead of the people-based
+ * popularity score; every slate rule (proven-first, caps, near-duplicates,
+ * adult floor, lane coverage) still applies. Offline (11-02..11-07 cold
+ * visits, model 39): +8.6% NDCG@24 [+3.7%, +13.6%] over today's builder.
+ * Guests are never assigned (they are not in the training data). Fixed hash
+ * `coldmodel1:<userId>`, DISCOVERY_COLD_MODEL_PERCENT (default 50, 0 = off).
+ */
+export function coldModelArm(userId: string | null | undefined, percent = process.env.DISCOVERY_COLD_MODEL_PERCENT): boolean {
+  if (!userId) return false;
+  const parsed = percent === undefined || percent === "" ? 50 : Number(percent);
+  const share = Number.isFinite(parsed) ? Math.max(0, Math.min(100, parsed)) : 50;
+  return fnvHash01(`coldmodel1:${userId}`) * 100 < share;
+}
+
+/** Predicted minutes for one card from a time-value (lift-composition) model;
+ * null when the model is not one (legacy binary, residual ranking score) or a
+ * prediction fails. Position stays 0 (buildRankerFeatures). */
+export function predictedValueMinutes(
+  candidate: EngagementCandidate,
+  ctx: EngagementContext,
+  now: Date,
+): number | null {
+  const model = ctx.model;
+  if (!model || isResidualRanker(model) || (model.kind !== "regression" && model.kind !== "tweedie")) return null;
+  try {
+    const raw = model.predict(buildRankerFeatures(candidate, ctx.stats.get(candidate.id), ctx, now));
+    const minutes = model.kind === "tweedie" ? raw : Math.expm1(raw);
+    return Number.isFinite(minutes) ? Math.max(0, minutes) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function feedVariantFor(userId?: string | null, modelArmOpen = false,
+  holdoutPercent = process.env.DISCOVERY_MODEL_HOLDOUT_PERCENT): FeedVariant {
   if (!userId || !modelArmOpen) return "engage_v1";
-  return fnvHash01(`feedexp1:${userId}`) * 100 < 50 ? "engage_v1" : "engage_v2";
+  // 2026-11-15: the model arm won (Oct 18 – 24: Discover story starters
+  // 37.2% vs 32.7%, +4.5 pts), so it serves 95% of accounts. The lowest 5% of
+  // the same bucket stay on engage_v1 as a standing holdout: the model is
+  // retrained and can change nightly, and this is the comparison that would
+  // show a quietly worse one. Accounts already on engage_v2 (buckets ≥ 50)
+  // keep it. DISCOVERY_MODEL_HOLDOUT_PERCENT overrides (0 = no holdout).
+  const parsed = holdoutPercent === undefined || holdoutPercent === "" ? 5 : Number(holdoutPercent);
+  const holdout = Number.isFinite(parsed) ? Math.max(0, Math.min(50, parsed)) : 5;
+  return fnvHash01(`feedexp1:${userId}`) * 100 < holdout ? "engage_v1" : "engage_v2";
 }
 
 /** Does this arm receive the engagement context at ranking time? BOTH
@@ -169,11 +214,12 @@ export interface EngagementGlobals {
  * quality / trending terms and exploration, never by the model (its inputs
  * keep the raw columns so serving matches what it was trained on).
  * - impressions7d: slot-weighted exposure. A view in a top slot counts more
- *   than a deep one, by the square root of the measured click curve (top 4
- *   slots ~52 clicks/1k views vs ~15 at 160+), so a card that merely holds
- *   the top isn't credited with the slot's clicks. Square root because part
- *   of the curve is real quality; the logged top-12 shuffle replaces it with
- *   the causal curve.
+ *   than a deep one, by the measured click curve raised to a strength, so a
+ *   card that merely holds the top isn't credited with the slot's clicks.
+ *   Top 12 slots: strength 0.9, measured by the logged shuffle (2026-11-15,
+ *   ~43k randomized views: slots 1-2 vs 9-12 click 1.66x when cards are
+ *   placed at random vs 1.73x in the normal feed, so ~90% of the gap is the
+ *   slot itself). Deeper slots: 0.5, a cautious guess until measured.
  * - starts7d / qualified7d / prev7d: first sessions only. 37% of play
  *   starts were readers returning to a story they already play (64% of those
  *   pass 5 min vs 46% of first sessions), which rewarded loyalty, not discovery. */
@@ -506,14 +552,64 @@ const SESSION_NEGATIVE_COSINE_CAP = 0.85;
 /** A preview read for this long and rejected is a weaker "no" than a glance. */
 const SESSION_NEGATIVE_LONG_LOOK_MS = 10_000;
 
-/** 50/50 by a fixed hash of the actor (`user:<id>` / `guest:<id>`), so a
- * readout can rebuild the groups offline. DISCOVERY_SESSION_NEGATIVES_PERCENT
- * overrides (0 = off, 100 = everyone). */
+/** On for every actor since 2026-11-15 (was 90% with a 10% holdout; a
+ * fixed rule that does not change nightly, already measured). The fixed hash
+ * (`user:<id>` / `guest:<id>`) stays so a future test can rebuild groups. Readout 2026-11-15 (50/50, Oct 18 – Nov 14, ~7.2k signed-in per
+ * arm, pre-period balanced): total play minutes per person +9.6% after
+ * adjusting for each person's earlier play [+1.7%, +17.5%]; Discover clicks
+ * −5% and story starts unchanged — readers open fewer previews but land in
+ * stories they stay with. DISCOVERY_SESSION_NEGATIVES_PERCENT overrides
+ * (0 = off, 100 = everyone). */
 export function sessionNegativesArm(actor: string | null | undefined, percent = process.env.DISCOVERY_SESSION_NEGATIVES_PERCENT): boolean {
   if (!actor) return false;
-  const p = percent === undefined || percent === "" ? 50 : Number(percent);
+  const p = percent === undefined || percent === "" ? 100 : Number(percent);
   if (!Number.isFinite(p) || p <= 0) return false;
   return fnvHash01(`sessneg1:${actor}`) * 100 < Math.min(100, p);
+}
+
+/**
+ * In-visit adaptation of the newcomer slate (2026-11-16, experiment). Guests
+ * are ranked by composeColdStartSlate, which ignored
+ * the 45-minute session signals loaded for them, so a guest who tapped three
+ * K-pop stories still got the generic slate. In the arm the slate multiplies
+ * each card's popularity by (1 + 2 x sessionMatch). Fixed hash
+ * `coldsession1:<actor>` for GUEST actors only (`guest:<uuid>`), 50/50 by default,
+ * DISCOVERY_COLD_SESSION_PERCENT overrides (0 = off).
+ */
+export function coldSessionArm(actor: string | null | undefined, percent = process.env.DISCOVERY_COLD_SESSION_PERCENT): boolean {
+  // Guests only: offline it helps guests (+13.2% [+6.6, +20.4]) but showed
+  // nothing for signed-in cold accounts, who are also in coldmodel1 (#524);
+  // overlapping experiments on that small population would confound both.
+  if (!actor || !actor.startsWith("guest:")) return false;
+  const parsed = percent === undefined || percent === "" ? 50 : Number(percent);
+  const share = Number.isFinite(parsed) ? Math.max(0, Math.min(100, parsed)) : 50;
+  return fnvHash01(`coldsession1:${actor}`) * 100 < share;
+}
+
+/** Whether the 45-minute session has anything the slate could lean toward. */
+export function hasSessionTaste(ctx: Pick<EngagementContext, "sessionCentroid" | "sessionTags"> | undefined): boolean {
+  return Boolean(ctx && (ctx.sessionCentroid || ctx.sessionTags.size > 0));
+}
+
+/** The positive session term of scoreEngagement on a [0, 1] scale: embedding
+ * similarity to what was tapped (floor/cap mapped, squared) plus shared tags,
+ * divided by its maximum (50 + 15 x 2). */
+export function sessionMatch(candidate: EngagementCandidate, ctx: EngagementContext): number {
+  let points = 0;
+  if (ctx.sessionCentroid && candidate.embedding && candidate.embedding.length === ctx.sessionCentroid.length) {
+    const normalized = l2Normalize(candidate.embedding);
+    if (normalized) {
+      const cos = dot(ctx.sessionCentroid, normalized);
+      const adjusted = Math.max(0, Math.min(1, (cos - SESSION_COSINE_FLOOR) / (SESSION_COSINE_CAP - SESSION_COSINE_FLOOR)));
+      points += SESSION_VECTOR_WEIGHT * adjusted * adjusted;
+    }
+  }
+  if (ctx.sessionTags.size > 0 && Array.isArray(candidate.tags)) {
+    let shared = 0;
+    for (const tag of candidate.tags) if (ctx.sessionTags.has(tag.trim().toLowerCase())) shared += 1;
+    points += SESSION_TAG_WEIGHT * Math.min(SESSION_TAG_CAP, shared);
+  }
+  return points / (SESSION_VECTOR_WEIGHT + SESSION_TAG_WEIGHT * SESSION_TAG_CAP);
 }
 
 /** Flat boost for candidates surfaced by the co_played recall route — an

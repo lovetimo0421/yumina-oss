@@ -7,8 +7,8 @@
  * no-op. Types are deliberately loose: the real module's shapes are hosted.
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-export { normalizeHubLanguage, normalizeWorldLanguage, resolveHubLanguageScope } from "./world-language.js";
-export type { HubLanguage } from "./world-language.js";
+export { normalizeEditorialLanguage, normalizeHubLanguage, normalizeWorldLanguage, resolveHubLanguageScope } from "./world-language.js";
+export type { EditorialLanguage, HubLanguage } from "./world-language.js";
 
 export type RecommendationProfile = any;
 export type HubBaseFilters = any;

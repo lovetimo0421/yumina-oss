@@ -6,6 +6,10 @@ const LOGIN_COOLDOWN_KEY = "__yumina_login_ts__";
 
 export function markLoginComplete() {
   try { sessionStorage.setItem(LOGIN_COOLDOWN_KEY, String(Date.now())); } catch {}
+  // Route guards remember "signed out" for 30s. A sign-in has to forget it, or
+  // the page we return to reads the stale answer and sends the player straight
+  // back to /login (the chat <-> login bounce, 2026-10-29 Ivy report).
+  clearSessionCache();
 }
 
 export function handleAuthLoss() {

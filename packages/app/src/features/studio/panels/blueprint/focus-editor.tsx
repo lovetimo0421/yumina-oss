@@ -4,6 +4,7 @@ import { Check, MessageCircle, BookOpen } from "lucide-react";
 import { estimateTokens } from "@yumina/engine";
 import { useEditorStore } from "@/stores/editor";
 import { DebouncedInput, DebouncedTextarea } from "@/features/editor/components/debounced-field";
+import { textFieldKey } from "@yumina/engine";
 
 /**
  * The big editor. Writing a scene into a 300px block is possible the way
@@ -58,6 +59,7 @@ export function FocusEditor({ objId, onClose }: { objId: string; onClose: () => 
           <DebouncedInput
             value={entry.name}
             syncKey={`focus-name-${entry.id}`}
+            sharedKey={textFieldKey({ kind: "row", key: "entries", id: entry.id, field: "name" })}
             onCommit={(v) => updateEntry(entry.id, { name: v })}
             placeholder={t("entries.name")}
             className="min-w-0 flex-1 bg-transparent text-sm font-semibold text-foreground focus:outline-none"
@@ -79,14 +81,12 @@ export function FocusEditor({ objId, onClose }: { objId: string; onClose: () => 
           autoFocus
           value={entry.content}
           syncKey={`focus-body-${entry.id}`}
+          sharedKey={textFieldKey({ kind: "row", key: "entries", id: entry.id, field: "content" })}
           onCommit={(v) => updateEntry(entry.id, { content: v })}
           placeholder={t(isOpening ? "blueprint.block.openingPlaceholder" : "blueprint.rowEdit.bodyPlaceholder")}
           className="min-h-0 flex-1 resize-none bg-transparent px-8 py-5 text-[14px] leading-[1.85] text-foreground/90 placeholder:text-muted-foreground/35 focus:outline-none"
         />
-        <div className="flex shrink-0 items-center justify-between border-t border-white/[0.06] px-4 py-1.5 text-[10px] text-foreground/35">
-          <span>{t("blueprint.focus.autosaves")}</span>
-          <span>Esc</span>
-        </div>
+
       </div>
     </div>
   );

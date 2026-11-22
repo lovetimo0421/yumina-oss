@@ -1,3 +1,8 @@
+---
+title: "Inventory & equipment"
+description: "Build a bag the story fills, a potion that counts down and heals, and a weapon slot the AI can see, with no code in a Yumina card."
+---
+
 <div v-pre>
 
 # Inventory & Equipment
@@ -39,7 +44,7 @@ It adds a bag page, a popup on the chat page, and two variables:
 
 Both come with Behavior Rules that tell the AI how to use them. Inventory's reads, in part:
 
-> When the player gets something, push one, and in the same turn set new_item to "item — one line". When used up or lost, delete its index (from 0). Don't hand out items every turn.
+> When the player gets something, push one, and in the same turn set new_item to "item: one line". When used up or lost, delete its index (from 0). Don't hand out items every turn.
 
 The AI follows them in the story, so loot, gifts and rewards land in the bag without you doing anything.
 
@@ -145,7 +150,7 @@ Its Behavior Rules:
 The player's items. Each is {"name", "icon", "count"}. When the player finds something, push a new item. Leave counts to the inventory buttons.
 ```
 
-**Panels → Front End Code** → open `index.tsx` and replace the default `return <Chat />`:
+**Panels → Interface code** → open `index.tsx` and replace the default `return <Chat />`:
 
 ```tsx
 export default function MyWorld() {
@@ -314,7 +319,7 @@ export default function MyWorld() {
 - `api.showToast(text, type)` shows a notice; the type is `"success"`, `"error"` or `"info"`
 - `itemActions` decides which items get a button. Add a line for each new usable item
 
-The status next to the file in **Panels → Front End Code** should read a green **OK**.
+The status next to the file in **Panels → Interface code** should read a green **OK**.
 
 ::: tip Don't want to write code yourself?
 Click **Creation assistant** at the top right of the canvas and describe it, for example "an item grid with an HP bar, a weapon slot, and Use/Equip buttons".

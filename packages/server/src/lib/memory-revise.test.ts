@@ -12,6 +12,8 @@ import { OpenRouterProvider } from "./llm/openrouter.js";
 import type { GenerateParams, StreamChunk } from "./llm/types.js";
 import { runExtensionInvalidation } from "./extension-hooks.js";
 import { registerSessionMemoryExtension } from "../extensions/session-memory/hooks.js";
+// These players already allowed background AIs to charge (background-consent.ts).
+const ALLOWED = { backgroundCharges: { allowAll: true } };
 
 // A long chat with no saved versions, whose full rebuild is over the automatic
 // budget, used to keep its memory hidden after any edit until the player
@@ -26,7 +28,7 @@ after(async () => { await (db as unknown as { $client: { close(): Promise<void> 
 
 async function fixture(staleAt: Date | null = null) {
   const uid = randomUUID();
-  await db.insert(user).values({ id: uid, name: "Revise", email: `${uid}@example.test` });
+  await db.insert(user).values({ id: uid, name: "Revise", email: `${uid}@example.test`, preferences: ALLOWED });
   await db.insert(creditWallets).values({ userId: uid, balance: 100000, addonBalance: 0 });
   await db.insert(userExtensions).values({ userId: uid, extensionKey: SESSION_MEMORY_EXTENSION_KEY, status: "installed" });
   const [world] = await db.insert(worlds).values({ creatorId: uid, name: "Cafe", schema: { name: "Cafe", entries: [], variables: [] } }).returning();

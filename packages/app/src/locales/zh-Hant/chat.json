@@ -1,4 +1,13 @@
 {
+  "cardImages": {
+    "ask": {
+      "title": "讓這張卡為你畫圖？",
+      "body": "這張卡想為你畫一張圖，每張 {{price}} 蘑菇幣。",
+      "free": "你還有 {{count}} 張免費額度。",
+      "confirm": "畫",
+      "remember": "以後這張卡畫圖不再問我"
+    }
+  },
   "nativeVoice": {
     "title": "啟用即時語音",
     "description": "自然交談，也可以打斷回覆。攝影機保持關閉。",
@@ -29,11 +38,14 @@
   },
   "view": {
     "retry": "重試",
+    "sessionNotFound": "打不開這個對話。它可能屬於你的另一個帳號，或者已被刪除。",
+    "switchAccount": "切換帳號",
     "loadingSession": "載入會話中...",
     "exitFullscreen": "退出全屏 (F11)",
     "returnToFullscreen": "返回全屏",
     "switchModel": "模型",
     "memoryPanel": "記憶",
+    "searchMessages": "搜尋聊天記錄",
     "enterSystemFullscreen": "進入系統全屏",
     "exitImmersive": "退出沉浸模式",
     "showPlayControls": "顯示操作列",
@@ -55,6 +67,8 @@
     "displayModeKeep": "保留設定",
     "sandboxBootFailed": "這個世界的介面沒能載入。檢查一下網路，然後重試。",
     "sandboxBootSlow": "還在載入，你的網路似乎有點慢。",
+    "floatingHere": "現在在小窗裡。",
+    "floatingDock": "收回到網頁",
     "sceneVideo": "場景影片",
     "backToEditor": "返回編輯器"
   },
@@ -110,6 +124,29 @@
     "sceneGalleryLocked": "還沒出現",
     "sceneGalleryEmpty": "這個世界沒有場景圖。",
     "sessionOrdinal": "會話 {{n}}",
+    "searchSaves": "搜尋會話",
+    "clearSearch": "清除搜尋",
+    "sortSaves": "排序",
+    "sort": {
+      "recent": "最近遊玩",
+      "oldest": "最早建立",
+      "messages": "訊息最多",
+      "name": "名稱"
+    },
+    "searchHits_one": "{{count}} 處相符",
+    "searchHits_other": "{{count}} 處相符",
+    "searchMore_one": "還有 {{count}} 處",
+    "searchMore_other": "還有 {{count}} 處",
+    "searchFailed": "搜尋失敗，請重試",
+    "noMatchingSaves": "沒有相符的會話",
+    "pinSession": "置頂",
+    "unpinSession": "取消置頂",
+    "pinFailed": "置頂失敗",
+    "unpinFailed": "取消置頂失敗",
+    "selectAllMatching_one": "選擇相符的 {{count}} 個",
+    "selectAllMatching_other": "全選相符的 {{count}} 個",
+    "deselectAllMatching_one": "取消選擇這 {{count}} 個",
+    "deselectAllMatching_other": "取消選擇這 {{count}} 個",
     "playedFor": "已玩 {{time}}",
     "chooseVersion": "選擇要開始的版本",
     "startThisVersion": "開始這個版本"
@@ -331,14 +368,11 @@
     "signInToSend": "登入以傳送訊息",
     "openPreview": "預覽"
   },
-  "zoom": {
-    "adjustZoom": "調整遊戲縮放",
-    "zoomLabel": "遊戲縮放百分比"
-  },
   "stateGuard": {
     "unverified": "狀態檢查沒能完成，已按原回覆更新數值"
   },
   "errors": {
+    "WORLD_ACCESS_ENDED": "你已無法存取這張卡——作者已將你移出協作。",
     "PROTECTED_WORLD": "創作者已保護此世界的提示詞，防止被竊取。只能使用夢塢官方 API 模型，不支援私有 API 金鑰。",
     "NO_CREDITS": "蘑菇幣用完了！完成每日任務可領取免費額度，或升級方案獲取更多。",
     "PRIVATE_API_BALANCE": "你的私人 API 餘額不足，請檢查服務商帳戶。",
@@ -451,7 +485,12 @@
     "noKey": "語音朗讀需要 API key，請到設定裡新增。",
     "voiceUnavailable": "這個音色已經無法使用了，請換一個。",
     "needsKeyOrCredits": "語音朗讀需要 OpenRouter key 或蘑菇幣",
-    "byokNoBalance": "你的 API key 餘額不足"
+    "byokNoBalance": "你的 API key 餘額不足",
+    "cardAsks": {
+      "title": "開啟語音朗讀？",
+      "body": "這個故事想出聲跟你說話。語音朗讀會用 AI 聲音念出台詞，按字數消耗 mushies。隨時可以在 設定 › 顯示 / 語言 裡關掉。",
+      "confirm": "開啟"
+    }
   },
   "worldDisplayUnavailable": "無法載入這個世界的介面，請聯絡客服。",
   "film": {
@@ -483,7 +522,9 @@
     "scenesEmpty": "開拍後出現場景",
     "current": "目前",
     "cutBack": "↩ 回到 {{scene}}",
-    "changesNextTime": "改動在下次開拍時生效",
+    "changesNextTime": "畫風從下一則回覆開始換；其他改動下次開拍時生效。",
+    "lookNext": "下一條回覆起換成這個畫風。",
+    "advanced": "進階",
     "engine": "引擎",
     "engineComfy": "Comfy H3 · 約每分鐘 130 蘑菇幣",
     "engineFal": "fal · 最快最穩 · 約每分鐘 5,800 蘑菇幣",
@@ -505,24 +546,25 @@
     "limitSeconds": "最長拍多少秒",
     "reset": "恢復預設",
     "consentTitle": "影遊是實驗性功能",
-    "consentBody": "會扣蘑菇幣：fal 即時拍，約每分鐘 5,800；短片每則回覆約 100–1,400，每部拍好時扣。",
+    "consentBody": "會扣蘑菇幣：fal 即時拍，約每分鐘 5,800；短片每則回覆約 800–2,000，每部拍好時扣。",
     "consentAccept": "開啟並開拍",
     "consentDecline": "先不用",
     "noCredits": "蘑菇幣用完了，已停止拍攝。",
     "notEnabled": "請先在設定裡開啟影遊。",
     "unavailable": "影遊暫時無法使用。",
-    "engineShorts": "短片 · 每則回覆一部，寫完幾分鐘後出片 · 每則約 100–1,400 蘑菇幣",
-    "shortsHint": "每則回覆拍成一部 5–60 秒帶配音的短片，長短看這一幕需要。回覆寫完幾分鐘後出片，在這裡播放；兩部之間停在最後一幀。",
+    "engineShorts": "短片 · 每則回覆一部，寫完約半分鐘開始播 · 每則約 800–2,000 蘑菇幣",
+    "shortsHint": "每則回覆拍成一部 5–60 秒帶配音的短片，長短看這一幕需要。回覆寫完約半分鐘就在這裡開始播放；兩部之間停在最後一幀。",
     "shortWriting": "下一部：導演在寫分鏡…",
     "shortShooting": "下一部：已拍好 {{done}}/{{shots}} 個鏡頭",
-    "shortFailed": "這則回覆沒拍成：{{reason}}",
+    "shortFailed": "這則回覆沒拍成：{{reason}}。沒有扣蘑菇幣。",
+    "shortRefused": "導演不肯拍這一段",
     "shortBusy": "已經有兩部在拍了",
     "shortTimeout": "拍得太久，已停止",
     "shortRetry": "重拍",
     "shortRetake": "把最新這則回覆重拍一遍",
     "shortBack": "上一部",
     "shortForward": "下一部",
-    "shortNone": "第一部正在拍，回覆寫完幾分鐘後出片。",
+    "shortNone": "第一部正在拍，回覆寫完約半分鐘開始播。",
     "shortOpening": "開場白",
     "shortReply": "第 {{n}} 則回覆",
     "shortShot": "鏡頭 {{n}}/{{total}}",
@@ -618,5 +660,13 @@
       "shortRewind": "玩家倒退：從頭放一部"
     }
   },
-  "memoryModelNeedsPlan": "{{model}} 需要{{plan}}以上會員。請為記憶換一個模型，或升級會員。"
+  "memoryModelNeedsPlan": "{{model}} 需要{{plan}}以上會員。請為記憶換一個模型，或升級會員。",
+  "cardImages": {
+    "ask": {
+      "title": "讓這張卡為你畫圖？",
+      "body": "這張卡想為你畫一張圖，每張 {{price}} 蘑菇幣。同意後，這張卡以後畫圖不再詢問。",
+      "free": "你還有 {{count}} 張免費額度。",
+      "confirm": "畫"
+    }
+  }
 }

@@ -107,3 +107,19 @@ test("drawing, cancelling, failed cancellation and cancelled states render the a
   assert.match(cancelled, /本次预扣已退回/);
   assert.doesNotMatch(cancelled, /aspect-\[832\/1216\]/);
 });
+
+test("a picked passage and the player's own prompt are sent with the draw; empty ones are not", async () => {
+  const drawing = drawTurnImage("m", false, { focus: "She kisses you by the fire.", prompt: "Seen from the side, by the fire" });
+  await until(() => requests.length === 1);
+  assert.equal(requests[0]!.body.focus, "She kisses you by the fire.");
+  assert.equal(requests[0]!.body.prompt, "Seen from the side, by the fire");
+  assert.equal(requests[0]!.body.auto, false);
+  drawResponse.resolve(response({ ok: true, content: "Drawn", balance: 88 }));
+  await drawing;
+  drawResponse = deferred();
+  const plain = drawTurnImage("m", false, { focus: "", prompt: "" });
+  await until(() => requests.length === 2);
+  assert.equal("focus" in requests[1]!.body || "prompt" in requests[1]!.body, false);
+  drawResponse.resolve(response({ ok: false, reason: "nothing" }));
+  await plain;
+});

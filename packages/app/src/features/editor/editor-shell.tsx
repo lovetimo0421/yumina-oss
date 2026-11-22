@@ -1,4 +1,5 @@
 import { VariantTranslateBanner } from "./variant-translate-banner";
+import { CollabBar } from "@/features/collab/collab-bar";
 import { useStoryNavigation } from "@/hooks/use-story-navigation";
 import { Fragment, lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -48,6 +49,7 @@ import {
 import { useEditorStore, type EditorSection } from "@/stores/editor";
 import { useWorldsStore } from "@/stores/worlds";
 import { rememberEditorChoice } from "./lib/editor-mode";
+import { setCardEditorMode } from "./lib/card-editor-mode";
 import { getEditorSurface, saveEditorSurface } from "@/lib/editor-surface";
 import { VisualSurfaceSwitch } from "./visual-surface-switch";
 import { VariantTabBar } from "./variant-tab-bar";
@@ -63,11 +65,10 @@ import { ComponentsSection } from "./sections/components";
 import { AudioSection } from "./sections/audio";
 import { SceneImagesSection } from "./sections/scene-images";
 import { BackgroundsSection } from "./sections/backgrounds";
-import { MechanicPacksSection } from "./sections/mechanic-packs";
 import { AssetsSection } from "./sections/assets";
 import { OverviewSection } from "./sections/overview";
 import type { CoverSettingsTarget } from "./lib/cover-settings-target";
-import { BundlesSection, GenerationEditorSection, WorldPublishModal } from "@/edition/slots";
+import { BundlesSection, CreditIndicator, GenerationEditorSection, WorldPublishModal } from "@/edition/slots";
 import { useEdition } from "@/edition/edition";
 import { ExportCardMenu } from "./export-card-menu";
 import { DockWorkspace, type DockTool } from "@/features/studio/dock-tools";
@@ -85,6 +86,7 @@ import { importWithChunkRecovery } from "@/lib/stale-chunk-reload";
 const EditorTour = lazy(() => importWithChunkRecovery(() => import("./tour/editor-tour")).then(m => ({ default: m.EditorTour })));
 const VersionHistoryDialog = lazy(() => importWithChunkRecovery(() => import("./version-history-dialog")).then(m => ({ default: m.VersionHistoryDialog })));
 import { useUiStore } from "@/stores/ui";
+import { SECTION_LABEL_KEYS } from "./section-labels";
 import { isPlaceholderCardName } from "@/lib/world-templates";
 
 const apiBase = import.meta.env.VITE_API_URL || "";
@@ -92,20 +94,19 @@ const TOOL_PANEL_PROPS = {} as IDockviewPanelProps;
 
 const SECTION_KEYS: { id: EditorSection; labelKey: string; icon: typeof FileText }[] =
   [
-    { id: "first-message", labelKey: "sections.firstMessage", icon: MessageCircle },
-    { id: "entries", labelKey: "sections.lorebook", icon: BookOpen },
-    { id: "variables", labelKey: "sections.variables", icon: Variable },
-    { id: "rules", labelKey: "sections.behaviors", icon: Zap },
-    { id: "modules", labelKey: "sections.modules", icon: Boxes },
-    { id: "components", labelKey: "sections.customUI", icon: LayoutGrid },
-    { id: "audio", labelKey: "sections.audio", icon: Music },
-    { id: "scene-images", labelKey: "sections.sceneImages", icon: Images },
-    { id: "backgrounds", labelKey: "sections.backgrounds", icon: ImageIcon },
-    { id: "packs", labelKey: "sections.packs", icon: Zap },
-    { id: "assets", labelKey: "sections.assets", icon: FolderOpen },
-    { id: "generation", labelKey: "sections.aiGeneration", icon: Sparkles },
-    { id: "overview", labelKey: "sections.overview", icon: FileText },
-    { id: "bundles", labelKey: "sections.bundles", icon: Package },
+    { id: "first-message", labelKey: SECTION_LABEL_KEYS["first-message"], icon: MessageCircle },
+    { id: "entries", labelKey: SECTION_LABEL_KEYS["entries"], icon: BookOpen },
+    { id: "variables", labelKey: SECTION_LABEL_KEYS["variables"], icon: Variable },
+    { id: "rules", labelKey: SECTION_LABEL_KEYS["rules"], icon: Zap },
+    { id: "modules", labelKey: SECTION_LABEL_KEYS["modules"], icon: Boxes },
+    { id: "components", labelKey: SECTION_LABEL_KEYS["components"], icon: LayoutGrid },
+    { id: "audio", labelKey: SECTION_LABEL_KEYS["audio"], icon: Music },
+    { id: "scene-images", labelKey: SECTION_LABEL_KEYS["scene-images"], icon: Images },
+    { id: "backgrounds", labelKey: SECTION_LABEL_KEYS["backgrounds"], icon: ImageIcon },
+    { id: "assets", labelKey: SECTION_LABEL_KEYS["assets"], icon: FolderOpen },
+    { id: "generation", labelKey: SECTION_LABEL_KEYS["generation"], icon: Sparkles },
+    { id: "overview", labelKey: SECTION_LABEL_KEYS["overview"], icon: FileText },
+    { id: "bundles", labelKey: SECTION_LABEL_KEYS["bundles"], icon: Package },
   ];
 
 // Sidebar grouping — order here determines vertical order in the nav.
@@ -122,7 +123,7 @@ const SECTION_GROUPS: { groupKey: string; ids: EditorSection[] }[] = [
   // says so, because a nav that lists "Lorebook" beside "Modules" reads as two
   // separate places to keep entries — and that is the one thing they are not.
   { groupKey: "card", ids: ["modules"] },
-  { groupKey: "content", ids: ["first-message", "entries", "variables", "rules", "packs"] },
+  { groupKey: "content", ids: ["first-message", "entries", "variables", "rules"] },
   { groupKey: "presentation", ids: ["components", "backgrounds", "audio", "scene-images", "assets"] },
   { groupKey: "creation", ids: ["generation"] },
   { groupKey: "publish", ids: ["overview"] },
@@ -140,7 +141,8 @@ const SECTION_COMPONENTS: Record<EditorSection, React.FC> = {
   audio: AudioSection,
   "scene-images": SceneImagesSection,
   backgrounds: BackgroundsSection,
-  packs: MechanicPacksSection,
+  // 玩法包 is a shelf of the resource market now (official mechanic packs).
+  packs: BundlesSection,
   assets: AssetsSection,
   generation: GenerationEditorSection,
   overview: OverviewSection,
@@ -186,6 +188,14 @@ export function EditorShell({ onBack, onSwitchToSimple, autoTour = false, coverT
   const worldDraft = useEditorStore(s => s.worldDraft);
   const serverWorldId = useEditorStore(s => s.serverWorldId);
   const saving = useEditorStore(s => s.saving);
+  // On a card someone shared with them: publishing needs the creator's leave,
+  // and taking a copy of the card stays the creator's call.
+  const cardAccess = useEditorStore(s => s.access);
+  // An editor the creator let publish may submit updates of a card that is
+  // already live; putting a card out for the first time stays the creator's.
+  const cardStatus = useEditorStore(s => s.worldStatus);
+  const canPublishCard = !cardAccess || cardAccess.role === "owner" || (cardAccess.canPublish && cardStatus === "published");
+  const ownsCard = !cardAccess || cardAccess.role === "owner";
   const activeSection = useEditorStore(s => s.activeSection);
   const setActiveSection = useEditorStore(s => s.setActiveSection);
   const [historySection, setHistorySection] = useHistoryEntryState<EditorSection>(
@@ -272,7 +282,7 @@ export function EditorShell({ onBack, onSwitchToSimple, autoTour = false, coverT
   // Publish / submit-for-review is available for ANY owned variant (incl. 副) so a
   // draft variant can go through first-publish review. Decoupled from primary —
   // only the Overview section stays 主-only (see visibleSections).
-  const canPublishHere = !readOnlyInspect;
+  const canPublishHere = !readOnlyInspect && canPublishCard;
 
   // 副 hide Overview (the outward, hub-facing metadata) — but keep every other
   // section + the publish/submit path. Editions without platform image
@@ -388,7 +398,7 @@ export function EditorShell({ onBack, onSwitchToSimple, autoTour = false, coverT
   const handleSwitchToSimple = () => {
     if (!onSwitchToSimple) return;
     const store = useEditorStore.getState();
-    store.setField("editorMode", "simple");
+    setCardEditorMode("simple");
     rememberEditorChoice(store.serverWorldId, "simple");
     onSwitchToSimple();
   };
@@ -617,9 +627,9 @@ export function EditorShell({ onBack, onSwitchToSimple, autoTour = false, coverT
             {!readOnlyInspect && (
               <SaveStatus onSave={handleSave} data-tour="m-save" className="h-9" />
             )}
-            {readOnlyInspect && (
+            {readOnlyInspect && cardAccess?.role !== "viewer" && (
               <span className="inline-flex h-9 shrink-0 items-center rounded-xl border border-amber-400/40 bg-amber-400/10 px-2.5 text-[11px] font-semibold text-amber-300">
-                🔍 Preview
+                Preview
               </span>
             )}
           </div>
@@ -683,12 +693,13 @@ export function EditorShell({ onBack, onSwitchToSimple, autoTour = false, coverT
           </DropdownMenu>
 
           {/* Publish + review state in one control (also the publish entry on mobile) */}
-          {!readOnlyInspect && features.publishing && (
+          <CollabBar compact />
+          {canPublishHere && features.publishing && (
             <span data-tour="publish-control" className="inline-flex shrink-0">
               <ReviewStateControl onPublish={handlePublishClick} size="sm" disabled={saving} />
             </span>
           )}
-          {!readOnlyInspect && !features.publishing && (
+          {!readOnlyInspect && ownsCard && !features.publishing && (
             <ExportCardMenu worldId={serverWorldId} worldName={worldDraft.name} size="sm" disabled={saving} />
           )}
 
@@ -829,7 +840,7 @@ export function EditorShell({ onBack, onSwitchToSimple, autoTour = false, coverT
             />
           )}
 
-          <div className="flex-1 min-w-0">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
             <input
               type="text"
               value={isPlaceholderCardName(worldDraft.name) ? "" : worldDraft.name}
@@ -840,10 +851,14 @@ export function EditorShell({ onBack, onSwitchToSimple, autoTour = false, coverT
               tabIndex={guestMode ? -1 : undefined}
               autoFocus={!guestMode && isPlaceholderCardName(worldDraft.name)}
               className={cn(
-                "w-full bg-transparent text-lg font-semibold text-foreground placeholder:text-muted-foreground/30 focus:outline-none",
+                "w-[clamp(140px,26vw,360px)] min-w-0 truncate bg-transparent text-lg font-semibold text-foreground placeholder:text-muted-foreground/30 focus:outline-none",
                 guestMode && "cursor-not-allowed opacity-60",
               )}
             />
+            {/* The language menu beside the name, as the canvas has it. It was
+                a row of its own under the bar, which for a card in one
+                language held one tab — the card's name again — and 新变体. */}
+            {features.hub && <VariantTabBar header readOnly={guestMode} />}
           </div>
 
           <div className="editor-shell-header-actions editor-shell-header-actions--advanced flex items-center gap-2">
@@ -858,6 +873,12 @@ export function EditorShell({ onBack, onSwitchToSimple, autoTour = false, coverT
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="min-w-[180px]">
+                {!readOnlyInspect && (
+                  <DropdownMenuItem onClick={() => void handlePlayWorld()} disabled={saving || guestMode}>
+                    <Play className="mr-2 h-4 w-4" />
+                    {t("shell.play")}
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem
                   disabled={!serverWorldId}
                   title={!serverWorldId ? t("versionHistory.needsServerSave") : undefined}
@@ -921,6 +942,7 @@ export function EditorShell({ onBack, onSwitchToSimple, autoTour = false, coverT
               className="mx-2.5 h-7 w-px bg-gradient-to-b from-border/40 via-border to-border/40"
             />
 
+            <CollabBar />
             {!readOnlyInspect && (
               <>
                 {/* Saved / saving / offline: the card saves itself. */}
@@ -935,23 +957,23 @@ export function EditorShell({ onBack, onSwitchToSimple, autoTour = false, coverT
                     <ReviewStateControl onPublish={handlePublishClick} size="md" disabled={saving} />
                   </span>
                 )}
-                {canPublishHere && !features.publishing && (
+                {canPublishHere && ownsCard && !features.publishing && (
                   <ExportCardMenu worldId={serverWorldId} worldName={worldDraft.name} size="md" disabled={saving} />
                 )}
               </>
             )}
+            {/* The balance, as on the rest of the site: the site's bar is not shown here. */}
+            <span className="ml-1.5 inline-flex"><CreditIndicator /></span>
 
-            {readOnlyInspect && (
+            {readOnlyInspect && cardAccess?.role !== "viewer" && (
               <span className="inline-flex items-center gap-1.5 rounded-md border border-amber-400/40 bg-amber-400/10 px-3 py-1.5 text-xs font-semibold text-amber-300">
-                🔍 Admin Preview
+                Admin Preview
               </span>
             )}
           </div>
         </div>
       </div>
 
-      {/* Variant tab bar — between header and body */}
-      {features.hub && <VariantTabBar />}
       <VariantTranslateBanner canAsk={false} />
 
       {/* Body: sidebar + content */}
@@ -1051,22 +1073,10 @@ export function EditorShell({ onBack, onSwitchToSimple, autoTour = false, coverT
           </div>
           )}
 
-          {/* PLAY — primary call-to-action, restored to bottom-left of the sidebar
-              with the original gold solid look. Hidden in admin inspect mode
-              because admin isn't the creator and the play API will 403. */}
-          {!readOnlyInspect && (
-          <div className="editor-shell-play-wrap border-t border-border p-5">
-            <button
-              onClick={handlePlayWorld}
-              disabled={saving}
-              className="group relative flex w-full items-center justify-center gap-3 overflow-hidden rounded-2xl bg-gold py-4 text-lg font-black text-black shadow-[0_0_20px_rgba(201,162,94,0.3)] transition-all hover:-translate-y-0.5 hover:shadow-[0_0_30px_rgba(201,162,94,0.4)] disabled:opacity-40"
-            >
-              <div className="absolute inset-0 translate-x-[-100%] bg-gradient-to-r from-transparent via-white/20 to-transparent transition-transform duration-700 ease-in-out group-hover:translate-x-[100%]" />
-              <Play className="relative z-10 h-6 w-6 fill-current transition-transform group-hover:scale-110" />
-              <span className="relative z-10 tracking-widest">{t("shell.play")}</span>
-            </button>
-          </div>
-          )}
+          {/* No gold 开始游戏 down here any more: 试玩 in the bar above runs the
+              card beside the section, the way the canvas does, and two big
+              "play" buttons with different meanings read as one too many.
+              Playing it for real, in a chat of your own, is in ⋮. */}
         </aside>
 
         {/* Content — elevated workspace canvas */}

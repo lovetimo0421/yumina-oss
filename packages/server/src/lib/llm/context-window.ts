@@ -37,8 +37,9 @@ export function getModelContextWindow(modelId: string): number {
   // 262,144. Over-estimating is not harmless here the way it is upstream: the
   // local runtime drops everything past its own window silently, off the FRONT,
   // which is precisely where the persona and lorebook sit. The card loses its
-  // memory and nothing errors. Pin it to the same number we ask the runtime to
-  // allocate (`num_ctx` in local-bridge.ts) so the two can never disagree.
+  // memory and nothing errors. Pin it to the ceiling we'll ask the runtime for;
+  // the `num_ctx` actually sent (localNumCtx in local-bridge.ts) is sized from
+  // the budget this clamp returns, so the two can never disagree.
   // `ollama/` is the same story reached a different way (the player exposes their
   // own server over a tunnel instead of through the browser), and it had the same
   // silent-truncation bug before this guard.

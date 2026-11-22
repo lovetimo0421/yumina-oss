@@ -9,7 +9,11 @@ export const MAX_WEBSITE_LENGTH = 200;
 
 // ── World / Bundle ───────────────────────────────────────
 export const MAX_WORLD_NAME = 50;
-export const MAX_WORLD_DESCRIPTION = 10_000;
+// 100k (10k, then 30k on 10/27, 100k on 11/06 for 60k+ ported storefronts): multi-character cards write an illustrated character roster
+// here (one image + profile per character). Lists only ever receive the first
+// LIST_DESCRIPTION_CHARS (server lib/list-description.ts); the full text loads
+// with the card page.
+export const MAX_WORLD_DESCRIPTION = 100_000;
 export const MAX_WORLD_EXTENDED_DESCRIPTION = 10_000;
 // 2000, not 500: a 500-char Chinese announcement grows past 500 once the
 // translation pipeline renders it into es/en/ja, and those variants are written
@@ -128,7 +132,10 @@ export const RATE_LIMITS: Record<RateLimitTier, RateLimitConfig> = {
   "community-replies":{ max: 30,  windowSeconds: 3600 },
   "social-actions":   { max: 60,  windowSeconds: 60 },
   "direct-messages":  { max: 30,  windowSeconds: 60 },
-  "publishing":       { max: 10,  windowSeconds: 3600 },
+  // 100/h for everyone: the AI first look clears most submissions, and a creator
+  // carrying one change across a big catalog updates dozens of worlds in an hour
+  // (11/18: 27 in one hour against the old 30; publish and submit calls share it).
+  "publishing":       { max: 100, windowSeconds: 3600 },
   "profile-updates":  { max: 10,  windowSeconds: 60 },
   "search-browse":    { max: 120, windowSeconds: 60 },
   "reports":          { max: 10,  windowSeconds: 3600 },

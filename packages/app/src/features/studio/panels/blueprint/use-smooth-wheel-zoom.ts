@@ -13,7 +13,8 @@ type Viewport = { x: number; y: number; zoom: number };
  * it just never gets far ahead of the board.
  *
  * Anything marked `nowheel` (a scrolling editor, the floating card) keeps its
- * own wheel. A text box keeps it only once it has been clicked into.
+ * own wheel while it can still scroll that way, a text box included. Under a
+ * finger a text box keeps the swipe only once it has been tapped into.
  *
  * Touch moves and pinches the board here too, blocks included.
  */
@@ -24,8 +25,9 @@ export function useSmoothWheelZoom({ container, getViewport, setViewport, minZoo
   minZoom: number;
   maxZoom: number;
   enabled: boolean;
-  /** Every frame of a glide (the board is moving under its own power). */
-  onGlide?: () => void;
+  /** Every frame of a glide (the board is moving under its own power), and
+   *  every step of a scroll or a finger moving it: a pan, or a zoom. */
+  onGlide?: (kind: "pan" | "zoom") => void;
   /** The glide came to rest; `point` is where the pointer was, in client px. */
   onSettle?: (zoom: number, point: { x: number; y: number }) => void;
   /** Keeps a wheel scroll on the board: given where it would land, where it
@@ -76,7 +78,7 @@ export function useSmoothWheelZoom({ container, getViewport, setViewport, minZoo
       const fx = (anchor.x - vp.x) / vp.zoom;
       const fy = (anchor.y - vp.y) / vp.zoom;
       setViewport({ x: anchor.x - fx * zoom, y: anchor.y - fy * zoom, zoom });
-      onGlide?.();
+      onGlide?.("zoom");
       if (done) {
         raf = 0;
         last = 0;
@@ -112,11 +114,11 @@ export function useSmoothWheelZoom({ container, getViewport, setViewport, minZoo
           // way up: stopping there handed a scroll over a form's icon to the
           // board.
           if (!(node instanceof HTMLElement)) continue;
-          // Text that is only being looked at is not being read line by line:
-          // the board moves. Swiping across an open lore entry of 8,000
-          // characters scrolled the entry, a screen of it per swipe, and the
-          // board would not budge until it ran out (owner's demo, 10/17).
-          if (idleText(node)) continue;
+          // A text box under the pointer scrolls under the wheel, clicked
+          // into or not: the board moving while the pointer sat on the text
+          // being read looked like the box was broken (owner, 11/06). Boxes
+          // grow with their text now, so only a long one scrolls at all,
+          // and at its end the wheel carries on down the board.
           const style = getComputedStyle(node);
           if (!/(auto|scroll)/.test(style.overflowY + style.overflowX)) continue;
           if (event.deltaY > 0 ? node.scrollTop + node.clientHeight < node.scrollHeight - 1 : event.deltaY < 0 && node.scrollTop > 0) return;
@@ -135,7 +137,7 @@ export function useSmoothWheelZoom({ container, getViewport, setViewport, minZoo
         const vp = getViewport();
         const next = { x: vp.x - dx, y: vp.y - dy, zoom: vp.zoom };
         live.current.setViewport(live.current.clampScroll ? live.current.clampScroll(next) : next);
-        live.current.onGlide?.();
+        live.current.onGlide?.("pan");
         if (scrollRest) clearTimeout(scrollRest);
         const at = { x: event.clientX, y: event.clientY };
         scrollRest = setTimeout(() => { scrollRest = 0; live.current.onSettle?.(getViewport().zoom, at); }, 140);
@@ -229,7 +231,8 @@ export function useSmoothWheelZoom({ container, getViewport, setViewport, minZoo
       moved = true;
       if (event.cancelable) event.preventDefault();
       const { setViewport, clampScroll, onGlide, minZoom, maxZoom } = live.current;
-      if (fingers.length === 1 || !base.dist) {
+      const panning = fingers.length === 1 || !base.dist;
+      if (panning) {
         const next = { x: base.vp.x + mid.x - base.mid.x, y: base.vp.y + mid.y - base.mid.y, zoom: base.vp.zoom };
         setViewport(clampScroll ? clampScroll(next) : next);
       } else {
@@ -238,7 +241,7 @@ export function useSmoothWheelZoom({ container, getViewport, setViewport, minZoo
         const fy = (base.mid.y - base.vp.y) / base.vp.zoom;
         setViewport({ x: mid.x - fx * zoom, y: mid.y - fy * zoom, zoom });
       }
-      onGlide?.();
+      onGlide?.(panning ? "pan" : "zoom");
     };
     const onTouchEnd = (event: TouchEvent) => {
       if (!owned) return;

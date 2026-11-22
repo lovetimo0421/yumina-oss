@@ -1,8 +1,13 @@
+---
+title: "Achievement system"
+description: "Pop up a card when the player hits a milestone, remember each achievement once, and show found and locked ones on a page, no code needed."
+---
+
 <div v-pre>
 
 # Achievement System
 
-> When the player hits a milestone (more than 100 gold, more than 5 battles won, finding a hidden area), a card pops up with the achievement's name and a line of text. Each achievement unlocks once, goes into a list, and a page in the player interface shows which ones are found and which are still locked. All of it can be built without code.
+> When the player hits a milestone (more than 100 gold, more than 5 battles won, finding a hidden area), a card pops up with the achievement's name and a line of text. Each achievement is earned once, goes into a list, and a page in the player interface shows which ones are found and which are still locked. All of it can be built without code.
 
 ---
 
@@ -10,7 +15,7 @@
 
 - **A popup the moment a milestone is hit**: a little card with a title, a line of text and an optional picture
 - **Automatic detection**: behaviors watch the numbers and the conversation, so the player doesn't have to do anything
-- **Each achievement unlocks once**: a moment that's already in its list never pops up again
+- **Each achievement is earned once**: a moment that's already in its list never pops up again
 - **An achievements page**: every achievement is listed; unlocked ones show their text, locked ones show a hint
 - **Optional**: achievements that stay unlocked across new games
 
@@ -24,7 +29,7 @@ The player's gold goes from 95 to 101
   → The achievements page shows Big Spender as unlocked
 ```
 
-The AI moves the numbers as the story goes, but whether an achievement unlocks is decided by the engine, so an achievement can't be forgotten or handed out twice.
+The AI moves the numbers as the story goes, but the engine decides whether an achievement is earned, so an achievement can't be forgotten or handed out twice.
 
 ---
 
@@ -116,7 +121,7 @@ This one watches the conversation instead of a number. A behavior has one trigge
 | When it fires | **AI says keyword**: `hidden passage, secret room` |
 | Effects | the same **Unlock a moment** as 3a, with the same title |
 
-Commas separate keywords, and any one of them is enough. Both behaviors collect into the same list under the same title, so whichever fires first unlocks the achievement and the other one finds it already there and stays quiet. You don't need extra conditions for this.
+Commas separate keywords, and any one of them is enough. Both behaviors collect into the same list under the same title, so whichever fires first awards the achievement and the other one finds it already there and stays quiet. You don't need extra conditions for this.
 
 ::: info Moments or a notification?
 **Show notification** (with the **Success** style) also works for a one-line "Achievement unlocked" message, but it doesn't remember anything: you'd need a Switch variable per achievement, a condition so it doesn't fire twice, and **Max fires** set to 1. **Unlock a moment** does the remembering for you.
@@ -130,8 +135,8 @@ Click **Player interface** in the middle of the top bar. Add a page with **New p
 
 1. Under **Rows come from**, pick **Rows I write** and add one row per achievement: `Big Spender`, `Seasoned Fighter`, `Trailblazer`, each with a line of text
 2. Turn on **Draw each row as a card**
-3. Under **Locked until**, turn on **Show locked rows as locked**. Set **Watch this variable** to Achievements and leave **Match this row field** as `title`. A row unlocks when the list contains its title, which is exactly what **Unlock a moment** puts there
-4. In **Shown while locked**, write the hint the player sees before unlocking, like "Save up a little"
+3. Under **Locked until**, turn on **Show locked rows as locked**. Set **Watch this variable** to Achievements and leave **Match this row field** as `title`. A row counts as unlocked when the list contains its title, which is exactly what **Unlock a moment** puts there
+4. In **Shown while locked**, write the hint the player sees before it's unlocked, like "Save up a little"
 5. Add a **Button** with **Go to page** back to the conversation, so the page isn't a dead end (the page column warns **No way out** otherwise)
 6. On the conversation page, add a **Button** labelled "Achievements" whose step is **Go to page** → your new page
 
@@ -171,7 +176,7 @@ Click **Play** in the top bar.
 
 If you'd rather draw the panel yourself, for example under the last message instead of on a separate page, write it in the interface code. The behaviors above stay exactly as they are; the code only reads the Achievements list.
 
-**Panels → Front End Code** → open `index.tsx` and replace the default `return <Chat />`:
+**Panels → Interface code** → open `index.tsx` and replace the default `return <Chat />`:
 
 ```tsx
 export default function MyWorld() {
@@ -284,7 +289,7 @@ export default function MyWorld() {
 - `api.variables["Achievements"]` reads the list by the variable's name. Names with spaces or capitals work with the bracket form
 - An achievement counts as unlocked when its title is in the list, the same rule the moment uses
 
-The status next to the file in **Panels → Front End Code** should read a green **OK**. If it says **Error**, the message under it tells you which line.
+The status next to the file in **Panels → Interface code** should read a green **OK**. If it says **Error**, the message under it tells you which line.
 
 ::: tip Don't want to write code yourself?
 Click **Creation assistant** at the top right of the canvas and describe the panel you want. It writes the interface code for you.
@@ -347,7 +352,7 @@ Each new one is a behavior plus a row on the achievements page:
 ---
 
 ::: tip This is Recipe #13
-Achievements combine with the other recipes: count battle wins from a combat system, watch the gold from the [shop](./shop.md), or unlock one when a [quest](./quest-tracker.md) is done. Behaviors don't interfere with each other, so adding achievements doesn't change how the rest of the card works.
+Achievements combine with the other recipes: count battle wins from a combat system, watch the gold from the [shop](./shop.md), or award one when a [quest](./quest-tracker.md) is done. Behaviors don't interfere with each other, so adding achievements doesn't change how the rest of the card works.
 :::
 
 </div>

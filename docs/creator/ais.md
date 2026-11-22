@@ -1,3 +1,8 @@
+---
+title: "AIs"
+description: "Every card has one AI. Add more for extra characters, bookkeeping behind the scenes, group chat, tidy JSON answers for minigames, and know what each one costs."
+---
+
 # AIs
 
 Every card comes with one AI, called the **Narrator**: the player says something, it answers. For the vast majority of cards, that's all you need.
@@ -81,7 +86,7 @@ At the bottom of the card, and of every scenario, there's a **Context** block. C
 
 ![Context: conversation history, pinned note, context budget and what the AI reads each turn](./images/canvas/context.webp)
 
-- **Conversation history**: **Everything that fits** (the default: it sends as much as it can and only drops the oldest when it runs out of room), **Latest N** (cheaper, but the AI forgets older things), or **Summary + latest N**, where turns that scroll out get folded into a summary sent ahead of the rest. With that one you can also fill in **What the summary must keep**, like "Keep every promise made, and who owes whom." The summary updates in the background on a cheap model and usually costs the player well under 1 mushie each time
+- **Conversation history**: **Everything that fits** (the default: it sends as much as it can and only drops the oldest when it runs out of room), **Latest N** (cheaper, but the AI forgets older things), or **Summary + latest N**, where turns that scroll out get folded into a summary sent ahead of the rest. With that one you can also fill in **What the summary must keep**, like "Keep every promise made, and who owes whom." The summary updates in the background on a cheap model and usually costs the player under 1 mushie each time
 - **Pinned note**: one line placed near the end of the conversation every turn, which is where the AI listens best. Style reminders and long-running rules belong here
 - **Context budget**: how much the AI can read each turn. By default it follows **the player's setting**. Turn on **Lock to this card** and yours wins
 - **What the AI reads each turn**: everything in the order the AI gets it (always-on lore, history, lore waiting for keywords, variables) with a rough token count. If the AI keeps forgetting things or drifts off topic, look here first

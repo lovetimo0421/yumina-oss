@@ -18,7 +18,7 @@ export const editorialSlotSchema = z.object({
 export const editorialCategorySchema = z.object({
   id: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/),
   labels: z.record(z.string().trim().min(1).max(80)).refine(labels => !!labels.en, "An English label is required")
-    .refine(labels => Object.keys(labels).every(key => ["en", "zh", "zh-Hant", "es", "ja"].includes(key)), "Unsupported label language"),
+    .refine(labels => Object.keys(labels).every(key => ["en", "zh", "zh-Hant", "es", "ja", "ko", "id", "ru"].includes(key)), "Unsupported label language"),
   hidden: z.boolean(),
 }).strict();
 const scope = { language: z.enum(EDITORIAL_LANGUAGES), contentMode: z.enum(EDITORIAL_CONTENT_MODES) };
@@ -80,16 +80,19 @@ export function resolveActiveEditorialHero(config: DiscoverEditorialConfig, lang
     (!slot.startsAt || Date.parse(slot.startsAt) <= now) && (!slot.endsAt || Date.parse(slot.endsAt) > now))), language, contentMode);
 }
 export function editorialCategoryLabel(category: EditorialCategory, locale: string): string {
-  return category.labels[locale] ?? (locale === "zh-Hant" ? category.labels.zh : undefined) ?? category.labels.en ?? category.id;
+  return category.labels[locale] ?? (locale === "zh-Hant" ? category.labels.zh : undefined)
+    // Saved lineups predate Korean, Indonesian and Russian labels; the built-in categories carry one.
+    ?? DEFAULT_EDITORIAL_CATEGORIES.find(c => c.id === category.id)?.labels[locale]
+    ?? category.labels.en ?? category.id;
 }
 export const DEFAULT_EDITORIAL_CATEGORIES: EditorialCategory[] = [
-  ["all", "All", "全部", "全部", "Todo", "すべて"],
-  ["games", "Games", "游戏", "遊戲", "Juegos", "ゲーム"],
-  ["literature", "Novels & Literature", "小说与文学", "小說與文學", "Novelas y literatura", "小説・文学"],
-  ["roleplays", "Roleplays", "角色扮演", "角色扮演", "Juegos de rol", "ロールプレイ"],
-  ["anime", "Anime", "动漫", "動漫", "Anime", "アニメ"],
-  ["screen", "Movies & TVs", "电影与电视", "電影與電視", "Películas y series", "映画・ドラマ"],
-].map(([id, en, zh, hant, es, ja]) => ({ id: id!, labels: { en: en!, zh: zh!, "zh-Hant": hant!, es: es!, ja: ja! }, hidden: false }));
+  ["all", "All", "全部", "全部", "Todo", "すべて", "전체", "Semua", "Все"],
+  ["games", "Games", "游戏", "遊戲", "Juegos", "ゲーム", "게임", "Game", "Игры"],
+  ["literature", "Novels & Literature", "小说与文学", "小說與文學", "Novelas y literatura", "小説・文学", "소설·문학", "Novel & Sastra", "Романы и литература"],
+  ["roleplays", "Roleplays", "角色扮演", "角色扮演", "Juegos de rol", "ロールプレイ", "롤플레이", "Roleplay", "Ролевые игры"],
+  ["anime", "Anime", "动漫", "動漫", "Anime", "アニメ", "애니메이션", "Anime", "Аниме"],
+  ["screen", "Movies & TVs", "电影与电视", "電影與電視", "Películas y series", "映画・ドラマ", "영화·드라마", "Film & Serial", "Фильмы и сериалы"],
+].map(([id, en, zh, hant, es, ja, ko, ind, ru]) => ({ id: id!, labels: { en: en!, zh: zh!, "zh-Hant": hant!, es: es!, ja: ja!, ko: ko!, id: ind!, ru: ru! }, hidden: false }));
 
 /** Minimal administration projection; never includes definitions, prompts or private user data. */
 export interface EditorialWorld {

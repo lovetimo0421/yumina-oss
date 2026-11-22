@@ -60,7 +60,7 @@ export function SourceTexts() {
           <BookOpen className="h-3 w-3 shrink-0" />
           <span className="min-w-0 truncate text-foreground/80">{row.name}</span>
           {row.digest ? (
-            <span className="inline-flex shrink-0 items-center gap-1 text-primary" data-testid="source-digest">
+            <span className="inline-flex shrink-0 items-center gap-1" data-testid="source-digest">
               <Loader2 className="h-2.5 w-2.5 animate-spin" />
               {t(`studio.sources.digest.${row.digest.phase}` as never, { done: row.digest.done, total: row.digest.total })}
             </span>

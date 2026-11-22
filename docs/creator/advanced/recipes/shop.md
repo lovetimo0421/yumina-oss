@@ -1,3 +1,7 @@
+---
+title: "Shop & trading"
+description: "Build a shop where the player spends gold on potions and swords, with one behavior that checks the price and tells them when they cannot afford it."
+---
 <div v-pre>
 
 # Shop & Trading
@@ -11,7 +15,7 @@
 - **Gold on screen**
 - **A shop page** with a Buy button per item: Potion (20 gold), Iron Sword (50 gold)
 - **A purchase**: gold goes down by the price, a notice says what was bought, and the AI is told
-- **Not enough gold**: "Not enough gold — Iron Sword costs 50." Nothing is taken
+- **Not enough gold**: "Not enough gold: Iron Sword costs 50." Nothing is taken
 - **Purchases end up in the player's inventory**
 
 ### How it works
@@ -65,7 +69,7 @@ In the **Add** row, click **＋ Behavior**.
 | Effects | **Change variable**: Gold minus `{param.price}` |
 | | **Show notification**: `You bought: {param.item}`, style **Success** |
 | | **Tell the AI**: `The player just bought {param.item} for {param.price} gold. Add it to their Inventory.` |
-| If the conditions don't hold, say | `Not enough gold — {param.item} costs {param.price}.` |
+| If the conditions don't hold, say | `Not enough gold: {param.item} costs {param.price}.` |
 
 Without the last line, a player who can't afford something would tap the button and see nothing happen.
 
@@ -108,7 +112,7 @@ Click **Play** in the top bar.
 2. Buy a potion: Gold 80, "You bought: Potion". Send a message; the AI acknowledges it and the potion appears in the bag
 3. Buy another: Gold 60
 4. Buy the sword: Gold 10
-5. Try to buy anything: "Not enough gold — Potion costs 20." Gold stays at 10
+5. Try to buy anything: "Not enough gold: Potion costs 20." Gold stays at 10
 
 **This turn** on the right of the playtest shows whether the Buy behavior fired, and why not if it didn't.
 
@@ -128,7 +132,7 @@ Click **Play** in the top bar.
 
 This version draws the shop in the interface code. It still uses the **Buy** behavior for the gold check, so prices and the "not enough gold" message stay on the canvas, and it adds the item to an `inventory` list itself once the purchase goes through. It assumes a List / table variable named `inventory` starting at `[]`.
 
-**Panels → Front End Code** → open `index.tsx` and replace the default `return <Chat />`:
+**Panels → Interface code** → open `index.tsx` and replace the default `return <Chat />`:
 
 ```tsx
 export default function MyWorld() {
@@ -260,7 +264,7 @@ export default function MyWorld() {
 
 If you use this route, change the behavior's **Tell the AI** line to `The player just bought {param.item} for {param.price} gold.` so the AI doesn't also add the item.
 
-The status next to the file in **Panels → Front End Code** should read a green **OK**.
+The status next to the file in **Panels → Interface code** should read a green **OK**.
 
 ::: tip Don't want to write code yourself?
 Click **Creation assistant** at the top right of the canvas and describe the shop you want.

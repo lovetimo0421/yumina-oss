@@ -146,18 +146,37 @@ test("ordinary noncreator side completions enforce official access and keep priv
     assert.equal(observed.at(-1)!.model, BUDGET_MODEL, "the premium model must never reach the provider");
   });
 
-  await t.test("an empty official wallet rejects even a zero-priced model before inference", async () => {
+  // e186b76ac hardcoded Sonnet for a side call that names no model.
+  await t.test("a side call that names no model runs on the player's own model, never Sonnet", async () => {
+    const withSelection = async (selectedModel?: string) => {
+      const f = await ordinarySession("official", 100);
+      await db.update(user).set({ preferences: { preferredProvider: "official", ...(selectedModel && { aiConfig: { selectedModel } }) } }).where(eq(user.id, f.account.id));
+      const count = observed.length;
+      const result = await f.request(undefined as unknown as string);
+      assert.equal(result.status, 200, result.body);
+      assert.equal(observed.length, count + 1);
+      return observed.at(-1)!.model;
+    };
+    assert.equal(await withSelection(FREE_MODEL), FREE_MODEL, "the player's own story model");
+    assert.equal(await withSelection(), BUDGET_MODEL, "no story model: the cheap background default");
+    assert.equal(await withSelection(PREMIUM_MODEL), BUDGET_MODEL, "a story model the plan cannot run falls back instead of failing");
+  });
+
+  await t.test("an empty official wallet rejects a priced model before inference but Yumina Free still runs, free", async () => {
     const f = await ordinarySession("official", 0);
     const count = observed.length;
-    for (const model of [BUDGET_MODEL, FREE_MODEL]) {
-      const denied = await f.request(model);
-      assert.equal(denied.status, 402, denied.body);
-      assert.equal(JSON.parse(denied.body).code, "INSUFFICIENT_CREDITS");
-    }
-    assert.equal(observed.length, count);
+    const denied = await f.request(BUDGET_MODEL);
+    assert.equal(denied.status, 402, denied.body);
+    assert.equal(JSON.parse(denied.body).code, "INSUFFICIENT_CREDITS");
+    assert.equal(observed.length, count, "the priced model must never reach the provider");
+    const free = await f.request(FREE_MODEL);
+    assert.equal(free.status, 200, free.body);
+    assert.match(free.body, /event: done/);
+    assert.doesNotMatch(free.body, /event: error/);
+    assert.equal(observed.length, count + 1);
+    assert.equal(observed.at(-1)!.model, FREE_MODEL);
     assert.equal((await f.currentWallet()).balance, 0);
-    assert.deepEqual(await f.transactions(), []);
-    assert.deepEqual(await f.usage(), []);
+    assert.ok((await f.transactions()).every(row => row.amount === 0), "a free call never takes mushies");
   });
 
   await t.test("BYOK allows a noncreator free player with zero credits and never debits the wallet", async () => {

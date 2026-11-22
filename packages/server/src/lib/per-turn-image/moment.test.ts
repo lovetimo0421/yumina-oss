@@ -79,3 +79,11 @@ test("an outfit the story established outlasts turns that don't mention clothes"
   // Nothing known yet: the card's usual clothes.
   assert.equal(outfitFor("", false, undefined, "t-shirt, shorts"), "t-shirt, shorts");
 });
+
+test("a passage the player picked is the moment; only what came before it leads up to it", () => {
+  const reply = ["You walk into the tavern.", "She *kisses* you by the fire.", "Later you leave alone into the snow."].join("\n");
+  const { before, final } = momentText(reply, "She kisses you by the fire.");
+  assert.equal(final, "She kisses you by the fire.");
+  assert.match(before, /tavern/);
+  assert.doesNotMatch(before + final, /snow/);
+});

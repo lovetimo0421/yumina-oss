@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { user } from "../db/schema.js";
+import { playerRoleModelsSchema, resolvePlayerRoleModel, type PlayerRoleModels, type PlayerTextAiRole } from "@yumina/shared";
 
 /** The player's synced Yumina AI settings (user.preferences.aiConfig), for
  *  server-started calls that have no request overrides to read. */
@@ -12,6 +13,8 @@ export interface PlayerAiConfig {
   minP?: number;
   frequencyPenalty?: number;
   presencePenalty?: number;
+  /** The player's model per background AI; see @yumina/shared ai-roles. */
+  roleModels?: PlayerRoleModels;
 }
 
 export async function loadPlayerAiConfig(userId: string): Promise<PlayerAiConfig> {
@@ -23,5 +26,13 @@ export async function loadPlayerAiConfig(userId: string): Promise<PlayerAiConfig
     const v = raw[key];
     if (typeof v === "number" && Number.isFinite(v)) out[key] = v;
   }
+  const roles = playerRoleModelsSchema.safeParse(raw.roleModels);
+  if (roles.success) out.roleModels = roles.data;
   return out;
+}
+
+/** The model the player picked for one background AI, or null for the platform default. */
+export async function loadPlayerRoleModel(userId: string, role: PlayerTextAiRole): Promise<string | null> {
+  const config = await loadPlayerAiConfig(userId);
+  return resolvePlayerRoleModel(config.roleModels, role, config.selectedModel);
 }

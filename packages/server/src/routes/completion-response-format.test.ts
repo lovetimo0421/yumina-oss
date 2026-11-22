@@ -25,7 +25,8 @@ test('actual side-completion route bounds, forwards, prices and fails closed on 
   await db.insert(user).values({ id, name: 'Completion test', email: `${id}@test.local`, preferences: { preferredProvider: 'official' } });
   await db.insert(creditWallets).values({ userId: id, plan: 'plus', balance: 100, periodStart: new Date(), periodEnd: new Date(Date.now() + 86400000) });
   await db.insert(modelPrices).values({ modelId: model, inputPricePerM: 1, outputPricePerM: 1 });
-  await db.insert(worlds).values({ id: worldId, creatorId: id, name: 'Completion test', schema: {} });
+  // Published: other players' sessions (the priced one below) only reach a live card.
+  await db.insert(worlds).values({ id: worldId, creatorId: id, name: 'Completion test', status: 'published', isPublished: true, schema: {} });
   const [session] = await db.insert(playSessions).values({ userId: id, worldId }).returning();
   const app = new Hono<AppEnv>();
   app.use('*', async (c, next) => { c.set('user', { id } as AppEnv['Variables']['user']); await next(); });

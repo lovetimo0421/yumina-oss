@@ -1,11 +1,12 @@
 import { Hono } from "hono";
 import { appendPendingContext } from "../lib/pending-context.js";
-import { eq, sql } from "drizzle-orm";
+import { getTableColumns, eq, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { playSessions, worlds, worldPendingEdits } from "../db/schema.js";
 import { authMiddleware } from "../middleware/auth.js";
 import { normalizeGameState } from "../lib/game-state.js";
-import { viewerSeesWorkingCopy } from "../lib/working-copy.js";
+import { viewerCanEditSql, viewerSeesWorkingCopy } from "../lib/working-copy.js";
+import { worldPlayAccessSql } from "../lib/world-testers.js";
 import {
   GameStateManager,
   ReactionEvaluator,
@@ -50,7 +51,7 @@ combatRoutes.post("/sessions/:sessionId/action", async (c) => {
 
     // Load world definition
     const worldRows = await tx
-      .select()
+      .select({ ...getTableColumns(worlds), viewerCanReadFollowers: worldPlayAccessSql(currentUser.id), viewerCanEdit: viewerCanEditSql(currentUser.id) })
       .from(worlds)
       .where(eq(worlds.id, session.world_id));
 
@@ -58,12 +59,18 @@ combatRoutes.post("/sessions/:sessionId/action", async (c) => {
       return { error: "World not found" as const, status: 404 as const };
     }
 
-    // Creator-only overlay: the author's combat turns on their OWN published
-    // world run off the held working copy (matches messages.ts / sessions.ts),
-    // so unapproved rule/entry edits take effect immediately for them. Players
-    // and non-creators keep the approved live schema.
+    // The audience/tester gate also ends a never-published card for someone no
+    // longer working on it; editor collaborators are the card's team and pass.
+    const viewerIsEditor = worldRows[0]!.viewerCanEdit === true;
+    if (!worldRows[0]!.viewerCanReadFollowers && !viewerIsEditor) {
+      return { error: "You no longer have access to this card." as const, status: 403 as const, code: "WORLD_ACCESS_ENDED" as const };
+    }
+    // Creator/editor overlay: combat turns by the author (or an editor
+    // collaborator) on a published world they work on run off the held working
+    // copy (matches messages.ts / sessions.ts), so unapproved rule/entry edits
+    // take effect immediately for them. Players keep the approved live schema.
     let combatSchema = worldRows[0]!.schema as unknown as WorldDefinition;
-    if (viewerSeesWorkingCopy(worldRows[0]!.status, worldRows[0]!.creatorId, currentUser.id)) {
+    if (viewerSeesWorkingCopy(worldRows[0]!.status, worldRows[0]!.creatorId, currentUser.id, viewerIsEditor)) {
       const [pend] = await tx
         .select({ schema: worldPendingEdits.schema })
         .from(worldPendingEdits)
@@ -180,7 +187,7 @@ combatRoutes.post("/sessions/:sessionId/action", async (c) => {
   });
 
   if ("error" in result) {
-    return c.json({ error: result.error }, result.status);
+    return c.json({ error: result.error, ...("code" in result ? { code: result.code } : {}) }, result.status);
   }
   return c.json(result);
 });

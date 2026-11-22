@@ -8,6 +8,7 @@ import { JSDOM } from "jsdom";
 import { createServer } from "vite";
 import { blockId, toGraph, type WorldDefinition, type WorldEntry } from "@yumina/engine";
 import { resolveCanvasInspectorNode } from "./canvas-inspector-target";
+import { isPicker } from "./read-only-form";
 
 const dom = new JSDOM('<!doctype html><div id="root"></div>', { pretendToBeVisual: true, url: "http://localhost" });
 const globals = { window: dom.window, document: dom.window.document, location: dom.window.location, navigator: dom.window.navigator, localStorage: dom.window.localStorage, HTMLElement: dom.window.HTMLElement, HTMLInputElement: dom.window.HTMLInputElement, HTMLTextAreaElement: dom.window.HTMLTextAreaElement, Element: dom.window.Element, Node: dom.window.Node, Event: dom.window.Event, MouseEvent: dom.window.MouseEvent, CustomEvent: dom.window.CustomEvent, IS_REACT_ACT_ENVIRONMENT: true };
@@ -20,6 +21,7 @@ const vite = await createServer({
   esbuild: { jsx: "automatic" }, server: { middlewareMode: true },
 });
 const { BlueprintInspector } = await vite.ssrLoadModule("/src/features/studio/panels/blueprint/inspector.tsx") as typeof import("./inspector");
+const { BlueprintRowEditor, canEditRowInline, renameCanvasRow } = await vite.ssrLoadModule("/src/features/studio/panels/blueprint/row-editor.tsx") as typeof import("./row-editor");
 const { useEditorStore } = await vite.ssrLoadModule("/src/stores/editor.ts") as typeof import("@/stores/editor");
 const i18n = createInstance();
 await i18n.init({ lng: "en", resources: { en: { editor: {
@@ -93,13 +95,16 @@ async function withInspector(initial: WorldDefinition, objectId: string, initial
 
 test("an entry is written in the column, and a gated one opens showing what gates it", async () => {
   const original = entry("mine", { worldbookId: "chapter", alwaysSend: false, keywords: ["ore"] });
-  await withInspector(world({ entries: [original], worldbooks: [{ id: "chapter", name: "Chapter", order: 0, activation: { mode: "always" } }] }), "entry:mine", {}, async ({ container, field, button, click }) => {
+  await withInspector(world({ entries: [original], worldbooks: [{ id: "chapter", name: "Chapter", order: 0, activation: { mode: "always" } }] }), "entry:mine", {}, async ({ container, field, click }) => {
     // One editor for one piece of text, and it is this one: the board draws
     // the row, the column writes it.
     assert.equal(container.querySelector("textarea")!.value, original.content);
     // This entry only reaches the AI on a keyword, which is the case its
     // creator has to be able to see without going looking for it.
-    assert.equal(button("Adjust activation").getAttribute("aria-expanded"), "true");
+    // The fold's line is the answer itself, in the row's words.
+    const fold = container.querySelector('[data-learn="entry-delivery"] button')!;
+    assert.equal(fold.textContent, "blueprint.writing.deliveryKeywords");
+    assert.equal(fold.getAttribute("aria-expanded"), "true");
     assert.equal(field("Keywords").value, "ore");
     assert.equal(useEditorStore.getState()._past.length, 0);
     await click(field("Always send"));
@@ -110,8 +115,8 @@ test("an entry is written in the column, and a gated one opens showing what gate
 
 test("an entry that always sends keeps its activation folded — there is nothing to explain", async () => {
   const plain = entry("air", { alwaysSend: true });
-  await withInspector(world({ entries: [plain] }), "entry:air", {}, async ({ button }) => {
-    assert.equal(button("Adjust activation").getAttribute("aria-expanded"), "false");
+  await withInspector(world({ entries: [plain] }), "entry:air", {}, async ({ container }) => {
+    assert.equal(container.querySelector('[data-learn="entry-delivery"] button')!.getAttribute("aria-expanded"), "false");
   });
 });
 
@@ -239,9 +244,15 @@ test("a new variable waits for its hidden inspector host, stops after focus, and
   }
 });
 
-test("read-only selections never expose or autofocus editable variable fields", async () => {
+test("read-only selections show a variable's values, locked, and never autofocus", async () => {
   await withInspector(world({ variables: [{ id: "hp", name: "Health", type: "number", defaultValue: 100 }] }), "var:hp", { autoFocusName: true, readOnly: true }, async ({ container }) => {
-    assert.equal(container.querySelector("input, select, textarea"), null);
+    // A pack in the market is read before it is installed: its values show.
+    const fields = [...container.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>("input, select, textarea")];
+    assert.ok(fields.some((el) => el.value === "100"), "the starting value is visible");
+    for (const el of fields) {
+      assert.ok(isPicker(el) ? el.disabled : (el as HTMLInputElement).readOnly, `${el.tagName} is locked`);
+    }
+    assert.ok(!container.contains(document.activeElement) || document.activeElement === document.body);
     assert.match(container.textContent!, /Read only/);
     assert.equal(useEditorStore.getState().isDirty, false);
   });
@@ -437,6 +448,24 @@ test("an AI is renamed in its title, by the name it is shown and called by", asy
   });
 });
 
+test("clearing a scene image's name leaves the box empty instead of putting its id back in front of the caret", async () => {
+  const sceneImages = [{ id: "img1", name: "Lluvia", url: "", scene: "" }];
+  await withInspector(world({ sceneImages }), "image:img1", {}, async ({ field, input }) => {
+    const name = field("Name") as HTMLInputElement;
+    assert.equal(name.value, "Lluvia");
+    assert.equal(name.getAttribute("spellcheck"), "false");
+    await input(name, "");
+    await act(async () => new Promise(resolve => setTimeout(resolve, 350)));
+    assert.equal(useEditorStore.getState().worldDraft.sceneImages?.[0]?.name, "");
+    assert.equal(name.value, "", "the cleared box stays cleared");
+    assert.equal(name.placeholder, "img1", "the id it falls back to is only a placeholder");
+    await input(name, "HOLA");
+    await act(async () => new Promise(resolve => setTimeout(resolve, 350)));
+    assert.equal(name.value, "HOLA");
+    assert.equal(useEditorStore.getState().worldDraft.sceneImages?.[0]?.name, "HOLA");
+  });
+});
+
 test("changing a variable's type takes the hidden settings of the old type with it", async () => {
   const mood = { id: "mood", name: "Mood", type: "string" as const, defaultValue: "calm", options: ["calm", "angry"], precise: true };
   await withInspector(world({ variables: [mood] }), "var:mood", {}, async ({ container, click }) => {
@@ -540,4 +569,64 @@ test("a custom AI is declared as an interface: its call, what it is handed, what
     assert.ok(first && first.compareDocumentPosition(container.querySelector("[data-ai-type-pick]")!) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING, "who sets its settings comes first");
     assert.equal(container.querySelectorAll("[data-station-model-fields]").length, 1, "the model is shown once");
   });
+});
+
+
+test("inline forms use one header name and include audio and both context scopes", async () => {
+  const draft = world({
+    entries: [entry("setting"), entry("opening", { role: "greeting" })],
+    variables: [{ id: "count", name: "Count", type: "number", defaultValue: 2 }],
+    reactions: [{ id: "action", name: "Action", when: { eventType: "turn:end" }, conditions: [], conditionLogic: "all", then: [], priority: 0, enabled: true }] as never,
+    audioTracks: [{ id: "music", name: "Music", type: "bgm", url: "" }],
+    sceneImages: [{ id: "scene", name: "Scene", url: "", scene: "At home" }],
+    worldbooks: [{ id: "chapter", name: "Chapter", order: 0, activation: { mode: "always" } }],
+  });
+  useEditorStore.setState({ worldDraft: draft, serverWorldId: null, isDirty: false, readOnlyInspect: false, _past: [], _future: [], canUndo: false, canRedo: false });
+  const container = dom.window.document.getElementById("root")!;
+  const root = createRoot(container);
+  const opened: string[] = [];
+  try {
+    for (const id of ["var:count", "reaction:action", "greeting:opening", "entry:setting", "image:scene", "audio:music", "block:context", "block:m:chapter:context"]) {
+      assert.ok(canEditRowInline(id), `${id} expands in place`);
+      await act(async () => root.render(createElement(I18nextProvider, { i18n }, createElement(BlueprintRowEditor, {
+        objectId: id, hostId: "block", readOnly: false, onDrill: () => {}, onOpenObject: value => opened.push(value),
+      }))));
+      assert.ok(container.textContent!.length > 0, `${id} has its actual settings`);
+      assert.equal(container.querySelectorAll('[aria-label="blueprint.insp.name"]').length, 0, `${id} does not repeat the header name in its body`);
+      if (id === "audio:music") {
+        const ambient = [...container.querySelectorAll("button")].find(button => button.textContent === "audio.trackTypes.ambient");
+        assert.ok(ambient);
+        await act(async () => ambient.click());
+        assert.equal(useEditorStore.getState().worldDraft.audioTracks[0]!.type, "ambient");
+      }
+      if (id === "block:context") assert.ok(container.querySelector('[aria-label="blueprint.insp.historyLimit"]'), "card context shows the history controls");
+      if (id === "block:m:chapter:context") {
+        const owner = [...container.querySelectorAll("button")].find(button => button.textContent === "blueprint.insp.openModuleSettings");
+        assert.ok(owner);
+        await act(async () => owner.click());
+        assert.deepEqual(opened, ["module:chapter"]);
+      }
+    }
+    await act(async () => root.render(createElement(I18nextProvider, { i18n }, createElement(BlueprintRowEditor, {
+      objectId: "audio:music", hostId: "block", readOnly: true, onDrill: () => {},
+    }))));
+    // Read only: the row's settings show, and nothing in them changes anything.
+    for (const el of container.querySelectorAll<HTMLInputElement>("input, textarea, select")) {
+      assert.ok(isPicker(el) ? el.disabled : el.readOnly, `${el.tagName} is locked`);
+    }
+    const sfx = [...container.querySelectorAll("button")].find(button => button.textContent === "audio.trackTypes.sfx");
+    assert.ok(sfx, "the track's type shows");
+    await act(async () => sfx.click());
+    assert.equal(useEditorStore.getState().worldDraft.audioTracks[0]!.type, "ambient", "read-only rows cannot edit");
+  } finally { await act(async () => root.unmount()); }
+
+  for (const id of ["var:count", "reaction:action", "greeting:opening", "entry:setting", "image:scene", "audio:music"]) renameCanvasRow(id, `Renamed ${id}`);
+  const renamed = useEditorStore.getState().worldDraft;
+  assert.equal(renamed.variables[0]!.name, "Renamed var:count");
+  assert.equal(renamed.reactions![0]!.name, "Renamed reaction:action");
+  assert.equal(renamed.entries.find(item => item.id === "opening")!.name, "Renamed greeting:opening");
+  assert.equal(renamed.entries.find(item => item.id === "setting")!.name, "Renamed entry:setting");
+  assert.equal(renamed.sceneImages![0]!.name, "Renamed image:scene");
+  assert.equal(renamed.audioTracks[0]!.name, "Renamed audio:music");
+  assert.equal(renamed.audioTracks[0]!.type, "ambient", "renaming preserves settings edited inline");
 });

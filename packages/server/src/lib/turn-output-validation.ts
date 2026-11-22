@@ -1,9 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { GameStateManager, estimateTokens, preserveSetupScopedVariables, stripStateReceipts, type GameState, type WorldDefinition } from "@yumina/engine";
-import { parseStateGuardModel, type StateValidationAudit } from "@yumina/shared";
+import { FREE_STATE_GUARD_MODEL, parseStateGuardModel, type BackgroundConsentNeeded, type StateValidationAudit } from "@yumina/shared";
 import { db } from "../db/index.js";
 import { messages, playSessions, worlds, worldPendingEdits } from "../db/schema.js";
+import { viewerCanEditSql } from "./working-copy.js";
 import { turnOutputInstructions, validateTurnOutput, type TurnHookDispatch, type TurnOutputContext, type ValidatedTurnOutput } from "./extension-hooks.js";
 import { recordUsageLog } from "./usage-log.js";
 import { StateGuardError } from "../extensions/state-update-guard/validate.js";
@@ -12,7 +13,12 @@ import { resolveDefaultGuardModel, resolveGuardModel, resolveGuardModelSelection
 import { isStateGuardActive } from "../extensions/state-update-guard/activation.js";
 import { backgroundUsageCost, backgroundBillingLabel, notEnoughMushiesMessage } from "./background-billing.js";
 import { calculateCost, deductCredits } from "./credit-service.js";
+import { estimateCallCredits, gateBackgroundCharge } from "./background-consent.js";
 import { textPrefix } from "./text-prefix.js";
+
+/** One correction, for the price the consent dialog quotes. */
+const GUARD_CALL_PROMPT_TOKENS = 8_000;
+const GUARD_CALL_COMPLETION_TOKENS = 1_000;
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type Target = Pick<typeof messages.$inferSelect, "id" | "content" | "activeSwipeIndex" | "swipes">;
@@ -77,6 +83,10 @@ export class TurnOutputAttempt {
   private storyBalance?: number;
   /** Diagnostic code once a default-only guard failed open for this turn. */
   private failedOpen?: string;
+  /** A paid correction was wanted and the player has not answered yet. */
+  private consent?: BackgroundConsentNeeded;
+  /** The player chose the free model for corrections. */
+  private freeCorrection = false;
   constructor(private readonly args: {
     dispatch: TurnHookDispatch; userId: string; sessionId: string; targetId: string;
     path: StateValidationAudit["path"]; world: WorldDefinition; baseline: GameState;
@@ -100,6 +110,8 @@ export class TurnOutputAttempt {
   /** Still enforcing the contract: false once a default-only guard failed open. */
   get guarding(): boolean { return this.enabled && !this.failedOpen; }
   get correctionBalance(): number | undefined { return this.committed ? this.balanceAfterCorrection : undefined; }
+  /** For the reply's `done` event: the correction that waited for the player's answer. */
+  get consentNeeded(): BackgroundConsentNeeded | undefined { return this.consent; }
   get storyCharge(): { cost: number; balance: number | undefined } | undefined {
     return this.committed && this.preparedStoryCharge ? { cost: this.preparedStoryCharge.cost, balance: this.storyBalance } : undefined;
   }
@@ -190,7 +202,7 @@ export class TurnOutputAttempt {
     // Default-path corrections are platform-paid (free-by-design endpoint).
     if (this.correctionUsage && !this.viaDefault && this.audit.correctionApiKeyTier !== "byok" && this.audit.outcome !== "unverified") {
       const requested = parseStateGuardModel(resolveGuardModelSelection(this.args.dispatch.outputModels?.get("state-update-guard"), this.args.model)).model;
-      this.correctionCost = requested === "openrouter/free" || requested?.endsWith(":free") ? 0
+      this.correctionCost = this.freeCorrection || requested === "openrouter/free" || requested?.endsWith(":free") ? 0
         : await backgroundUsageCost({ userId: this.args.userId, ...this.correctionUsage });
     }
     this.touched = new Set(result.parsed.effects.map((effect) => effect.variableId.split(".")[0]!));
@@ -224,10 +236,31 @@ export class TurnOutputAttempt {
           catch { throw new StateGuardError("correction_model_unavailable"); }
         }
         const model = resolveGuardModelSelection(this.args.dispatch.outputModels?.get("state-update-guard"), this.args.model);
-        const [world] = await this.database.select({ creatorId: worlds.creatorId, allowCustomApi: worlds.allowCustomApi })
+        // Creator and editor collaborators are exempt from the protected-world rule (a sealed card is not).
+        const [world] = await this.database.select({ creatorId: worlds.creatorId, allowCustomApi: worlds.allowCustomApi, sealedContent: worlds.sealedContent, viewerCanEdit: viewerCanEditSql(this.args.userId) })
           .from(worlds).where(eq(worlds.id, this.args.worldId));
         if (!world) throw new StateGuardError("stale_target");
-        try { return await resolveGuardModel(this.args.userId, model, world.allowCustomApi === false && world.creatorId !== this.args.userId); }
+        const protectedWorld = world.sealedContent || (world.allowCustomApi === false && world.creatorId !== this.args.userId && world.viewerCanEdit !== true);
+        let correction: Awaited<ReturnType<typeof resolveGuardModel>>;
+        try { correction = await resolveGuardModel(this.args.userId, model, protectedWorld); }
+        catch { throw new StateGuardError("correction_model_unavailable"); }
+        // A paid correction asks first (background-consent.ts). Unanswered or
+        // declined: no correction call, and the reply is delivered unverified
+        // and uncharged, as when the correction model is unavailable.
+        const gate = await gateBackgroundCharge({
+          userId: this.args.userId,
+          feature: "guard",
+          model: correction.model,
+          isByok: correction.apiKeyTier === "byok",
+          estimate: () => estimateCallCredits(correction.model, GUARD_CALL_PROMPT_TOKENS, GUARD_CALL_COMPLETION_TOKENS),
+        });
+        if (!gate.run) {
+          this.consent = gate.consent;
+          throw new StateGuardError("consent_needed");
+        }
+        if (!gate.viaFree) return correction;
+        this.freeCorrection = true;
+        try { return await resolveGuardModel(this.args.userId, FREE_STATE_GUARD_MODEL, protectedWorld); }
         catch { throw new StateGuardError("correction_model_unavailable"); }
       },
       // Same rule as turn activation: installed, or on by default and not uninstalled.

@@ -28,7 +28,7 @@ export type VideoProvider = "openrouter" | "comfy" | "comfy-router";
 /** Model families, the cards on the page: versions of one family are chips under it. */
 export type VideoFamily =
   | "seedance" | "kling" | "veo" | "wan" | "hailuo" | "grok" | "luma" | "ltx"
-  | "moonvalley" | "runway" | "flux" | "pruna" | "happyhorse";
+  | "moonvalley" | "runway" | "flux" | "pruna" | "happyhorse" | "omni";
 
 /** Brand names are not translated: a creator looks for "Kling", not a gloss of it.
  *  Ordered as the page lists them; the first four show before "more models". */
@@ -36,6 +36,7 @@ export const VIDEO_FAMILY_INFO: Record<VideoFamily, { name: string; maker: strin
   seedance: { name: "Seedance", maker: "ByteDance" },
   kling: { name: "Kling", maker: "Kuaishou" },
   veo: { name: "Veo", maker: "Google" },
+  omni: { name: "Gemini Omni", maker: "Google" },
   wan: { name: "Wan", maker: "Alibaba" },
   hailuo: { name: "Hailuo", maker: "MiniMax" },
   grok: { name: "Grok Imagine", maker: "xAI" },
@@ -79,6 +80,9 @@ export interface VideoModelSpec {
   referencesWithFirstFrame?: number;
   /** A frame sets the shape: the clip follows the first frame's aspect ratio. */
   aspectFromFrame?: boolean;
+  /** The partner's own "camera fixed" switch (BytePlus Seedance 1.x `camera_fixed`): 固定 is sent as it, not as
+   *  words. The other camera moves have no native field on any model here and go as words (videoCameraPrompt). */
+  cameraFixed?: boolean;
   /** Can generate a soundtrack with the picture. */
   sound: boolean;
   /** The soundtrack cannot be turned off (sound is always on). */
@@ -110,6 +114,11 @@ export interface VideoModelSpec {
   perFrameRequest?: number;
   /** OpenRouter / Router: mushies per reference image. */
   perReference?: number;
+  /** Router: follows a reference video for camera, layout and motion (a grey 3D
+   *  blockout, a screen recording). It is cropped to the clip's shape and size,
+   *  so it costs what the clip costs; `perSecond` is per output second and
+   *  covers the reference too. Never with a first or last frame. */
+  referenceVideo?: { resolutions: readonly string[]; perSecond: Record<string, number> };
   /** Comfy: price of the default recipe (5 s, base steps, base pixels). */
   basePrice?: number;
   baseSteps?: number;
@@ -152,6 +161,37 @@ export const VIDEO_MODELS: readonly VideoModelSpec[] = [
     sound: true, watermark: true, textToVideo: true, tuning: false, loras: false, styles: false, selfHosted: false,
     etaSeconds: 260, perSecond: { "2K": 130 }, perReference: 40,
   },
+  // Google's video model with native speech: Artificial Analysis ranks Omni first for dialogue and lip
+  // sync (2026-11-10). Sound is always on (OpenRouter only prices it with audio). 1.1 is listed, not
+  // 1.2: on 2026-11-10 1.2 failed 8 of 9 requests on OpenRouter ("Video generation failed", text-only
+  // and first-frame alike) while 1.1 drew both kinds first try, ~30 s for 3 s at 720p ($0.304).
+  // Swap in "google/gemini-omni-1.2-flash" (720p $0.0695/s, 1080p $0.104, 4K $0.209, 3-15 s) once it holds.
+  {
+    id: "gemini-omni-1.1-flash", name: "Gemini Omni 1.1 Flash", provider: "openrouter", family: "omni",
+    openrouterModel: "google/gemini-omni-1.1-flash",
+    aspects: ["16:9", "9:16"], aspectFromFrame: true,
+    resolutions: ["720p", "1080p", "4K"], defaultResolution: "720p",
+    durations: { min: 3, max: 10 }, defaultDuration: 5,
+    frames: { first: true, last: true, both: true }, maxReferences: 0,
+    sound: true, soundAlways: true, watermark: false, textToVideo: true, tuning: false, loras: false, styles: false, selfHosted: false,
+    etaSeconds: 35, perSecond: { "720p": 101, "1080p": 152, "4K": 304 },
+  },
+  // Seedance 2.5's cheaper tier (2026-11-15). Comfy Router has no Flash (its byteplus/* list stops at 2.5,
+  // checked 2026-11-16), so it runs on OpenRouter. Billed like 2.5 by tokens (width × height × 24 fps ×
+  // seconds / 1024) at $7 per 1M, sound or not: $0.0672 / $0.1512 a second at 480p / 720p for 16:9.
+  // Rounded up for the extra frame (a 4 s clip is 97 frames) and 21:9, the widest tier (+4.5% pixels at
+  // 480p, +0.5% at 720p). Measured 2026-11-16: 4 s 480p first frame 3:4 with sound $0.2787, reference 16:9
+  // $0.2718, ~60 s each. A reference picture costs nothing extra; references are their own mode as on 2.5.
+  // Following a reference video, editing and extending are on the model but not wired here.
+  {
+    id: "seedance-2.5-flash", name: "Seedance 2.5 Flash", provider: "openrouter", family: "seedance",
+    openrouterModel: "bytedance/seedance-2.5-flash",
+    resolutions: ["480p", "720p"], defaultResolution: "720p",
+    durations: { min: 4, max: 30 }, defaultDuration: 5,
+    frames: { first: true, last: true, both: true }, maxReferences: 9, referencesWithoutFrames: true, aspectFromFrame: true,
+    sound: true, watermark: true, textToVideo: true, tuning: false, loras: false, styles: false, selfHosted: false,
+    etaSeconds: 75, perSecond: { "480p": 72, "720p": 154 },
+  },
   // Comfy Router's partner models, one file per family (video-router-models/).
   ...ROUTER_VIDEO_MODELS,
 ];
@@ -173,6 +213,11 @@ export const VIDEO_TUNING_LIMITS = {
   loraWeightMax: 1.5,
 } as const;
 
+/** `blockout`: grey boxes and mannequins, everything to be drawn from the
+ *  prompt. `scene`: a rendered AI scene with mannequins in it, the place to be
+ *  kept as it is and only the people drawn. */
+export type ReferenceVideoLook = "blockout" | "scene";
+
 /** What the page sends for a video job (besides the prompt). */
 export interface VideoRequest {
   model: string;
@@ -182,6 +227,11 @@ export interface VideoRequest {
   firstFrameAssetId?: string;
   lastFrameAssetId?: string;
   referenceAssetIds?: string[];
+  /** A video the clip follows (spec.referenceVideo). */
+  referenceVideoAssetId?: string;
+  /** What the reference video looks like, so the model is told how far to
+   *  trust it: grey shapes to be replaced, or a rendered place to be kept. */
+  referenceVideoLook?: ReferenceVideoLook;
   sound?: boolean;
   watermark?: boolean;
   /** Comfy models with a `fast` mode: false = full sampling. Default true. */
@@ -193,7 +243,47 @@ export interface VideoRequest {
   loras?: { modelId: string; weight: number }[];
   /** Platform image style slug: text-to-video draws its first frame in it. */
   style?: string;
+  /** A camera move (the video studio's chips): the model's own switch where it has one, else words. */
+  camera?: VideoCameraMove;
+  /** 延长: the clip this one continues (its last frame is this one's first). Recorded only: 接成一条 reads it. */
+  extendOf?: string;
+  /** 接成一条: the clips this one joins, in order (a joined result's record; never sent to a model). */
+  joinOf?: string[];
 }
+
+/** The camera moves a clip can be asked for, the video studio's chips in order. */
+export const VIDEO_CAMERA_MOVES = ["push", "pull", "orbit", "follow", "pan", "static"] as const;
+export type VideoCameraMove = (typeof VIDEO_CAMERA_MOVES)[number];
+
+/** What a move adds to the prompt on a model without a switch for it (every model here, for all but 固定): the
+ *  shot's name and what the camera does, sent before the words (a 2026-11-08 run with the move after the words
+ *  came back a push-in, not an orbit). */
+export const VIDEO_CAMERA_PROMPTS: Record<VideoCameraMove, string> = {
+  push: "Camera movement: slow dolly-in. The camera moves steadily toward the subject, ending in a close-up.",
+  pull: "Camera movement: slow dolly-out. The camera moves steadily away from the subject, revealing the wider scene.",
+  orbit: "Camera movement: orbit shot. The camera circles around the subject in a smooth wide arc, the background sweeping past behind it, the subject kept in the center.",
+  follow: "Camera movement: tracking shot. The camera travels alongside the subject at its pace, keeping it in frame as it moves.",
+  pan: "Camera movement: slow pan. The camera stays in place and turns horizontally across the scene from left to right.",
+  static: "Camera movement: none. A locked-off static shot on a tripod; the camera does not move or zoom.",
+};
+
+/** Whether the model takes this move as its own switch (sent as a field, not as words). References are their
+ *  own mode on Seedance and take no camera switch. */
+export function videoCameraNative(spec: Pick<VideoModelSpec, "cameraFixed">, camera: VideoCameraMove | undefined, hasReferences = false): boolean {
+  return camera === "static" && !!spec.cameraFixed && !hasReferences;
+}
+
+/** The prompt a model is sent for a camera move: as typed when the model switches it natively, else with the
+ *  move's line before it. */
+export function videoCameraPrompt(spec: Pick<VideoModelSpec, "cameraFixed">, prompt: string, camera: VideoCameraMove | undefined, hasReferences = false): string {
+  if (!camera || videoCameraNative(spec, camera, hasReferences)) return prompt;
+  return [VIDEO_CAMERA_PROMPTS[camera], prompt.trim()].join("\n\n");
+}
+
+/** A reference video shorter than this has no camera move to follow. */
+export const REFERENCE_VIDEO_MIN_SECONDS = 2;
+/** The largest reference video the server will read. */
+export const REFERENCE_VIDEO_MAX_BYTES = 200 * 1024 * 1024;
 
 /** Drawing the style frame: one image at the image lane's base price. */
 export const VIDEO_STYLE_FRAME_MUSHIES = 10;
@@ -237,6 +327,11 @@ export function videoRequestProblem(spec: VideoModelSpec, req: VideoRequest): st
   const refs = req.referenceAssetIds?.length ?? 0;
   if (spec.referencesWithoutFrames && refs && (req.lastFrameAssetId
     || (req.firstFrameAssetId && refs > (spec.referencesWithFirstFrame ?? 0)))) return "VIDEO_FRAMES_OR_REFERENCES";
+  if (req.referenceVideoAssetId) {
+    if (!spec.referenceVideo) return "VIDEO_NO_REFERENCE_VIDEO";
+    if (req.firstFrameAssetId || req.lastFrameAssetId) return "VIDEO_FRAMES_OR_REFERENCES";
+    if (!spec.referenceVideo.resolutions.includes(req.resolution)) return "VIDEO_REFERENCE_VIDEO_RESOLUTION";
+  }
   if (!spec.textToVideo && !req.firstFrameAssetId && !req.lastFrameAssetId) return "VIDEO_NEEDS_FRAME";
   if (req.sound && !spec.sound) return "VIDEO_NO_SOUND";
   if (!spec.tuning && (req.steps != null || req.cfg != null || req.seed != null || req.negativePrompt)) return "VIDEO_NO_TUNING";
@@ -266,11 +361,12 @@ function styleFramePrice(spec: VideoModelSpec, req: Pick<VideoRequest, "style">)
   return style ? VIDEO_STYLE_FRAME_MUSHIES + style.surchargeMushies : 0;
 }
 
-export function computeVideoModelPrice(spec: VideoModelSpec, req: Pick<VideoRequest, "aspectRatio" | "resolution" | "durationSeconds" | "referenceAssetIds" | "steps" | "loras" | "fast" | "style" | "sound" | "firstFrameAssetId" | "lastFrameAssetId">): number {
+export function computeVideoModelPrice(spec: VideoModelSpec, req: Pick<VideoRequest, "aspectRatio" | "resolution" | "durationSeconds" | "referenceAssetIds" | "steps" | "loras" | "fast" | "style" | "sound" | "firstFrameAssetId" | "lastFrameAssetId" | "referenceVideoAssetId">): number {
   if (spec.provider !== "comfy") {
     const sound = spec.sound && (spec.soundAlways || req.sound !== false);
-    const clips = (sound ? spec.perClipSound : undefined) ?? spec.perClip;
-    const perSecond = (sound ? spec.perSecondSound : undefined) ?? spec.perSecond;
+    const followsVideo = !!(req.referenceVideoAssetId && spec.referenceVideo);
+    const clips = followsVideo ? undefined : (sound ? spec.perClipSound : undefined) ?? spec.perClip;
+    const perSecond = followsVideo ? spec.referenceVideo!.perSecond : (sound ? spec.perSecondSound : undefined) ?? spec.perSecond;
     const base = clips ? clips[req.resolution]?.[req.durationSeconds] ?? 0 : (perSecond?.[req.resolution] ?? 0) * req.durationSeconds;
     const framed = req.firstFrameAssetId || req.lastFrameAssetId ? spec.perFrameRequest ?? 0 : 0;
     return Math.ceil((base + framed + (spec.perReference ?? 0) * (req.referenceAssetIds?.length ?? 0)) * VIDEO_PARTNER_MARKUP);

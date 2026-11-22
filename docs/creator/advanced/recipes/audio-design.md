@@ -1,3 +1,8 @@
+---
+title: "Audio design guide"
+description: "Patterns for sound in a Yumina card, from a playlist that starts on its own to music that follows the scene, keyword sound effects and a coded jukebox."
+---
+
 <div v-pre>
 
 # Audio Design Guide
@@ -261,7 +266,7 @@ In **Player interface**, select a **Button** and under **When pressed, do in ord
 
 `playAudio` doesn't stop other music by itself. To switch between BGM tracks, stop the others first.
 
-Copy each track's **Track ID** from the **Audio** page, then in **Panels → Front End Code** → `index.tsx`, replace the default `return <Chat />`:
+Copy each track's **Track ID** from the **Audio** page, then in **Panels → Interface code** → `index.tsx`, replace the default `return <Chat />`:
 
 ```tsx
 export default function MyWorld() {
@@ -397,7 +402,7 @@ React.useEffect(() => api.onAudioEnded((endedId) => {
 | Keep the AI off a track | Turn off **Allow AI control** | Track settings |
 | Sound as part of a behavior | **Play music**, **Play sound effect**, **Stop audio** | Behavior effects |
 | A button that plays a track | **Play audio** / **Stop audio** step | **Player interface** |
-| Full control from code | `api.playAudio()` / `api.stopAudio()` | **Panels → Front End Code** |
+| Full control from code | `api.playAudio()` / `api.stopAudio()` | **Panels → Interface code** |
 
 ### Conditional BGM fields
 

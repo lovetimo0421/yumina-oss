@@ -24,6 +24,17 @@ function withLangParam(url: string, lang?: string): string {
   }
 }
 
+/**
+ * The shop, paying with tip earnings. On creator.yumina.io every /app route is
+ * sent back to the creator hub, so a router link there did nothing
+ * (2026-11-05, Jason); it has to open the main site.
+ */
+export function earningsShopUrl(hostname = typeof window !== "undefined" ? window.location.hostname : ""): string {
+  const path = "/app/plans?tab=packs&pay=earnings";
+  if (typeof window === "undefined" || !isCreatorHost(hostname)) return path;
+  return `${window.location.protocol}//${hostname.replace(/^creator\./i, "")}${window.location.port ? `:${window.location.port}` : ""}${path}`;
+}
+
 export function getCreatorHubUrl(lang?: string): string {
   const configuredUrl = import.meta.env.VITE_CREATOR_HUB_URL?.trim();
   if (configuredUrl) return withLangParam(configuredUrl, lang);

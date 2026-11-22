@@ -1,3 +1,8 @@
+---
+title: "Audio"
+description: "The audio track object in a world file, track types, playlists, conditional music rules, and the audio directives that play them."
+---
+
 # Audio
 
 Audio tracks provide background music, sound effects, and ambient sounds. They can be triggered by AI directives, rules, or automatic playlists.

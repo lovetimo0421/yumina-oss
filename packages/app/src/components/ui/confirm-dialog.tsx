@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useLayoutEffect, useState, type ReactNode } from "react";
 import { AlertTriangle, ArrowLeftRight, Loader2, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -9,6 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 
 interface ConfirmDialogItem {
   name: string;
@@ -37,6 +38,12 @@ interface ConfirmDialogProps {
   requireTextLabel?: ReactNode;
   typedValue?: string;
   onTypedValueChange?: (value: string) => void;
+  /** The confirm button stays disabled this long after the dialog opens, so a
+   *  click aimed at whatever was under it (a card's own button) can't land on it. */
+  armDelayMs?: number;
+  /** Changing this while open disarms again (the request under the dialog changed). */
+  armKey?: string | number;
+  option?: { label: ReactNode; checked: boolean; onCheckedChange: (checked: boolean) => void };
 }
 
 export function ConfirmDialog({
@@ -60,9 +67,20 @@ export function ConfirmDialog({
   requireTextLabel,
   typedValue = "",
   onTypedValueChange,
+  armDelayMs = 0,
+  armKey,
+  option,
 }: ConfirmDialogProps) {
+  const [armed, setArmed] = useState(armDelayMs <= 0);
+  // Layout effect: disarmed before the opened dialog is first painted.
+  useLayoutEffect(() => {
+    if (!open || armDelayMs <= 0) { setArmed(armDelayMs <= 0); return; }
+    setArmed(false);
+    const timer = setTimeout(() => setArmed(true), armDelayMs);
+    return () => clearTimeout(timer);
+  }, [open, armDelayMs, armKey]);
   const requiresMatch = typeof requireText === "string" && requireText.length > 0;
-  const canConfirm = !busy && (!requiresMatch || typedValue === requireText);
+  const canConfirm = armed && !busy && (!requiresMatch || typedValue === requireText);
   const Icon = tone === "destructive" ? Trash2 : tone === "warning" ? AlertTriangle : ArrowLeftRight;
   const isDestructive = tone === "destructive";
 
@@ -141,6 +159,13 @@ export function ConfirmDialog({
               autoComplete="off"
               className="h-11 rounded-xl border border-white/10 bg-inset px-3 text-foreground outline-none transition-colors placeholder:text-muted-foreground/40 focus:border-destructive/50 focus:ring-2 focus:ring-destructive/15"
             />
+          </label>
+        )}
+
+        {option && (
+          <label className="flex cursor-pointer items-start gap-2.5 text-sm text-muted-foreground">
+            <Checkbox checked={option.checked} onCheckedChange={(value) => option.onCheckedChange(value === true)} disabled={busy} className="mt-0.5" />
+            <span className="text-foreground">{option.label}</span>
           </label>
         )}
 

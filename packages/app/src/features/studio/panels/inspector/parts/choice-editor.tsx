@@ -95,7 +95,7 @@ export function ChoiceEditor({
         )}
       </Section>
 
-      <Section label={t("studio.parts.choice.pickCount")}>
+      <Section label={t("studio.parts.choice.pickCount")} hint={!el.multi && !el.confirm ? t("studio.parts.choice.tapRunsHint") : undefined}>
         <div className="flex items-center gap-2">
           <Segmented
             label={t("studio.parts.choice.pickCount")}
@@ -147,7 +147,6 @@ export function ChoiceEditor({
             </label>
           )}
         </div>
-        {!el.multi && !el.confirm && <p className="mt-1.5 text-[10px] leading-relaxed text-muted-foreground/70">{t("studio.parts.choice.tapRunsHint")}</p>}
       </Section>
 
       <Section label={t("studio.parts.choice.variable")} hint={t(el.multi ? "studio.parts.choice.variableHintMany" : "studio.parts.choice.variableHint")}>
@@ -167,6 +166,7 @@ export function ChoiceEditor({
         <div className="flex flex-col gap-2">
           <Toggle
             label={t("studio.parts.choice.tagFilter")}
+            title={t("studio.parts.choice.tagFilterHint")}
             checked={!!el.tagFilter}
             onChange={(on) => onPatch((c) => {
               if (on) return { ...c, tagFilter: true };
@@ -176,6 +176,7 @@ export function ChoiceEditor({
           />
           <Toggle
             label={t("studio.parts.choice.confirm")}
+            title={t("studio.parts.choice.confirmHint")}
             checked={!!el.confirm}
             onChange={(on) => onPatch((c) => {
               if (on) return { ...c, confirm: { label: { template: t("studio.parts.choice.confirmDefault") } } };
@@ -192,9 +193,6 @@ export function ChoiceEditor({
             />
           )}
         </div>
-        <p className="mt-1.5 text-[10px] leading-relaxed text-muted-foreground/70">
-          {t(el.confirm ? "studio.parts.choice.confirmHint" : "studio.parts.choice.tagFilterHint")}
-        </p>
       </Section>
 
       {el.confirm && (

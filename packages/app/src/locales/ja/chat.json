@@ -1,4 +1,13 @@
 {
+  "cardImages": {
+    "ask": {
+      "title": "このストーリーに絵を描かせますか？",
+      "body": "このストーリーがあなたのために絵を描こうとしています。1枚 {{price}} マッシー。",
+      "free": "無料枠があと {{count}} 枚あります。",
+      "confirm": "描く",
+      "remember": "このストーリーでは今後確認しない"
+    }
+  },
   "nativeVoice": {
     "title": "リアルタイム音声を有効にする",
     "description": "自然に話し、返答を途中で止められます。カメラはオフのままです。",
@@ -68,11 +77,14 @@
   },
   "view": {
     "retry": "再試行",
+    "sessionNotFound": "この会話を開けません。別のアカウントの会話か、削除された可能性があります。",
+    "switchAccount": "アカウントを切り替え",
     "loadingSession": "セッションを読み込み中...",
     "exitFullscreen": "フルスクリーン解除 (F11)",
     "returnToFullscreen": "フルスクリーンに戻る",
     "switchModel": "モデル",
     "memoryPanel": "記憶",
+    "searchMessages": "チャット履歴を検索",
     "enterSystemFullscreen": "システム全画面に入る",
     "exitImmersive": "没入モードを終了",
     "showPlayControls": "操作バーを表示",
@@ -94,6 +106,8 @@
     "displayModeKeep": "設定を保持",
     "sandboxBootFailed": "このワールドの画面を読み込めませんでした。通信環境を確認して、もう一度お試しください。",
     "sandboxBootSlow": "まだ読み込んでいます。通信が遅いようです。",
+    "floatingHere": "今は小さなウィンドウに表示しています。",
+    "floatingDock": "ここに戻す",
     "sceneVideo": "シーン動画",
     "backToEditor": "エディターに戻る"
   },
@@ -149,6 +163,29 @@
     "sceneGalleryLocked": "まだ登場していません",
     "sceneGalleryEmpty": "この世界にはシーン画像がありません。",
     "sessionOrdinal": "セッション {{n}}",
+    "searchSaves": "セッションを検索",
+    "clearSearch": "検索をクリア",
+    "sortSaves": "並べ替え",
+    "sort": {
+      "recent": "最近プレイした順",
+      "oldest": "古い順",
+      "messages": "メッセージが多い順",
+      "name": "名前順"
+    },
+    "searchHits_one": "{{count}} 件ヒット",
+    "searchHits_other": "{{count}} 件ヒット",
+    "searchMore_one": "あと {{count}} 件",
+    "searchMore_other": "あと {{count}} 件",
+    "searchFailed": "検索できませんでした。もう一度お試しください。",
+    "noMatchingSaves": "一致するセッションはありません",
+    "pinSession": "上部に固定",
+    "unpinSession": "固定を解除",
+    "pinFailed": "固定できませんでした",
+    "unpinFailed": "固定を解除できませんでした",
+    "selectAllMatching_one": "一致した {{count}} 件を選択",
+    "selectAllMatching_other": "一致した {{count}} 件をすべて選択",
+    "deselectAllMatching_one": "{{count}} 件の選択を解除",
+    "deselectAllMatching_other": "{{count}} 件の選択を解除",
     "playedFor": "プレイ {{time}}",
     "chooseVersion": "開始するバージョンを選んでください",
     "startThisVersion": "このバージョンで始める"
@@ -255,6 +292,7 @@
     "unlockWeight": "この比率の固定を解除"
   },
   "modelBrowser": {
+    "docsLink": "どのモデルが使える？",
     "title": "モデルを参照",
     "searchPlaceholder": "モデルを検索...",
     "recentlyUsed": "最近使用",
@@ -361,14 +399,11 @@
     "signInToSend": "メッセージを送るにはログインしてください",
     "openPreview": "プレビュー"
   },
-  "zoom": {
-    "adjustZoom": "プレイ画面のズームを調整",
-    "zoomLabel": "プレイ画面のズーム率"
-  },
   "stateGuard": {
     "unverified": "状態チェックを完了できませんでした。元の返信どおりに数値を更新しました"
   },
   "errors": {
+    "WORLD_ACCESS_ENDED": "このカードにはもうアクセスできません。作者が共同編集から外しました。",
     "PROTECTED_WORLD": "このワールドはクリエイターによってプロンプト抽出から保護されています。Yumina 公式 API のモデルのみ利用可能です — プライベート API キーは使用できません。",
     "NO_CREDITS": "mushies を使い切ってしまいました! デイリークエストをクリアして無料クレジットを獲得するか、プランをアップグレードしてください。",
     "PRIVATE_API_BALANCE": "個人 API の残高が不足しています。API 提供元のアカウントを確認してください。",
@@ -437,7 +472,12 @@
     "noKey": "読み上げには API キーが必要です。設定で追加してください。",
     "voiceUnavailable": "この音声は利用できなくなりました。別の音声を選んでください。",
     "needsKeyOrCredits": "読み上げには OpenRouter キーまたは mushies が必要です。",
-    "byokNoBalance": "API キーの残高が不足しています。"
+    "byokNoBalance": "API キーの残高が不足しています。",
+    "cardAsks": {
+      "title": "音声読み上げをオンにしますか？",
+      "body": "このストーリーは声であなたに話しかけたがっています。音声読み上げは AI の声でセリフを読み上げ、文字数に応じて mushies を消費します。設定 › 表示／言語 からいつでもオフにできます。",
+      "confirm": "オンにする"
+    }
   },
   "worldDisplayUnavailable": "このワールドの画面を読み込めませんでした。サポートにお問い合わせください。",
   "film": {
@@ -469,7 +509,9 @@
     "scenesEmpty": "撮影を始めるとシーンが表示されます。",
     "current": "現在",
     "cutBack": "↩ {{scene}} に戻る",
-    "changesNextTime": "変更は次の撮影から反映されます。",
+    "changesNextTime": "画風は次の返信から変わります。ほかの変更は次に撮影を始めたときに反映されます。",
+    "lookNext": "次の返信からこの画風で撮ります。",
+    "advanced": "詳細設定",
     "engine": "エンジン",
     "engineComfy": "Comfy H3 · 1分あたり約 130 mushies",
     "engineFal": "fal · 最速・最も安定 · 1分あたり約 5,800 mushies",
@@ -491,24 +533,25 @@
     "limitSeconds": "最長撮影時間（秒）",
     "reset": "リセット",
     "consentTitle": "シーン動画は実験的な機能です",
-    "consentBody": "キノコを消費します：fal のライブ撮影は 1 分あたり約 5,800、ショートフィルムは 1 返信あたり約 100〜1,400 で、1 本完成するごとに課金されます。",
+    "consentBody": "キノコを消費します：fal のライブ撮影は 1 分あたり約 5,800、ショートフィルムは 1 返信あたり約 800〜2,000 で、1 本完成するごとに課金されます。",
     "consentAccept": "オンにして撮影",
     "consentDecline": "今はしない",
     "noCredits": "mushies が足りないため、撮影を停止しました。",
     "notEnabled": "先に設定でシーン動画をオンにしてください。",
     "unavailable": "シーン動画は現在利用できません。",
-    "engineShorts": "ショートフィルム · 返信ごとに 1 本、数分後に完成 · 1 返信あたり約 100〜1,400 キノコ",
-    "shortsHint": "返信ごとに、場面に合った長さ（5〜60 秒）の音声付きショートフィルムを作ります。返信の数分後に完成してここで再生され、次の 1 本までは最後のフレームが表示されます。",
+    "engineShorts": "ショートフィルム · 返信ごとに 1 本、約 30 秒後に再生開始 · 1 返信あたり約 800〜2,000 キノコ",
+    "shortsHint": "返信ごとに、場面に合った長さ（5〜60 秒）の音声付きショートフィルムを作ります。返信の約 30 秒後からここで再生され、次の 1 本までは最後のフレームが表示されます。",
     "shortWriting": "次の 1 本：監督が絵コンテを書いています…",
     "shortShooting": "次の 1 本：{{shots}} カット中 {{done}} カット完了",
-    "shortFailed": "この返信は撮影できませんでした：{{reason}}",
+    "shortFailed": "この返信は撮影できませんでした：{{reason}}。mushies は消費されていません。",
+    "shortRefused": "監督がこの場面の撮影を断りました",
     "shortBusy": "すでに 2 本撮影中です",
     "shortTimeout": "時間がかかりすぎたため停止しました",
     "shortRetry": "撮り直す",
     "shortRetake": "最新の返信を撮り直す",
     "shortBack": "前の 1 本",
     "shortForward": "次の 1 本",
-    "shortNone": "最初の 1 本を撮影中です。返信の数分後に完成します。",
+    "shortNone": "最初の 1 本を撮影中です。返信の約 30 秒後に再生が始まります。",
     "shortOpening": "オープニング",
     "shortReply": "返信 {{n}}",
     "shortShot": "カット {{n}}/{{total}}",
@@ -604,5 +647,13 @@
       "shortRewind": "プレイヤーが巻き戻し：フィルムを最初から再生"
     }
   },
-  "memoryModelNeedsPlan": "{{model}} は{{plan}}プラン以上で使えます。記憶用に別のモデルを選ぶか、プランをアップグレードしてください。"
+  "memoryModelNeedsPlan": "{{model}} は{{plan}}プラン以上で使えます。記憶用に別のモデルを選ぶか、プランをアップグレードしてください。",
+  "cardImages": {
+    "ask": {
+      "title": "このストーリーに絵を描かせますか？",
+      "body": "このストーリーがあなたのために絵を描こうとしています。1枚 {{price}} マッシー。同意すると、このストーリーは今後確認なしで絵を描けます。",
+      "free": "無料枠があと {{count}} 枚あります。",
+      "confirm": "描く"
+    }
+  }
 }

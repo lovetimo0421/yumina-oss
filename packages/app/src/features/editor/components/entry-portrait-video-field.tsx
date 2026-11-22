@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { Film, X } from "lucide-react";
@@ -15,9 +15,11 @@ type PortraitVideo = { idle?: string; speaking?: string };
  * custom frontends read both clips off the entry. Sits under the still
  * portrait field in every editor that has one.
  */
-export function EntryPortraitVideoField({ value, onChange }: {
+export function EntryPortraitVideoField({ value, onChange, clipExtra }: {
   value?: PortraitVideo;
   onChange: (next: PortraitVideo | undefined) => void;
+  /** Actions under each clip (the canvas puts 生成 and 加工 here). */
+  clipExtra?: (clip: Clip) => ReactNode;
 }) {
   const { t } = useTranslation("editor");
   const serverWorldId = useEditorStore((s) => s.serverWorldId);
@@ -62,6 +64,7 @@ export function EntryPortraitVideoField({ value, onChange }: {
                 )}
               </div>
               <span className="text-[11px] text-muted-foreground">{t(`entries.portraitVideoClip.${clip}`)}</span>
+              {clipExtra?.(clip)}
             </div>
           );
         })}

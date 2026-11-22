@@ -8,7 +8,7 @@ export type ModelControlsAPI = Pick<SandboxedYuminaAPI,
   "messages" | "mixMode" | "modelPool" | "setPreferredProvider" | "setModel" |
   "getModels" | "pinModel" | "unpinModel" | "setMixMode" | "addToPool" |
   "removeFromPool" | "setPoolWeight" | "togglePoolLock">
-  & Partial<Pick<SandboxedYuminaAPI, "mode" | "openModelPicker" | "localBridge" | "reconnectLocalBridge">>;
+  & Partial<Pick<SandboxedYuminaAPI, "mode" | "openModelPicker" | "localBridge" | "reconnectLocalBridge" | "reasoningEffort" | "streaming" | "setGenerationPref">>;
 
 export const ModelControlsContext = createContext<ModelControlsAPI | null>(null);
 export function useModelControls(): ModelControlsAPI {

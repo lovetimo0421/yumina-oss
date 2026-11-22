@@ -93,7 +93,7 @@ test("clipboard rejection provides manual-copy guidance without changing the tra
   } finally { feedback.error = originalError; }
 });
 
-test("unsubmitted updates use the draft label and the creator's correct publishing action", async () => {
+test("unsubmitted updates use the draft label and always go to review (no trusted bypass)", async () => {
   for (const trusted of [false, true]) {
     useUserProfileStore.setState({ profile: { id: "creator", skipReview: trusted, isBanned: false } as NonNullable<ReturnType<typeof useUserProfileStore.getState>["profile"]> });
     useEditorStore.setState({ serverWorldId: "card", worldStatus: "published", worldIsPublished: true, readOnlyInspect: false, pendingEdit: { status: "draft", reasons: ["entries"], submittedAt: null, updatedAt: "2026-09-05T00:00:00Z", rejectionReason: null, rejectionDetail: null } });
@@ -102,8 +102,9 @@ test("unsubmitted updates use the draft label and the creator's correct publishi
       assert.equal(trigger.textContent, "Unpublished changes");
       await act(async () => trigger.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
       const text = dom.window.document.body.textContent!;
-      assert.ok(text.includes(trusted ? "Publish update" : "Submit for review"), text);
-      assert.ok(text.includes(trusted ? "without waiting for an admin" : "have not been submitted"), text);
+      // A former trusted creator (skip_review) submits for review like everyone else (11/07).
+      assert.ok(text.includes("Submit for review"), text);
+      assert.ok(text.includes("not submitted"), text);
       assert.ok(!text.includes("Update in review"));
     });
   }

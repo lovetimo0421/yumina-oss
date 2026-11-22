@@ -1,5 +1,7 @@
 import { Link, useLocation, useRouter } from "@tanstack/react-router";
 import { scrollPageTo } from "@/lib/page-scroll";
+import { keepsDiscoverSearch } from "@/lib/discover-search-scope";
+import { isDiscoverAddress } from "@/lib/discover-genre";
 import { installScrollAwayHeader } from "@/lib/scroll-away-header";
 import {
   LogIn,
@@ -18,6 +20,7 @@ import {
   ContentLevelSwitcher,
   CreditIndicator,
   DmMessageIcon,
+  HalloweenTopBarEntry,
   NotificationBell,
   PartnerDashboardLink,
   useHubSearch,
@@ -30,6 +33,7 @@ import { useUserProfileStore } from "@/stores/user-profile";
 import { useUiStore } from "@/stores/ui";
 import { useCreatePageStore } from "@/stores/create-page";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { AvatarWitchHat } from "@/components/halloween-decor";
 import { signOut, clearSessionCache } from "@/lib/auth-client";
 import { getAvatarInitials } from "@/lib/avatar-initials";
 import { DOCS_URLS } from "@/lib/docs-urls";
@@ -106,6 +110,9 @@ export function TopBarAccountControls() {
         <CircleHelp className="h-4 w-4" />
       </a>
 
+      {/* Halloween 2026: guests see it too, so they know what signing in gets them. */}
+      {features.billing && <HalloweenTopBarEntry />}
+
       {showAuthenticatedControls && features.billing && <CreditIndicator />}
 
       <div className="topbar-account-divider mx-1 h-6 w-px bg-white/10" />
@@ -172,12 +179,15 @@ export function TopBarAccountControls() {
             onClick={() => setShowMenu((v) => !v)}
             className="topbar-profile-button flex items-center gap-2 rounded-full border border-white/10 py-1 pl-1 pr-3 transition-colors hover:bg-white/5"
           >
-            <Avatar className="h-7 w-7">
-              <AvatarImage src={avatarSrc} />
-              <AvatarFallback className="bg-primary/20 text-[10px] font-bold text-primary">
-                {initials}
-              </AvatarFallback>
-            </Avatar>
+            <span className="relative">
+              <Avatar className="h-7 w-7">
+                <AvatarImage src={avatarSrc} />
+                <AvatarFallback className="bg-primary/20 text-[10px] font-bold text-primary">
+                  {initials}
+                </AvatarFallback>
+              </Avatar>
+              <AvatarWitchHat />
+            </span>
             <span className="topbar-profile-label text-xs font-bold text-foreground">
               {displayName}
             </span>
@@ -208,7 +218,7 @@ export function TopBar() {
   const headerRef = useRef<HTMLDivElement>(null);
   const [scrollHidden, setScrollHidden] = useState(false);
 
-  const isDiscoverPage = location.pathname === "/" || location.pathname.startsWith("/app/hub");
+  const isDiscoverPage = isDiscoverAddress(location.pathname);
   const isLibraryPage = location.pathname.startsWith("/app/library");
   const isCommunityPage = location.pathname.startsWith("/app/community");
   const isMessagesPage = location.pathname.startsWith("/app/messages");
@@ -219,10 +229,11 @@ export function TopBar() {
   const isPickerActive = useCreatePageStore((s) => s.isPickerActive);
   const isCreatePicker = isCreatePage && isPickerActive;
   const isEditPage =
-    location.pathname.match(/^\/app\/worlds\/.*\/edit/) || location.pathname.startsWith("/app/studio")
-    // The generation page draws its own header band; the app bar on top of it
-    // read as two headers.
-    || location.pathname === "/app/generate";
+    location.pathname.match(/^\/app\/worlds\/.*\/edit/) || location.pathname.startsWith("/app/studio");
+  // The generation page draws its own header band; on a wide screen the app bar
+  // on top of it read as two headers, so there it shows only on a phone, where
+  // its menu is the way to the rest of the site.
+  const isGeneratePage = location.pathname === "/app/generate";
   const isPlayPage =
     location.pathname.startsWith("/app/chat/") || location.pathname.startsWith("/app/preview/");
   const isAdminWorldInspect = location.pathname.startsWith("/app/admin/world-inspect/");
@@ -233,6 +244,12 @@ export function TopBar() {
     if (!header || (!isDiscoverPage && !isCommunityPage && !isLibraryPage && !isMessagesPage && !isCreatePicker)) return;
     return installScrollAwayHeader(window, header, setScrollHidden);
   }, [location.pathname, isDiscoverPage, isCommunityPage, isLibraryPage, isMessagesPage, isCreatePicker]);
+
+  // Leaving for another section ends the Discover search, so coming back
+  // opens the main Discover page instead of the old results.
+  useEffect(() => {
+    if (hubQuery && !keepsDiscoverSearch(location.pathname)) setHubQuery("");
+  }, [location.pathname, hubQuery, setHubQuery]);
 
   const handleSearchConfirm = () => {
     const scroller = document.querySelector<HTMLElement>(
@@ -263,7 +280,7 @@ export function TopBar() {
         isProfilePage ? "topbar-shell--profile" : ""
       } ${
         isCreatePicker ? "topbar-shell--create-picker" : ""
-      }`}
+      } ${isGeneratePage ? "topbar-shell--generate" : ""}`}
     >
       <div className="topbar-inner hub-container">
         <div className="topbar-row">

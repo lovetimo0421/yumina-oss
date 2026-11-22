@@ -1,12 +1,17 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { familyOf, type UserPrompt } from '@yumina/engine';
 import { db, type DrizzleDB } from '../db/index.js';
-import { userPrompts, promptFolders } from '../db/schema.js';
+import { userPrompts, promptFolders, userWorldPrompts } from '../db/schema.js';
 import { UNRESTRICT_KIND, getUnrestrictEligibility } from './unrestrict.js';
 
 export interface UserPromptContext {
   /** Model the turn is generated with — selects which per-model-bound prompts apply. */
   modelId?: string | null;
+  /** World being played: switches the player set for this world win over the
+   *  prompt's own switch. Omitted/null = the account-wide switches only. */
+  worldId?: string | null;
+  /** Story room with a member who fails the adult gate: no 解除限制 prompts this turn. */
+  withholdUnrestrict?: boolean;
 }
 
 type PromptRow = Pick<typeof userPrompts.$inferSelect,
@@ -25,12 +30,13 @@ export function selectUserPrompts(
   folders: FolderRow[],
   eligible: boolean,
   ctx: UserPromptContext = {},
+  worldSwitches: ReadonlyMap<string, boolean> = new Map(),
 ): UserPrompt[] {
   const disabledFolderIds = new Set(folders.filter(f => !f.enabled).map(f => f.id));
   const family = familyOf(ctx.modelId);
 
   return prompts
-    .filter(p => p.enabled && (!p.folderId || !disabledFolderIds.has(p.folderId)))
+    .filter(p => (worldSwitches.get(p.id) ?? p.enabled) && (!p.folderId || !disabledFolderIds.has(p.folderId)))
     .filter(p => eligible || p.kind !== UNRESTRICT_KIND)
     .filter(p => {
       const bound = Array.isArray(p.autoModels) ? p.autoModels : [];
@@ -50,10 +56,24 @@ export async function loadUserPrompts(
   ctx: UserPromptContext = {},
   database: DrizzleDB = db,
 ): Promise<UserPrompt[]> {
-  const [prompts, folders, eligibility] = await Promise.all([
+  const [prompts, folders, eligibility, switches] = await Promise.all([
     database.select().from(userPrompts).where(eq(userPrompts.userId, userId)),
     database.select({ id: promptFolders.id, enabled: promptFolders.enabled }).from(promptFolders).where(eq(promptFolders.userId, userId)),
     getUnrestrictEligibility(userId, database),
+    ctx.worldId ? loadWorldPromptSwitches(userId, ctx.worldId, database) : Promise.resolve(new Map<string, boolean>()),
   ]);
-  return selectUserPrompts(prompts, folders, eligibility.eligible, ctx);
+  return selectUserPrompts(prompts, folders, eligibility.eligible && !ctx.withholdUnrestrict, ctx, switches);
+}
+
+/** The prompt switches this player set while playing this world. */
+export async function loadWorldPromptSwitches(
+  userId: string,
+  worldId: string,
+  database: DrizzleDB = db,
+): Promise<Map<string, boolean>> {
+  const rows = await database
+    .select({ promptId: userWorldPrompts.promptId, enabled: userWorldPrompts.enabled })
+    .from(userWorldPrompts)
+    .where(and(eq(userWorldPrompts.userId, userId), eq(userWorldPrompts.worldId, worldId)));
+  return new Map(rows.map(r => [r.promptId, r.enabled]));
 }

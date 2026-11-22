@@ -75,6 +75,12 @@ export interface CommunityEvent {
   translatedIntroduction_es?: string | null;
   translatedTitle_ja?: string | null;
   translatedIntroduction_ja?: string | null;
+  translatedTitle_ko?: string | null;
+  translatedIntroduction_ko?: string | null;
+  translatedTitle_id?: string | null;
+  translatedIntroduction_id?: string | null;
+  translatedTitle_ru?: string | null;
+  translatedIntroduction_ru?: string | null;
 }
 
 export interface SocialEventEvidence {

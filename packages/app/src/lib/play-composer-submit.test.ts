@@ -9,7 +9,10 @@ import { transform } from "sucrase";
 test("the play composer honors keyboard settings on touch-capable desktops", async (t) => {
   const dom = new JSDOM('<div id="root"></div>', { url: "https://synthetic.test" });
   const win = dom.window;
-  const globals = { window: win, document: win.document, navigator: win.navigator, FileReader: win.FileReader, IS_REACT_ACT_ENVIRONMENT: true };
+  const globals = { window: win, document: win.document, navigator: win.navigator, FileReader: win.FileReader,
+    HTMLElement: win.HTMLElement, Element: win.Element, Node: win.Node, NodeFilter: win.NodeFilter,
+    CustomEvent: win.CustomEvent, MutationObserver: win.MutationObserver, getComputedStyle: win.getComputedStyle,
+    IS_REACT_ACT_ENVIRONMENT: true };
   const previous = new Map(Object.keys(globals).map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
   for (const [key, value] of Object.entries(globals)) {
     Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
@@ -26,6 +29,8 @@ test("the play composer honors keyboard settings on touch-capable desktops", asy
   let promptsPanelOpens = 0;
   let imagePicks = 0;
   const api = {
+    mode: "session", sessionId: "session", messageButtonColor: "default",
+    setMessageButtonColor(color: string) { this.messageButtonColor = color; },
     pickChatImage: async () => { imagePicks++; return null; },
     playerPrompts: null as null | { boundPromptName: string | null; prompts: unknown[] },
     getModels: async () => ({ models: [] }), selectedModel: "google/gemini-2.5-flash", preferredProvider: "official", mixMode: false, modelPool: [],
@@ -62,7 +67,10 @@ test("the play composer honors keyboard settings on touch-capable desktops", asy
     // Read-aloud is a sibling of the send key, not part of it: mocked so this
     // test stays about what Enter does.
     "./voice-panel": { VoicePanelButton: empty },
+    // The thinking switch beside the model is its own control, not the send key.
+    "./thinking-control": { ThinkingControl: empty },
     // The contrast guard measures painted pixels; JSDOM has no layout.
+    "./reading-appearance": { useReadingAppearance: () => ({ className: "" }) },
     "./composer-guard": { useComposerGuard: noop },
     // Composer popovers portal to <body> in the app; inline here is enough.
     "./composer-popover": {
@@ -72,6 +80,9 @@ test("the play composer honors keyboard settings on touch-capable desktops", asy
     // Per-turn pictures: off here, so the menu has no auto switch.
     "./turn-images": { useTurnImageSettings: () => ({ settings: null, setAuto: async () => false, refresh: noop }) },
     "../protocol": { postToParentWindow: noop, wrapMessage: (value: unknown) => value },
+    "./story-room": { RoundStrip: empty, RoomMemberComposer: empty, useRoomComposerPresence: noop },
+    // The real note lifecycle (message-input restores/settles the open note around a send).
+    "./player-note-draft": require("../../sandbox/chat/player-note-draft.ts"),
     "../../src/lib/chat-image-input": require("./chat-image-input.ts"),
     "../../src/lib/composer-message-limit": {
       clampComposerMessage: (value: string) => value,
@@ -155,7 +166,7 @@ test("the play composer honors keyboard settings on touch-capable desktops", asy
         promptsPanelOpens = 0;
         imagePicks = 0;
         try {
-          await withComposer({}, async () => {
+          await withComposer({}, async (_input, rerender) => {
             const toolbar = win.document.querySelector(".play-composer-toolbar")!;
             assert.equal(toolbar.querySelector('button[aria-label="Add images"]'), null, "no standalone image button");
             assert.ok(!toolbar.textContent?.includes("prompts"), "no standalone prompts button");
@@ -165,6 +176,29 @@ test("the play composer honors keyboard settings on touch-capable desktops", asy
               .find(b => b.textContent?.startsWith(label));
             await act(async () => plus().click());
             assert.ok(item("sendImage") && item("prompts"));
+            const picker = win.document.querySelector<HTMLButtonElement>('button[aria-label="messageButtonColor"]')!;
+            assert.ok(picker.querySelector("svg"), "the color row has a leading icon");
+            for (const color of ["lighter", "darker", "default"]) {
+              await act(async () => {
+                picker.dispatchEvent(new win.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+              });
+              const menu = win.document.querySelector<HTMLElement>('[role="menu"][aria-label="messageButtonColor"]')!;
+              assert.equal(menu.dataset.messageButtonColor, undefined);
+              assert.equal(toolbar.closest("[data-message-button-color]"), null);
+              assert.ok(menu.classList.contains("border-current/65"));
+              const options = Array.from(menu.querySelectorAll<HTMLElement>('[role="menuitemradio"]'));
+              assert.equal(options.length, 3);
+              assert.equal(options.find(el => el.getAttribute("aria-checked") === "true")?.textContent?.toLowerCase(),
+                "buttoncolor" + api.messageButtonColor);
+              const option = options.find(el => el.textContent?.toLowerCase() === "buttoncolor" + color)!;
+              await act(async () => {
+                option.dispatchEvent(new win.MouseEvent("mousedown", { bubbles: true }));
+                option.click();
+              });
+              assert.equal(api.messageButtonColor, color);
+              await rerender();
+              assert.ok(item("continue"), "choosing a portaled option keeps the plus menu open");
+            }
             await act(async () => { item("sendImage")!.click(); await new Promise(r => setTimeout(r, 10)); });
             assert.equal(imagePicks, 1);
             assert.equal(item("continue"), undefined, "menu closes after picking an image");

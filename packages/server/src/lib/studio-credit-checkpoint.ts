@@ -4,6 +4,7 @@ import { db } from "../db/index.js";
 import { agentRuns, worldPendingEdits, worlds } from "../db/schema.js";
 import type { ChatMessage, StreamChunk, ToolCall } from "./llm/types.js";
 import type { ToolResult } from "./studio-tools/index.js";
+import { canEdit, getWorldAccess } from "./world-collaborators.js";
 
 export type StudioCreditTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 export interface StudioCreditScope { runId: string; worldId: string; userId: string }
@@ -82,11 +83,15 @@ function canonicalJson(value: unknown): string {
   return JSON.stringify(value) ?? "null";
 }
 
-/** Lock order is always world -> run. New-run creation must use the world lock too. */
+/** Lock order is always world -> run. New-run creation must use the world lock too.
+ *  The run's user must be able to edit the world: its creator or an editor
+ *  collaborator. Authorized before locking so a stranger never takes the lock. */
 async function lockedWorld(tx: StudioCreditTransaction, scope: StudioCreditWorldScope) {
+  const access = await getWorldAccess(scope.userId, scope.worldId, tx);
+  if (!canEdit(access)) return null;
   const [world] = await tx.select({
     id: worlds.id, status: worlds.status, schema: worlds.schema, updatedAt: worlds.updatedAt,
-  }).from(worlds).where(and(eq(worlds.id, scope.worldId), eq(worlds.creatorId, scope.userId))).for("update");
+  }).from(worlds).where(and(eq(worlds.id, scope.worldId), eq(worlds.creatorId, access.creatorId))).for("update");
   if (!world) return null;
   return world;
 }
@@ -205,8 +210,10 @@ export async function stageStudioCreditIteration(
   opts?: {
     /** `pause` (default) parks the run as a stale pause. `reject` reports the
      *  stale world and writes nothing, for a caller that restarts the step
-     *  itself against the current world instead of stranding the run. */
-    staleWorld?: "pause" | "reject";
+     *  itself against the current world instead of stranding the run.
+     *  `adopt` journals the step anyway: for a caller whose writes merge
+     *  onto whatever is stored when they land. */
+    staleWorld?: "pause" | "reject" | "adopt";
   },
 ) {
   if (!readStudioCreditCheckpoint(checkpoint)) {
@@ -223,7 +230,9 @@ export async function stageStudioCreditIteration(
     }
     const current = await worldState(tx, world);
     const { claim: _claim, ...body } = checkpoint;
-    if (current.revision !== checkpoint.worldRevision) {
+    // `adopt` keeps the revision the step was generated from: a replay after a
+    // crash, which can't merge, still sees the newer save and pauses.
+    if (current.revision !== checkpoint.worldRevision && opts?.staleWorld !== "adopt") {
       if (opts?.staleWorld === "reject") return { ok: false as const, code: "STALE_WORLD" as const };
       // Keep the generated work for inspection, but it may not overwrite a
       // newer editor save. Normal resume will continue to reject this revision.
@@ -256,9 +265,11 @@ export async function claimStudioCreditResume(scope: StudioCreditScope) {
     const stored = readStudioCreditCheckpoint(run.creditCheckpoint);
     if (!isStudioCreditResumeEligible(run, stored)) return { ok: false as const, code: "NOT_PAUSED" as const };
     if (!stored) return { ok: false as const, code: "INVALID_CHECKPOINT" as const };
-    const [active] = await tx.select({ id: agentRuns.id }).from(agentRuns)
-      .where(and(eq(agentRuns.worldId, scope.worldId), ne(agentRuns.id, scope.runId), eq(agentRuns.status, "running"))).limit(1);
-    if (active) return { ok: false as const, code: "ACTIVE_RUN" as const };
+    // Per person, like starting a run: someone else's assistant working on
+    // the card doesn't hold this one up (writes rebase onto each other's saves).
+    const [active] = await tx.select({ id: agentRuns.id, userId: agentRuns.userId }).from(agentRuns)
+      .where(and(eq(agentRuns.worldId, scope.worldId), eq(agentRuns.userId, scope.userId), ne(agentRuns.id, scope.runId), eq(agentRuns.status, "running"))).limit(1);
+    if (active) return { ok: false as const, code: "ACTIVE_RUN" as const, activeUserId: active.userId };
     const current = await worldState(tx, world);
     let checkpoint = stored;
     let rebased = false;

@@ -178,12 +178,12 @@ export const EXTENSION_REGISTRY: readonly ExtensionDefinition[] = [
     key: SESSION_MEMORY_EXTENSION_KEY,
     name: "Session Memory & Story Summary (Beta)",
     shortDescription:
-      "Keeps your story memory small without losing the plot. Older scenes become a recap, key facts stay on a list. Beta.",
+      "The AI keeps its own list of key facts, and you can read and edit every recap chapter. Beta.",
     // Kept deliberately short. The three cards below carry the detail; when
     // this repeated them the modal said the same thing twice in a row, then
     // a third time in the install toast.
     longDescription:
-      "Story memory only keeps the most recent part of your conversation word for word. This extension makes sure the rest is not simply lost: older scenes are compressed into a \"story so far\" recap, and key facts (relationships, items, promises, goals) go onto a running list. Both are sent with every reply.\n\nThat is what lets a small story memory work. Keep it around 16,000 and let this carry everything older.\n\nWriting the notes costs a little, usually well under 1 mushie per update. One tap in the Memory panel switches it to the free model.\n\nBeta: it occasionally gets a detail wrong. Everything it writes can be read and edited in the Memory panel, above the chat box.",
+      "The recap and pinned notes are now there for everyone, no extension needed. This adds two things:\n\nThe AI keeps its own list of key facts (relationships, items, promises, goals), sent with every reply.\nYou can read and edit every chapter of the recap.\n\nWriting the notes costs a little, usually well under 1 mushie per update, and one tap switches it to the free model. Beta: it occasionally gets a detail wrong, and you can fix it.\n\nOpen it from Memory in the chat box's + menu.",
     icon: "brain",
     category: "memory",
     tags: ["memory", "context", "long-play", "summary"],
@@ -192,12 +192,12 @@ export const EXTENSION_REGISTRY: readonly ExtensionDefinition[] = [
     screenshots: [],
     explanations: [
       {
-        title: "Works with your story memory",
-        body: "Set story memory to about 16,000 in AI settings. This carries everything older, so a small window stays cheap and sharp without losing the plot.",
+        title: "The AI keeps key facts",
+        body: "Relationships, items, promises and goals, kept as a list and sent with every reply.",
       },
       {
         title: "You can read and change it",
-        body: "Open the Memory panel above the chat box. Edit the notes, pin facts that must never drift, clear and regenerate, or switch the model it uses.",
+        body: "Under Memory in the + menu: edit the notes, read and edit each recap chapter.",
       },
       {
         title: "Uninstalling keeps your notes",
@@ -208,7 +208,6 @@ export const EXTENSION_REGISTRY: readonly ExtensionDefinition[] = [
     firstParty: true,
     apiVersion: 1,
     clientEntry: "session-memory",
-    contributions: [{ point: "chat.composer.toolbar", priority: 10 }],
     serverHooks: [
       // One resolver decides which of the three systems are active this turn.
       { capability: "session-memory", seam: "resolveCapabilities" },

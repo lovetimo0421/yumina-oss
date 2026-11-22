@@ -1,4 +1,7 @@
 import { memo, useEffect, useRef, useState } from "react";
+import { useEditorStore } from "@/stores/editor";
+import { GenerateActions, assetOf } from "./generate-actions";
+import { AI_LINEUP_EVENT } from "./ai-lineup-card";
 import { createPortal } from "react-dom";
 import { Handle, Position, useStore, type Node, type NodeProps } from "@xyflow/react";
 import { OpeningHoverRing, OpeningOnScreenEditor } from "../inspector/screen-first";
@@ -37,6 +40,7 @@ import {
   Maximize2,
   MessageSquare,
   Pencil,
+  Code,
   Pin,
   Plus,
   Radio,
@@ -51,7 +55,13 @@ import {
   Eye,
   Bot,
   Trash2,
+  Package,
+  Unlink,
+  ArrowUpCircle,
+  Shuffle,
+  UsersRound,
 } from "lucide-react";
+import type { PackFrameChrome } from "@/edition/slots.types";
 import { resolveImageUrl } from "@/lib/asset-url";
 import {
   portHandleId,
@@ -315,7 +325,7 @@ export type ContextRowView = {
  * this block holds.
  */
 export interface BlockTool {
-  id: "upload" | "generate" | "market" | "voice" | "open";
+  id: "upload" | "generate" | "market" | "add" | "voice" | "open";
   label: string;
   onClick: () => void;
 }
@@ -360,6 +370,7 @@ export type BlockNodeData = {
   /** Rows opened for editing in place, by object id. A click on a row still
    *  opens the drawer; this is the second way in. */
   expandedIds?: ReadonlySet<string>;
+  editorHeights?: ReadonlyMap<string, number>;
   /** The chevron at the right of every row whose object has an editor. */
   onToggleRowExpand?: (objectId: string) => void;
   /** Whether this object HAS one. An audio track and a legacy rule do not, so
@@ -419,6 +430,8 @@ export type BlockNodeData = {
     /** On a card with modules the card has no shelves (it is a strip), so
      *  the one thing only the card can hold — an opening — is added here. */
     onAddOpening?: () => void;
+    /** 联机: the roles' faces and seats when it is on, an offer to turn it on when not. */
+    multiplayer?: { on: boolean; label: string; faces: Array<{ src: string | null; name: string }>; onOpen: () => void };
   };
   background?: {
     /** Already resolved and absolute — the strip shows the picture the
@@ -456,6 +469,12 @@ export type BlockNodeData = {
     /** Open the interface's visual editor (the full player-interface page,
      *  edit mode on). The one obvious way in, rather than the header's ⤢. */
     onEdit?: () => void;
+    /** 「换界面」: the column of looks beside the board (interface-switcher). */
+    onSwitch?: () => void;
+    /** 「代码」: the card's interface code, when it has any. It was only in
+     *  the 面板 menu as 「前端代码」, and a creator looking for the code of
+     *  their card's look did not find it there (11/08). */
+    onCode?: () => void;
     /** The screen's pages, in order, as chips that open the editor on one —
      *  and the way to add a page without first finding the editor. */
     pages?: { list: Array<{ id: string; name: string; entry: boolean }>; onOpen: (pageId: string) => void; onNew: () => void };
@@ -482,6 +501,8 @@ export type BlockNodeData = {
     files?: FrontendFileFacts[];
     entryFile?: string;
     aiCalls?: number;
+    /** The 联机 rules file, when the card is in rules mode. */
+    rulesFile?: string;
     onOpenFile?: (file: string, line: number) => void;
     /** Which device the preview is laid out for. The player sees one or the
      *  other, so the block has to be able to show either. */
@@ -538,6 +559,7 @@ export type BlockNodeData = {
   onAdd?: (anchor?: DOMRect) => void;
   /** State blocks: commit a variable's starting value edited on its row. */
   onCommitVariableValue?: (variableId: string, raw: string | boolean) => void;
+  onRenameRow?: (objectId: string, name: string) => void;
   /** Open the big centred editor on this object's text — writing a scene into
    *  a 300px block is possible the way writing in a car park is possible. */
   onFocusEdit?: (objId: string) => void;
@@ -845,7 +867,7 @@ function RowExpandToggle({ data, objId }: { data: BlockNodeData; objId: string }
       onPointerDown={(e) => e.stopPropagation()}
       className={cn(
         "nodrag flex h-6 w-6 shrink-0 items-center justify-center rounded transition-colors hover:bg-white/10 hover:text-foreground",
-        open ? "text-[#f5d48a]" : "text-muted-foreground/60",
+        open ? "text-foreground" : "text-muted-foreground/60",
       )}
     >
       <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-150", open && "rotate-180")} />
@@ -853,18 +875,56 @@ function RowExpandToggle({ data, objId }: { data: BlockNodeData; objId: string }
   );
 }
 
-/** The open row's body: the object's own editor, at the fixed height the
- *  layout counted, scrolling inside itself so typing never resizes the board. */
+/** Rows whose object the board's row menu can delete. */
+const ROW_MENU_KINDS = ["var:", "reaction:", "audio:", "image:"] as const;
+
+/**
+ * The ⋯ a setting row carries (canvas-writing-node.tsx): the row's own menu —
+ * copy, delete — without knowing to right-click. Variables, audio and scene
+ * images had no other way off the board on desktop: their open row has no
+ * delete and they never get the side inspector.
+ */
+function RowMoreButton({ data, objId, title }: { data: BlockNodeData; objId: string; title: string }) {
+  const { t } = useTranslation("editor");
+  if (data.readOnly || !ROW_MENU_KINDS.some((prefix) => objId.startsWith(prefix))) return null;
+  const openMore = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    data.onRowContextMenu(objId, e);
+  };
+  return (
+    <button
+      type="button"
+      data-row-more={objId}
+      title={t("shell.moreActions")}
+      aria-label={`${t("shell.moreActions")} · ${title}`}
+      onClick={openMore}
+      onContextMenu={openMore}
+      onPointerDown={(e) => e.stopPropagation()}
+      // The row is a role="button" that takes Enter / Space for itself.
+      onKeyDown={(e) => e.stopPropagation()}
+      className={cn(
+        "nodrag flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground/60 transition-colors hover:bg-white/10 hover:text-foreground",
+        // Always there on the row you are editing; on the others it waits
+        // for the pointer, so a list of names does not wear a ⋯ each.
+        !rowOpen(data, objId) && "opacity-0 focus-visible:opacity-100 group-hover/row:opacity-100 group-focus-within/row:opacity-100 [@media(hover:none)]:opacity-100",
+      )}
+    >
+      <MoreHorizontal className="h-3.5 w-3.5" />
+    </button>
+  );
+}
+
+/** The form grows to show its controls; measurements update the board layout. */
 function RowInlineEditor({ data, objId }: { data: BlockNodeData; objId: string }) {
   if (!rowOpen(data, objId) || !data.renderEditor) return null;
   if (data.canExpandRow && !data.canExpandRow(objId)) return null;
   return (
     <div
       data-row-editor={objId}
-      // `nowheel` so a long form scrolls instead of zooming the board; a
-      // column so the body of text takes the slack rather than leaving a hole.
-      className="nodrag nowheel nokey flex flex-col overflow-y-auto overscroll-contain border-t border-white/[0.07] bg-white/[0.02] px-3 py-3"
-      style={{ height: openRowEditorHeight(objId) }}
+      // Leave all form controls visible; text areas own their scrolling.
+      className="nodrag nowheel nokey flex flex-col overflow-visible border-t border-white/[0.07] bg-white/[0.02] px-3 py-3"
+      style={{ minHeight: openRowEditorHeight(objId) }}
       onClick={(e) => e.stopPropagation()}
       onDoubleClick={(e) => e.stopPropagation()}
       onPointerDown={(e) => e.stopPropagation()}
@@ -883,7 +943,17 @@ function RowInlineEditor({ data, objId }: { data: BlockNodeData; objId: string }
  *  when it is merely quiet: a row nobody reads is still on. */
 export const rowIsOff = (row: BlockRowView) => Boolean(row.disabled) || row.live?.active === false;
 
-const rowStateClass = (row: BlockRowView, selected: boolean, dimmed: boolean) => {
+// Selection belongs to the whole object, including its open form and slots.
+// Keep anchors and interactions on the header so wire and drag geometry stays put.
+const ROW_SELECTION_CLASS = "bg-amber-400/[0.11] shadow-[inset_3px_0_0_#f0c674,inset_0_0_0_1px_rgba(240,198,116,0.5)]";
+/** The gold wash says "this one is picked". A row open in place is being
+ *  written in, which the open editor already says: the wash on top of it
+ *  only lit up the whole editor. It comes back when the row is one of
+ *  several picked at once. */
+const rowLit = (data: BlockNodeData, objId: string, selected: boolean) =>
+  selected && (!rowOpen(data, objId) || Boolean(data.multiSelected?.has(objId)));
+
+const rowStateClass = (row: BlockRowView, dimmed: boolean) => {
   const tone = ROW_TONE[row.g.kind];
   const off = rowIsOff(row);
   return cn(
@@ -894,10 +964,6 @@ const rowStateClass = (row: BlockRowView, selected: boolean, dimmed: boolean) =>
     // icon say that. Switched-off ones go dim IN THEIR OWN COLOUR (the title
     // picks up `tone.dim`). Never `saturate-0` — see ROW_TONE.
     off && "opacity-70",
-    // The selected row is lit, not painted: a warm wash and a line of light
-    // down its left edge (studio-material.css).
-    // Strong enough to find again across the board: one row or ten.
-    selected && "bg-amber-400/[0.11] shadow-[inset_3px_0_0_#f0c674,inset_0_0_0_1px_rgba(240,198,116,0.5)]",
     dimmed && "opacity-30",
     // Only ever on a turn that reported. Dimming a row because the server
     // said nothing would read as "this does not work".
@@ -913,18 +979,41 @@ const rowStateClass = (row: BlockRowView, selected: boolean, dimmed: boolean) =>
   );
 };
 
+function RowName({ row, data, selected }: { row: BlockRowView; data: BlockNodeData; selected: boolean }) {
+  const { t } = useTranslation("editor");
+  if (rowOpen(data, row.g.id) && data.renderEditor && !data.readOnly && data.onRenameRow) {
+    return <DebouncedInput
+      data-row-name={row.g.id}
+      value={row.title}
+      syncKey={`canvas-row-name-${row.g.id}`}
+      onCommit={name => data.onRenameRow!(row.g.id, name)}
+      aria-label={t("blueprint.insp.name")}
+      onClick={event => event.stopPropagation()}
+      onDoubleClick={event => event.stopPropagation()}
+      onPointerDown={event => event.stopPropagation()}
+      onKeyDown={event => {
+        if ((event.ctrlKey || event.metaKey) && !event.altKey && /^[zys]$/i.test(event.key)) return;
+        event.stopPropagation();
+      }}
+      className="nodrag h-6 min-w-0 flex-1 rounded border border-transparent bg-white/[0.04] px-1 text-[12px] font-medium text-foreground hover:border-white/10 focus:border-amber-500/50 focus:outline-none focus:ring-1 focus:ring-amber-500/30"
+    />;
+  }
+  return <span className={cn("min-w-[3.5rem] flex-1 truncate text-[12px] font-medium leading-none",
+    selected ? "text-foreground" : rowIsOff(row) ? ROW_TONE[row.g.kind].dim : row.shared ? "text-foreground/65" : "text-foreground/85")}>{row.title}</span>;
+}
+
 
 /** A lore row: the entry's name, and two lines of what it actually says. */
 function LoreRow({ row, data, selected, dimmed }: { row: BlockRowView; data: BlockNodeData; selected: boolean; dimmed: boolean }) {
   const { t } = useTranslation("editor");
   return (
-    <>
+    <div className={cn("min-w-0", rowLit(data, row.g.id, selected) ? ROW_SELECTION_CLASS : rowOpen(data, row.g.id) && "bg-white/[0.025]")}>
       <div
         {...rowInteractions(data, row.g.id)}
         // The panel centres the viewport on this element when its editor opens.
         data-row-anchor={row.g.id}
         className={cn(
-          rowStateClass(row, selected, dimmed),
+          rowStateClass(row, dimmed),
           "!items-start py-1.5",
           // An inset hairline, not a border: borders add a pixel and the block
           // height model counts every pixel. This is what stops one row's
@@ -937,20 +1026,7 @@ function LoreRow({ row, data, selected, dimmed }: { row: BlockRowView; data: Blo
         <ModuleSpine tint={row.tint} title={row.moduleTitle} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            <span
-              className={cn(
-                "min-w-0 flex-1 truncate text-[12px] font-semibold leading-none",
-                selected
-                  ? "text-foreground"
-                  : rowIsOff(row)
-                    ? ROW_TONE[row.g.kind].dim
-                    : row.shared
-                      ? "text-foreground/70"
-                      : "text-foreground/90",
-              )}
-            >
-              {row.title}
-            </span>
+            <RowName row={row} data={data} selected={selected} />
             {row.recent && <NewTag />}
             {row.shared && <SharedMark />}
             {row.ranThisTurn === "used" && (
@@ -985,7 +1061,7 @@ function LoreRow({ row, data, selected, dimmed }: { row: BlockRowView; data: Blo
         <RowExpandToggle data={data} objId={row.g.id} />
       </div>
       <RowInlineEditor data={data} objId={row.g.id} />
-    </>
+    </div>
   );
 }
 
@@ -1038,6 +1114,8 @@ const AI_TYPE_CHIP: Record<AiRowType, string> = {
   script: "bg-zinc-400/15 text-zinc-300",
   // An AI the game runs: the game's colour, like the player's screen block.
   game: "bg-emerald-400/15 text-emerald-200",
+  // The platform's, set going by the card's screen: film, voice, pictures.
+  platform: "bg-teal-400/15 text-teal-200",
 };
 
 type AisData = NonNullable<BlockNodeData["ais"]>;
@@ -1101,8 +1179,6 @@ function AisBody({ data }: { data: BlockNodeData }) {
               <span className="min-w-0 truncate text-[12.5px] font-semibold text-foreground/90">{row.name}</span>
               <span data-ai-type={row.type} className={cn("shrink-0 rounded px-1.5 text-[10.5px] font-semibold leading-[18px]", AI_TYPE_CHIP[row.type])}>{t(`blueprint.aiType.${row.type}`)}</span>
               {row.off && <span className="shrink-0 text-[10.5px] text-muted-foreground">{t("blueprint.placeAis.off")}</span>}
-              {/* A called AI's answer, so its row reads as the call it is. */}
-              {row.returns && <span data-ai-returns className="min-w-0 truncate font-mono text-[10.5px] text-muted-foreground/70">{row.returns}</span>}
               <span className="flex-1" />
               {removal && (
                 <button
@@ -1134,6 +1210,12 @@ function AisBody({ data }: { data: BlockNodeData }) {
                   {t("blueprint.placeAis.dropNarrator")}
                 </button>
               )}
+            </div>
+            {/* What it is handed and what it answers, read off the card: the
+                question every AI on the board has to answer at a glance. */}
+            <div data-ai-io className="min-w-0 truncate pl-[22px] text-[11px] leading-4 text-muted-foreground" title={row.receives ? [row.when, `${t("blueprint.placeAis.gets")} ${row.receives}`, row.returns].filter(Boolean).join(" ") : row.job}>
+              {row.receives ? <>{row.when && <span className="text-foreground/70">{row.when} · </span>}<span className="text-muted-foreground/60">{t("blueprint.placeAis.gets")}</span> {row.receives}</> : row.job}
+              {row.returns && <span data-ai-returns className="ml-1.5 font-mono text-[10.5px] text-muted-foreground/70">{row.returns}</span>}
             </div>
           </div>
           </div>
@@ -1194,7 +1276,7 @@ function ContextBody({ data }: { data: BlockNodeData }) {
               row.onClick
                 ? (e) => {
                     e.stopPropagation();
-                    row.onClick!();
+                    data.onRowClick(data.block.id, e);
                   }
                 : undefined
             }
@@ -1233,14 +1315,14 @@ function PlainRow({ row, data, selected, dimmed }: { row: BlockRowView; data: Bl
   const style = KIND_STYLE[row.g.kind];
   const Icon = row.g.kind === "event" ? Radio : style.icon;
   return (
-    <>
+    <div className={cn("min-w-0", rowLit(data, row.g.id, selected) ? ROW_SELECTION_CLASS : rowOpen(data, row.g.id) && "bg-white/[0.025]")}>
       <div
         {...rowInteractions(data, row.g.id)}
         // Same anchor the lore rows carry: the panel's marquee and its
         // centre-on-row both find a row by this attribute.
         data-row-anchor={row.g.id}
         title={row.preview}
-        className={rowStateClass(row, selected, dimmed)}
+        className={rowStateClass(row, dimmed)}
         style={{ height: PLAIN_ROW_H }}
       >
         <RowHandles row={row} />
@@ -1260,22 +1342,7 @@ function PlainRow({ row, data, selected, dimmed }: { row: BlockRowView; data: Bl
             <Icon className="h-3 w-3" />
           </span>
         )}
-        <span
-          className={cn(
-            // Never squeezed to nothing: in a two-column block the note and
-            // chips give way first, the name keeps its first few characters.
-            "min-w-[3.5rem] flex-1 truncate text-[12px] font-medium leading-none",
-            selected
-              ? "text-foreground"
-              : rowIsOff(row)
-                ? ROW_TONE[row.g.kind].dim
-                : row.shared
-                  ? "text-foreground/65"
-                  : "text-foreground/85",
-          )}
-        >
-          {row.title}
-        </span>
+        <RowName row={row} data={data} selected={selected} />
         {row.tags?.map((tag) => (
           <span
             key={tag.text}
@@ -1325,6 +1392,7 @@ function PlainRow({ row, data, selected, dimmed }: { row: BlockRowView; data: Bl
           ? <span data-row-extra="" className="contents"><AuthoredValue row={row} data={data} /></span>
           : <AuthoredValue row={row} data={data} />)}
         <LiveBadge live={row.live} />
+        <RowMoreButton data={data} objId={row.g.id} title={row.title} />
         <RowExpandToggle data={data} objId={row.g.id} />
       </div>
       <RowInlineEditor data={data} objId={row.g.id} />
@@ -1343,7 +1411,7 @@ function PlainRow({ row, data, selected, dimmed }: { row: BlockRowView; data: Bl
           <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">{slot.label}</span>
         </div>
       ))}
-    </>
+    </div>
   );
 }
 
@@ -1552,6 +1620,7 @@ function BlockHead({ data }: { data: BlockNodeData }) {
           </div>
         )}
       </div>
+      {block.kind === "context" && <RowExpandToggle data={data} objId={block.id} />}
       {isOpening && !collapsed && (
         <button
           type="button"
@@ -1582,7 +1651,7 @@ function BlockHead({ data }: { data: BlockNodeData }) {
       {/* Words, not bare icons: an unlabeled upload arrow or speaker on a
           header was a thing you had to hover to learn about. */}
       {data.tools?.map((tool) => {
-        const Icon = tool.id === "upload" ? Upload : tool.id === "market" ? Store : tool.id === "voice" ? Volume2 : tool.id === "open" ? Maximize2 : ImagePlus;
+        const Icon = tool.id === "upload" ? Upload : tool.id === "market" ? Store : tool.id === "add" ? Plus : tool.id === "voice" ? Volume2 : tool.id === "open" ? Maximize2 : tool.id === "generate" ? Sparkles : ImagePlus;
         return (
           <button
             key={tool.id}
@@ -1716,6 +1785,19 @@ function BackgroundBody({ data }: { data: BlockNodeData }) {
  * 40px thumbnail on the end.
  */
 
+/** A generated picture becomes the card's cover: the cover is the world's
+ *  thumbnail, uploaded through its own endpoint, not an asset reference. */
+async function putCoverFromAsset(ref: string) {
+  const asset = assetOf(ref);
+  if (!asset) return;
+  try {
+    const blob = await (await fetch(asset.url)).blob();
+    await useEditorStore.getState().applyImportedCover(blob);
+  } catch (err) {
+    console.error("Generated cover could not be applied:", err);
+  }
+}
+
 function CardBody({ data }: { data: BlockNodeData }) {
   const { t } = useTranslation("editor");
   const card = data.card!;
@@ -1780,8 +1862,54 @@ function CardBody({ data }: { data: BlockNodeData }) {
           />
         )}
         <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+          {/* A cover made here, from the name and blurb, lands as the cover. */}
+          {!data.readOnly && !card.locked && !data.glance && (
+            <GenerateActions
+              target={{ kind: "cover" }}
+              context={{ title: card.name, text: card.description }}
+              media="image"
+              onPut={(ref) => void putCoverFromAsset(ref)}
+              className="nodrag"
+            />
+          )}
           {/* 卡片信息, 素材 and the language chip all opened the card's
               details, which a click on the cover already does. */}
+          {/* Shown zoomed out too: it is the card's way into playing together. */}
+          {card.multiplayer && (
+            card.multiplayer.on ? (
+              <button
+                type="button"
+                data-card-multiplayer=""
+                onClick={(e) => { e.stopPropagation(); card.multiplayer!.onOpen(); }}
+                className="nodrag flex items-center gap-1.5 rounded-md border border-[rgba(240,198,116,0.45)] bg-[rgba(240,198,116,0.1)] py-0.5 pl-0.5 pr-2 text-[10.5px] font-semibold text-[#f5d48a] transition-colors hover:bg-[rgba(240,198,116,0.18)]"
+              >
+                {card.multiplayer.faces.length ? (
+                  <span className="flex -space-x-1.5">
+                    {card.multiplayer.faces.slice(0, 5).map((f, i) =>
+                      f.src
+                        ? <img key={i} src={f.src} alt="" title={f.name} draggable={false} className="h-6 w-6 rounded-md border border-[#1a1b20] object-cover" />
+                        : <span key={i} title={f.name} className="flex h-6 w-6 items-center justify-center rounded-md border border-[#1a1b20] bg-[rgba(240,198,116,0.22)] text-[10px]">{Array.from(f.name)[0]}</span>,
+                    )}
+                  </span>
+                ) : (
+                  <UsersRound className="ml-1 h-3.5 w-3.5" />
+                )}
+                {card.multiplayer.label}
+              </button>
+            ) : (
+              !data.readOnly && !card.locked && (
+                <button
+                  type="button"
+                  data-card-multiplayer-off=""
+                  onClick={(e) => { e.stopPropagation(); card.multiplayer!.onOpen(); }}
+                  className="nodrag flex items-center gap-1 rounded-md border border-dashed border-white/20 bg-black/30 px-2 py-1 text-[10px] font-semibold text-foreground/70 transition-colors hover:border-white/40 hover:text-foreground"
+                >
+                  <UsersRound className="h-3 w-3" />
+                  {card.multiplayer.label}
+                </button>
+              )
+            )
+          )}
           {card.onAddOpening && (
             <button
               type="button"
@@ -1996,10 +2124,66 @@ function SceneFileRow({ data }: { data: BlockNodeData }) {
   );
 }
 
+/** 「换界面」, in words: the one thing on the screen block a newcomer is
+ *  looking for, so not another icon beside the pencil. */
+/** 加页面 on the interface block, in words: as a bare ＋ in the block's head
+ *  it sat under the screen's own controls and could not be seen at all. */
+function AddPageButton({ label, onClick, compact }: { label?: string; onClick: (anchor: DOMRect) => void; compact?: boolean }) {
+  return (
+    <button
+      type="button"
+      data-testid="add-page"
+      title={compact ? label : undefined}
+      aria-label={compact ? label : undefined}
+      onClick={(e) => { e.stopPropagation(); onClick(e.currentTarget.getBoundingClientRect()); }}
+      className="nodrag ml-0.5 flex h-[26px] shrink-0 items-center gap-1 rounded-md border border-white/15 px-2 text-[11px] font-semibold text-foreground/85 transition-colors hover:bg-white/[0.06] hover:text-foreground"
+    >
+      <Plus className="h-3 w-3" />{!compact && label}
+    </button>
+  );
+}
+
+function CodeButton({ onClick, compact }: { onClick: () => void; compact?: boolean }) {
+  const { t } = useTranslation("editor");
+  return (
+    <button
+      type="button"
+      data-testid="interface-code"
+      title={t("studio.panels.frontEndCode")}
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      className="nodrag ml-0.5 flex h-[26px] shrink-0 items-center gap-1 rounded-md border border-white/15 px-2 text-[11px] font-semibold text-foreground/85 transition-colors hover:border-white/30 hover:bg-white/[0.06]"
+    >
+      <Code className="h-3 w-3" />
+      {!compact && t("blueprint.look.code")}
+    </button>
+  );
+}
+
+function SwitchLookButton({ onClick, compact }: { onClick: () => void; compact?: boolean }) {
+  const { t } = useTranslation("editor");
+  return (
+    <button
+      type="button"
+      data-testid="switch-interface"
+      title={compact ? t("blueprint.look.switch") : undefined}
+      aria-label={compact ? t("blueprint.look.switch") : undefined}
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      className="nodrag ml-0.5 flex h-[26px] shrink-0 items-center rounded-md border border-white/15 px-2 text-[11px] font-semibold text-foreground/80 transition-colors hover:bg-white/10 hover:text-foreground"
+    >
+      {compact ? <Shuffle className="h-3 w-3" /> : t("blueprint.look.switch")}
+    </button>
+  );
+}
+
 function FrontendBody({ data }: { data: BlockNodeData }) {
   const { t } = useTranslation("editor");
   const frontend = data.frontend!;
   const width = data.width ?? BLOCK_W;
+  // On a narrow block (a phone, a small tile) the head's buttons drop their
+  // words, and below phone width the device switch goes, or they run over
+  // the block's name.
+  const compact = width < 560;
+  const tiny = width < 420;
   // The device the player is on, at its real shape and one fixed scale,
   // centred: see screenFrame.
   const frame = screenFrame(width, frontend.device !== "phone");
@@ -2033,17 +2217,22 @@ function FrontendBody({ data }: { data: BlockNodeData }) {
     return (
       <>
         {frontend.folded && frontend.onToggleFold ? (
-          <button
-            type="button"
-            data-screen-unfold
-            onClick={(e) => { e.stopPropagation(); frontend.onToggleFold!(); }}
-            className="nodrag flex w-full items-center gap-1.5 px-3 text-left text-[11.5px] text-muted-foreground transition-colors hover:bg-white/[0.04] hover:text-foreground"
-            style={{ height: DEFAULT_CHAT_HINT_H }}
-          >
-            <ChevronRight className="h-3.5 w-3.5" />{t("blueprint.writing.screenUnfold")}
-          </button>
+          <div className="flex items-center pr-3" style={{ height: DEFAULT_CHAT_HINT_H }}>
+            <button
+              type="button"
+              data-screen-unfold
+              onClick={(e) => { e.stopPropagation(); frontend.onToggleFold!(); }}
+              className="nodrag flex h-full min-w-0 flex-1 items-center gap-1.5 px-3 text-left text-[11.5px] text-muted-foreground transition-colors hover:bg-white/[0.04] hover:text-foreground"
+            >
+              <ChevronRight className="h-3.5 w-3.5" />{t("blueprint.writing.screenUnfold")}
+            </button>
+            {frontend.onSwitch && <SwitchLookButton onClick={frontend.onSwitch} />}
+          </div>
         ) : (
-          <div className="flex items-center px-3 text-[11px] text-muted-foreground" style={{ height: DEFAULT_CHAT_HINT_H }}>{t(frontend.emptyOpening ? "blueprint.moments.screenWaiting" : "blueprint.starter.defaultChatReady")}</div>
+          <div className="flex items-center gap-2 px-3 text-[11px] text-muted-foreground" style={{ height: DEFAULT_CHAT_HINT_H }}>
+            <span className="min-w-0 flex-1 truncate">{t(frontend.emptyOpening ? "blueprint.moments.screenWaiting" : "blueprint.starter.defaultChatReady")}</span>
+            {frontend.onSwitch && <SwitchLookButton onClick={frontend.onSwitch} />}
+          </div>
         )}
         {data.block.headSlots.map((slot) => (
           <div key={slot.portId} className="relative flex items-center gap-2 pl-8 pr-2.5" style={{ height: SLOT_ROW_H }}>
@@ -2062,7 +2251,7 @@ function FrontendBody({ data }: { data: BlockNodeData }) {
       {/* Its controls, as icons in the head's right corner: which device,
           fold, and the way into the player-screen page. */}
       <div className="absolute right-2 z-20 flex items-center gap-0.5" style={{ top: -BLOCK_HEAD_H + (BLOCK_HEAD_H - 26) / 2 }}>
-        {frontend.onToggleDevice && (["phone", "desktop"] as const).map((d) => {
+        {frontend.onToggleDevice && !tiny && (["phone", "desktop"] as const).map((d) => {
           const on = (frontend.device ?? "phone") === d;
           return (
             <button
@@ -2090,16 +2279,22 @@ function FrontendBody({ data }: { data: BlockNodeData }) {
             <ChevronUp className="h-3.5 w-3.5" />
           </button>
         )}
+        {data.onAdd && <AddPageButton label={data.addLabel} onClick={data.onAdd} compact={compact} />}
+        {frontend.onSwitch && <SwitchLookButton onClick={frontend.onSwitch} compact={compact} />}
+        {frontend.onCode && <CodeButton onClick={frontend.onCode} compact={compact} />}
         {frontend.onEdit && (
+          // Named, not a bare pencil: this is where a part's colours, type
+          // and corners are set (a layout brings its own theme).
           <button
             type="button"
             data-testid="edit-interface"
-            title={t("blueprint.look.editInterface")}
+            title={t("blueprint.look.editInterfaceHint")}
             aria-label={t("blueprint.look.editInterface")}
             onClick={(e) => { e.stopPropagation(); frontend.onEdit!(); }}
-            className="nodrag ml-0.5 flex h-[26px] w-[26px] items-center justify-center rounded-md bg-primary text-primary-foreground transition-colors hover:bg-primary/90"
+            className="nodrag ml-0.5 flex h-[26px] shrink-0 items-center gap-1 rounded-md bg-primary px-2 text-[11px] font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
           >
-            <Pencil className="h-3.5 w-3.5" />
+            <Pencil className="h-3 w-3" />
+            {t("blueprint.look.edit")}
           </button>
         )}
       </div>
@@ -2164,7 +2359,7 @@ function FrontendBody({ data }: { data: BlockNodeData }) {
       {/* What the code does, file by file. Each row is a canvas object a note
           can stick to (file:<name>) and a click opens the file. */}
       {frontend.files && frontend.files.length > 0 && (
-        <FrontendFilesStrip files={frontend.files} entryFile={frontend.entryFile} aiCalls={frontend.aiCalls ?? 0} onOpenFile={frontend.onOpenFile} />
+        <FrontendFilesStrip files={frontend.files} entryFile={frontend.entryFile} aiCalls={frontend.aiCalls ?? 0} onOpenFile={frontend.onOpenFile} rulesFile={frontend.rulesFile} />
       )}
 
       {/* The variables this interface reads, as ports you can wire to. */}
@@ -2194,10 +2389,7 @@ function LooseBanner({ onShareAll, readOnly }: { onShareAll: () => void; readOnl
       style={{ height: LOOSE_BANNER_H }}
       data-loose-banner
     >
-      <span className="min-w-0 flex-1 truncate">
-        <span className="font-semibold">{t("blueprint.loose.badge")}</span>
-        <span className="text-zinc-400"> · {t("blueprint.loose.hint")}</span>
-      </span>
+      <span className="min-w-0 flex-1 truncate font-semibold" title={t("blueprint.loose.hint")}>{t("blueprint.loose.badge")}</span>
       {!readOnly && (
         <button
           type="button"
@@ -2239,7 +2431,8 @@ function TrayBlock({ data }: { data: BlockNodeData }) {
       style={{ width: data.width ?? BLOCK_W, height: data.fillHeight ?? TRAY_H }}
     >
       {data.flush && <PieceSeams top={data.seamTop} left={data.seamLeft} />}
-      <span className="shrink-0 text-[12px] text-muted-foreground/70">{t("blueprint.tray.label")}</span>
+      {/* Under 它能做 the chips say what the AI could also do; the
+          「还可以加」 in front of them said it again. */}
       {tray?.items.map((item) => (
         <button
           key={item}
@@ -2358,7 +2551,7 @@ function BlockNodeInner({ data, selected }: NodeProps<BlockFlowNode>) {
           {block.kind === "background" && data.background && <BackgroundBody data={data} />}
           {block.kind === "opening" && block.head && data.opening && <OpeningBody data={data} />}
           {block.kind === "frontend" && data.frontend && <FrontendBody data={data} />}
-          {block.kind === "context" && data.context && <ContextBody data={data} />}
+          {block.kind === "context" && data.context && <><ContextBody data={data} /><RowInlineEditor data={data} objId={block.id} /></>}
           {block.kind === "ais" && data.ais && <AisBody data={data} />}
           {block.kind === "scene" && data.scene && <SceneBody data={data} />}
 
@@ -2579,10 +2772,44 @@ export type GateNodeData = {
   onReceiveHover?: (sources: string[] | null) => void;
   /** A place on a card with more than one AI: who its entries go to. */
   placeGives?: string;
+  /** The AIs of this place, by name, the ones answering the player first:
+   *  shown on the title, and on the name above the frame when zoomed out. */
+  speakers?: Array<{ name: string; answers: boolean }>;
   /** The pointer is on a chip that names this frame as a source. */
   aiLit?: boolean;
+  /** An installed resource pack's frame: its colour, the line under its
+   *  name and its actions (settings, source, detach, remove, update). */
+  pack?: PackFrameChrome;
+  /** The card's own frame, when friends can play it together: 「联机 2–6 人」,
+   *  which opens the card settings at that group. */
+  multiplayer?: { label: string; onOpen: () => void; faces?: Array<{ src: string | null; name: string }> };
 };
 export type GateFlowNode = Node<GateNodeData>;
+
+/** A pack frame's header action: a small icon, its words on hover. */
+function PackAction({ icon: Icon, label, onClick, lit, danger, id }: { icon: typeof Package; label: string; onClick: () => void; lit?: boolean; danger?: boolean; id: string }) {
+  return (
+    <button
+      type="button"
+      data-pack-action={id}
+      title={label}
+      aria-label={label}
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      onDoubleClick={(e) => e.stopPropagation()}
+      className={cn(
+        "nodrag flex shrink-0 items-center gap-1 rounded-md border p-1.5 text-[11px] font-semibold transition-colors",
+        lit
+          ? "studio-button-lit px-2"
+          : danger
+            ? "border-white/10 text-muted-foreground hover:border-rose-400/50 hover:bg-rose-400/10 hover:text-rose-200"
+            : "border-white/10 text-muted-foreground hover:border-[rgba(240,198,116,0.4)] hover:bg-[rgba(240,198,116,0.1)] hover:text-[#f5d48a]",
+      )}
+    >
+      <Icon className="h-3.5 w-3.5" />
+      {lit && <span>{label}</span>}
+    </button>
+  );
+}
 
 /**
  * 「它收到」: what reaches an AI from outside its own frame, one chip per
@@ -2768,23 +2995,58 @@ function FrameTitle({ title, onRename, drillId }: { title: string; onRename?: (n
   );
 }
 
-function FrameName({ title, tint }: { title: string; tint: string }) {
+function FrameName({ title, tint, speakers }: { title: string; tint: string; speakers?: Array<{ name: string; answers: boolean }> }) {
   const zoom = useStore((s) => s.transform[2]);
   if (zoom >= NAME_ZOOM) return null;
   const k = Math.min(4, NAME_ZOOM / zoom);
+  // Zoomed out, the name is all a frame says: who answers there goes with it.
+  const voices = (speakers ?? []).filter((v) => v.answers);
   return (
     <div
-      className="pointer-events-none absolute bottom-full left-0 mb-1 whitespace-nowrap rounded px-1.5 py-0.5 text-[12px] font-bold"
+      className="pointer-events-none absolute bottom-full left-0 mb-1 flex items-center gap-1.5 whitespace-nowrap rounded px-1.5 py-0.5 text-[12px] font-bold"
       style={{ transform: `scale(${k})`, transformOrigin: "left bottom", color: tint, background: "rgba(12,11,15,0.82)" }}
     >
       {title}
+      {voices.length > 0 && (
+        <span className="flex items-center gap-0.5 font-semibold text-pink-200">
+          <Bot className="h-3 w-3" />{voices.slice(0, 2).map((v) => v.name).join(" · ")}{voices.length > 2 ? ` +${voices.length - 2}` : ""}
+        </span>
+      )}
     </div>
+  );
+}
+
+/** The AIs of a place, on its title: who plays it, before what it holds. */
+function SpeakerChips({ speakers, max = 3 }: { speakers: Array<{ name: string; answers: boolean }>; max?: number }) {
+  const shown = speakers.slice(0, max);
+  return (
+    <button
+      type="button"
+      data-frame-speakers=""
+      // Who these are and what else runs: the card's whole lineup of AIs.
+      onClick={(e) => { e.stopPropagation(); window.dispatchEvent(new Event(AI_LINEUP_EVENT)); }}
+      className="nodrag ml-1.5 flex min-w-0 shrink items-center gap-1 overflow-hidden rounded-full"
+    >
+      {shown.map((v, i) => (
+        <span
+          key={`${v.name}-${i}`}
+          title={v.name}
+          className={cn(
+            "flex min-w-0 shrink items-center gap-1 truncate rounded-full border px-1.5 py-px text-[11px] font-semibold",
+            v.answers ? "border-pink-400/40 bg-pink-500/15 text-pink-100" : "border-white/10 bg-white/[0.04] text-muted-foreground",
+          )}
+        >
+          <Bot className="h-3 w-3 shrink-0" /><span className="truncate">{v.name}</span>
+        </span>
+      ))}
+      {speakers.length > shown.length && <span className="shrink-0 text-[11px] text-muted-foreground">+{speakers.length - shown.length}</span>}
+    </button>
   );
 }
 
 export function GateNode({ data, selected }: NodeProps<GateFlowNode>) {
   const { t } = useTranslation("editor");
-  const { g, frame, title, tint, activationLabel, onShowOpening, note, live, turn, recent, dimmed, context, ai, onReceiveHover, placeGives, aiLit, readByGame } = data;
+  const { g, frame, title, tint, activationLabel, onShowOpening, note, live, turn, recent, dimmed, context, ai, onReceiveHover, placeGives, aiLit, readByGame, speakers } = data;
   const enabled = readByGame || !g || g.data.enabled !== false;
   // A place, as opposed to an AI: its border is drawn dashed.
   const place = !!g && !ai;
@@ -2848,7 +3110,7 @@ export function GateNode({ data, selected }: NodeProps<GateFlowNode>) {
         borderColor: frame.overlapping ? "#f43f5e" : live?.active === true ? "#34d399" : ai ? "rgba(244,114,182,0.55)" : `${tint}99`,
       }}
     >
-      {frame.open && !frame.sole && <FrameName title={title} tint={tint} />}
+      {frame.open && !frame.sole && <FrameName title={title} tint={tint} speakers={ai ? undefined : speakers} />}
       {frame.dropping && frame.dropLabel && (
         // In the frame's own title bar, right side: above the frame it sat on
         // the group's title (「一直在」); lower down the blocks cover it.
@@ -2879,17 +3141,22 @@ export function GateNode({ data, selected }: NodeProps<GateFlowNode>) {
         </button>
         {ai
           ? <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] bg-pink-400/25 text-pink-100"><Bot className="h-3 w-3" /></span>
-          : <Boxes className="h-4 w-4 shrink-0" style={{ color: tint }} />}
+          : data.pack
+            ? <Package className="h-4 w-4 shrink-0" style={{ color: tint }} />
+            : <Boxes className="h-4 w-4 shrink-0" style={{ color: tint }} />}
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1 leading-tight">
             <FrameTitle title={title} onRename={frame.onRename} drillId={frame.drillId} />
+            {/* On a phone-width frame three chips squeeze the title to "This …";
+                one and a count leave it readable. */}
+            {!ai && speakers && speakers.length > 0 && <SpeakerChips speakers={speakers} max={frame.width < 420 ? 1 : 3} />}
             {ai?.gives && (
               <span className={cn("ml-auto shrink-0 truncate pl-2 text-[11px]", ai.givesWarn ? "text-amber-300/80" : "text-pink-200/80")}>{ai.gives}</span>
             )}
             {/* Open, a hanging sticky would lie across the contents. The pin
                 keeps the note reachable without moving anything. */}
             {note && frame.open && (
-              <Pin className="h-3 w-3 shrink-0 text-[#f0c674]/80" aria-label={note} />
+              <Pin className="h-3 w-3 shrink-0 text-foreground/50" aria-label={note} />
             )}
           </div>
           {/* The marks share the line that says what this module IS, not the
@@ -2900,7 +3167,9 @@ export function GateNode({ data, selected }: NodeProps<GateFlowNode>) {
             <div className="flex items-center gap-1.5 overflow-hidden">
               {/* When a situation applies, and nothing else: an item count and a
                   readiness meter were numbers nobody acted on. */}
-              {ai
+              {data.pack
+                ? <span className="truncate text-[11px] font-medium text-muted-foreground/80" title={data.pack.line}>{data.pack.line}</span>
+                : ai
                 ? <span className="truncate text-[11px] font-medium text-muted-foreground/80" title={ai.line}>{ai.line}</span>
                 : activationLabel && (onShowOpening
                   ? (
@@ -2933,6 +3202,15 @@ export function GateNode({ data, selected }: NodeProps<GateFlowNode>) {
             "lore", "variables", "behaviours" spelled out — a label a creator
             reads once, charged to every module forever. The icon and the
             number are what is read after that, and they cost nothing here. */}
+        {data.pack && (
+          <div className="flex shrink-0 items-center gap-1" data-pack-actions={data.pack.installId}>
+            {data.pack.onUpdate && <PackAction id="update" icon={ArrowUpCircle} label={data.pack.updateLabel ?? t("packCanvas.frame.updateShort")} onClick={data.pack.onUpdate} lit />}
+            {data.pack.onSettings && <PackAction id="settings" icon={SlidersHorizontal} label={t("packCanvas.frame.settings")} onClick={data.pack.onSettings} />}
+            {data.pack.onViewSource && <PackAction id="source" icon={Eye} label={t("packCanvas.frame.viewSource")} onClick={data.pack.onViewSource} />}
+            {data.pack.onDetach && <PackAction id="detach" icon={Unlink} label={t("packCanvas.frame.detach")} onClick={data.pack.onDetach} />}
+            {data.pack.onRemove && <PackAction id="remove" icon={Trash2} label={t("packCanvas.frame.remove")} onClick={data.pack.onRemove} danger />}
+          </div>
+        )}
         {frame.onSettings && <button type="button" data-frame-settings="" onClick={(e) => { e.stopPropagation(); frame.onSettings?.(); }} title={t("blueprint.frame.settings")} aria-label={t("blueprint.frame.settings")} className="nodrag shrink-0 rounded-md border border-white/10 p-1.5 text-muted-foreground opacity-0 transition-[opacity,colors] hover:border-[rgba(240,198,116,0.4)] hover:bg-[rgba(240,198,116,0.1)] hover:text-[#f5d48a] focus-visible:opacity-100 group-hover/frame:opacity-100"><SlidersHorizontal className="h-3.5 w-3.5" /></button>}
         {frame.onFocus && <button type="button" onClick={(e) => { e.stopPropagation(); frame.onFocus?.(); }} title={t("blueprint.workspace.focus")} aria-label={t("blueprint.workspace.focusNamed", { name: title })} className="nodrag shrink-0 rounded-md border border-white/10 p-1.5 text-muted-foreground transition-colors hover:border-[rgba(240,198,116,0.4)] hover:bg-[rgba(240,198,116,0.1)] hover:text-[#f5d48a]"><Maximize2 className="h-3.5 w-3.5" /></button>}
         {live?.active !== undefined && (
@@ -2946,12 +3224,15 @@ export function GateNode({ data, selected }: NodeProps<GateFlowNode>) {
             {t(live.active ? "blueprint.live.on" : "blueprint.live.off")}
           </span>
         )}
-        {g && (
+        {(g || data.pack) && (
           <>
+            {/* A pack frame has them only so a wire into a part folded
+                inside it lands on its header; nothing is wired to a pack. */}
             <Handle
               id="activate"
               type="target"
               position={Position.Left}
+              isConnectable={!data.pack}
               className={cn(HANDLE_BASE, "!h-3.5 !w-3.5")}
               style={{ background: tint, top: 23 }}
             />
@@ -2959,6 +3240,7 @@ export function GateNode({ data, selected }: NodeProps<GateFlowNode>) {
               id="governs"
               type="source"
               position={Position.Right}
+              isConnectable={!data.pack}
               className={cn(HANDLE_BASE, "!h-3.5 !w-3.5")}
               style={{ background: tint, top: 23 }}
             />

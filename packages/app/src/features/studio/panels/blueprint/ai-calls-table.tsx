@@ -51,7 +51,7 @@ export function AiCallsTable({ world, onOpen, onClose }: { world: WorldDefinitio
         onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}
       >
         <div className="flex items-center gap-3 border-b border-white/[0.07] px-4 py-3">
-          <span className="text-sm font-bold">{t("blueprint.aiCalls.title")}</span>
+          <span className="text-sm font-bold" title={`${t("blueprint.aiCalls.footRules")} ${t("blueprint.aiCalls.footClamp")}`}>{t("blueprint.aiCalls.title")}</span>
           <span className="text-[11.5px] text-muted-foreground">{t("blueprint.aiCalls.count", { count: rows.length })}</span>
           <span className="flex-1" />
           <button type="button" onClick={onClose} aria-label={t("blueprint.aiTable.close")} className="rounded-md p-1 text-muted-foreground hover:bg-white/10 hover:text-foreground"><X className="h-4 w-4" /></button>
@@ -97,10 +97,6 @@ export function AiCallsTable({ world, onOpen, onClose }: { world: WorldDefinitio
               ))}
             </tbody>
           </table>
-        </div>
-        <div className="space-y-1 border-t border-white/[0.07] px-4 py-2.5 text-[11.5px] leading-relaxed text-muted-foreground">
-          <p>{t("blueprint.aiCalls.footRules")}</p>
-          <p><span className={MODE_TONE.author}>{t("blueprint.aiCalls.legendAuthor")}</span> · {t("blueprint.aiCalls.footClamp")}</p>
         </div>
       </div>
     </div>

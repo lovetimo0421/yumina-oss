@@ -266,7 +266,7 @@ export function DragHandles({
           className="absolute flex items-center justify-center"
           style={{ ...gripStyle(grip.style, hit), cursor: grip.cursor, touchAction: "none" }}
         >
-          <span className="pointer-events-none rounded-[2px] border border-primary bg-background" style={{ width: dot, height: dot }} />
+          <span className="pointer-events-none rounded-[2px] border border-foreground/80 bg-background" style={{ width: dot, height: dot }} />
         </div>
       ))}
     </div>

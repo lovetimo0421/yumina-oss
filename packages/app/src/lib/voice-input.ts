@@ -13,6 +13,7 @@
 import i18n from "@/lib/i18n";
 import { toast } from "sonner";
 import { haltTts } from "@/lib/tts-stop-signal";
+import { toWav } from "@/lib/wav";
 
 const apiBase = import.meta.env.VITE_API_URL || "";
 
@@ -182,8 +183,9 @@ export async function prepareVoiceInput(opts: { requireLevels?: boolean } = {}):
 }
 
 /** Record until stop (transcribe) or cancel; measured levels arrive ~15×/s.
- *  Automatic VAD callers requireLevels so analyser failures are terminal. */
-export async function recordVoice(onLevel: (level: number) => void, opts: { requireLevels?: boolean } = {}): Promise<VoiceRecordResult> {
+ *  Automatic VAD callers requireLevels so analyser failures are terminal.
+ *  `hint` is the card's vocabulary (names, made-up words), comma separated. */
+export async function recordVoice(onLevel: (level: number) => void, opts: { requireLevels?: boolean; hint?: string } = {}): Promise<VoiceRecordResult> {
   const acquired = await acquireInput(opts.requireLevels === true);
   if (!acquired.ok) return acquired;
   const input = acquired.input;
@@ -228,14 +230,21 @@ export async function recordVoice(onLevel: (level: number) => void, opts: { requ
   if (Date.now() - rec.startedAt < MIN_RECORD_MS) return { ok: false, reason: "too-short" };
   const blob = new Blob(rec.chunks, { type: (recorder.mimeType || mimeType || "audio/webm").split(";")[0] });
   if (blob.size === 0) return { ok: false, reason: "empty" };
-  return transcribe(blob);
+  return transcribe(blob, opts.hint);
 }
 
-async function transcribe(blob: Blob): Promise<VoiceRecordResult> {
+async function transcribe(blob: Blob, hint?: string): Promise<VoiceRecordResult> {
   const form = new FormData();
-  const ext = blob.type.includes("mp4") ? "mp4" : blob.type.includes("ogg") ? "ogg" : "webm";
-  form.append("file", blob, `clip.${ext}`);
+  // The transcriber takes WAV, not the recorder's own container; a browser that can't decode its own
+  // recording sends it as is and the server uses its fallback model.
+  const wav = await toWav(blob);
+  if (wav) form.append("file", wav, "clip.wav");
+  else {
+    const ext = blob.type.includes("mp4") ? "mp4" : blob.type.includes("ogg") ? "ogg" : "webm";
+    form.append("file", blob, `clip.${ext}`);
+  }
   form.append("lang", (i18n.language || "").slice(0, 2));
+  if (hint) form.append("prompt", hint.slice(0, 400));
   let res: Response;
   try {
     res = await fetch(`${apiBase}/api/voice-input`, { method: "POST", credentials: "include", body: form });

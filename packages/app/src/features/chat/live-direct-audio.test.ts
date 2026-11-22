@@ -6,7 +6,7 @@ import { createVoiceAudio } from "./voice-audio";
 import type { VoiceEvent } from "../../../sandbox/voice-types";
 
 const tick = () => new Promise<void>(resolve => setImmediate(resolve));
-let heartbeatStatus = 200;
+let heartbeatStatus = 200, heartbeatReason = "balance", lowBalanceReply = false;
 
 class Channel {
   readyState = "connecting";
@@ -40,6 +40,7 @@ function directFixture(config: Record<string, unknown> = {}) {
     createOffer: async () => ({ type: "offer", sdp: "v=0\r\no=offer" }), setLocalDescription: async () => {}, setRemoteDescription: async () => {}, close() { this.closed++; },
   };
   let now = 0;
+  const beats: ({ idleMs?: number } | null)[] = [];
   const deps: VoiceDependencies = {
     now: () => now,
     canUse: () => true, sessionId: "session-direct",
@@ -55,13 +56,13 @@ function directFixture(config: Record<string, unknown> = {}) {
         const body = JSON.parse(String(init?.body));
         return Response.json({ turnControl: body.turnControl, sdp: "v=0\r\no=answer" });
       }
-      if (String(url).endsWith("/live/heartbeat")) return Response.json({}, { status: heartbeatStatus });
+      if (String(url).endsWith("/live/heartbeat")) { beats.push(init?.body ? JSON.parse(String(init.body)) : null); return Response.json(heartbeatStatus === 404 ? { alive: false, code: "VOICE_CALL_ENDED", reason: heartbeatReason } : lowBalanceReply ? { alive: true, lowBalance: true } : {}, { status: heartbeatStatus }); }
       return Response.json({ stopped: true });
     },
     connectTimeoutMs: 1000,
   };
   const controller = new VoiceController(e => events.push(e), deps);
-  return { controller, channel, events, requests, audio, peer, liveTrack, track, clientEvents, level: (v: number) => outputLevel(v), advance: (ms: number) => { now += ms; } };
+  return { controller, channel, events, requests, beats, audio, peer, liveTrack, track, clientEvents, level: (v: number) => outputLevel(v), advance: (ms: number) => { now += ms; } };
 }
 
 test("a card can use the live model without an avatar: direct speaker, live clock, no avatar request", async () => {
@@ -180,8 +181,9 @@ test("credits-live: a beat the server no longer knows ends the call with a plain
   try {
     await tick(); f.channel.open(); f.channel.event({ type: "session.started" }); await pending;
     t.mock.timers.tick(30_000); await tick(); await tick();
-    const failed = f.events.find(e => e.type === "status" && (e as { status?: string }).status === "error") as { message?: string } | undefined;
-    assert.match(String(failed?.message), /Mushies ran out|time limit/);
+    const failed = f.events.find(e => e.type === "status" && (e as { status?: string }).status === "error") as { message?: string; code?: string } | undefined;
+    assert.match(String(failed?.message), /out of Mushies/);
+    assert.equal(failed?.code, "VOICE_CREDITS_REQUIRED", "the world must not auto-reconnect into a new charge");
   } finally { f.controller.stop(); heartbeatStatus = 200; }
 });
 
@@ -189,4 +191,46 @@ test("credits-live: too few Mushies is refused before the microphone opens", asy
   const f = directFixture({ funding: "credits-live", available: false, maxDurationSeconds: 900, code: "VOICE_CREDITS_REQUIRED" });
   await assert.rejects(f.controller.start({ instructions: "Official", avatar: false, tools: [], transport: "live", interruptionMode: "automatic", opening: "silent" }), /more Mushies/);
   assert.equal(f.requests.some(url => url.endsWith("/connect")), false);
+});
+
+test("credits-live idle: beats carry idle time; a warning at two idle minutes clears on activity; a return beats at once; an idle end never reconnects", async t => {
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  heartbeatStatus = 200;
+  const f = directFixture({ funding: "credits-live", maxDurationSeconds: 3600, creditsPerMinute: 60 });
+  const pending = f.controller.start({ instructions: "Official", avatar: false, tools: [], transport: "live", interruptionMode: "automatic", opening: "silent" });
+  const notices = () => f.events.filter(e => e.type === "call-notice") as { notice: { reason?: string } | null }[];
+  try {
+    await tick(); f.channel.open(); f.channel.event({ type: "session.started" }); await pending;
+    for (let s = 0; s < 30; s += 5) { f.advance(5_000); t.mock.timers.tick(5_000); }
+    await tick();
+    assert.deepEqual(f.beats.at(-1), { idleMs: 30_000 }, "the beat reports a duration, not a clock time");
+    for (let s = 30; s < 125; s += 5) { f.advance(5_000); t.mock.timers.tick(5_000); }
+    await tick();
+    assert.equal(notices().at(-1)?.notice?.reason, "idle", "warned at two idle minutes");
+    const before = f.beats.length;
+    f.controller.markActive(); await tick();
+    assert.equal(notices().at(-1)?.notice, null, "the warning clears the moment the player is back");
+    assert.equal(f.beats.length, before + 1, "a return after a long quiet is reported at once");
+    assert.deepEqual(f.beats.at(-1), { idleMs: 0 });
+    f.controller.markActive(); await tick();
+    assert.equal(f.beats.length, before + 1, "ordinary activity does not spam beats");
+    heartbeatStatus = 404; heartbeatReason = "idle";
+    f.advance(30_000); t.mock.timers.tick(30_000); await tick(); await tick();
+    const failed = f.events.find(e => e.type === "status" && (e as { status?: string }).status === "error") as { code?: string; message?: string } | undefined;
+    assert.equal(failed?.code, "VOICE_IDLE_ENDED");
+    assert.match(String(failed?.message), /nobody was playing/);
+  } finally { f.controller.stop(); heartbeatStatus = 200; heartbeatReason = "balance"; }
+});
+
+test("credits-live: the beat warns when Mushies are about to run out", async t => {
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  heartbeatStatus = 200; lowBalanceReply = true;
+  const f = directFixture({ funding: "credits-live", maxDurationSeconds: 3600, creditsPerMinute: 60 });
+  const pending = f.controller.start({ instructions: "Official", avatar: false, tools: [], transport: "live", interruptionMode: "automatic", opening: "silent" });
+  try {
+    await tick(); f.channel.open(); f.channel.event({ type: "session.started" }); await pending;
+    f.advance(30_000); t.mock.timers.tick(30_000); await tick(); await tick();
+    const notice = f.events.filter(e => e.type === "call-notice").at(-1) as { notice: { reason?: string } | null } | undefined;
+    assert.equal(notice?.notice?.reason, "balance");
+  } finally { f.controller.stop(); lowBalanceReply = false; }
 });

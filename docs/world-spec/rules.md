@@ -1,3 +1,8 @@
+---
+title: "Rules and reactions"
+description: "The behavior objects in a world file: reactions with when, conditions and then, the older rules format, triggers, operators and effects."
+---
+
 # Rules & Reactions
 
 Rules fire automatically between turns based on events. They handle precise mechanics without AI involvement.

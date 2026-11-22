@@ -6,7 +6,8 @@ test("coverShouldBlur honors the explicit creator choice over age rating", () =>
   // Sensitive card whose creator turned blur OFF → clear.
   assert.equal(coverShouldBlur({ blurCover: false, ageRating: "sensitive" }), false);
   // All-ages card whose creator turned blur ON → blurred.
-  assert.equal(coverShouldBlur({ blurCover: true, ageRating: "all" }), true);
+  // ...except on a Limited card, which never blurs.
+  assert.equal(coverShouldBlur({ blurCover: true, ageRating: "all" }), false);
 });
 
 test("coverShouldBlur falls back to age rating when blurCover is unset (null/undefined)", () => {
@@ -24,7 +25,9 @@ test("coverShouldBlur falls back to isNsfw when ageRating is absent", () => {
 
 test("coverShouldBlur: explicit blurCover overrides every fallback combination", () => {
   // blurCover=true wins over all-ages + non-nsfw
-  assert.equal(coverShouldBlur({ blurCover: true, ageRating: "all", isNsfw: false }), true);
+  assert.equal(coverShouldBlur({ blurCover: true, ageRating: "all", isNsfw: false }), false);
+  assert.equal(coverShouldBlur({ blurCover: true, isNsfw: false }), false);
+  assert.equal(coverShouldBlur({ blurCover: true, ageRating: "sensitive" }), true);
   // blurCover=false wins over sensitive + nsfw
   assert.equal(coverShouldBlur({ blurCover: false, ageRating: "sensitive", isNsfw: true }), false);
 });

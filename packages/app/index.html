@@ -171,6 +171,117 @@
       #app-splash .ys-hint.is-shown {
         opacity: 1;
       }
+      /* When the app has not started after a while: a warm way out instead
+         of the bare search-engine copy of the page. */
+      #app-splash::before {
+        content: "";
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 520px;
+        height: 520px;
+        margin: -300px 0 0 -260px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(214, 170, 96, 0.16) 0%, rgba(214, 170, 96, 0.05) 38%, rgba(214, 170, 96, 0) 70%);
+        opacity: 0;
+        transition: opacity 1.2s ease;
+        pointer-events: none;
+      }
+      #app-splash > * {
+        position: relative;
+      }
+      #app-splash.is-stalled::before {
+        opacity: 1;
+      }
+      /* Belt and braces with covers-prerender (below): the search-engine copy
+         under the splash stays hidden while this message shows, whatever the
+         splash's background on this page. */
+      #app-splash.is-stalled:not(.is-hidden) ~ #root {
+        visibility: hidden;
+      }
+      #app-splash.is-stalled .ys-spinner {
+        animation-duration: 1.6s;
+        border-top-color: #e0b56a;
+      }
+      #app-splash.is-stalled .ys-hint {
+        display: none;
+      }
+      #app-splash .ys-stall {
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+        max-width: 300px;
+        padding: 0 24px;
+        text-align: center;
+        font-family: "Nunito Sans", system-ui, -apple-system, sans-serif;
+        opacity: 0;
+        transform: translateY(6px);
+        transition: opacity 0.6s ease, transform 0.6s ease;
+      }
+      #app-splash.is-stalled .ys-stall {
+        display: flex;
+      }
+      #app-splash.is-stalled.is-stall-in .ys-stall {
+        opacity: 1;
+        transform: none;
+      }
+      #app-splash .ys-stall-title {
+        margin: 0;
+        font-size: 15px;
+        font-weight: 600;
+        color: #f1e6cf;
+      }
+      #app-splash .ys-stall-sub {
+        margin: 0 0 12px;
+        font-size: 12.5px;
+        line-height: 1.55;
+        color: rgba(232, 226, 210, 0.55);
+      }
+      #app-splash .ys-reload {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        padding: 9px 22px;
+        border: 0;
+        border-radius: 999px;
+        background: linear-gradient(180deg, #e4bd76 0%, #c9a25e 100%);
+        box-shadow: 0 6px 22px rgba(201, 162, 94, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+        color: #2a2116;
+        font-family: inherit;
+        font-size: 13.5px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        cursor: pointer;
+        transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
+      }
+      #app-splash .ys-reload:hover {
+        transform: translateY(-1px);
+        filter: brightness(1.05);
+        box-shadow: 0 8px 26px rgba(201, 162, 94, 0.36), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+      }
+      #app-splash .ys-reload:active {
+        transform: translateY(0);
+      }
+      #app-splash .ys-reload:focus-visible {
+        outline: 2px solid rgba(241, 230, 207, 0.85);
+        outline-offset: 3px;
+      }
+      #app-splash .ys-reload svg {
+        width: 15px;
+        height: 15px;
+        transition: transform 0.5s ease;
+      }
+      #app-splash .ys-reload:hover svg {
+        transform: rotate(-180deg);
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #app-splash .ys-stall,
+        #app-splash .ys-reload,
+        #app-splash .ys-reload svg {
+          transition: none;
+        }
+      }
       @media (prefers-reduced-motion: reduce) {
         #app-splash .ys-spinner {
           animation-duration: 1.8s;
@@ -187,6 +298,15 @@
       .pre-text p { margin: 0 0 12px; font-size: 15px; line-height: 1.6; color: rgba(232, 226, 210, 0.85); max-width: 72ch; }
       .pre-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 14px 0 0; padding: 0; list-style: none; }
       .pre-tags li { padding: 3px 10px; border-radius: 999px; font-size: 12px; background: rgba(201, 162, 94, 0.14); color: #FFF5D6; }
+      .pre-list { margin: 0; padding-left: 20px; color: rgba(232, 226, 210, 0.85); font-size: 15px; line-height: 1.6; }
+      .pre-list li { margin: 0 0 10px; }
+      .pre-table { width: 100%; max-width: 960px; border-collapse: collapse; margin: 0 0 16px; font-size: 14px; color: rgba(232, 226, 210, 0.85); display: block; overflow-x: auto; }
+      .pre-table th, .pre-table td { padding: 8px 12px 8px 0; text-align: left; vertical-align: top; border-bottom: 1px solid rgba(232, 226, 210, 0.12); white-space: nowrap; }
+      .pre-table th { color: #FFF5D6; font-weight: 600; }
+      .pre-faq { margin: 0; max-width: 72ch; font-size: 15px; line-height: 1.6; color: rgba(232, 226, 210, 0.85); }
+      .pre-faq dt { margin: 16px 0 4px; font-weight: 700; color: #FFF5D6; }
+      .pre-faq dd { margin: 0; }
+      .pre-text a, .pre-list a, .pre-by a, .pre-tags a { text-decoration: underline; text-underline-offset: 2px; }
       .pre-cover { display: block; width: min(100%, 360px); height: auto; border-radius: 20px; margin-bottom: 18px; background: #1A1525; }
       .pre-avatar { width: 80px; height: 80px; border-radius: 50%; object-fit: cover; margin-bottom: 10px; }
       .pre-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
@@ -289,6 +409,15 @@
         min-height: 100svh;
         background: transparent;
       }
+      /* Public pages arrive with their content already in #root (server
+         prerender, for search engines). On phones the splash above is
+         transparent, so that plain HTML showed through until React painted.
+         When a prerendered fragment is present the splash stays opaque; it is
+         still absolute, not fixed, so Safari keeps no solid toolbar color. */
+      html[data-mobile-page-scroll] #app-splash.covers-prerender,
+      html[data-mobile-app-canvas] #app-splash.covers-prerender {
+        background: #121316 !important;
+      }
     </style>
     <link rel="manifest" href="/manifest.json" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
@@ -300,14 +429,14 @@
       href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
-    <title>Yumina</title>
-    <meta name="description" content="Open-source world engine and community turning entertainment interactive." />
+    <title>Yumina: Play Free AI Games &amp; AI Roleplay - Sign Up to Play!</title>
+    <meta name="description" content="Play and create AI driven games, visual novels, anime characters and simulators. Built on open-source AI game engine. Free to play." />
     <link rel="canonical" href="https://yumina.io/" />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Yumina" />
     <meta property="og:url" content="https://yumina.io/" />
-    <meta property="og:title" content="Yumina" />
-    <meta property="og:description" content="Open-source world engine and community turning entertainment interactive." />
+    <meta property="og:title" content="Yumina: Play Free AI Games &amp; AI Roleplay - Sign Up to Play!" />
+    <meta property="og:description" content="Play and create AI driven games, visual novels, anime characters and simulators. Built on open-source AI game engine. Free to play." />
     <meta property="og:image" content="https://yumina.io/og-image.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
@@ -359,6 +488,14 @@
       <div class="ys-spinner"></div>
       <div class="ys-wordmark">Yumina</div>
       <div class="ys-hint" id="ys-hint"></div>
+      <div class="ys-stall" id="ys-stall">
+        <p class="ys-stall-title" id="ys-stall-title"></p>
+        <p class="ys-stall-sub" id="ys-stall-sub"></p>
+        <button type="button" class="ys-reload" id="ys-reload">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 15.3-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.3 6.4L3 16"/><path d="M3 21v-5h5"/></svg>
+          <span id="ys-reload-label"></span>
+        </button>
+      </div>
     </div>
     <div id="root"></div>
     <script>
@@ -370,6 +507,9 @@
         if (!splash) return;
         var root = document.getElementById("root");
         var done = false;
+        // A prerendered public page already has content in #root; keep the
+        // splash opaque over it on phones (see the CSS rule above).
+        if (root && root.firstElementChild) splash.classList.add("covers-prerender");
         function hide() {
           if (done) return;
           done = true;
@@ -384,14 +524,21 @@
         // app mounts, so visitors see the same loading screen as before.
         // If content still hasn't appeared after a few seconds, reassure the
         // user it's their connection, not a broken page.
+        var lang = (navigator.language || "").toLowerCase();
+        var copy =
+          /^zh-(hant|tw|hk|mo)/.test(lang)
+            ? { slow: "網路有點慢，還在努力載入…", title: "載入得有點久", sub: "可能是網路慢了一點，重新整理一下通常就好了。", reload: "重新整理" }
+            : lang.indexOf("zh") === 0
+              ? { slow: "网络有点慢，还在努力加载…", title: "加载得有点久", sub: "可能是网络慢了一点，刷新一下通常就好了。", reload: "刷新一下" }
+              : lang.indexOf("ja") === 0
+                ? { slow: "回線が少し遅いようです。読み込み中…", title: "読み込みに時間がかかっています", sub: "回線が混んでいるのかもしれません。再読み込みすると、たいてい直ります。", reload: "再読み込み" }
+                : lang.indexOf("es") === 0
+                  ? { slow: "La conexión va algo lenta, seguimos cargando…", title: "Está tardando un poco", sub: "Puede que la conexión vaya lenta. Recargar suele arreglarlo.", reload: "Recargar" }
+                  : { slow: "Your connection seems slow, still loading…", title: "This is taking a while", sub: "Your connection may be a little slow. A reload usually fixes it.", reload: "Reload" };
+        var hint = document.getElementById("ys-hint");
         var hintTimer = window.setTimeout(function () {
-          var hint = document.getElementById("ys-hint");
           if (!hint) return;
-          var lang = (navigator.language || "").toLowerCase();
-          hint.textContent =
-            lang.indexOf("zh") === 0
-              ? "网络较慢，仍在加载…"
-              : "Still loading on a slow connection…";
+          hint.textContent = copy.slow;
           hint.classList.add("is-shown");
         }, 6000);
         // Hide the moment React commits its first content (or the error screen).
@@ -410,10 +557,38 @@
           window.clearTimeout(hintTimer);
           hide();
         }
-        // Safety net: never leave a spinner up forever.
+        // Still not started after 15s: if the app did mount and the observer
+        // missed it, step aside as before. Otherwise keep the loading screen
+        // and offer a reload. Hiding it then left the bare search-engine copy
+        // of the page, with no menu and nothing working, looking broken
+        // (2026-11-03). The observer stays on, so a late start still hides it.
         window.setTimeout(function () {
           window.clearTimeout(hintTimer);
-          hide();
+          if (done) return;
+          var first = root && root.firstElementChild;
+          if (!root || (first && !(first.classList && first.classList.contains("pre")))) {
+            hide();
+            return;
+          }
+          var title = document.getElementById("ys-stall-title");
+          var sub = document.getElementById("ys-stall-sub");
+          var label = document.getElementById("ys-reload-label");
+          var reload = document.getElementById("ys-reload");
+          if (title) title.textContent = copy.title;
+          if (sub) sub.textContent = copy.sub;
+          if (label) label.textContent = copy.reload;
+          if (reload) {
+            reload.onclick = function () {
+              window.location.reload();
+            };
+          }
+          splash.classList.add("is-stalled");
+          // Next frame, so the message fades in rather than popping.
+          requestAnimationFrame(function () {
+            requestAnimationFrame(function () {
+              splash.classList.add("is-stall-in");
+            });
+          });
         }, 15000);
       })();
     </script>

@@ -62,10 +62,9 @@ export function ModuleMemoryLine({ book, className }: { book: Worldbook | null; 
 
   return (
     <div className={cn("flex items-start gap-2", className)} title={hint}>
-      <Brain className="mt-0.5 h-3.5 w-3.5 shrink-0 text-teal-300" />
+      <Brain className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
       <div className="min-w-0">
         <p className="text-[11px] font-semibold text-foreground">{text}</p>
-        <p className="mt-0.5 text-[10px] leading-relaxed text-muted-foreground">{hint}</p>
       </div>
     </div>
   );
@@ -91,9 +90,8 @@ function Chip({ text, tone }: { text: string; tone: "teal" | "violet" | "zinc" }
     <span
       className={cn(
         "max-w-[12rem] truncate rounded-full px-2 py-0.5 text-[10px] font-semibold",
-        tone === "teal" && "bg-teal-500/15 text-teal-300",
-        tone === "violet" && "bg-violet-500/15 text-violet-300",
-        tone === "zinc" && "bg-white/5 text-muted-foreground",
+        "bg-white/5",
+        tone === "zinc" ? "text-muted-foreground" : "text-foreground/80",
       )}
     >
       {text}

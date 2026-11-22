@@ -25,6 +25,7 @@ import { useEditorStore } from "@/stores/editor";
 import { DebouncedTextarea } from "../components/debounced-field";
 import { ImageInsertButton, useImageInsert } from "../components/image-insert";
 import { useTemplateContentPlaceholder } from "../template-placeholders";
+import { textFieldKey } from "@yumina/engine";
 
 const EMPTY_WB: import("@yumina/engine").Worldbook[] = [];
 
@@ -162,9 +163,8 @@ export function FirstMessageSection({ compact, onOpenGuide }: { compact?: boolea
               <h1 className="text-[22px] font-bold tracking-tight text-foreground">
                 {t("firstMessage.title")}
               </h1>
-              <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                {t("firstMessage.description")}{" "}
-                {onOpenGuide ? <button type="button" onClick={onOpenGuide} className="text-primary hover:underline">{t("firstMessage.learnMore")}</button> : <a href={DOCS_URLS.beginnerGuide} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{t("firstMessage.learnMore")}</a>}
+              <p className="mt-1 text-xs text-muted-foreground">
+                {onOpenGuide ? <button type="button" onClick={onOpenGuide} className="transition-colors hover:text-foreground">{t("firstMessage.learnMore")}</button> : <a href={DOCS_URLS.beginnerGuide} target="_blank" rel="noopener noreferrer" className="transition-colors hover:text-foreground">{t("firstMessage.learnMore")}</a>}
               </p>
             </div>
             {greetings.length > 0 && (
@@ -182,7 +182,7 @@ export function FirstMessageSection({ compact, onOpenGuide }: { compact?: boolea
           <div className="space-y-6">
             {/* Tab row — drag to reorder */}
             {greetings.length > 1 && (
-              <div className="space-y-1.5">
+              <div className="space-y-1.5" title={t("firstMessage.dragHint")}>
                 <DndContext
                   sensors={sensors}
                   collisionDetection={closestCenter}
@@ -205,7 +205,6 @@ export function FirstMessageSection({ compact, onOpenGuide }: { compact?: boolea
                     </div>
                   </SortableContext>
                 </DndContext>
-                <p className="text-[11px] text-muted-foreground/40">{t("firstMessage.dragHint")}</p>
               </div>
             )}
 
@@ -216,6 +215,7 @@ export function FirstMessageSection({ compact, onOpenGuide }: { compact?: boolea
                   value={activeGreeting.content}
                   onCommit={(content) => updateEntry(activeGreeting.id, { content })}
                   syncKey={activeGreeting.id}
+                  sharedKey={textFieldKey({ kind: "row", key: "entries", id: activeGreeting.id, field: "content" })}
                   rows={12}
                   placeholder={templatePlaceholder || t("firstMessage.placeholder")}
                   {...imageInsert.dropProps}
@@ -243,11 +243,11 @@ export function FirstMessageSection({ compact, onOpenGuide }: { compact?: boolea
               );
               if (bound.length === 0) return null;
               return (
-                <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-violet-500/20 bg-violet-500/5 px-3 py-2.5">
-                  <BookOpen className="h-3.5 w-3.5 shrink-0 text-violet-400" />
-                  <span className="text-[11px] font-semibold text-violet-300">{t("modules.badge.greeting")}:</span>
+                <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-border bg-card/50 px-3 py-2.5">
+                  <BookOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <span className="text-[11px] font-semibold text-muted-foreground">{t("modules.badge.greeting")}:</span>
                   {bound.map((wb) => (
-                    <span key={wb.id} className="rounded-full bg-violet-500/15 px-2 py-0.5 text-[10px] font-medium text-violet-300">
+                    <span key={wb.id} className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium text-foreground">
                       {wb.name || t("modules.untitled")}
                     </span>
                   ))}
@@ -274,14 +274,11 @@ export function FirstMessageSection({ compact, onOpenGuide }: { compact?: boolea
               return (
                 <div className="space-y-2.5 rounded-xl border border-border bg-card/50 p-4">
                   <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <h3 className="text-sm font-semibold text-foreground">{t("firstMessage.initialVarsTitle")}</h3>
-                      <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{t("firstMessage.initialVarsReadonlyHint")}</p>
-                    </div>
+                    <h3 className="text-sm font-semibold text-foreground" title={t("firstMessage.initialVarsReadonlyHint")}>{t("firstMessage.initialVarsTitle")}</h3>
                     <button
                       type="button"
                       onClick={() => setActiveSection("variables")}
-                      className="shrink-0 rounded-lg border border-border px-2.5 py-1 text-xs font-semibold text-primary transition-colors hover:bg-primary/10"
+                      className="shrink-0 rounded-lg border border-border px-2.5 py-1 text-xs font-semibold text-foreground transition-colors hover:bg-accent"
                     >
                       {t("firstMessage.editInVariables")} →
                     </button>
@@ -327,13 +324,10 @@ export function FirstMessageSection({ compact, onOpenGuide }: { compact?: boolea
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-card/50 px-8 py-16 text-center">
-            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
-              <MessageCircle className="h-7 w-7 text-primary" />
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-accent">
+              <MessageCircle className="h-7 w-7 text-muted-foreground" />
             </div>
-            <h2 className="mb-2 text-lg font-bold text-foreground">{t("firstMessage.noFirstMessage")}</h2>
-            <p className="mb-6 max-w-sm text-sm text-muted-foreground">
-              {t("firstMessage.noFirstMessageDesc")}
-            </p>
+            <h2 className="mb-6 text-lg font-bold text-foreground">{t("firstMessage.noFirstMessage")}</h2>
             <div className="flex items-center gap-3">
               <button
                 onClick={handleCreate}
@@ -342,7 +336,7 @@ export function FirstMessageSection({ compact, onOpenGuide }: { compact?: boolea
               >
                 <Plus className="h-4 w-4" /> {t("firstMessage.createFirstMessage")}
               </button>
-              {onOpenGuide ? <button type="button" onClick={onOpenGuide} className="text-xs text-primary hover:underline">{t("firstMessage.learnMore")}</button> : <a href={DOCS_URLS.beginnerGuide} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline">{t("firstMessage.learnMore")}</a>}
+              {onOpenGuide ? <button type="button" onClick={onOpenGuide} className="text-xs text-muted-foreground transition-colors hover:text-foreground">{t("firstMessage.learnMore")}</button> : <a href={DOCS_URLS.beginnerGuide} target="_blank" rel="noopener noreferrer" className="text-xs text-muted-foreground transition-colors hover:text-foreground">{t("firstMessage.learnMore")}</a>}
             </div>
           </div>
         )}

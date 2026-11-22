@@ -15,8 +15,9 @@ import { setWorldAudioEnabled, useAudioStore } from "@/stores/audio";
 import { getAssetCdnUrl } from "@/lib/asset-url";
 import { PlaySessionPickerHost } from "@/hooks/use-play-with-language";
 import { PersistentChat } from "./persistent-chat";
+import { InviteSheetHost } from "@/features/story-room/invite-sheet";
 import { useExtensionsStore } from "@/stores/extensions";
-import { isLocalModelArmed } from "@/features/local-model/enabled-flag";
+import { isLocalModelArmed, shouldAutoDetectLocalModel } from "@/features/local-model/enabled-flag";
 import {
   HostedShellModals,
   HostedShellOverlays,
@@ -30,6 +31,7 @@ import { installMobileViewport } from "@/lib/mobile-viewport";
 import { installOverlayRecovery } from "@/lib/overlay-recovery";
 import { installReadingPageCanvas } from "@/lib/reading-page-canvas";
 import { getMobileReadingPageId } from "@/lib/mobile-reading-route";
+import { isDiscoverAddress } from "@/lib/discover-genre";
 
 // Globally-mounted modals are render-on-demand (zustand stores drive their
 // visibility), so their feature trees don't belong in the entry chunk. Lazy
@@ -43,6 +45,8 @@ const modalImporters = {
   ExtensionPreviewModal: () => import("@/features/extensions/extension-preview-modal"),
 } as const;
 const AuthModal = lazy(() => modalImporters.AuthModal().then((m) => ({ default: m.AuthModal })));
+// 广场's player bar: outside the pages, so a track keeps playing while the listener moves about the site.
+import { PlazaPlayerBar } from "@/edition/slots";
 const SessionManagerModal = lazy(() => modalImporters.SessionManagerModal().then((m) => ({ default: m.SessionManagerModal })));
 const ExtensionPreviewModal = lazy(() => modalImporters.ExtensionPreviewModal().then((m) => ({ default: m.ExtensionPreviewModal })));
 
@@ -62,6 +66,7 @@ function prefetchShellModals(): void {
 import { captureHubEvent, identifyAnalyticsUser, resetAnalyticsUser, maybeTrackSignupFromCreatedAt, trackActiveUserPixel } from "@/lib/analytics";
 import { useConfigStore } from "@/stores/config";
 import { BlockedDialogHost } from "@/lib/blocked-feedback";
+import { BatFlyby } from "@/components/halloween-decor";
 import { getDesktopSidebarOffset } from "@/lib/desktop-sidebar-layout";
 
 interface AppShellProps {
@@ -126,7 +131,7 @@ function getWallpaperBaseOpacity(page: WallpaperPage) {
 }
 
 function getAtmosphereClass(pathname: string) {
-  if (pathname === "/" || pathname.startsWith("/app/hub") || pathname.startsWith("/@") || pathname.startsWith("/app/profile") || pathname.startsWith("/app/users") || pathname.startsWith("/app/settings") || pathname.startsWith("/app/extensions")) return "atmosphere-vibrant";
+  if (isDiscoverAddress(pathname) || pathname.startsWith("/@") || pathname.startsWith("/app/profile") || pathname.startsWith("/app/users") || pathname.startsWith("/app/settings") || pathname.startsWith("/app/extensions")) return "atmosphere-vibrant";
   if (pathname.match(/\/app\/worlds\/[^/]+\/edit/) || pathname.startsWith("/app/studio") || pathname === "/app/worlds/create")
     return "atmosphere-none";
   return "atmosphere-subtle";
@@ -141,7 +146,10 @@ export function AppShell({ children }: AppShellProps) {
   const theaterMode = useUiStore((s) => s.theaterMode);
   const isAdminWorldInspect = location.pathname.startsWith("/app/admin/world-inspect/");
   const isAdminPage = location.pathname === "/app/admin" || location.pathname.startsWith("/app/admin/");
-  const enableMobilePageScroll = !isPlayPage && !isCreatePagePicker && !location.pathname.startsWith("/app/studio") && !isAdminPage;
+  const isEditorPage = Boolean(location.pathname.match(/\/app\/worlds\/[^/]+\/edit/) || location.pathname.startsWith("/app/studio") || isAdminWorldInspect || (location.pathname === "/app/worlds/create" && !isPickerActive));
+  // Editors own their content scrollers. Scrolling this wrapper also moves the
+  // header above the viewport when browser chrome or focus changes its bounds.
+  const enableMobilePageScroll = !isPlayPage && !isCreatePagePicker && !isEditorPage && !isAdminPage;
   const { toggle: toggleImmersive } = useImmersiveMode();
 
   // Dedicated messages replaces the URL while switching conversations, so a
@@ -166,14 +174,22 @@ export function AppShell({ children }: AppShellProps) {
   // woke it outside the AI-provider settings panel — so a player who reloaded
   // and went straight to a chat had no local model in the picker and no way to
   // tell why. The flag check keeps this free for everyone else: no probe, and
-  // the bridge module never enters the entry chunk.
+  // the bridge module never enters the entry chunk. The self-hosted edition
+  // opened on its own machine goes further and finds the runtime by itself.
   useEffect(() => {
-    if (!isLocalModelArmed()) return;
-    void import("@/features/local-model/store")
-      .then((m) => m.useLocalModelStore.getState().resume())
-      .catch(() => {
-        /* the settings panel is still there to retry from */
-      });
+    let cancelled = false;
+    void (async () => {
+      const armed = isLocalModelArmed();
+      const auto = !armed && (await shouldAutoDetectLocalModel());
+      if (!armed && !auto) return;
+      const m = await import("@/features/local-model/store");
+      if (!cancelled) await m.useLocalModelStore.getState().resume({ auto });
+    })().catch(() => {
+      /* the settings panel is still there to retry from */
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Sync the account "world audio" preference into the audio store kill
@@ -211,7 +227,7 @@ export function AppShell({ children }: AppShellProps) {
   }, []);
 
   // A world address (/@user/name-id) is Discover with a preview open; a bare /@user is a profile.
-  const isDiscover = location.pathname === "/" || location.pathname.startsWith("/app/hub") || /^\/@[^/]+\/.+/.test(location.pathname);
+  const isDiscover = isDiscoverAddress(location.pathname) ||/^\/@[^/]+\/.+/.test(location.pathname);
   const isProfile = location.pathname.startsWith("/app/profile") || location.pathname.startsWith("/app/users") || /^\/@[^/]+\/?$/.test(location.pathname);
   const isSettings = location.pathname.startsWith("/app/settings");
   const isHubOrProfile = isDiscover || isProfile || isSettings;
@@ -220,7 +236,7 @@ export function AppShell({ children }: AppShellProps) {
   const isMessages = location.pathname.startsWith("/app/messages");
   const isImmersiveBg = isHubOrProfile || isLibrary || isCommunity || isMessages;
   const isQuestsPage = location.pathname.replace(/\/$/, "") === "/app/quests";
-  const isEditorBg = (location.pathname.match(/\/app\/worlds\/[^/]+\/edit/) || location.pathname.startsWith("/app/studio") || isAdminWorldInspect || (location.pathname === "/app/worlds/create" && !isPickerActive));
+  const isEditorBg = isEditorPage;
   const wallpaperPage: WallpaperPage = isMessages
     ? "messages"
     : isCommunity
@@ -542,8 +558,8 @@ export function AppShell({ children }: AppShellProps) {
         {!isAdminPage && <TopBar />}
         <UserMuteMonitor />
         <main
-          data-scroll-restoration-id="app-shell-main"
-          className={`app-shell-main min-h-0 w-full min-w-0 flex-1 overflow-hidden ${enableMobilePageScroll ? "app-shell-main-mobile-scrollable" : ""}`}
+          data-scroll-restoration-id={isEditorPage ? undefined : "app-shell-main"}
+          className={`app-shell-main min-h-0 w-full min-w-0 flex-1 overflow-hidden ${isEditorPage ? "app-shell-main-editor" : ""} ${enableMobilePageScroll ? "app-shell-main-mobile-scrollable" : ""}`}
         >
           <PersistentChat />
           {children}
@@ -551,7 +567,10 @@ export function AppShell({ children }: AppShellProps) {
       </div>
       {isPlayPage && <div className="play-mobile-top-edge" aria-hidden="true" />}
       <PlaySessionPickerHost />
+      <InviteSheetHost />
       <HostedShellOverlays />
+      <BatFlyby />
+      <Suspense fallback={null}><PlazaPlayerBar /></Suspense>
       <Toaster />
       <BlockedDialogHost />
       {/* Modals are lazy chunks (prefetched on idle): closed = render null, so

@@ -90,7 +90,7 @@ export function HistoryWindowControl() {
               className={cn(inputClass, "min-h-[56px] resize-y")}
             />
           </Field>
-          <p className="text-[11px] leading-relaxed text-foreground/50">{t("blueprint.insp.summaryCost")}</p>
+          <p className="text-[11px] leading-relaxed text-foreground/50" title={t("blueprint.insp.summaryCost")}>{t("blueprint.insp.summaryCostShort")}</p>
         </div>
       )}
     </>
@@ -172,7 +172,7 @@ export function CardContextForm() {
         </ol>
       </Group>
 
-      <Group title={t("blueprint.custom.mode_custom")}>
+      <Group title={t("blueprint.custom.mode_custom")} hint={t("blueprint.custom.contextIntro")}>
         <CustomContextPanel />
       </Group>
 

@@ -25,7 +25,8 @@
     "paths": {
       "@/*": ["./src/*"],
       "@yumina/engine": ["../engine/src/index.ts"],
-      "@yumina/shared": ["../shared/src/index.ts"]
+      "@yumina/shared": ["../shared/src/index.ts"],
+      "@yumina/shared/card-code": ["../shared/src/card-code/index.ts"]
     }
   },
   "include": ["src"]

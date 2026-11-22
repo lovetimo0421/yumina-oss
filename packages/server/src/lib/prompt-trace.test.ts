@@ -37,3 +37,17 @@ test("prompt trace: measures the final list by the segment each message was push
   assert.deepEqual(trace.segments.map((s) => s.kind), ["lore", "platform", "lore-triggered", "memory", "history", "state"]);
   assert.equal(trace.speaker?.name, "矿坑");
 });
+
+test("prompt trace: a block folded into a message still counts as its own segment", () => {
+  const tracer = createPromptTracer();
+  const history = [{ role: "user", content: "hello", sourceMessageId: "m1" }];
+  tracer.takeHistory(history);
+  history[0]!.content += "\n\n<game-state>x</game-state>";
+  tracer.tail(history[0]!, "state", "\n\n<game-state>x</game-state>".length);
+  const trace = tracer.build(history, { speaker: null, model: "deepseek/deepseek-v3.2" });
+  const by = Object.fromEntries(trace.segments.map((s) => [s.kind, s]));
+  assert.equal(by.history?.chars, "hello".length);
+  assert.equal(by.state?.chars, "\n\n<game-state>x</game-state>".length);
+  assert.equal(trace.historyMessages, 1);
+  assert.equal(trace.totalChars, history[0]!.content.length);
+});

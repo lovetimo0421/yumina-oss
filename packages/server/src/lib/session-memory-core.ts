@@ -147,8 +147,9 @@ export function selectPendingMemoryBatch(rows: MemoryTranscriptRow[], maxChars =
 
 /** Catch-up jobs preserve whole exchanges and never certify a sliced message.
  * After size failures, reduce new evidence instead of replaying a 60k backlog. */
-export function memoryBatchTurnLimit(retryCount: number, error: string | null): number {
-  if (!error?.startsWith("Memory could not fit within its size budget")) return 3;
+export function memoryBatchTurnLimit(retryCount: number, error: string | null, every = MEMORY_UPDATE_MIN_TURNS): number {
+  // A player who waits longer between updates gets the whole wait in one update (still capped by characters).
+  if (!error?.startsWith("Memory could not fit within its size budget")) return Math.max(MEMORY_UPDATE_MIN_TURNS, every);
   return retryCount >= 2 ? 1 : 2;
 }
 
@@ -158,13 +159,18 @@ export function shouldUpdateSessionMemory(args: {
   hasMemory: boolean;
   failed: boolean;
   force?: boolean;
+  /** The player's choice of turns between updates (default MEMORY_UPDATE_MIN_TURNS). The character trigger
+   *  grows with it, so long replies do not bring a slower choice back to an update every turn. */
+  every?: number;
 }): boolean {
   // An over-target memory is no longer a reason to run every turn: output up
   // to MAX_MEMORY_CHARS is accepted, and memoryBudgetInstruction asks every
   // batched update to compress it anyway.
   if (args.pendingTurns === 0) return false;
+  const every = Math.max(1, args.every ?? MEMORY_UPDATE_MIN_TURNS);
+  const minChars = Math.round(MEMORY_UPDATE_MIN_CHARS * Math.max(1, every / MEMORY_UPDATE_MIN_TURNS));
   return !!args.force || !args.hasMemory || args.failed
-    || args.pendingTurns >= MEMORY_UPDATE_MIN_TURNS || args.pendingChars >= MEMORY_UPDATE_MIN_CHARS;
+    || args.pendingTurns >= every || args.pendingChars >= minChars;
 }
 
 /** One repair at a smaller writing target, then retain usable size-limited
@@ -503,6 +509,22 @@ export function selectLaggedRebuildWindow(rows: MemoryTranscriptRow[]): LaggedRe
   }
   if (prevIdx === -1) return { rows: [], processedMessageId: null };
   return { rows: visible.slice(0, prevIdx + 1), processedMessageId: visible[prevIdx]!.id };
+}
+
+/**
+ * The player's pinned notes as their own prompt block. A core feature, not
+ * the memory extension's: they cost nothing and nothing automatic writes
+ * them, so they reach the AI whether or not the extension is installed, and
+ * whether or not its auto memory is on (lib/turn-memory.ts adds the block).
+ */
+export function formatPinnedNotesForPrompt(pinned: unknown): string | null {
+  const text = normalizePinnedMemory(typeof pinned === "string" ? pinned : null);
+  if (!text) return null;
+  return [
+    "[Pinned Notes]",
+    "Written by the player and never auto-edited. These are standing facts and instructions for this session: when anything in the auto-written memory, the story summary or the recent chat contradicts them, the pinned notes win.",
+    text,
+  ].join("\n");
 }
 
 export function formatSessionMemoryForPrompt(

@@ -1,29 +1,17 @@
-# World Spec
+---
+title: "World file format"
+description: "The reference for Yumina's world file: entries, variables, directives, rules, macros, custom UI and audio. For the open-source engine, for mods, and for AI tools without a connector."
+---
 
-The World Spec is a complete technical reference for Yumina's world schema. It's designed for two audiences:
+# World file format
 
-1. **AI coding agents** (Claude Code, Cursor, ChatGPT) — feed them this spec so they can generate valid world schemas
-2. **Advanced creators** who want to understand the full system
+A Yumina world is one JSON file. This is the reference for every part of it, written for people and for AI tools.
 
-## How to Use This
+Most creators never read it. Studio writes the file for you, and your own AI can edit a card directly through [Connect your AI](/creator/connect-your-ai). This reference is for three cases:
 
-### With an AI coding tool
-
-Head to the [full spec download page](/world-spec/download) and add the single-file spec to your AI's context:
-
-- **Claude Code**: Place it in your project directory, or paste it into the conversation
-- **Cursor**: Add it as a reference file
-- **ChatGPT**: Paste the relevant sections into your prompt
-
-Then describe what you want:
-
-> "Using the Yumina world spec, create a survival horror world with health, sanity, and hunger tracking. Include a character named Dr. Chen who is secretly antagonistic. Add a custom UI with a dark medical theme."
-
-The AI will generate a valid world schema JSON you can import into Yumina.
-
-### As a reference
-
-Browse the sections in the sidebar to look up specific features — entry sections, variable types, directive syntax, rule triggers, or the custom UI API.
+- You run the [open-source engine](https://github.com/lovetimo0421/yumina-oss) yourself, or put a card inside a game as a [character](/creator/games).
+- Your AI tool has no connector. Give it the [single-file spec](/world-spec/download) and it can write a valid world for you to import.
+- You want to look up exactly how a section, a variable type, a directive or a rule works.
 
 ## Spec Sections
 

@@ -152,7 +152,8 @@ export function ImageBatchProposalView({ proposal, interactive, busy, error, est
         {getSmartImageModel(batch.model)?.name ?? batch.model} · {batch.aspectRatio}{batch.resolution ? ` · ${batch.resolution}` : ""}
         {" · "}{t("studio.aiChat.imageProposal.charged", { amount: format(batch.costMushies) })}
       </p>
-      {batch.status === "running" && <p className="mt-1 text-[10px] text-muted-foreground">{t("studio.aiChat.imageBatch.background")}</p>}
+      {batch.status === "running" && <p className="mt-1 text-[10px] text-muted-foreground">{(batch.pauseReason === "GENERATION_BUDGET" || batch.pauseReason === "GENERATION_USER_BUDGET")
+        ? t("studio.aiChat.imageBatch.budgetNote") : t("studio.aiChat.imageBatch.background")}</p>}
       {batch.status === "paused" && <div className="mt-2">
         <p className="text-[11px] text-muted-foreground">{batch.pauseReason === "STORAGE_LIMIT" ? t("studio.aiChat.imageBatch.pausedStorageNote")
           : batch.pauseReason === "BATCH_UNAVAILABLE" ? t("studio.aiChat.imageBatch.pausedUnavailableNote")

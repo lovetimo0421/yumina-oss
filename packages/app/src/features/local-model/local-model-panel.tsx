@@ -5,6 +5,7 @@ import { useLocalModelStore } from "./store";
 import { LocalModelGuide } from "./local-model-guide";
 import { LocalModelStatus, currentOrigin, useCopyToast } from "./local-model-status";
 import { LocalModelInstaller } from "./local-model-installer";
+import { LocalModelHf } from "./local-model-hf";
 
 /**
  * Setup + status for running turns on the player's own GPU.
@@ -16,7 +17,8 @@ import { LocalModelInstaller } from "./local-model-installer";
  * one they're actually looking at instead of a generic "couldn't connect".
  */
 
-export function LocalModelPanel() {
+/** `embedded`: the settings page supplies the card and title (a folded row). */
+export function LocalModelPanel({ embedded = false }: { embedded?: boolean } = {}) {
   const { t } = useTranslation("profile");
   const { enabled, detecting, detection, resume } = useLocalModelStore();
 
@@ -46,6 +48,34 @@ export function LocalModelPanel() {
         ? 3
         : 4;
 
+  const body = (
+    <>
+      <div className="mt-3">
+        <LocalModelStatus />
+      </div>
+
+      <div className="mt-3 text-[10px] leading-relaxed text-sub/40">
+        {t("localModel.caveats")}
+      </div>
+
+      <LocalModelGuide
+        focusStep={focusStep}
+        origin={currentOrigin()}
+        onCopy={(text) => void copy(text)}
+      />
+
+      <LocalModelHf onCopy={(text) => void copy(text)} />
+
+      <LocalModelInstaller
+        origin={currentOrigin()}
+        waiting={watching && !enabled}
+        onCommandCopied={onInstallerCopied}
+      />
+    </>
+  );
+
+  if (embedded) return body;
+
   return (
     <div className="profile-overview-glass profile-overview-glass--soft rounded-2xl overflow-hidden">
       <div className="flex items-start gap-3.5 p-5">
@@ -58,25 +88,7 @@ export function LocalModelPanel() {
             {t("localModel.subtitle")}
           </div>
 
-          <div className="mt-3">
-            <LocalModelStatus />
-          </div>
-
-          <div className="mt-3 text-[10px] leading-relaxed text-sub/40">
-            {t("localModel.caveats")}
-          </div>
-
-          <LocalModelGuide
-            focusStep={focusStep}
-            origin={currentOrigin()}
-            onCopy={(text) => void copy(text)}
-          />
-
-          <LocalModelInstaller
-            origin={currentOrigin()}
-            waiting={watching && !enabled}
-            onCommandCopied={onInstallerCopied}
-          />
+          {body}
         </div>
       </div>
     </div>

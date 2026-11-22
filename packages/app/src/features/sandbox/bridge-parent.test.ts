@@ -312,3 +312,27 @@ test("sandbox API retains reply-rule protection after structured transport", (t)
   const api = buildAPI(structuredClone(state) as unknown as Parameters<typeof buildAPI>[0]);
   assert.deepEqual(api.replyRules, replyRules);
 });
+
+test("a moved iframe gets the card again after its handshake, sent through the window it moved to", (t) => {
+  const h = harness(t, () => {});
+  h.bridge.pushTheme({ "--x": "1" });
+  h.bridge.installRoot("Card.tsx", { "Card.tsx": "x" }, "code", undefined, "session");
+  h.bridge.pushChannel("variables", { a: 1 } as never, 1);
+  h.bridge.pushChannel("variables", { a: 2 } as never, 2);
+  h.bridge.setMediaSuspended(false);
+  const floating = new EventTarget() as unknown as Window;
+  const moved: ParentMessage[] = [];
+  const movedChild = { postMessage() { throw new Error("must go through the relay"); } };
+  const relayed: unknown[] = [];
+  h.bridge.hostIn(floating, (target, data) => { relayed.push(target); moved.push(unwrapMessage<ParentMessage>(data)!); });
+  h.bridge.attach({ contentWindow: movedChild } as unknown as HTMLIFrameElement);
+  h.bridge.pushChannel("variables", { a: 3 } as never, 3);
+  assert.equal(moved.length, 0, "nothing is sent before the new document is ready");
+  const ready = new Event("message");
+  Object.defineProperties(ready, { source: { value: movedChild }, origin: { value: "null" }, data: { value: wrapMessage({ type: "ready", protocolVersion: 2 }) } });
+  floating.dispatchEvent(ready);
+  assert.deepEqual(moved.map((m) => m.type), ["theme", "install-root", "channel", "suspend-media", "channel"]);
+  const channels = moved.filter((m) => m.type === "channel") as Array<Extract<ParentMessage, { type: "channel" }>>;
+  assert.deepEqual(channels.map((m) => m.version), [2, 3]);
+  assert.ok(relayed.every((target) => target === movedChild));
+});

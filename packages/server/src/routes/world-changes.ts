@@ -7,6 +7,8 @@ import { authMiddleware } from "../middleware/auth.js";
 import { hasWorldDmShareGrant } from "../lib/dm-world-grant.js";
 import { captureAutomaticVersion, lockVersionDraft, lockVersionWorld } from "../lib/world-version-history.js";
 import type { AppEnv } from "../lib/types.js";
+import { redactSchemaFor } from "../lib/sealed-entries.js";
+import { canReadFollowerWorld } from "../lib/world-follower-access.js";
 
 /**
  * Bringing changes made elsewhere back onto a card the caller owns, instead of
@@ -112,7 +114,7 @@ worldChangeRoutes.get("/proposals/:forkId", authMiddleware, async (c) => {
   if (!target) return c.json({ error: "Not found" }, 404);
 
   const forkStatus = fork.status ?? (fork.isPublished ? "published" : "draft");
-  const allowed = forkStatus === "published"
+  const allowed = (forkStatus === "published" && await canReadFollowerWorld(fork.id, me))
     || (forkStatus === "draft" && (await hasWorldDmShareGrant(me, fork.id, fork.creatorId)));
   if (!allowed) return c.json({ error: "Not found" }, 404);
 
@@ -129,7 +131,7 @@ worldChangeRoutes.get("/proposals/:forkId", authMiddleware, async (c) => {
     data: {
       fork: { id: fork.id, name: fork.name, creatorName: fork.creatorName ?? "", createdAt: fork.createdAt, updatedAt: fork.updatedAt },
       target: { id: target.id, name: target.name, status: target.status },
-      schema: fork.schema,
+      schema: redactSchemaFor({ id: fork.id, creatorId: null, schema: fork.schema }, fork.schema, me, "edit"),
       targetChangedSinceCopy,
     },
   });

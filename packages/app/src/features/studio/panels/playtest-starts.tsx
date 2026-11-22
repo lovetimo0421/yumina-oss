@@ -104,7 +104,7 @@ function CardTestStarts({ worldId, sessionId, selectedId, onSelect, onRun, busy,
     <div className="flex items-center gap-1.5">
       <label htmlFor="studio-test-start" className={compact ? "sr-only" : "shrink-0 text-[11px] text-muted-foreground"}>{t("studio.testStarts.title", { defaultValue: "测试起点" })}</label>
       <select id="studio-test-start" value={selectedId} disabled={disabled} onChange={(event) => onSelect(event.target.value)}
-        title={compact ? t("studio.testStarts.hint", { defaultValue: "起点保留状态与对话，退出后仍可使用。运行前保存当前草稿，每次创建独立试玩。" }) : undefined}
+        title={t("studio.testStarts.hint", { defaultValue: "起点保留状态与对话，退出后仍可使用。运行前保存当前草稿，每次创建独立试玩。" })}
         className={cn("min-w-0 rounded border border-border bg-background px-1.5 py-1 text-[11px]", compact ? "max-w-[15rem] [@media(max-width:767px)]:flex-1" : "flex-1")}>
         <option value="">{t("studio.testStarts.fresh", { defaultValue: "从头开始" })}</option>
         {starts.map((start) => <option key={start.id} value={start.id}>{start.name} · {t("studio.testStarts.messages", { count: start.messageCount, defaultValue: "{{count}} 条对话" })}</option>)}
@@ -130,9 +130,6 @@ function CardTestStarts({ worldId, sessionId, selectedId, onSelect, onRun, busy,
         {t("studio.testStarts.save", { defaultValue: "保存起点" })}
       </button>
     </form>}
-    {!compact && <p className="text-[10px] leading-relaxed text-muted-foreground">
-      {t("studio.testStarts.hint", { defaultValue: "起点保留状态与对话，退出后仍可使用。运行前保存当前草稿，每次创建独立试玩。" })}
-    </p>}
     {error && <div className="flex items-center gap-2">
       <p role="alert" className="flex-1 text-[11px] text-destructive">{t(error as never)}</p>
       <button type="button" disabled={loading || pending} onClick={() => setReload(value => value + 1)}

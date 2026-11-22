@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { Camera, X } from "lucide-react";
@@ -24,10 +24,13 @@ export function EntryPortraitField({
   value,
   onChange,
   variant,
+  extra,
 }: {
   value?: string;
   onChange: (portrait: string | undefined) => void;
   variant: "avatar" | "row";
+  /** More actions beside 换/删 (the canvas puts 生成 and 加工 here). */
+  extra?: ReactNode;
 }) {
   const { t } = useTranslation("editor");
   const serverWorldId = useEditorStore((s) => s.serverWorldId);
@@ -149,6 +152,7 @@ export function EntryPortraitField({
                 {t("simple.character.portraitRemove")}
               </button>
             )}
+            {extra}
           </div>
           {error && <p className="text-xs text-destructive">{error}</p>}
         </div>

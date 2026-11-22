@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { FileCode2, StickyNote } from "lucide-react";
+import { FileCode2 } from "lucide-react";
 import { extractAiCallsFromFiles, type FrontendAiCall, type Worldbook } from "@yumina/engine";
 import { useEditorStore } from "@/stores/editor";
 import { CodeAiCallCard, codeCallFacts } from "./code-ai-call-card";
@@ -26,12 +26,8 @@ const NO_BOOKS: Worldbook[] = [];
 export function EmptyImplementation({ kind }: { kind: "ai" | "behavior" | "context" }) {
   const { t } = useTranslation("editor");
   return (
-    <div data-custom-empty={kind} className="rounded-lg border border-dashed border-white/15 px-3 py-3 text-[11.5px] leading-relaxed text-foreground/60">
+    <div data-custom-empty={kind} title={t("blueprint.custom.noteHint")} className="rounded-lg border border-dashed border-white/15 px-3 py-3 text-[11.5px] leading-relaxed text-foreground/60">
       <p className="font-medium text-foreground/80">{t("blueprint.custom.empty")}</p>
-      <p className="mt-1 flex items-start gap-1.5">
-        <StickyNote className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-300/80" />
-        <span>{t("blueprint.custom.noteHint")}</span>
-      </p>
     </div>
   );
 }
@@ -51,7 +47,6 @@ export function CustomAiPanel({ worldbookId }: { worldbookId: string }) {
   if (!book) return null;
   return (
     <div className="space-y-2" data-custom-ai={worldbookId}>
-      <p className="text-[11px] leading-relaxed text-foreground/55">{t("blueprint.custom.aiIntro")}</p>
       {calls.length === 0 ? (
         <EmptyImplementation kind="ai" />
       ) : (
@@ -96,7 +91,6 @@ export function CustomBehaviorPanel({ reactionId }: { reactionId: string }) {
   const implemented = codeLines > 0 || fires.length > 0;
   return (
     <div className="space-y-2" data-custom-behavior={reactionId}>
-      <p className="text-[11px] leading-relaxed text-foreground/55">{t("blueprint.custom.behaviorIntro")}</p>
       {!implemented ? (
         <EmptyImplementation kind="behavior" />
       ) : (
@@ -141,7 +135,6 @@ export function CustomContextPanel() {
   const calls = useMemo(() => (files ? extractAiCallsFromFiles(files) : []), [files]);
   return (
     <div className="space-y-2" data-custom-context="">
-      <p className="text-[11px] leading-relaxed text-foreground/55">{t("blueprint.custom.contextIntro")}</p>
       {calls.length === 0 ? (
         <EmptyImplementation kind="context" />
       ) : (

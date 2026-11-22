@@ -1,20 +1,25 @@
+import { followerWorldAudienceSql } from "../lib/world-follower-access.js";
+import { snapshotForeignTriggers } from "../lib/generation/lora-square.js";
+import { sanitizePersonaLoras, turnImageLorasEnabled } from "../lib/per-turn-image/loras.js";
 import { worldAudienceCondition } from "../lib/world-publication-access.js";
 import { requireUnmuted } from "../middleware/user-mute.js";
 import { isUserMuted } from "@yumina/shared";
 import { Hono } from "hono";
+import { invalidateRegexRules } from "../lib/regex-rules/runner.js";
 import { env } from "../lib/env.js";
 import { profileStoryMemoryDefault } from "../lib/profile-story-memory.js";
 import { realtimeFilmEnabled } from "../lib/realtime-video/film-billing.js";
 import { eq, and, ne, sql, desc, ilike, or, inArray, notInArray, type SQL } from "drizzle-orm";
 import { db, readDb, readOwn, flagWrite } from "../db/index.js";
+import { estimateTokens } from "@yumina/engine";
 import { posthog } from "../lib/posthog.js";
-import { user, worlds, bundles, follows, favorites, userLibrary, worldClickHistory, platformAchievements, profilePosts } from "../db/schema.js";
+import { user, worlds, bundles, follows, favorites, userLibrary, worldClickHistory, platformAchievements, profilePosts, playSessions, messages } from "../db/schema.js";
 import { authMiddleware, optionalAuthMiddleware } from "../middleware/auth.js";
 import { optionalAccountBinding } from "../middleware/account-binding.js";
 import { invalidateSessionUser } from "../lib/session-user-cache.js";
 import { rateLimitMiddleware } from "../middleware/rate-limit.js";
 import { isReservedUsername } from "@yumina/shared";
-import { updateProfileSchema, getAgeFromBirthYear, aiConfigSchema, MAX_PROFILE_POST_LENGTH, PROFILE_POSTS_PAGE_SIZE, normalizeProfileWorldSort, normalizeProfileWorldOrder, sanitizeTtsVoicePool, sanitizeTtsCustomVoices } from "@yumina/shared";
+import { updateProfileSchema, getAgeFromBirthYear, aiConfigSchema, MAX_PROFILE_POST_LENGTH, PROFILE_POSTS_PAGE_SIZE, normalizeProfileWorldSort, normalizeProfileWorldOrder, sanitizeTtsVoicePool, sanitizeTtsCustomVoices, BACKGROUND_CHARGES_PREF_KEY, BACKGROUND_CHARGE_PENDING_PREF_KEY, readBackgroundChargePrefs } from "@yumina/shared";
 import { resolveImageCdn } from "../lib/cdn-url.js";
 import { sanitizeDisplayName } from "../lib/sanitize.js";
 import { aggregatedCounters, displayDownloadColumn } from "../lib/world-aggregates.js";
@@ -26,14 +31,16 @@ import {
 } from "../lib/profile-privacy.js";
 import type { AppEnv } from "../lib/types.js";
 import { resolveProfileContentLevel } from "../lib/profile-content-level.js";
+import { listDescription } from "../lib/list-description.js";
 import { perTurnImagesEnabled } from "../lib/per-turn-image/availability.js";
+import { blocksLimitlessPreference } from "../lib/invite-content-access.js";
 
 async function readProfileContentLevel(viewerId: string | undefined, requestedLevel: string | undefined) {
   if (!viewerId) return "safe";
   const rd = await readOwn(viewerId);
-  const [viewer] = await rd.select({ preferences: user.preferences })
+  const [viewer] = await rd.select({ preferences: user.preferences, limitedContentOnly: user.limitedContentOnly })
     .from(user).where(eq(user.id, viewerId)).limit(1);
-  return resolveProfileContentLevel(true, requestedLevel, viewer?.preferences);
+  return viewer?.limitedContentOnly ? "safe" : resolveProfileContentLevel(true, requestedLevel, viewer?.preferences);
 }
 
 function readProfileBannerCrop(preferences: unknown): unknown {
@@ -116,6 +123,8 @@ users.get("/me", authMiddleware, async (c) => {
     // Whether this server offers per-turn pictures at all: Settings shows the
     // experimental opt-in only then.
     turnImagesOffered: perTurnImagesEnabled(),
+    // Creators' Anima LoRAs for story illustrations: the binding fields show.
+    turnImageLorasOffered: perTurnImagesEnabled() && turnImageLorasEnabled(),
     // Scene video (the realtime film) is on for this server: the player and its switch show.
     filmOffered: realtimeFilmEnabled(),
     // The fal live stream is an engine choice only where this server holds a fal key.
@@ -283,7 +292,10 @@ users.get("/search", optionalAuthMiddleware, async (c) => {
 
   const rd = await readDb();
   const blocks = viewer ? await listBlockedUsersForHiding(viewer.id) : null;
-  const hiddenUserIds = blocks ? [...new Set([...blocks.hideWorldCreatorIds, ...blocks.hiddenByCreatorIds])] : [];
+  // Blocked people (either direction) stay findable by name and avatar: search is
+  // the only way into their limited profile and its Block / Unblock button. Their
+  // counts read 0, as on that profile; works and activity stay hidden elsewhere.
+  const blockedUserIds = new Set(blocks ? [...blocks.hideWorldCreatorIds, ...blocks.hiddenByCreatorIds] : []);
   const pattern = `%${q}%`;
   const prefix = `${q}%`;
 
@@ -300,7 +312,6 @@ users.get("/search", optionalAuthMiddleware, async (c) => {
       and(
         eq(user.isBanned, false),
         eq(user.isSuspended, false),
-        ...(hiddenUserIds.length > 0 ? [notInArray(user.id, hiddenUserIds)] : []),
         or(
           ilike(user.username, pattern),
           and(
@@ -348,7 +359,7 @@ users.get("/search", optionalAuthMiddleware, async (c) => {
           .where(and(
             inArray(worlds.creatorId, userIds),
             worldAudienceCondition(worlds.creatorId),
-            eq(worlds.isPublished, true),
+            eq(worlds.isPublished, true), ne(worlds.visibility, "unlisted"),
             eq(worlds.status, "published"),
             eq(worlds.visibility, "public"),
           ))
@@ -377,8 +388,8 @@ users.get("/search", optionalAuthMiddleware, async (c) => {
         ...row,
         displayUsername,
         image: resolveImageCdn(row.image),
-        publishedWorldsCount: worldCounts.get(row.id) ?? 0,
-        followersCount: followerCounts.get(row.id) ?? 0,
+        publishedWorldsCount: blockedUserIds.has(row.id) ? 0 : worldCounts.get(row.id) ?? 0,
+        followersCount: blockedUserIds.has(row.id) ? 0 : followerCounts.get(row.id) ?? 0,
       };
     }),
   });
@@ -419,7 +430,11 @@ users.get("/:id", optionalAuthMiddleware, async (c) => {
       bio: user.bio,
       location: user.location,
       website: user.website,
-      featuredWorldId: user.featuredWorldId,
+      featuredWorldId: sql<string | null>`CASE WHEN EXISTS (
+        SELECT 1 FROM worlds featured WHERE featured.id = ${user.featuredWorldId}
+          AND featured.is_published = true AND featured.visibility <> 'unlisted'
+          AND ${followerWorldAudienceSql(viewer?.id, "featured")}
+      ) THEN ${user.featuredWorldId} ELSE NULL END`,
       showcasedAchievementId: user.showcasedAchievementId,
       createdAt: user.createdAt,
       preferences: user.preferences,
@@ -495,7 +510,7 @@ users.get("/:id", optionalAuthMiddleware, async (c) => {
       rd
         .select({ count: sql<number>`count(*)::int` })
         .from(worlds)
-        .where(and(eq(worlds.creatorId, userId), eq(worlds.isPublished, true), worldAudienceCondition(worlds.creatorId))),
+        .where(and(eq(worlds.creatorId, userId), eq(worlds.isPublished, true), ne(worlds.visibility, "unlisted"), followerWorldAudienceSql(viewer?.id), worldAudienceCondition(worlds.creatorId))),
       rd
         .select({ total: sql<number>`coalesce(sum(${worlds.messageCount}), 0)::int` })
         .from(worlds)
@@ -617,7 +632,7 @@ users.get("/:id/recent-played", optionalAuthMiddleware, async (c) => {
     .where(and(
       eq(userLibrary.userId, userId),
       worldAudienceCondition(worlds.creatorId),
-      eq(worlds.isPublished, true),
+      eq(worlds.isPublished, true), ne(worlds.visibility, "unlisted"), followerWorldAudienceSql(viewer?.id),
       ...(contentLevel === "safe" ? [eq(worlds.ageRating, "all")] : []),
     ))
     .orderBy(sql`COALESCE(${userLibrary.lastPlayedAt}, ${userLibrary.createdAt}) DESC`)
@@ -695,7 +710,7 @@ users.get("/:id/library", optionalAuthMiddleware, async (c) => {
     .where(and(
       eq(favorites.userId, userId),
       worldAudienceCondition(worlds.creatorId),
-      eq(worlds.isPublished, true),
+      eq(worlds.isPublished, true), ne(worlds.visibility, "unlisted"), followerWorldAudienceSql(viewer?.id),
       ...(contentLevel === "safe" ? [eq(worlds.ageRating, "all")] : []),
     ))
     .orderBy(sql`${favorites.createdAt} DESC`)
@@ -709,13 +724,14 @@ users.get("/:id/library", optionalAuthMiddleware, async (c) => {
     .where(and(
       eq(favorites.userId, userId),
       worldAudienceCondition(worlds.creatorId),
-      eq(worlds.isPublished, true),
+      eq(worlds.isPublished, true), ne(worlds.visibility, "unlisted"), followerWorldAudienceSql(viewer?.id),
       ...(contentLevel === "safe" ? [eq(worlds.ageRating, "all")] : []),
     ));
   const total = totalResult?.count ?? 0;
 
   const resolved = items.map((item) => ({
     ...item,
+    worldDescription: listDescription(item.worldDescription),
     worldThumbnailUrl: resolveImageCdn(item.worldThumbnailUrl),
     worldLandscapeCoverUrl: resolveImageCdn(item.worldLandscapeCoverUrl),
   }));
@@ -853,7 +869,17 @@ users.on(["POST", "PATCH"], "/me", authMiddleware, rateLimitMiddleware("profile-
   // Older clients may echo a full preferences snapshot. This namespace is
   // server-owned; only the authenticated starter endpoint may mutate it.
   if (parsed.data.preferences) {
-    const { discoveryStarter: _ownedStarter, ...clientPreferences } = parsed.data.preferences;
+    if (blocksLimitlessPreference(currentUser.limitedContentOnly, parsed.data.preferences)) {
+      return c.json({ error: "Limitless content is not available for this account", code: "LIMITED_CONTENT_ONLY" }, 403);
+    }
+    const { discoveryStarter: _ownedStarter, [BACKGROUND_CHARGE_PENDING_PREF_KEY]: _ownedPending, ...clientPreferences } = parsed.data.preferences;
+    // The player's answers about background charges: store only known AIs and
+    // choices. Answering clears the server's waiting notes; an AI still
+    // unanswered leaves a new one the next time it wants to run.
+    if (BACKGROUND_CHARGES_PREF_KEY in clientPreferences) {
+      clientPreferences[BACKGROUND_CHARGES_PREF_KEY] = readBackgroundChargePrefs(clientPreferences);
+      clientPreferences[BACKGROUND_CHARGE_PENDING_PREF_KEY] = {};
+    }
     // The voice pool feeds server-side casting: store only valid voice ids.
     if ("ttsVoicePool" in clientPreferences) {
       clientPreferences.ttsVoicePool = sanitizeTtsVoicePool(clientPreferences.ttsVoicePool);
@@ -862,6 +888,12 @@ users.on(["POST", "PATCH"], "/me", authMiddleware, rateLimitMiddleware("profile-
       clientPreferences.ttsCustomVoices = sanitizeTtsCustomVoices(clientPreferences.ttsCustomVoices);
     }
     // The profile's own order is read into a query: store only a bounded list of ids.
+    // Persona id → illustration LoRA: read server-side when drawing, so bounded and typed.
+    if ("personaImageLoras" in clientPreferences) {
+      const personaLoras = sanitizePersonaLoras(clientPreferences.personaImageLoras);
+      await snapshotForeignTriggers(Object.values(personaLoras).map((binding) => ({ binding })), currentUser.id);
+      clientPreferences.personaImageLoras = personaLoras;
+    }
     if ("profileWorldOrder" in clientPreferences) {
       clientPreferences.profileWorldOrder = normalizeProfileWorldOrder(clientPreferences.profileWorldOrder);
     }
@@ -982,6 +1014,31 @@ users.on(["POST", "PATCH"], "/me", authMiddleware, rateLimitMiddleware("profile-
 });
 
 // GET /api/users/me/ai-config — cross-device AI generation settings
+// How long this player's messages run, from the story they played last: what
+// turns the story-memory setting (tokens) into "≈ the latest N messages" on
+// the AI settings page. Each message is sized the way the Memory panel sizes
+// it (images included, newest first), so the page and the panel agree on N.
+// Null when they have not played yet.
+users.get("/me/message-size", authMiddleware, async (c) => {
+  const currentUser = c.get("user");
+  const rd = await readOwn(currentUser.id);
+  const [last] = await rd.select({ id: playSessions.id, worldName: worlds.name })
+    .from(playSessions).innerJoin(worlds, eq(worlds.id, playSessions.worldId))
+    .where(eq(playSessions.userId, currentUser.id))
+    .orderBy(desc(playSessions.updatedAt)).limit(1);
+  if (!last) return c.json({ data: null });
+  const rows = await rd.select({
+    content: messages.content,
+    images: sql<number>`COALESCE(jsonb_array_length(${messages.attachments}), 0)`,
+  }).from(messages)
+    .where(and(eq(messages.sessionId, last.id), ne(messages.status, "failed")))
+    .orderBy(desc(messages.createdAt), desc(messages.id)).limit(1000);
+  if (rows.length === 0) return c.json({ data: null });
+  const recentTokens = rows.map((row) => estimateTokens(row.content ?? "") + Number(row.images) * 1600);
+  const tokens = recentTokens.reduce((sum, n) => sum + n, 0);
+  return c.json({ data: { avgMessageTokens: Math.max(1, Math.round(tokens / rows.length)), recentTokens, worldName: last.worldName, sampled: rows.length } });
+});
+
 users.get("/me/ai-config", authMiddleware, async (c) => {
   const currentUser = c.get("user");
   const rd = await readOwn(currentUser.id);
@@ -1015,6 +1072,7 @@ users.put("/me/ai-config", authMiddleware, optionalAccountBinding, rateLimitMidd
   if (!saved) return c.json({ error: 'User not found' }, 404);
 
   flagWrite(currentUser.id);
+  invalidateRegexRules(currentUser.id);
   return c.json({ data: saved.preferences?.aiConfig ?? {} });
 });
 

@@ -204,6 +204,19 @@ export function useSandbox(opts: {
     bridgeRef.current?.openMemoryPanel();
   }, []);
 
+  const openChatSearch = useCallback(() => {
+    bridgeRef.current?.openChatSearch();
+  }, []);
+
+  const jumpToMessage = useCallback((jump: { sessionId: string; messageId: string; position: number; query?: string }) => {
+    bridgeRef.current?.jumpToMessage(jump);
+  }, []);
+
+  /** The iframe is moving into `win`'s document (the floating window). */
+  const hostIn = useCallback((win: Window, relay: Parameters<SandboxBridge["hostIn"]>[1]) => {
+    return bridgeRef.current?.hostIn(win, relay) ?? (() => {});
+  }, []);
+
   const getBootTiming = useCallback(() => ({
     ...bootTimingRef.current?.snapshot(), renderer_active: activeRef.current,
   }), []);
@@ -227,5 +240,8 @@ export function useSandbox(opts: {
     sendVideoEvent,
     sendStoryEvent,
     openMemoryPanel,
+    openChatSearch,
+    jumpToMessage,
+    hostIn,
   };
 }

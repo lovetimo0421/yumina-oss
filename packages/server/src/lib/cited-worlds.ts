@@ -1,5 +1,5 @@
 import { worldAudienceCondition } from "./world-publication-access.js";
-import { and, eq, inArray, or, sql } from "drizzle-orm";
+import { and, eq, inArray, ne, or, sql } from "drizzle-orm";
 import type { Database } from "../db/index.js";
 import { follows, worlds } from "../db/schema.js";
 import { aggregatedCounters } from "./world-aggregates.js";
@@ -128,6 +128,7 @@ export async function resolveCitedWorlds<T extends CitedWorldCard>(
       eq(worlds.isPublished, true),
         eq(worlds.allowCommunityCitations, true),
         visibilityCondition,
+        ne(worlds.visibility, "unlisted"),
       ),
     )) as CitedWorldCandidate[];
 

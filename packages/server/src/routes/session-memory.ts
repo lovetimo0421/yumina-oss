@@ -1,10 +1,10 @@
 import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import { z } from "zod";
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
-import type { SessionMemoryPayload, SessionMemoryUsageSummary, SessionSummaryCompactionPayload, SessionSummaryMode, SessionSummaryPayload } from "@yumina/shared";
+import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import type { MemoryOverview, SessionMemoryPayload, SessionMemoryUsageSummary, SessionSummaryCompactionPayload, SessionSummaryMode, SessionSummaryPayload } from "@yumina/shared";
 import { db } from "../db/index.js";
-import { messages, playSessions, usageLogs } from "../db/schema.js";
+import { messages, playSessions, summaryceptionSnippets, usageLogs } from "../db/schema.js";
 import { authMiddleware } from "../middleware/auth.js";
 import { rateLimitMiddleware } from "../middleware/rate-limit.js";
 import { applyModelRedirect, MODEL_ID_PATTERN } from "../lib/llm/model-redirects.js";
@@ -36,17 +36,24 @@ import {
 } from "../lib/session-compaction.js";
 import {
   compactSummaryceptionForSession,
+  deleteSummaryceptionSnippet,
+  estimateRecapFold,
   getSummaryceptionStats,
+  recapRunModel,
   updateSummaryceptionSnippet,
+  stopRecapRun,
 } from "../lib/summaryception.js";
 import { normalizeSessionSummaryImplementation } from "../lib/summaryception-core.js";
 import { resolveMemorySystemSettings, sessionWorldRequiresStorySummary } from "../lib/memory-systems.js";
-import { isExtensionInstalled } from "../lib/extensions.js";
+import { getUninstalledExtensions, isExtensionInstalled } from "../lib/extensions.js";
+import { getMemorySystemSettings } from "../lib/memory-systems-core.js";
+import { estimateRecapBackfill, fillSetAsideRecap, skipRecapBackfill } from "../lib/summaryception.js";
 import { summaryJobs, summaryJobKey } from "../lib/summary-job-store.js";
 import { isActiveSummaryJob } from "../lib/summary-job-core.js";
-import { SESSION_MEMORY_EXTENSION_KEY, SESSION_SUMMARY_LANGUAGES } from "@yumina/shared";
+import { MAX_STORY_MEMORY, MIN_STORY_MEMORY, RECAP_SHARES, recapBudgetTokens, resolveRecapShare, resolveStoryMemory, SESSION_MEMORY_EXTENSION_KEY, SESSION_SUMMARY_LANGUAGES } from "@yumina/shared";
+import { env } from "../lib/env.js";
 import { hasUncertainMemoryCoverage } from "../lib/session-memory-core.js";
-import { memoryCursorAfterSettingsChange } from "../lib/session-memory-guards.js";
+import { memoryCursorAfterSettingsChange, recapRunStatus } from "../lib/session-memory-guards.js";
 import { normalizeSessionSummaryLanguage } from "../lib/summary-language.js";
 import { canRunMemoryQa, memoryQaPage } from "../lib/session-memory-qa.js";
 import { dropMemoryVersions } from "../lib/session-memory-versions.js";
@@ -58,6 +65,7 @@ import {
   normalizeSessionSummaryTriggerTokens,
   type StoryMessageSizing,
 } from "../lib/session-compaction-core.js";
+import { chatModelPick, chatRunModel } from "../lib/role-model.js";
 
 export const sessionMemoryRoutes = new Hono<AppEnv>();
 
@@ -244,7 +252,7 @@ async function toPayload(row: typeof playSessions.$inferSelect): Promise<Session
     memory,
     hasMemory: hasSessionMemory(memory),
     pinned: normalizePinnedMemory(row.sessionMemoryPinned),
-    model: applyModelRedirect(row.sessionMemoryModel || DEFAULT_SESSION_MEMORY_MODEL),
+    model: await chatRunModel(row.userId, "memory", row.sessionMemoryModel),
     included: row.sessionMemoryIncluded ?? true,
     language: normalizeSessionSummaryLanguage(row.summaryLanguage),
     status: row.sessionMemoryStatus || "idle",
@@ -316,7 +324,7 @@ async function toSummaryPayload(row: typeof playSessions.$inferSelect): Promise<
   const job = storedJob && !isActiveSummaryJob(storedJob) && row.summaryUpdatedAt
     && storedJob.updatedAt < row.summaryUpdatedAt.getTime() ? null : storedJob;
   const summary = normalizeStorySummaryText(row.summary);
-  const model = applyModelRedirect(row.summaryModel || DEFAULT_STORY_SUMMARY_MODEL);
+  const model = await chatRunModel(row.userId, "summary", row.summaryModel);
   const implementation = normalizeSessionSummaryImplementation(row.summaryImplementation);
   const memorySystems = await resolveMemorySystemSettings(row.userId, row, { authorRequired: await sessionWorldRequiresStorySummary(row.id, row.userId) });
   const mode = "threshold" satisfies SessionSummaryMode;
@@ -417,7 +425,7 @@ sessionMemoryRoutes.patch("/:sessionId/summary", async (c) => {
   if (refused) return refused;
 
   const summary = normalizeStorySummaryText(body.summary ?? row.summary ?? "");
-  const model = applyModelRedirect(body.model ?? row.summaryModel ?? DEFAULT_STORY_SUMMARY_MODEL);
+  const model = applyModelRedirect(await chatModelPick(currentUser.id, "summary", body.model, row.summaryModel) ?? row.summaryModel ?? DEFAULT_STORY_SUMMARY_MODEL);
   const summaryceptionModel = body.summaryceptionModel || row.summaryceptionModel
     ? applyModelRedirect(body.summaryceptionModel ?? row.summaryceptionModel!)
     : null;
@@ -425,9 +433,13 @@ sessionMemoryRoutes.patch("/:sessionId/summary", async (c) => {
     ? normalizeSessionSummaryImplementation(row.summaryImplementation)
     : normalizeSessionSummaryImplementation(body.implementation);
   const mode = "threshold" satisfies SessionSummaryMode;
+  // One recap switch: the layered recap is the only recap a turn runs, and
+  // a session counts as on when either flag is (hooks.ts), so switching the
+  // layered one moves the old one with it.
   const included = typeof body.localdevIncluded === "boolean"
     ? body.localdevIncluded
-    : typeof body.included === "boolean" ? body.included : row.summaryIncluded;
+    : typeof body.included === "boolean" ? body.included
+      : typeof body.summaryceptionIncluded === "boolean" ? body.summaryceptionIncluded : row.summaryIncluded;
   const summaryceptionIncluded = typeof body.summaryceptionIncluded === "boolean" ? body.summaryceptionIncluded : row.summaryceptionIncluded;
   const triggerTokens = body.triggerTokens === undefined
     ? row.summaryTriggerTokens
@@ -479,7 +491,7 @@ sessionMemoryRoutes.patch("/:sessionId/summary/settings", async (c) => {
   const refused = await refusePlanModel(c, currentUser.id, [body.model, row.summaryModel], [body.summaryceptionModel, row.summaryceptionModel]);
   if (refused) return refused;
 
-  const model = applyModelRedirect(body.model ?? row.summaryModel ?? DEFAULT_STORY_SUMMARY_MODEL);
+  const model = applyModelRedirect(await chatModelPick(currentUser.id, "summary", body.model, row.summaryModel) ?? row.summaryModel ?? DEFAULT_STORY_SUMMARY_MODEL);
   const summaryceptionModel = body.summaryceptionModel || row.summaryceptionModel
     ? applyModelRedirect(body.summaryceptionModel ?? row.summaryceptionModel!)
     : null;
@@ -487,9 +499,13 @@ sessionMemoryRoutes.patch("/:sessionId/summary/settings", async (c) => {
     ? normalizeSessionSummaryImplementation(row.summaryImplementation)
     : normalizeSessionSummaryImplementation(body.implementation);
   const mode = "threshold" satisfies SessionSummaryMode;
+  // One recap switch: the layered recap is the only recap a turn runs, and
+  // a session counts as on when either flag is (hooks.ts), so switching the
+  // layered one moves the old one with it.
   const included = typeof body.localdevIncluded === "boolean"
     ? body.localdevIncluded
-    : typeof body.included === "boolean" ? body.included : row.summaryIncluded;
+    : typeof body.included === "boolean" ? body.included
+      : typeof body.summaryceptionIncluded === "boolean" ? body.summaryceptionIncluded : row.summaryIncluded;
   const summaryceptionIncluded = typeof body.summaryceptionIncluded === "boolean" ? body.summaryceptionIncluded : row.summaryceptionIncluded;
   const triggerTokens = body.triggerTokens === undefined
     ? row.summaryTriggerTokens
@@ -548,7 +564,7 @@ sessionMemoryRoutes.patch("/:sessionId/memory/settings", async (c) => {
   const refused = await refusePlanModel(c, currentUser.id, [body.model, row.sessionMemoryModel]);
   if (refused) return refused;
 
-  const model = applyModelRedirect(body.model ?? row.sessionMemoryModel ?? DEFAULT_SESSION_MEMORY_MODEL);
+  const model = applyModelRedirect(await chatModelPick(currentUser.id, "memory", body.model, row.sessionMemoryModel) ?? row.sessionMemoryModel ?? DEFAULT_SESSION_MEMORY_MODEL);
   const included = typeof body.included === "boolean" ? body.included : row.sessionMemoryIncluded;
   const language = body.language ?? normalizeSessionSummaryLanguage(row.summaryLanguage);
 
@@ -724,6 +740,83 @@ sessionMemoryRoutes.patch("/:sessionId/summaryception/snippets/:snippetId", asyn
   }
 });
 
+sessionMemoryRoutes.delete("/:sessionId/summaryception/snippets/:snippetId", async (c) => {
+  const currentUser = c.get("user");
+  const sessionId = c.req.param("sessionId");
+  const snippetId = c.req.param("snippetId");
+  try {
+    const { restoredMessages } = await deleteSummaryceptionSnippet({ sessionId, userId: currentUser.id, snippetId });
+    const row = await loadOwnedSession(sessionId, currentUser.id);
+    if (!row) return c.json({ error: "Session not found" }, 404);
+    return c.json({ data: { summary: await toSummaryPayload(row), restoredMessages } });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to delete chapter";
+    const notFound = message === "Session not found" || message === "Snippet not found";
+    return c.json({ error: message }, notFound ? 404 : 500);
+  }
+});
+
+const foldCountSchema = z.coerce.number().int().min(1).max(5_000);
+
+// The price of folding the oldest N unfolded messages (memory panel).
+sessionMemoryRoutes.get("/:sessionId/summaryception/fold-estimate", async (c) => {
+  const currentUser = c.get("user");
+  const sessionId = c.req.param("sessionId");
+  const count = foldCountSchema.safeParse(c.req.query("count") ?? "10");
+  if (!count.success) return c.json({ error: "count must be a whole number from 1" }, 400);
+  try {
+    return c.json({ data: await estimateRecapFold({ sessionId, userId: currentUser.id, count: count.data }) });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to estimate";
+    return c.json({ error: message }, message === "Session not found" ? 404 : 500);
+  }
+});
+
+const recapFoldSchema = z.object({
+  count: foldCountSchema,
+  /** The price the player was shown; a fresh estimate above it is refused. */
+  approvedCredits: z.number().nonnegative().nullable().optional(),
+});
+
+/** A fold this cheap runs without the host's confirmation. */
+const RECAP_FOLD_FREE_CREDITS = 5;
+
+// Fold the oldest N unfolded messages into chapters (memory panel). Runs in
+// the background; the panel follows it through the summary poll.
+sessionMemoryRoutes.post("/:sessionId/summaryception/fold", rateLimitMiddleware("ai-generation"), async (c) => {
+  const currentUser = c.get("user");
+  const sessionId = c.req.param("sessionId");
+  const parsed = await parseBody(c, recapFoldSchema);
+  if (!parsed.ok) return parsed.res;
+  const rowBefore = await loadOwnedSession(sessionId, currentUser.id);
+  if (!rowBefore) return c.json({ error: "Session not found" }, 404);
+  if (recapRunStatus(rowBefore) === "updating") return c.json({ error: "The recap is already being folded" }, 409);
+  try {
+    const estimate = await estimateRecapFold({ sessionId, userId: currentUser.id, count: parsed.data.count });
+    if (!estimate.throughMessageId) return c.json({ error: "Nothing to fold yet", code: "NOTHING_TO_FOLD" }, 409);
+    const approved = parsed.data.approvedCredits;
+    if (estimate.estimatedCredits != null && estimate.estimatedCredits > RECAP_FOLD_FREE_CREDITS
+      && (approved == null || estimate.estimatedCredits > Math.ceil(approved * APPROVED_PRICE_SLACK))) {
+      return c.json({ error: "The price changed. Check it again in the memory panel.", code: "PRICE_CHANGED", data: estimate }, 409);
+    }
+    void compactSummaryceptionForSession({
+      sessionId,
+      userId: currentUser.id,
+      fallbackModel: rowBefore.summaryceptionModel || rowBefore.summaryModel || DEFAULT_STORY_SUMMARY_MODEL,
+      force: true,
+      foldThroughMessageId: estimate.throughMessageId,
+    }).catch((err) => console.warn("[Recap] fold failed:", err instanceof Error ? err.message : err));
+    const summary = await toSummaryPayload(rowBefore);
+    // The run claims the session a moment after this answers; show it as
+    // started so the panel follows it.
+    summary.summaryception = { ...summary.summaryception, status: "updating", error: null };
+    return c.json({ data: { summary, messages: estimate.messages } });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to fold";
+    return c.json({ error: message }, 500);
+  }
+});
+
 sessionMemoryRoutes.patch("/:sessionId/memory", async (c) => {
   const currentUser = c.get("user");
   const sessionId = c.req.param("sessionId");
@@ -736,7 +829,7 @@ sessionMemoryRoutes.patch("/:sessionId/memory", async (c) => {
   const refused = await refusePlanModel(c, currentUser.id, [body.model, row.sessionMemoryModel]);
   if (refused) return refused;
 
-  const model = body.model ?? row.sessionMemoryModel;
+  const model = await chatModelPick(currentUser.id, "memory", body.model, row.sessionMemoryModel) ?? row.sessionMemoryModel;
   const memory = body.memory === undefined
     ? normalizeSessionMemory(row.sessionMemory)
     : normalizeSessionMemory(body.memory);
@@ -794,11 +887,11 @@ sessionMemoryRoutes.patch("/:sessionId/memory/model", async (c) => {
   const sessionId = c.req.param("sessionId");
   const parsed = await parseBody(c, memoryModelSchema);
   if (!parsed.ok) return parsed.res;
-  const model = applyModelRedirect(parsed.data.model);
   const row = await loadOwnedSession(sessionId, currentUser.id);
   if (!row) return c.json({ error: "Session not found" }, 404);
   const refused = await refusePlanModel(c, currentUser.id, [parsed.data.model, row.sessionMemoryModel]);
   if (refused) return refused;
+  const model = applyModelRedirect(await chatModelPick(currentUser.id, "memory", parsed.data.model, row.sessionMemoryModel) ?? row.sessionMemoryModel ?? DEFAULT_SESSION_MEMORY_MODEL);
 
   discardQueuedSessionMemoryUpdates(sessionId);
 
@@ -915,4 +1008,253 @@ sessionMemoryRoutes.post("/:sessionId/memory/regenerate", rateLimitMiddleware("a
     const message = err instanceof Error ? err.message : "Failed to regenerate session memory";
     return c.json({ error: message }, message === "Session not found" ? 404 : 500);
   }
+});
+
+// ── Core memory: open to every player, extension or not ─────────────────
+// The pinned notes and the "how far back does the AI read" overview are not
+// the memory extension's: the notes cost nothing and nothing automatic writes
+// them, and every player has a story memory. These paths sit outside the
+// extension gate above (none of them matches its patterns).
+
+const overviewQuerySchema = z.object({
+  storyMemory: z.coerce.number().int().min(MIN_STORY_MEMORY).max(MAX_STORY_MEMORY).optional(),
+  recapShare: z.enum(RECAP_SHARES).optional(),
+});
+
+/** History rows walked from the newest to find the recent window. A story
+ *  memory of 200k tokens reaches a few hundred messages; the cap only bounds
+ *  a pathological session. */
+const OVERVIEW_MAX_ROWS = 2000;
+
+/** The player's story memory and recap choice, as the panel sent them. */
+function overviewSettings(c: Context<AppEnv>, input: { storyMemory?: unknown; recapShare?: unknown }) {
+  const currentUser = c.get("user");
+  const query = overviewQuerySchema.safeParse(input);
+  const rollout = env.STORY_MEMORY_DEFAULT_AT ? Date.parse(env.STORY_MEMORY_DEFAULT_AT) : Number.NaN;
+  const storyMemoryTokens = resolveStoryMemory({
+    saved: query.success ? query.data.storyMemory : undefined,
+    maxContext: MAX_STORY_MEMORY,
+    accountCreatedAt: (currentUser as { createdAt?: Date | null }).createdAt ?? null,
+    newAccountsFrom: Number.isFinite(rollout) ? new Date(rollout) : null,
+    carriedOverDefault: env.STORY_MEMORY_CARRIED_OVER_DEFAULT ?? null,
+  }).tokens;
+  return { storyMemoryTokens, chosenShare: query.success ? query.data.recapShare : undefined };
+}
+
+/**
+ * Whether the recap runs for this session and how large it may grow, by the
+ * same rules a turn uses (extensions/session-memory/hooks.ts): the player's
+ * choice in AI settings, else on (an explicit uninstall of the memory feature
+ * opts out); a session's own recap switch in the memory panel.
+ */
+async function sessionRecap(userId: string, row: typeof playSessions.$inferSelect, settings: ReturnType<typeof overviewSettings>) {
+  const authorRequired = env.STORY_SUMMARY_DEFAULT_ON || await sessionWorldRequiresStorySummary(row.id, userId);
+  const installed = await isExtensionInstalled(userId, SESSION_MEMORY_EXTENSION_KEY);
+  const share = resolveRecapShare({ chosen: settings.chosenShare });
+  let on = share !== "off";
+  if (on && installed) {
+    const systems = getMemorySystemSettings(row);
+    on = systems.localdevSummaryIncluded || systems.summaryceptionIncluded;
+  } else if (on && settings.chosenShare === undefined) {
+    // On by default: an explicit uninstall still opts out.
+    on = !(await getUninstalledExtensions(userId)).has(SESSION_MEMORY_EXTENSION_KEY);
+  }
+  return {
+    installed,
+    authorRequired,
+    share,
+    on,
+    budgetTokens: on ? recapBudgetTokens(settings.storyMemoryTokens, share) : 0,
+  };
+}
+
+async function memoryOverview(c: Context<AppEnv>, sessionId: string, input?: { storyMemory?: unknown; recapShare?: unknown }): Promise<MemoryOverview | null> {
+  const currentUser = c.get("user");
+  const [row] = await db.select().from(playSessions)
+    .where(and(eq(playSessions.id, sessionId), eq(playSessions.userId, currentUser.id))).limit(1);
+  if (!row) return null;
+
+  const settings = overviewSettings(c, input ?? { storyMemory: c.req.query("storyMemory"), recapShare: c.req.query("recapShare") });
+  const { storyMemoryTokens } = settings;
+  const recap = await sessionRecap(currentUser.id, row, settings);
+  const systems = await resolveMemorySystemSettings(currentUser.id, row, { authorRequired: recap.authorRequired });
+  const layeredOn = recap.on;
+
+  const notFailed = and(eq(messages.sessionId, sessionId), ne(messages.status, "failed"));
+  const [counts] = await db.select({
+    total: sql<number>`count(*)::int`,
+    folded: sql<number>`count(*) filter (where ${messages.summaryceptionCompacted})::int`,
+    // Folded into a chapter (not just set aside when the player chose to
+    // start the recap later). The outer row is named in full: drizzle writes
+    // a one-table select's columns unqualified, which the joins make ambiguous.
+    inRecap: sql<number>`count(*) filter (where ${messages.summaryceptionCompacted} and exists (
+      select 1 from ${summaryceptionSnippets} s
+      join messages first_m on first_m.id = s.source_start_message_id
+      join messages last_m on last_m.id = s.source_end_message_id
+      where s.session_id = ${sessionId}
+        and (first_m.created_at, first_m.id) <= ("messages"."created_at", "messages"."id")
+        and (last_m.created_at, last_m.id) >= ("messages"."created_at", "messages"."id")))::int`,
+  }).from(messages).where(notFailed);
+
+  // The recent window, the way a turn builds it: newest first, until story
+  // memory is full or the history reaches what the recap already holds.
+  const newest = await db.select({
+    content: messages.content,
+    layered: messages.summaryceptionCompacted,
+    images: sql<number>`COALESCE(jsonb_array_length(${messages.attachments}), 0)`,
+  }).from(messages).where(notFailed)
+    .orderBy(desc(messages.createdAt), desc(messages.id)).limit(OVERVIEW_MAX_ROWS);
+  let used = 0;
+  let recent = 0;
+  for (const message of newest) {
+    if (layeredOn && message.layered) break;
+    const tokens = estimateTextTokens(message.content ?? "") + Number(message.images) * 1600;
+    if (recent > 0 && used + tokens > storyMemoryTokens) break;
+    used += tokens;
+    recent += 1;
+  }
+  const total = counts?.total ?? 0;
+  const folded = layeredOn ? counts?.folded ?? 0 : 0;
+  const inRecap = layeredOn ? counts?.inRecap ?? 0 : 0;
+  // Set aside by "start from here": folded, but in no chapter.
+  const skipped = Math.max(0, folded - inRecap);
+  const unseen = Math.max(0, total - recent - inRecap);
+  // Set-aside history is priced on its own: the fill folds just that part,
+  // between the chapters already written (fillSetAsideRecap).
+  const backfill = layeredOn && unseen > 0
+    ? await estimateRecapBackfill({ sessionId, userId: currentUser.id, storyMemoryTokens, recapBudgetTokens: recap.budgetTokens, setAside: skipped > 0 }).catch(() => null)
+    : null;
+  return {
+    totalMessages: total,
+    storyMemoryTokens,
+    recentMessages: recent,
+    recentTokens: used,
+    summarizedMessages: 0,
+    layeredMessages: inRecap,
+    unseenMessages: unseen,
+    skippedMessages: skipped,
+    avgMessageTokens: recent > 0 ? Math.round(used / recent) : 0,
+    pinned: normalizePinnedMemory(row.sessionMemoryPinned),
+    pinnedMaxChars: MAX_PINNED_MEMORY_CHARS,
+    extensionActive: recap.installed || recap.authorRequired,
+    summaryOn: false,
+    layeredOn,
+    autoMemoryOn: recap.installed && systems.sessionMemoryIncluded,
+    recap: {
+      share: recap.share,
+      budgetTokens: recap.budgetTokens,
+      model: layeredOn ? (await recapRunModel(currentUser.id, row).catch(() => null))?.model ?? null : null,
+      tokens: layeredOn ? row.summaryceptionTokenCount ?? 0 : 0,
+      status: recapRunStatus(row),
+      error: row.summaryceptionError ?? null,
+      backfill: backfill && backfill.backlogMessages > 0 && (skipped > 0 || backfill.needsApproval || unseen - skipped > 0)
+        ? {
+            messages: skipped > 0 ? skipped : backfill.backlogMessages,
+            tokens: backfill.backlogTokens,
+            needsApproval: skipped > 0 || backfill.needsApproval,
+            estimatedCredits: backfill.estimatedCredits,
+            rebuild: skipped > 0,
+          }
+        : null,
+    },
+  };
+}
+
+sessionMemoryRoutes.get("/:sessionId/memory-overview", authMiddleware, async (c) => {
+  const overview = await memoryOverview(c, c.req.param("sessionId"));
+  if (!overview) return c.json({ error: "Session not found" }, 404);
+  return c.json({ data: overview });
+});
+
+const recapBackfillSchema = z.object({
+  mode: z.enum(["all", "skip"]),
+  storyMemory: z.number().int().min(MIN_STORY_MEMORY).max(MAX_STORY_MEMORY).optional(),
+  recapShare: z.enum(RECAP_SHARES).optional(),
+  /** What the player was shown and confirmed ("all"): the price, and whether
+   *  it was a rebuild. A fresh estimate above it, or of the other kind, is
+   *  refused rather than charged. */
+  approvedCredits: z.number().nonnegative().nullable().optional(),
+  approvedRebuild: z.boolean().optional(),
+});
+
+/** Room for the estimate moving between the confirm and the request (a reply
+ *  or two landing in between), never more. */
+const APPROVED_PRICE_SLACK = 1.1;
+
+/**
+ * The player's answer when the recap has older history it would not fold on
+ * its own: "all" folds it now (in the background; the panel shows progress),
+ * "skip" starts the recap from the current story.
+ */
+/** The stop button on a recap run in progress. Chapters written so far stay. */
+sessionMemoryRoutes.post("/:sessionId/recap-stop", authMiddleware, async (c) => {
+  const currentUser = c.get("user");
+  const sessionId = c.req.param("sessionId");
+  const body = await c.req.json().catch(() => ({})) as { storyMemory?: unknown; recapShare?: unknown };
+  const [row] = await db.select({ id: playSessions.id }).from(playSessions)
+    .where(and(eq(playSessions.id, sessionId), eq(playSessions.userId, currentUser.id))).limit(1);
+  if (!row) return c.json({ error: "Session not found" }, 404);
+  await stopRecapRun(sessionId, currentUser.id);
+  return c.json({ data: await memoryOverview(c, sessionId, body) });
+});
+
+sessionMemoryRoutes.post("/:sessionId/recap-backfill", authMiddleware, rateLimitMiddleware("ai-generation"), async (c) => {
+  const currentUser = c.get("user");
+  const sessionId = c.req.param("sessionId");
+  const parsed = await parseBody(c, recapBackfillSchema);
+  if (!parsed.ok) return parsed.res;
+  const [row] = await db.select().from(playSessions)
+    .where(and(eq(playSessions.id, sessionId), eq(playSessions.userId, currentUser.id))).limit(1);
+  if (!row) return c.json({ error: "Session not found" }, 404);
+  const settings = overviewSettings(c, parsed.data);
+  const recap = await sessionRecap(currentUser.id, row, settings);
+  if (!recap.on) return c.json({ error: "The recap is off for this story" }, 409);
+
+  const before = parsed.data.mode === "all" ? await memoryOverview(c, sessionId, parsed.data) : null;
+  if (before) {
+    const offer = before.recap.backfill;
+    if (before.recap.status === "updating") return c.json({ error: "The recap is already being folded" }, 409);
+    if (!offer) return c.json({ data: before });
+    const approved = parsed.data.approvedCredits;
+    const priceMoved = offer.estimatedCredits != null
+      && (approved == null || offer.estimatedCredits > Math.ceil(approved * APPROVED_PRICE_SLACK));
+    if (priceMoved || (parsed.data.approvedRebuild ?? false) !== offer.rebuild) {
+      return c.json({ error: "The price changed. Check it again in the memory panel.", data: before }, 409);
+    }
+  }
+  if (parsed.data.mode === "skip") {
+    await skipRecapBackfill({ sessionId, userId: currentUser.id, storyMemoryTokens: settings.storyMemoryTokens });
+  } else {
+    void (before?.recap.backfill?.rebuild ? fillSetAsideRecap : compactSummaryceptionForSession)({
+      sessionId,
+      userId: currentUser.id,
+      fallbackModel: row.summaryceptionModel || row.summaryModel || DEFAULT_STORY_SUMMARY_MODEL,
+      finalPromptRawTokenLimit: Math.max(1, Math.floor(settings.storyMemoryTokens / 2)),
+      foldAll: true,
+      backfillApproved: true,
+      recapBudgetTokens: recap.budgetTokens,
+      storyMemoryTokens: settings.storyMemoryTokens,
+    }).catch((err) => console.warn("[Recap] backfill failed:", err instanceof Error ? err.message : err));
+  }
+  const overview = await memoryOverview(c, sessionId, parsed.data);
+  // The run claims the session a moment after this answers; show it as
+  // started so the panel follows it instead of asking again.
+  if (overview && parsed.data.mode === "all") {
+    overview.recap = { ...overview.recap, status: "updating", error: null, backfill: null };
+  }
+  return c.json({ data: overview });
+});
+
+sessionMemoryRoutes.patch("/:sessionId/pinned-notes", authMiddleware, async (c) => {
+  const currentUser = c.get("user");
+  const sessionId = c.req.param("sessionId");
+  const parsed = await parseBody(c, memoryPinnedSchema);
+  if (!parsed.ok) return parsed.res;
+  const [updated] = await db.update(playSessions)
+    .set({ sessionMemoryPinned: normalizePinnedMemory(parsed.data.pinned), updatedAt: new Date() })
+    .where(and(eq(playSessions.id, sessionId), eq(playSessions.userId, currentUser.id)))
+    .returning();
+  if (!updated) return c.json({ error: "Session not found" }, 404);
+  const overview = await memoryOverview(c, sessionId);
+  return c.json({ data: overview });
 });

@@ -49,6 +49,12 @@ export const READ_SWEEP_METRIC_KEYS: string[] = ALL_METRIC_KEYS.filter((k) => !L
 // trailing evaluation when the window closes, so the last turn of a burst is
 // never left un-graded. Per instance — a few extra runs across replicas are fine.
 const HOT_EVAL_WINDOW_MS = 60_000;
+
+/** The highest threshold any achievement sets on max_world_message_count. */
+const MAX_WORLD_MESSAGE_COUNT_CAP = Math.max(
+  1,
+  ...ACHIEVEMENTS.filter((a) => a.metricKey === "max_world_message_count").flatMap((a) => a.tiers.map((t) => t.threshold)),
+);
 const hotEvalAt = new Map<string, number>();
 const hotEvalTrailing = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -355,10 +361,15 @@ export async function onPlaytimeTick(playerId: string): Promise<void> {
  *  was the #1 disk reader in prod: 1.9B blocks over 1.7M calls). Coalesced per
  *  (user, world); the daily batch still re-derives the exact value. */
 async function refreshMaxWorldMessageCount(userId: string, worldId: string): Promise<void> {
+  // Stop counting at the top tier: past it the number changes nothing, and a
+  // long-time player's world holds tens of thousands of messages (this count
+  // was 18% of the primary's time in prod, 319 ms a call, on every reply).
   const res = await db.execute(sql`
-    SELECT count(*)::int AS value
-    FROM messages m JOIN play_sessions ps ON m.session_id = ps.id
-    WHERE ps.user_id = ${userId} AND ps.world_id = ${worldId} AND ps.ephemeral = false`);
+    SELECT count(*)::int AS value FROM (
+      SELECT 1 FROM messages m JOIN play_sessions ps ON m.session_id = ps.id
+      WHERE ps.user_id = ${userId} AND ps.world_id = ${worldId} AND ps.ephemeral = false
+      LIMIT ${MAX_WORLD_MESSAGE_COUNT_CAP}
+    ) capped`);
   const count = Number(rowsOf(res)[0]?.value ?? 0);
   const idMap = await achievementIds();
   await bumpMetric(userId, "max_world_message_count", count, sql`GREATEST(user_achievement_progress.value, ${count})`, idMap);

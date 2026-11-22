@@ -66,7 +66,11 @@ test("creation, import, and reopening preserve content and choose the intended e
     "@tanstack/react-router": { createFileRoute: () => (config: object) => ({ ...config, useParams: () => ({ worldId: "saved-card" }), useSearch: () => ({}) }), useNavigate: () => router.navigate, useRouter: () => router, useRouterState: () => undefined },
     "lucide-react": new Proxy({}, { get: () => () => null }),
     "react-i18next": { useTranslation: () => ({ t: translate }) },
-    "@/stores/editor": { useEditorStore },
+    "@/stores/editor": { useEditorStore, saveBeforeLeaving: () => {} },
+    // Starting a card from a market pack, and Studio opened with one to install: neither is exercised here.
+    "@/lib/feedback": { feedback: { error: () => {}, notice: () => {} } },
+    // Both reach the market through the edition seam.
+    "@/edition/slots": { loadWorldFromBundle: async () => { throw new Error("unused"); }, PendingBundleInstall: () => null },
     "@yumina/shared": { clampWorldTags: (value: unknown) => value },
     "@/hooks/use-auth-guard": { useAuthGuard: () => ({ isAuthenticated: authenticated, requireAuth: () => {} }) },
     "@/lib/world-templates": { WORLD_TEMPLATES: [], defaultOpening: () => ({ name: "Opening", content: "[first moment]" }) },
@@ -85,12 +89,16 @@ test("creation, import, and reopening preserve content and choose the intended e
     "@/features/editor/lib/editor-mode": { getGlobalEditorMode: () => preference, getEditorMode: () => null, saveGlobalEditorMode: (value: typeof preference) => { preference = value; } },
     "@/features/editor/use-unsaved-changes-guard": { useUnsavedChangesGuard: () => ({ status: "idle" }) },
     "@/features/editor/unsaved-changes-dialog": { UnsavedChangesDialog: () => null },
+    "@/features/editor/components/guest-editor-readonly": { GuestSignInBar: () => <div>GUEST_BAR</div> },
+    "@/features/studio/lib/use-external-writes": { useExternalWrites: () => {} },
+    "@/features/collab/use-collab-presence": { useCollabPresence: () => {} },
     "@/features/editor/editor-entry": { prepareStudioEntry, resolveEditorMode },
     "@/features/editor/lib/cover-settings-target": { coverSettingsSearch },
     "@/features/editor/editor-draft-recovery": { backupEditorDraft },
     "@/features/editor/save-status": { useSaveWhenHidden: () => {} },
     "@/lib/blueprint-access": { fetchBlueprintAccess: async () => true },
     "@/lib/auth-client": { getSessionSafe: async () => ({ data: {} }) },
+    "@/lib/require-session": { requireSession: async () => ({ data: {} }) },
     "@/lib/safe-back": { navigateBackSafely: () => {} },
     "@/features/editor/editor-unavailable": { EditorUnavailable: () => <div>UNAVAILABLE</div>, useEditorOwnership: () => null },
     // The re-import offer reads the real editor store (and analytics) — nothing here is one of the creator's own cards.
@@ -118,6 +126,12 @@ test("creation, import, and reopening preserve content and choose the intended e
     try { await act(async () => { root.render(<Page />); }); await check(); }
     finally { await act(async () => root.unmount()); }
   };
+  // Under 768px Studio is the phone studio, where the classic editor is still a choice that holds.
+  const onPhone = async (run: () => Promise<void>) => {
+    const width = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 500 });
+    try { await run(); } finally { Object.defineProperty(window, "innerWidth", { configurable: true, value: width }); }
+  };
   const click = async (text: string) => {
     const button = [...document.querySelectorAll("button")].find(node => node.textContent?.includes(text));
     assert.ok(button, `button exists: ${text}`);
@@ -131,13 +145,13 @@ test("creation, import, and reopening preserve content and choose the intended e
     await act(async () => input.dispatchEvent(new dom.window.Event("change", { bubbles: true })));
   };
   try {
-    for (const mode of ["simple", "advanced"] as const) await suite.test(`unpreferred JSON import keeps content when ${mode} is selected`, async () => {
-      reset();
+    for (const mode of ["simple", "advanced"] as const) await suite.test(`a JSON import keeps its content opening ${mode === "simple" ? "in 简单 when that was set" : "on the canvas unasked"}`, async () => {
+      reset(); preference = mode === "simple" ? "simple" : null;
       await withPage(CreatePage, async () => {
         await upload();
         assert.equal(imports, 1);
-        await click(mode === "simple" ? "quickCreate.modeSimpleTitle" : "quickCreate.modeAdvancedTitle");
-        assert.equal(creates, 0, "mode selection must never reinitialize imported data");
+        assert.equal(document.body.textContent?.includes("quickCreate.modeDialogTitle"), false, "no simple-or-canvas question");
+        assert.equal(creates, 0, "opening must never reinitialize imported data");
         assert.deepEqual(store.worldDraft.entries, [{ id: "unique", content: "必须保留的正文" }]);
         if (mode === "advanced") {
           assert.deepEqual(toStudio(), ["/app/studio/$worldId"], "advanced opens on the canvas once the import is saved");
@@ -148,7 +162,7 @@ test("creation, import, and reopening preserve content and choose the intended e
     await suite.test("PNG without preference keeps its cover when advanced opens", async () => {
       reset(); importedCover = new Blob(["png"]);
       await withPage(CreatePage, async () => {
-        await upload(); await click("quickCreate.modeAdvancedTitle");
+        await upload();
         assert.equal(creates, 0); assert.equal(coverUploads, 1);
         assert.equal(store.worldDraft.avatar, "uploaded-cover");
         assert.deepEqual(toStudio(), ["/app/studio/$worldId"], "the cover is saved before the card moves to the canvas");
@@ -173,12 +187,19 @@ test("creation, import, and reopening preserve content and choose the intended e
         assert.equal(saves, 0);
         assert.ok(tourHeld(), "their own card is not where the first lesson runs");
       });
+      // On a computer the board is the editor (2e2ef08d7: it has no switch to leave by), so an old
+      // 「完整」 choice no longer holds it back; on a phone the choice still stands.
       reset(); store.serverWorldId = "saved-card"; store.worldDraft = { id: "saved", editorMode: "advanced" };
       localStorage.setItem("yumina-editor-surface", "classic");
       await withPage(EditPage, async () => {
-        assert.equal(navigations.length, 0, "turning the 画布 switch off is remembered");
-        assert.ok(document.body.textContent?.includes("LEGACY"));
+        assert.deepEqual(toStudio(), ["/app/studio/$worldId"], "an old classic choice does not hold a computer back");
       });
+      reset(); store.serverWorldId = "saved-card"; store.worldDraft = { id: "saved", editorMode: "advanced" };
+      localStorage.setItem("yumina-editor-surface", "classic");
+      await onPhone(() => withPage(EditPage, async () => {
+        assert.equal(navigations.length, 0, "on a phone, turning the switch off is remembered");
+        assert.ok(document.body.textContent?.includes("LEGACY"));
+      }));
     });
     await suite.test("Simple switched to advanced goes to the canvas and is greeted there", async () => {
       reset(); store.serverWorldId = "saved-card"; store.worldDraft = { id: "saved", editorMode: "simple", entries: ["保持正文"] };
@@ -189,9 +210,54 @@ test("creation, import, and reopening preserve content and choose the intended e
         assert.deepEqual(store.worldDraft.entries, ["保持正文"]);
       });
     });
-    await suite.test("guest advanced remains a local preview without a remote save", async () => {
+    await suite.test("guest advanced is shown on the canvas here, read-only, without a remote save", async () => {
       reset(); authenticated = false; preference = "advanced";
-      await withPage(CreatePage, async () => { await click("templates.blank"); assert.equal(saves, 0); assert.ok(document.body.textContent?.includes("LEGACY")); });
+      await withPage(CreatePage, async () => {
+        await click("templates.blank");
+        assert.equal(saves, 0); assert.equal(navigations.length, 0);
+        assert.ok(document.body.textContent?.includes("STUDIO")); assert.ok(document.body.textContent?.includes("GUEST_BAR"));
+        assert.equal(sessionStorage.getItem("yumina-studio-quiet-tour"), "1", "the editing lessons wait for a card they can edit");
+      });
+    });
+    await suite.test("a guest is not asked simple-or-canvas: the canvas opens", async () => {
+      reset(); authenticated = false; preference = null;
+      localStorage.setItem("yumina-editor-surface", "classic");
+      await withPage(CreatePage, async () => {
+        await click("templates.blank");
+        assert.equal(document.body.textContent?.includes("quickCreate.modeDialogTitle"), false, "no mode dialog");
+        assert.ok(document.body.textContent?.includes("STUDIO"));
+        assert.equal(saves, 0);
+        assert.equal(preference, null, "a guest's way in is not remembered as their choice");
+      });
+    });
+    await suite.test("a guest on a phone gets the canvas as well, unasked", async () => {
+      reset(); authenticated = false; preference = null;
+      const width = window.innerWidth;
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: 500 });
+      try {
+        await withPage(CreatePage, async () => { await click("templates.blank"); assert.equal(saves, 0); assert.ok(document.body.textContent?.includes("STUDIO")); });
+      } finally {
+        Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
+      }
+    });
+    await suite.test("a signed-in creator who never chose is not asked: the canvas opens, and nothing is remembered", async () => {
+      reset(); preference = null;
+      await withPage(CreatePage, async () => {
+        await click("templates.blank");
+        assert.equal(document.body.textContent?.includes("quickCreate.modeDialogTitle"), false, "no simple-or-canvas question");
+        assert.deepEqual(toStudio(), ["/app/studio/$worldId"]);
+        assert.equal(preference, null, "landing on the canvas is not a choice");
+        assert.equal(localStorage.getItem("yumina-editor-surface"), null);
+      });
+    });
+    await suite.test("a creator who turned the 画布 switch off keeps the editor they chose (on a phone)", async () => {
+      reset(); preference = null;
+      localStorage.setItem("yumina-editor-surface", "classic");
+      await onPhone(() => withPage(CreatePage, async () => {
+        await click("templates.blank");
+        assert.equal(navigations.length, 0, "the switch is the choice, and it said classic");
+        assert.ok(document.body.textContent?.includes("LEGACY"));
+      }));
     });
     await suite.test("a new advanced world opens on the canvas and leaves the blueprint's own layout alone", async () => {
       reset(); preference = "advanced";

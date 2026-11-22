@@ -1,3 +1,4 @@
+import { navigateToGenerate } from "@/edition/slots";
 import { isAssetArchiveFilename } from "@yumina/shared";
 import { fetchUploadConcurrency, runUploadBatch } from "@/lib/asset-upload-policy";
 import { useAssetImportStore as useArchiveImportStore } from "@/stores/asset-imports";
@@ -65,7 +66,7 @@ import { assetImportStore, useAssetImportStore } from "@/stores/asset-import";
 import { LibraryEmptyState } from "./library-empty-state";
 // Through the edition seam: the local edition stubs this to null rather
 // than shipping the platform generator.
-import { GenerationPanel } from "@/edition/slots";
+import { useNavigate } from "@tanstack/react-router";
 import { MediaGuidelinesNote } from "@/components/media-guidelines-note";
 import { BulkActionsBar } from "./bulk-actions-bar";
 import { useAuthGuard } from "@/hooks/use-auth-guard";
@@ -180,14 +181,8 @@ export function LibraryAssetsTab({
   }, []);
   // Platform image generation is hosted-only; the local edition shows uploads only.
   const imageGeneration = useFeature("imageGeneration");
-  const [generationOpen, setGenerationOpen] = useState(false);
-  const [generationRefAssetId, setGenerationRefAssetId] = useState<string | null>(null);
-  const [generationRefTemplate, setGenerationRefTemplate] = useState<string>("image-smart");
-  const [generationOwner, setGenerationOwner] = useState(session?.user.id);
+  const navigate = useNavigate();
   useEffect(() => {
-    setGenerationOpen(false);
-    setGenerationRefAssetId(null);
-    setGenerationOwner(session?.user.id);
     setCurrentFolderId(null);
     setBulkMoveOpen(false);
     setBulkMoving(false);
@@ -828,7 +823,7 @@ export function LibraryAssetsTab({
         {!bulkMode && <>
           {imageGeneration && (
             <button
-              onClick={() => { if (!isAuthenticated) { requireAuth("create worlds"); return; } setGenerationOpen(true); }}
+              onClick={() => { if (!isAuthenticated) { requireAuth("create worlds"); return; } navigateToGenerate(navigate, { view: "image" }); }}
               className="flex items-center gap-1.5 rounded-lg border border-primary/50 bg-primary/10 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:border-primary hover:bg-primary/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
             >
               <ImagePlus size={14} />
@@ -980,29 +975,6 @@ export function LibraryAssetsTab({
         <AssetPagination page={page} totalPages={totalPages} loading={loading} onPageChange={fetchCurrentPage} />
       )}
 
-      {/* ─── AI Generation Panel ─── hosted-only */}
-      {imageGeneration && (
-        <GenerationPanel
-          key={session?.user.id ?? "guest"}
-          open={generationOpen && generationOwner === session?.user.id}
-          onOpenChange={(open) => {
-            setGenerationOpen(open);
-            if (!open) {
-              setGenerationRefAssetId(null);
-              fetchCurrentPage();
-              fetchFolders();
-            }
-          }}
-          defaultFolderId={currentFolderId}
-          initialTemplateId={generationRefAssetId ? generationRefTemplate : undefined}
-          initialReferenceAssetId={generationRefAssetId ?? undefined}
-          onGenerated={() => {
-            fetchCurrentPage();
-            fetchFolders();
-          }}
-        />
-      )}
-
       {/* ─── Preview Dialog ─── */}
       <Dialog
         open={!!previewAsset}
@@ -1028,10 +1000,10 @@ export function LibraryAssetsTab({
               {imageGeneration && (
                 <button
                   onClick={() => {
-                    setGenerationRefAssetId(previewAsset.id);
-                    setGenerationRefTemplate("image-anime");
+                    // The image studio, with this picture as its reference.
+                    const from = previewAsset.id;
                     setPreviewAsset(null);
-                    setGenerationOpen(true);
+                    navigateToGenerate(navigate, { view: "image", from });
                   }}
                   className="flex shrink-0 items-center gap-1.5 rounded-md bg-white/10 px-2.5 py-1 text-xs text-foreground/70 transition-colors hover:bg-white/20 hover:text-foreground"
                 >

@@ -1,3 +1,7 @@
+---
+title: "Day-night cycle"
+description: "Make time pass on its own every few turns, with the AI atmosphere and the music following the period, for adventure and life-sim worlds."
+---
 <div v-pre>
 
 # Day-Night Cycle
@@ -204,7 +208,7 @@ Click **Play** in the top bar.
 
 If you write your own interface, read the variable in the interface code. Everything above stays the same.
 
-**Panels → Front End Code** → open `index.tsx` and replace the default `return <Chat />`:
+**Panels → Interface code** → open `index.tsx` and replace the default `return <Chat />`:
 
 ```tsx
 export default function MyWorld() {
@@ -261,7 +265,7 @@ export default function MyWorld() {
 - `timeConfig` maps each period to an icon and colours
 - `isLastMsg` keeps the badge on the last message only. Remove that check to stamp every message with the time
 
-The status next to the file in **Panels → Front End Code** should read a green **OK**.
+The status next to the file in **Panels → Interface code** should read a green **OK**.
 
 ---
 

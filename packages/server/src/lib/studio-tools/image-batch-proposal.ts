@@ -1,5 +1,5 @@
 import {
-  MAX_IMAGE_BATCH_ITEMS, SMART_IMAGE_MODEL, SMART_IMAGE_MODEL_IDS,
+  MAX_IMAGE_BATCH_ITEMS, SMART_IMAGE_MODEL, SMART_IMAGE_MODEL_IDS, canonicalSmartImageModelId,
   SMART_IMAGE_4K_COST_FACTOR, resolveSmartImageAspect, resolveSmartImageResolution,
   type ImageBatchProposal, type ImageBatchProposalItem, type ImageBatchTarget,
 } from "@yumina/shared";
@@ -25,7 +25,7 @@ function normalizeTarget(value: unknown): ImageBatchTarget | null {
  * pictures than the creator was asked to approve. No client price is accepted. */
 export function normalizeImageBatchProposal(value: unknown): ImageBatchProposal | null {
   if (!record(value) || !Array.isArray(value.items) || !value.items.length || value.items.length > MAX_IMAGE_BATCH_ITEMS) return null;
-  const model = value.model === undefined ? SMART_IMAGE_MODEL : value.model;
+  const model = value.model === undefined ? SMART_IMAGE_MODEL : typeof value.model === "string" ? canonicalSmartImageModelId(value.model) : value.model;
   if (typeof model !== "string" || !(SMART_IMAGE_MODEL_IDS as readonly string[]).includes(model)) return null;
   const ids = new Set<string>();
   const targets = new Set<string>();

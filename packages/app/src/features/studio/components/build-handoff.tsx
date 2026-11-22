@@ -36,7 +36,7 @@ export function BuildHandoff({ proposal, worldId, conversationId, available, onB
       <Dialog open={open} onOpenChange={value => setOpenKey(value ? key : null)}>
         <DialogContent mobileSheet hideClose className="gap-0 pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:max-w-sm">
           <div className="mx-auto mb-5 h-1 w-8 rounded-full bg-border sm:hidden" aria-hidden="true" />
-          <p className="mb-2 text-xs text-primary">{t("studio.aiChat.mode.briefSaved")}</p>
+          <p className="mb-2 text-xs text-muted-foreground">{t("studio.aiChat.mode.briefSaved")}</p>
           <DialogTitle className="mb-2 text-xl leading-snug">{t("studio.aiChat.mode.buildTitle")}</DialogTitle>
           <DialogDescription className="mb-5 leading-relaxed">{proposal.summary}</DialogDescription>
           <ul className="mb-5 space-y-3 border-y border-border py-4">

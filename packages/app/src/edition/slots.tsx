@@ -9,14 +9,21 @@
  *
  * Keep the export list identical to `slots.tsx`.
  */
+import type { MediaTool } from "@yumina/shared";
 import { lazy } from "react";
 import { importWithChunkRecovery } from "@/lib/stale-chunk-reload";
 import type {
   BundleCreatorProps,
   BundleImporterProps,
+  BundleCanvasEmbedProps,
+  CanvasPackLayerProps,
+  LoadWorldFromBundle,
+  PackFrameChromeFn,
+  PendingBundleInstallProps,
   DmMessageIconProps,
   ExtensionReviewsBagBase,
   FriendPickerProps,
+  WorldTestersDialogProps,
   GenerationPanelProps,
   HubSearchHandle,
   ImportBundleModalProps,
@@ -27,7 +34,8 @@ import type {
   TipModalProps,
   WorldPublishModalProps,
   WorldReviewsSectionProps,
-} from "./slots.types";
+  WorldPlaythroughsSectionProps,
+  LiveSeaBadgeProps, MediaToolProposalCardProps, NavigateToGenerate, OpenStoryPublish, QuickGenerateProps, MediaToolSheetProps, IllustrationLoraFieldProps } from "./slots.types";
 
 const noop = (): void => {};
 const resolved = (): Promise<void> => Promise.resolve();
@@ -36,6 +44,9 @@ const resolved = (): Promise<void> => Promise.resolve();
 export function CreditIndicator() { return null; }
 export function NotificationBell(_props: NotificationBellProps = {}) { return null; }
 export function ContentLevelSwitcher() { return null; }
+export function HalloweenTopBarEntry() { return null; }
+export function ShareSeasonStrip(_props: { className?: string }) { return null; }
+export function HiddenPumpkin(_props: { spot: string; size?: number; className?: string }) { return null; }
 export function DmMessageIcon(_props: DmMessageIconProps) { return null; }
 export function PartnerDashboardLink() { return null; }
 
@@ -44,11 +55,27 @@ export function TipButton(_props: TipButtonProps) { return null; }
 export function TipModal(_props: TipModalProps) { return null; }
 export function SupportBadge(_props: SupportBadgeProps) { return null; }
 export function FriendPicker(_props: FriendPickerProps) { return null; }
+export function WorldTestersDialog(_props: WorldTestersDialogProps) { return null; }
+export function TestingWorldsRow() { return null; }
 
 // ── Editor / Studio ─────────────────────────────────────────────────────────
 export function BundlesSection() { return null; }
 export function BundleCreator(_props: BundleCreatorProps) { return null; }
 export function BundleImporter(_props: BundleImporterProps) { return null; }
+export function PendingBundleInstall(_props: PendingBundleInstallProps) { return null; }
+export function CanvasPackLayer(_props: CanvasPackLayerProps) { return null; }
+export function openPackMarketDrawer(_kind?: "all" | "interface" | "module" | "template"): boolean { return false; }
+export function closePackMarketDrawer(): void {}
+export function openPackMarketStore(_use?: string): boolean { return false; }
+export function usePackDrawerOpen(): boolean { return false; }
+export const HAS_PACK_MARKET = false;
+export function MarketInterfaceTiles(_props: { onPicked: () => void; onAll: () => void }) { return null; }
+const noUpdates: Readonly<Record<string, number>> = {};
+export function usePackUpdates(): Readonly<Record<string, number>> { return noUpdates; }
+export const packFrameChrome: PackFrameChromeFn = () => null;
+/** No market in the local edition: nothing to build a card from. */
+export const loadWorldFromBundle: LoadWorldFromBundle = () => Promise.resolve(null);
+export function BundleCanvasEmbed(_props: BundleCanvasEmbedProps) { return null; }
 export function GenerationEditorSection() { return null; }
 export function GenerationAtelier(_props: { worldId: string | null }) { return null; }
 export function ShareModuleButton(_props: { book: import("@yumina/engine").Worldbook; className?: string }) { return null; }
@@ -57,6 +84,8 @@ export function WorldPublishModal(_props: WorldPublishModalProps) { return null;
 
 // ── Library / reviews ───────────────────────────────────────────────────────
 export function WorldReviewsSection(_props: WorldReviewsSectionProps) { return null; }
+export function WorldPlaythroughsSection(_props: WorldPlaythroughsSectionProps) { return null; }
+export function LiveSeaBadge(_props: LiveSeaBadgeProps) { return null; }
 export function LibraryBundlesTab() { return null; }
 export function LibraryPromptsTab() { return null; }
 export function GenerationPanel(_props: GenerationPanelProps) { return null; }
@@ -98,3 +127,15 @@ export function useAchievementMomentActive(): boolean { return false; }
 
 // ── Social ──────────────────────────────────────────────────────────────────
 export function useStartDm(): (targetUserId: string) => Promise<void> { return resolved; }
+
+// ── Hosted picture features: nothing to show or do in the local edition ──
+export function MediaToolProposalCard(_props: MediaToolProposalCardProps) { return null; }
+export function PlazaPlayerBar() { return null; }
+export function StoryPublishHost() { return null; }
+export const openStoryPublish: OpenStoryPublish = () => Promise.resolve(false);
+export const navigateToGenerate: NavigateToGenerate = () => {};
+export function QuickGenerate(_props: QuickGenerateProps) { return null; }
+export function MediaToolSheet(_props: MediaToolSheetProps) { return null; }
+export function toolsFor(_mediaKind: "image" | "video" | "audio"): MediaTool[] { return []; }
+export function IllustrationLoraField(_props: IllustrationLoraFieldProps) { return null; }
+export function useIllustrationLorasOffered(): boolean { return false; }

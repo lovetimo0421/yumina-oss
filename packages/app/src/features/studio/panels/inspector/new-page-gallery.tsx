@@ -21,7 +21,7 @@ import { useLearningWorkspace } from "../../learn/learning-workspace";
 // Real screenshots of each page, filled in and themed, so a creator sees what
 // the player will see. One set in Chinese, one in English for everyone else.
 
-function thumbSrc(id: string, lang: string): string {
+export function thumbSrc(id: string, lang: string): string {
   return `/create/page-templates/${id}${lang.startsWith("zh") ? "" : ".en"}.webp`;
 }
 
@@ -42,8 +42,7 @@ export function NewPageGallery({
   const { t, i18n } = useTranslation("editor");
   const openings = useOpeningCount();
   // Mid-tutorial the guide steps out of the gallery's way (it is a dialog),
-  // so the gallery says its own part: what is in here, and that choosing
-  // nothing is fine too.
+  // so the gallery says its own line: pick one, or close it.
   const { step } = useLearningWorkspace();
   useEffect(() => {
     if (!open) return;
@@ -60,17 +59,17 @@ export function NewPageGallery({
       data-page-template={id}
       disabled={Boolean(blocked)}
       onClick={pick}
+      // What it is and what it adds, on hover: the tile itself is the picture
+      // and the name.
+      title={[desc, blocked ?? wired].filter(Boolean).join("\n")}
       className="group flex flex-col gap-2 rounded-xl p-2 text-left transition-colors hover:bg-accent/60 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
     >
-      <div className="aspect-[16/10] w-full overflow-hidden rounded-lg border border-border/70 bg-background/60 transition-colors group-hover:border-primary/60 group-disabled:group-hover:border-border/70">
+      <div className="aspect-[16/10] w-full overflow-hidden rounded-lg border border-border/70 bg-background/60 transition-colors group-hover:border-foreground/30 group-disabled:group-hover:border-border/70">
         {body}
       </div>
       <div className="flex flex-col gap-0.5 px-0.5">
         <span className="text-[13px] font-semibold text-foreground">{name}</span>
-        <span className="text-[11.5px] leading-snug text-muted-foreground">{desc}</span>
-        {blocked
-          ? <span className="text-[11px] text-amber-400/90">{blocked}</span>
-          : wired && <span className="text-[11px] text-primary/90">{wired}</span>}
+        {blocked && <span className="text-[11px] text-amber-400/90">{blocked}</span>}
       </div>
     </button>
   );
@@ -85,7 +84,6 @@ export function NewPageGallery({
         <div className="flex items-start gap-4 border-b border-border/60 px-6 py-4">
           <div className="min-w-0 flex-1">
             <h2 className="text-lg font-bold text-foreground">{title ?? t("studio.pageTemplates.title")}</h2>
-            <p className="mt-1 text-[13px] text-muted-foreground">{t("studio.pageTemplates.sub")}</p>
           </div>
           <button type="button" onClick={onClose} aria-label={t("studio.pageTemplates.close")}
             className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
@@ -93,9 +91,9 @@ export function NewPageGallery({
           </button>
         </div>
         {step === "interface" && (
-          <div data-testid="gallery-tip" className="mx-6 mt-4 flex items-center gap-3 rounded-xl border border-[#f0c674]/40 bg-[#f0c674]/[0.07] px-3 py-2.5">
-            <img src="/mushie-stand.png" alt="" draggable={false} className="h-12 w-10 shrink-0 object-contain" />
-            <p className="text-[13px] leading-relaxed text-foreground/90">{t("studio.pageTemplates.tutorTip")}</p>
+          <div data-testid="gallery-tip" className="mx-6 mt-4 flex items-center gap-3 rounded-xl border border-border/70 bg-accent/40 px-3 py-2">
+            <img src="/mushie-stand.png" alt="" draggable={false} className="h-9 w-7 shrink-0 object-contain" />
+            <p className="text-[13px] text-foreground/90">{t("studio.pageTemplates.tutorTip")}</p>
           </div>
         )}
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
@@ -103,7 +101,7 @@ export function NewPageGallery({
               the card can take; they used to hide in 外观 → 版式. */}
           {onPickLayout && (
             <section className="mb-4" data-testid="gallery-layouts">
-              <h3 className="px-2 pb-2 text-[12px] font-semibold text-primary">{t("studio.pageTemplates.groupWhole")}</h3>
+              <h3 className="px-2 pb-2 text-[12px] font-semibold text-muted-foreground">{t("studio.pageTemplates.groupWhole")}</h3>
               <div className="grid grid-cols-2 gap-1 sm:grid-cols-3 lg:grid-cols-4">
                 {UI_TEMPLATES.map((layout) => {
                   const needs = (getUiTemplate(layout.id)?.needs ?? []).map((need) => String(t(`studio.layout.vars.${need.key}` as never)));
@@ -122,7 +120,7 @@ export function NewPageGallery({
           )}
           {([["opening", "studio.pageTemplates.groupOpening"], ["play", "studio.pageTemplates.groupPlay"]] as const).map(([group, heading]) => (
             <section key={group} className="mb-4">
-              <h3 className="px-2 pb-2 text-[12px] font-semibold text-primary">{t(heading)}</h3>
+              <h3 className="px-2 pb-2 text-[12px] font-semibold text-muted-foreground">{t(heading)}</h3>
               <div className="grid grid-cols-2 gap-1 sm:grid-cols-3 lg:grid-cols-4">
                 {UI_PAGE_TEMPLATES.filter((tpl) => (tpl.place === "play") === (group === "play")).map((tpl) => {
                   const base = `studio.pageTemplates.tpl.${tpl.id}`;

@@ -29,8 +29,8 @@ export function ChatCanvas({ messageRenderer = null }: ChatCanvasProps) {
           <div className={`flex min-h-0 min-w-0 flex-1 flex-col ${!messageRenderer ? "play-default-chat" : ""}`}>
             <MessageList rendererComponent={messageRenderer} />
           </div>
-          {!api.readOnly && <MessageInput />}
-          {api.readOnly && (api.messages as unknown[])?.length > 0 && (
+          {(!api.readOnly || api.storyRoom) && <MessageInput />}
+          {api.readOnly && !api.storyRoom && (api.messages as unknown[])?.length > 0 && (
             <div className="shrink-0 border-t border-border px-4 py-3 text-center text-xs text-muted-foreground/60">
               {t("readOnlySession")}
             </div>

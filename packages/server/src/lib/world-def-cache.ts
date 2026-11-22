@@ -3,7 +3,8 @@ import { migrateWorldDefinition, type WorldDefinition } from "@yumina/engine";
 import { db } from "../db/index.js";
 import { worlds } from "../db/schema.js";
 import { getPendingEdit } from "./pending-edit.js";
-import { viewerSeesWorkingCopy } from "./working-copy.js";
+import { viewerCanEditSql, viewerSeesWorkingCopy } from "./working-copy.js";
+import { worldPlayAccessSql } from "./world-testers.js";
 
 /**
  * Parsed world definitions for the session write paths (state patch,
@@ -39,19 +40,21 @@ function setCached(worldId: string, updatedAt: Date | null, worldDef: WorldDefin
 
 /**
  * The world definition a viewer's session should be normalised against. A
- * creator playing their own published world gets their held working copy
- * (never cached — it is theirs alone and rare); everyone else gets the live
- * schema from the version-stamped cache. Null when the world is gone.
+ * creator (or editor collaborator) playing a published world they work on gets
+ * the held working copy (never cached — it is theirs alone and rare); everyone
+ * else gets the live schema from the version-stamped cache. Null when the
+ * world is gone. The editor check rides in the meta query (no extra trip).
  */
 export async function loadSessionWorldDef(worldId: string, viewerId: string): Promise<WorldDefinition | null> {
   const [meta] = await db
-    .select({ id: worlds.id, status: worlds.status, creatorId: worlds.creatorId, updatedAt: worlds.updatedAt })
+    .select({ id: worlds.id, status: worlds.status, creatorId: worlds.creatorId, updatedAt: worlds.updatedAt, viewerCanReadFollowers: worldPlayAccessSql(viewerId), viewerCanEdit: viewerCanEditSql(viewerId) })
     .from(worlds)
     .where(eq(worlds.id, worldId))
     .limit(1);
-  if (!meta) return null;
+  // Editor collaborators are the card's team: they pass the audience/tester gate.
+  if (!meta || (!meta.viewerCanReadFollowers && meta.viewerCanEdit !== true)) return null;
 
-  if (viewerSeesWorkingCopy(meta.status, meta.creatorId, viewerId)) {
+  if (viewerSeesWorkingCopy(meta.status, meta.creatorId, viewerId, meta.viewerCanEdit === true)) {
     const pending = await getPendingEdit(meta.id);
     if (pending?.schema) return migrateWorldDefinition(pending.schema as unknown as WorldDefinition);
   }

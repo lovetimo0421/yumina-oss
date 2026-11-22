@@ -9,6 +9,7 @@ import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { preloadTokenizer } from "@yumina/engine";
 import { env } from "./lib/env.js";
+import { UpdateInReviewError } from "./lib/world-collaborators.js";
 import { privateStateCache } from "./middleware/private-state-cache.js";
 import { requestBodyLimit } from "./middleware/request-body-limit.js";
 import {
@@ -21,6 +22,7 @@ import {
   ensureQuestBoardSchema,
   ensureTranslationAttemptsTable,
   ensureCommunityEventTables,
+  ensureWorldCollaboratorSchema,
   ensureCommunityImageColumns,
   ensureCommunityOfficialColumn,
   ensureDmSchema,
@@ -33,6 +35,7 @@ import {
   // testing-only: re-applies main's additive DDL against the real Postgres this
   // branch deploys to, which nobody migrates by hand.
   ensureRecentAdditiveSchema,
+  ensureStoryRoomsSchema,
   ensureScheduledFunctions,
   ensureSessionContextColumns,
   ensureTables,
@@ -41,9 +44,12 @@ import {
   ensureWorldReviewControlsColumn,
   ensureSessionPersonaColumn,
   ensureWorldReviewTables,
+  prepareEmbeddedWorldFeedback,
+  verifyWorldFeedbackSchema,
   ensureWorldVersionSchema,
   ensureWorldTagsConstraint,
   ensureWorldsSchemaDerived,
+  ensureBundleInstallsSync,
   flagWrite,
   seedPlatformAchievements,
   ensureJwksTable,
@@ -57,6 +63,7 @@ import { users } from "./routes/users.js";
 import { worldRoutes } from "./routes/worlds.js";
 import { worldChangeRoutes } from "./routes/world-changes.js";
 import { apiKeyRoutes } from "./routes/api-keys.js";
+import { isCanonicalPath } from "./lib/canonical-path.js";
 import localBridgeRoutes from "./routes/local-bridge.js";
 import { localSetupRoutes } from "./routes/local-setup.js";
 import { initLocalBridge } from "./lib/local-bridge/registry.js";
@@ -66,6 +73,7 @@ import { sessionMemoryRoutes } from "./routes/session-memory.js";
 import { stateGuardRoutes } from "./routes/state-update-guard.js";
 import { liveCanonRoutes } from "./routes/live-canon.js";
 import { messageRoutes } from "./routes/messages.js";
+import { registerStoryRoomRunner, stopStoryRoomRunner } from "./lib/story-room-runner.js";
 import { studioRoutes } from "./routes/studio.js";
 import { assetRoutes } from "./routes/assets.js";
 import { userPromptsRoutes } from "./routes/user-prompts.js";
@@ -80,6 +88,9 @@ import { folderBindingRoutes } from "./routes/folder-bindings.js";
 import { personaRoutes } from "./routes/personas.js";
 import { agentRoutes } from "./routes/agent.js";
 import { agentApiRoutes, mcpDiscoveryRoutes } from "./routes/agent-api.js";
+import { worldCollaboratorRoutes } from "./routes/world-collaborators.js";
+import { worldCollabTextRoutes } from "./routes/world-collab-text.js";
+import { worldInviteLinkRoutes } from "./routes/world-invite-links.js";
 import { worldAccessRoutes } from "./routes/world-access.js";
 import { connectedAppsRoutes } from "./routes/connected-apps.js";
 import { cdnRoutes } from "./routes/cdn.js";
@@ -91,6 +102,7 @@ import { extensionRoutes } from "./routes/extensions.js";
 import { localAuthRoutes } from "./routes/local-auth.js";
 import { completionRoutes } from "./routes/completions.js";
 import { ttsRoutes } from "./routes/tts.js";
+import { voiceDesignRoutes } from "./routes/voice-design.js";
 import { voiceInputRoutes } from "./routes/voice-input.js";
 import { realtimeVideoRoutes } from "./routes/realtime-video.js";
 import { socialSimulatorRoutes } from "./routes/social-simulator.js";
@@ -100,8 +112,10 @@ import { isTestingRequest } from "./lib/testing-origin.js";
 import { connectRedis, disconnectRedis } from "./lib/redis.js";
 import { posthog, captureServerError } from "./lib/posthog.js";
 import { drainStreams, activeStreamCount } from "./lib/stream-registry.js";
-import { getMetaForPath, injectMeta, injectContent } from "./lib/seo.js";
+import { getMetaForPath, injectMeta, injectContent, robotsValue } from "./lib/seo.js";
+import { publicPageRoutes } from "./routes/public-page.js";
 import { renderPublicContent } from "./lib/prerender.js";
+import { asksForMarkdown, markdownSourcePath, markdownTwinPath, pageMarkdown } from "./lib/page-markdown.js";
 import { registerSessionMemoryExtension } from "./extensions/session-memory/hooks.js";
 import { registerStateUpdateGuard } from "./extensions/state-update-guard/hooks.js";
 import { registerLiveCanonExtension } from "./extensions/live-canon/hooks.js";
@@ -140,12 +154,19 @@ process.on("uncaughtException", (err, origin) => {
 });
 
 import { startRuntimeMonitor } from "./lib/runtime-monitor.js";
-import { captureBoundedCpuProfile } from "./lib/cpu-profile.js";
+import { captureBoundedCpuProfile, createStallProfiler } from "./lib/cpu-profile.js";
 import { runtimeIdentity } from "./lib/runtime-identity.js";
 import { findDatabaseQueryTimeout, withDatabaseQueryTimeout } from "./db/query-deadline.js";
+const profileStall = createStallProfiler({
+  captureMs: env.RUNTIME_STALL_PROFILE_SECONDS * 1000,
+  onProfile: (profile, trigger) =>
+    console.log(`[CPU_PROFILE] ${JSON.stringify({ ...runtimeIdentity, trigger: "stall", ...trigger, ...profile })}`),
+  onError: error => captureServerError("cpu-profile", error),
+});
 const stopRuntimeMonitor = startRuntimeMonitor((event, properties) => {
   console.log(`[${event === "event_loop_lag" ? "LOOP" : "RUNTIME"}] ${JSON.stringify(properties)}`);
   posthog.capture({ distinctId: "server", event, properties });
+  profileStall(properties.event_loop_utilization as number);
 });
 
 const app = new Hono();
@@ -169,6 +190,9 @@ app.onError((err, c) => {
   if (err.message === "aborted") {
     return c.json({ error: "Request aborted" }, 400);
   }
+  // A collaborator's write that would have pulled the creator's update out of
+  // review (any Studio write path: rollback, assistant, image batches…).
+  if (err instanceof UpdateInReviewError) return c.json({ error: err.message, code: err.code }, 409);
   if (err instanceof SyntaxError && /JSON/i.test(err.message)) {
     console.warn(`[400] ${c.req.method} ${c.req.path}: malformed JSON body (${err.message})`);
     return c.json({ error: "Invalid JSON body" }, 400);
@@ -181,6 +205,17 @@ app.onError((err, c) => {
       : { error: "Internal Server Error" },
     500,
   );
+});
+
+// A path is taken exactly as spelled, or not at all. The file server resolves
+// "//sandbox/index.html", "/./sandbox/index.html" and "/%2e/sandbox/index.html"
+// to the same file as "/sandbox/index.html", while the middleware that attaches
+// a file's policy (the sandbox CSP, the /cdn sandbox) matches only the plain
+// spelling: the odd ones served the card sandbox document with no policy at
+// all, framable by any site. Nothing legitimate asks for a path like these.
+app.use("*", async (c, next) => {
+  if (!isCanonicalPath(c.req.path)) return c.text("Not found", 404);
+  return next();
 });
 
 // Deduplicate expensive plan/entitlement resolution within a single request.
@@ -257,6 +292,8 @@ app.route("/api/auth", authRoutes);
 // The edition descriptor is public: a logged-out browser reads it to decide
 // between a login screen and single-user auto sign-in.
 app.route("/api/edition", editionRoutes);
+// The public intro pages' content, for the app to show what crawlers were sent.
+app.route("/api/public-page", publicPageRoutes);
 // The update log is public (internal entries only for admins) and read from
 // changelog/ at the repo root, so parse it once at boot and log any bad file.
 getChangelogEntries();
@@ -266,6 +303,11 @@ app.route("/api/users", users);
 app.route("/api/discover", discoverRoutes);
 app.route("/api/worlds", worldRoutes);
 app.route("/api/world-changes", worldChangeRoutes);
+// Before the collaborator routes: `/worlds/:id/link` is not a person.
+// Live text first: its keystroke-rate requests skip the other routers' middleware.
+app.route("/api/world-collab", worldCollabTextRoutes);
+app.route("/api/world-collab", worldInviteLinkRoutes);
+app.route("/api/world-collab", worldCollaboratorRoutes);
 app.route("/api/keys", apiKeyRoutes);
 app.route("/api/local-bridge", localBridgeRoutes);
 // Outside AIs on one card, by token — before any cookie-auth "/api/*" router.
@@ -290,6 +332,7 @@ app.route("/api/extensions", extensionRoutes);
 app.route("/api", messageRoutes);
 app.route("/api", completionRoutes);
 app.route("/api", ttsRoutes);
+app.route("/api/voice-design", voiceDesignRoutes);
 app.route("/api", voiceInputRoutes);
 app.route("/api", realtimeVideoRoutes);
 app.route("/api/sessions", socialSimulatorRoutes);
@@ -320,6 +363,13 @@ app.get("/favicon.ico", (c) => c.redirect("/favicon-32.png", 301));
 app.use("/cdn/*", async (c, next) => {
   await next();
   c.header("Access-Control-Allow-Origin", "*");
+  // These are users' files on the app's own origin. Opened as a page (a link,
+  // an iframe), `sandbox` gives the document an opaque origin and no script,
+  // so it cannot call /api as the reader. Images, audio, video, fonts and
+  // fetched data are unaffected: the header only governs documents. No type is
+  // exempt: an exemption keyed on the stored Content-Type is one more string an
+  // uploader controls.
+  c.header("Content-Security-Policy", "sandbox");
 });
 app.route("/cdn", cdnRoutes);
 
@@ -351,10 +401,23 @@ if (process.env.NODE_ENV === "production") {
     if (c.req.path.startsWith("/assets/")) return c.notFound();
     if (c.req.path.startsWith("/experiments/unperson/")) return c.notFound();
 
+    // "/pricing.md" is the Markdown copy of "/pricing" (lib/page-markdown.ts).
+    // The same copy answers the page's own address when Markdown is asked for
+    // ahead of HTML.
+    const markdownSource = markdownSourcePath(c.req.path);
+    const pagePath = markdownSource ?? c.req.path;
+    const wantsMarkdown = markdownSource !== null || asksForMarkdown(c.req.header("accept"));
+    c.header("Vary", "Accept");
+
     let html = indexHtml;
     try {
-      const meta = await getMetaForPath(c.req.path);
+      // Only a thread's page number and a search term change what a page is;
+      // sort, filter and tracking parameters never reach the canonical URL.
+      const query = { page: c.req.query("page") ?? null, search: Boolean(c.req.query("search") || c.req.query("q")) };
+      const meta = await getMetaForPath(pagePath, query);
       html = injectMeta(indexHtml, meta);
+      // Kept out of search in the header too, for crawlers that never parse the page.
+      if (meta.noindex) c.header("X-Robots-Tag", robotsValue(meta));
       // A world or creator address that resolves to nothing is a real
       // not-found: the shell still renders (the app shows its own message),
       // but crawlers must not file it as a page.
@@ -364,11 +427,36 @@ if (process.env.NODE_ENV === "production") {
       // mount. Never for pages kept out of search, and not on the creator
       // host, whose root is a different page.
       const onCreatorHost = /^creator\./i.test(c.req.header("host") ?? "");
-      if (!meta.noindex && !meta.status && !onCreatorHost) {
-        html = injectContent(html, await renderPublicContent(c.req.path));
+      const fragment = !meta.noindex && !meta.status && !onCreatorHost ? await renderPublicContent(pagePath, query) : null;
+      if (wantsMarkdown && fragment) {
+        c.header("Content-Type", "text/markdown; charset=utf-8");
+        // The ".md" address may be cached. The page's own address answering in
+        // Markdown may not: a cache that ignores Vary would hand it to a browser.
+        c.header("Cache-Control", markdownSource !== null ? "public, max-age=300, stale-while-revalidate=3600" : "no-store");
+        c.header("Link", `<${meta.url}>; rel="canonical"`);
+        return c.body(pageMarkdown(meta, fragment));
+      }
+      if (fragment) {
+        html = injectContent(html, fragment);
+        // The page says where its Markdown copy lives, in the head and in a
+        // header. Never at the cost of the content above: a URL that will not
+        // parse only loses the pointer.
+        try {
+          const twin = new URL(markdownTwinPath(new URL(meta.url).pathname), meta.url).href;
+          c.header("Link", `<${twin}>; rel="alternate"; type="text/markdown"`);
+          html = html.replace("</head>", `<link rel="alternate" type="text/markdown" href="${twin}" />\n</head>`);
+        } catch {
+          // no pointer
+        }
       }
     } catch {
       // Meta injection failed — serve unmodified HTML
+    }
+
+    // A ".md" address with no page behind it is a plain not-found, never the app shell.
+    if (markdownSource !== null) {
+      c.header("Cache-Control", "no-store");
+      return c.text("Not found\n", 404);
     }
 
     c.header("Cache-Control", "no-store, no-cache, must-revalidate");
@@ -506,6 +594,11 @@ if (process.env.NODE_ENV === "production") {
     // them DYNAMIC, sending every image to the LA origin. HTML stays no-store so SPA
     // deploys never serve a stale index.html. (2026-06-05 wallpaper/asset-cache fix.)
     onFound: (path, c) => {
+      // The sandbox document's policy travels with the file itself, whatever
+      // address it was reached by; the route middleware above is the usual path.
+      if (/[\/]sandbox[\/]|[\/]sandbox-doc-/.test(path)) {
+        c.header("Content-Security-Policy", SANDBOX_CSP);
+      }
       // The Unperson world runs in an opaque sandbox origin. Only its public
       // textures need cross-origin reads; no credentials or API access here.
       if (c.req.path.startsWith("/experiments/unperson/assets/")) {
@@ -647,11 +740,13 @@ async function runSchemaSelfHealOnce(): Promise<void> {
   await ensureUserMuteColumns();
   await ensureLifetimePlaytimePending();
   await ensureWorldsSchemaDerived();
+  await ensureBundleInstallsSync();
   await ensureMessagesSwipeCount();
   await ensureWorldReviewControlsColumn();
   await ensureSessionPersonaColumn();
   await ensureWorldReviewTables();
   await ensureWorldVersionSchema();
+  await ensureWorldCollaboratorSchema();
   await ensureJwksTable();
   await ensurePlatformAchievementTables();
   await seedPlatformAchievements();
@@ -667,6 +762,7 @@ async function runSchemaSelfHealOnce(): Promise<void> {
   await ensureTranslationAttemptsTable();
   await ensureProfileWallTable();
   await ensureDmSchema();
+  await ensureStoryRoomsSchema();
   await ensureExtensionTables();
   await ensureScheduledFunctions();
   await ensureAnalyticsRollupTables();
@@ -719,11 +815,14 @@ function scheduleSchemaSelfHeal(): void {
 // concurrent old deployment to contend with, so it heals synchronously
 // before serving.
 async function start() {
+  // Fail closed before accepting traffic: this data migration is operator-only.
+  if (env.DATABASE_URL) await verifyWorldFeedbackSchema();
   if (!env.DATABASE_URL) {
     // Empty embedded database: create the schema first, then let the
     // self-heal suite bring it to parity (see db/bootstrap-pglite.ts).
     await bootstrapPgliteSchema();
     await runSchemaSelfHealOnce();
+    await prepareEmbeddedWorldFeedback();
   }
 
   // (2026-06-01) Hub Translation (multilanguage_overview) is retired — superseded
@@ -746,6 +845,8 @@ async function start() {
   // local: nothing).
   edition.startBackgroundJobs();
   if (edition.name === "hosted") { startSessionMediaCleanup(); startAssetImportWorker(); }
+  // Story rooms: the server sends each round as its host (lib/story-room-runner.ts).
+  if (edition.name === "hosted") registerStoryRoomRunner(app);
 
   // Load the cl100k_base ranks up front so token budgeting is exact from the
   // first request. estimateTokens falls back to a char heuristic until the
@@ -797,6 +898,7 @@ async function start() {
     // "still running" warnings during deploys.
     edition.stopBackgroundJobs();
     stopAssetImportWorker();
+    stopStoryRoomRunner();
     stopRateLimitCleanup();
     server.close();
     const [{ finishedNaturally, abortedCount }] = await Promise.all([

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { and, eq } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { playSessions, worlds } from "../db/schema.js";
+import { viewerCanEditSql } from "../lib/working-copy.js";
 import { authMiddleware } from "../middleware/auth.js";
 import type { AppEnv } from "../lib/types.js";
 import { getUninstalledExtensions, isExtensionInstalled } from "../lib/extensions.js";
@@ -71,11 +72,12 @@ export function createStateGuardRoutes(deps: GuardRouteDeps = { authenticate: au
     if (mode === "default" && body.data.model !== undefined) return forbidden(c);
     const userId = c.get("user").id;
     const scope = and(eq(playSessions.id, c.req.param("sessionId")), eq(playSessions.userId, userId));
-    const [row] = await db.select({ creatorId: worlds.creatorId, allowCustomApi: worlds.allowCustomApi })
+    const [row] = await db.select({ creatorId: worlds.creatorId, allowCustomApi: worlds.allowCustomApi, sealedContent: worlds.sealedContent, viewerCanEdit: viewerCanEditSql(userId) })
       .from(playSessions).innerJoin(worlds, eq(playSessions.worldId, worlds.id)).where(scope);
     if (!row) return c.json({ error: "Session not found" }, 404);
     if (body.data.model) {
-      try { await deps.resolveModel(userId, body.data.model, !row.allowCustomApi && row.creatorId !== userId); }
+      // Creator and editor collaborators are exempt from the protected-world rule (a sealed card is not).
+      try { await deps.resolveModel(userId, body.data.model, row.sealedContent || (!row.allowCustomApi && row.creatorId !== userId && row.viewerCanEdit !== true)); }
       catch { return c.json({ error: "Correction model unavailable. Check your plan, AI Provider connection, and this card's private-provider permissions." }, 400); }
     }
     // Independent columns: never overwrite game state or another setting. Changes

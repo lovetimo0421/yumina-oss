@@ -87,3 +87,35 @@ test("settings links target the exact preference without triggering story naviga
     assert.equal(app.document.querySelectorAll('[data-cover-hidden="true"]').length, 2);
   } finally { await app.cleanup(); }
 });
+
+test("showing a card's cover once shows it wherever that card appears, and nowhere else", async () => {
+  const env = clientDom();
+  const { SensitiveCoverImage } = loadClientModule<{
+    SensitiveCoverImage: ComponentType<{ src: string; conceal: boolean; alt: string; worldId?: string }>;
+  }>(new URL("./sensitive-cover-image.tsx", import.meta.url), {
+    "./sensitive-cover-image.css": {},
+    "react-i18next": { useTranslation: () => ({ t: (key: string) => key }) },
+    "@/lib/auth-client": { useSession: () => ({ data: { user: { id: "viewer" } } }) },
+    "@/lib/asset-url": { cardImageUrl: (src: string) => src },
+    "@/lib/cover-crop": { CroppedImage: ({ src, alt }: { src: string; alt: string }) => <img data-clear-cover src={src} alt={alt} /> },
+  });
+  const { createRoot } = await import("react-dom/client");
+  const root = createRoot(env.dom.window.document.getElementById("root")!);
+  const document = env.dom.window.document;
+  const draw = (page: boolean) => act(async () => root.render(<div>
+    <SensitiveCoverImage worldId="card-a" src="/a-grid.jpg" alt="grid" conceal />
+    <SensitiveCoverImage worldId="card-b" src="/b-grid.jpg" alt="other" conceal />
+    {page && <SensitiveCoverImage worldId="card-a" src="/a-page.jpg" alt="page" conceal />}
+  </div>));
+  try {
+    await draw(false);
+    await act(async () => document.querySelector<HTMLElement>(".sensitive-cover-show")!.click());
+    // The card's own page opens afterwards, with a different picture of the same card: already shown.
+    await draw(true);
+    assert.deepEqual([...document.querySelectorAll("[data-clear-cover]")].map((img) => img.getAttribute("alt")), ["grid", "page"]);
+    assert.equal(document.querySelectorAll('[data-cover-hidden="true"]').length, 1);
+    // Hiding it again from the page hides it on the grid too.
+    await act(async () => document.querySelectorAll<HTMLElement>(".sensitive-cover-hide")[1]!.click());
+    assert.equal(document.querySelectorAll("[data-clear-cover]").length, 0);
+  } finally { await act(async () => root.unmount()); env.restore(); }
+});

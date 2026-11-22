@@ -2,7 +2,7 @@ import { StrictMode, useEffect, useRef, useState } from "react";
 import { rememberShareInvite } from "@/lib/share-invite";
 import { createRoot } from "react-dom/client";
 import { RouterProvider, createRouter } from "@tanstack/react-router";
-import { trackTikTokPageView } from "@/lib/analytics";
+import { registerAiReferrer, trackTikTokPageView } from "@/lib/analytics";
 import { PostHogProvider } from "@posthog/react";
 import { routeTree } from "./routeTree.gen";
 import {
@@ -18,12 +18,15 @@ import posthog from "posthog-js";
 import type { CaptureResult } from "posthog-js";
 import "@/styles/globals.css";
 import { rememberArrival } from "@/lib/arrival-attribution";
+import { rememberAiReferrer } from "@/lib/ai-referrer";
 import { isAnalyticsEnabled } from "@/lib/analytics-enabled";
 import { getLandingRoute } from "@/edition/routes";
 import { OPEN_STUDIO_EVENT } from "@/lib/studio-navigation";
 
 rememberArrival();
 rememberShareInvite();
+// Read the landing referrer and utm_source before the router can rewrite the URL.
+if (isAnalyticsEnabled()) rememberAiReferrer();
 
 // Safari < 18.4 lacks requestIdleCallback — PostHog SDK uses it internally.
 if (typeof window.requestIdleCallback === "undefined") {
@@ -172,6 +175,8 @@ const posthogOptions = {
   loaded: (ph: { register: (props: Record<string, string>) => void }) => {
     const release = import.meta.env.VITE_APP_RELEASE;
     if (release) ph.register({ app_release: release });
+    // A visit that began in an AI assistant: ai_referrer on every event.
+    registerAiReferrer(ph);
   },
 } as const;
 

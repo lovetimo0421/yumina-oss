@@ -1,7 +1,7 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useReactFlow } from "@xyflow/react";
-import { Link2Off, Minus, X } from "lucide-react";
+import { Link2, Link2Off, Minus, X } from "lucide-react";
 import type { GraphLayout } from "@yumina/engine";
 import { cn } from "@/lib/utils";
 
@@ -41,8 +41,6 @@ const widthOf = (n: { w: number }) => (n.w === 200 || n.w === 260 ? NOTE_SIZE.w 
 /** Above every block on the board (an entry block lifts itself to ~1000). */
 const Z_THREADS = 3000;
 const Z_NOTE = 3001;
-
-const HAND = '"Segoe Print","Bradley Hand","Comic Sans MS","KaiTi","STKaiti","Kaiti SC",cursive';
 
 /** What a note is stuck to (older notes carry one `on`). */
 export const noteTargets = (n: Note): string[] => n.targets?.length ? n.targets : n.on ? [n.on] : [];
@@ -359,8 +357,8 @@ export function StickyNoteLayer({
             >
               <div onPointerDown={(e) => startDrag(e, n, "move")} className={cn("flex h-4 items-center gap-0.5 px-1.5 pt-1", !readOnly && "cursor-grab active:cursor-grabbing")}>
                 {count > 0 && (
-                  <span className="rounded-full px-1 text-[9px] font-semibold leading-[12px]" style={{ background: "rgba(0,0,0,0.08)" }} title={t("blueprint.notes.stuckTo", { count })}>
-                    📌 {count}
+                  <span className="inline-flex items-center gap-0.5 rounded-full px-1 text-[9px] font-semibold leading-[12px]" style={{ background: "rgba(0,0,0,0.08)" }} title={t("blueprint.notes.stuckTo", { count })}>
+                    <Link2 className="h-2.5 w-2.5" />{count}
                   </span>
                 )}
                 <span className="flex-1" />
@@ -405,10 +403,9 @@ export function StickyNoteLayer({
                   const grown = extra > 2 ? hOf(n) + extra : undefined;
                   if (ta.value !== n.text || (grown && grown > heightOf(n))) update(n.id, { text: ta.value, ...(grown && grown > heightOf(n) ? { h: Math.round(grown) } : {}) });
                 }}
-                className="min-h-0 w-full flex-1 resize-none bg-transparent px-2.5 pb-1 pt-0.5 text-[13px] leading-[20px] outline-none placeholder:opacity-40"
+                className="min-h-0 w-full flex-1 resize-none bg-transparent px-2.5 pb-1 pt-0.5 text-[13px] font-medium leading-[20px] outline-none placeholder:opacity-40"
                 style={{
                   color: palette.ink,
-                  fontFamily: HAND,
                   backgroundImage: `repeating-linear-gradient(transparent 0 19px, ${palette.line} 19px 20px)`,
                   backgroundAttachment: "local",
                 }}

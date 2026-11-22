@@ -1,15 +1,14 @@
 import { useState, useRef, useEffect, useCallback, useMemo, memo } from "react";
-import { firstSuggestionKey } from "./ai-chat-first-suggestion";
 import type { IDockviewPanelProps } from "dockview-react";
 import {
-  Send,
+  ArrowUp,
+  SquarePen,
+  PanelRightClose,
   Loader2,
   Trash2,
   Square,
-  Paperclip,
   X,
   FileCode,
-  MessageSquare,
   Plus,
   Trash,
   GripHorizontal,
@@ -22,13 +21,13 @@ import {
   MousePointerSquareDashed,
   ThumbsUp,
   Play,
-  ThumbsDown,
-} from "lucide-react";
+  ThumbsDown, Sparkle } from "lucide-react";
 import { captureHubEvent, type HubEventMap } from "@/lib/analytics";
 import { cn } from "@/lib/utils";
 import { useComposerSubmit } from "@/lib/composer-submit";
 import { useStudioStore } from "@/stores/studio";
 import { STUDIO_ASK_EVENT, type StudioAskDetail } from "../lib/block-ask";
+import { wholeCardRequest } from "../lib/whole-card-request";
 import { useEditorStore } from "@/stores/editor";
 import { useCreditStore } from "@/edition/slots.state";
 import { useFeature } from "@/edition/edition";
@@ -44,10 +43,12 @@ import { toolLabel } from "../components/change-labels";
 import { NoApiKeyNotice, isNoApiKeyError } from "../components/no-api-key-notice";
 import { CreditPauseCard } from "../components/credit-pause-card";
 import { ImageProposalCard } from "../components/image-proposal-card";
+import { MediaToolProposalCard } from "@/edition/slots";
 import { ImageBatchProposalCard } from "../components/image-batch-proposal-card";
-import { DigestProgress, JobAsk } from "../components/agent-job-chat";
+import { DigestProgress, JobAsk, RigProgress } from "../components/agent-job-chat";
+import { AgentPlan } from "../components/agent-plan";
 import { BuildHandoff } from "../components/build-handoff";
-import { latestBuildProposal } from "../lib/build-handoff";
+import { conversationMode, latestBuildProposal } from "../lib/build-handoff";
 import type { StudioBuildProposal } from "@yumina/shared";
 import { focusKind, toneChip } from "../lib/kind-tone";
 import { AssistantModeSwitch } from "../components/assistant-mode";
@@ -157,7 +158,7 @@ const MAX_INPUT_HEIGHT = 320;
 const MessageContent = memo(function MessageContent({ content }: { content: string }) {
   return (
     <div
-      className="text-xs text-foreground [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
+      className="text-[13px] leading-relaxed text-foreground/90 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
       dangerouslySetInnerHTML={{ __html: renderMessage(content) }}
     />
   );
@@ -223,8 +224,23 @@ const STUDIO_VISION_FALLBACK = "openai/gpt-5.6-luna";
 
 // ── Main Panel ──
 
-export function AiChatPanel(_props: IDockviewPanelProps) {
+/** Someone who may only view the card gets no assistant: it would change it. */
+export function AiChatPanel(props: IDockviewPanelProps) {
+  const { t } = useTranslation(["editor"]);
+  const viewer = useEditorStore((s) => s.access?.role === "viewer");
+  if (viewer) {
+    return (
+      <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">
+        {t("collab.viewerNoAssistant", "You can view this card. Only people who can edit it can use the assistant.")}
+      </div>
+    );
+  }
+  return <AiChatPanelBody {...props} />;
+}
+
+function AiChatPanelBody(_props: IDockviewPanelProps) {
   const { t } = useTranslation(["editor", "common"]);
+  const collaborator = useEditorStore((s) => s.access?.role === "editor");
   const STUDIO_STORAGE_KEY = "yumina-studio-model";
   const [input, setInput] = useState("");
   /** A block of the card's frontend the creator pointed at in the inspector. */
@@ -240,6 +256,9 @@ export function AiChatPanel(_props: IDockviewPanelProps) {
   const [inputHeight, setInputHeight] = useState(MIN_INPUT_HEIGHT);
   const [reasoningExpanded, setReasoningExpanded] = useState(false);
   const [modelBrowserOpen, setModelBrowserOpen] = useState(false);
+  /** Set by the canvas the assistant docks beside: its tab row is gone, so
+   *  putting the assistant away is a button in its own heading. */
+  const stageAssistant = useStudioStore((s) => s.stageAssistant);
   // Inline two-step confirm for the AI-chat undo button. Undo deletes the
   // last message exchange AND rolls back every world.schema mutation the
   // agent applied this turn — irreversible from the client. A misclick cost
@@ -324,9 +343,12 @@ export function AiChatPanel(_props: IDockviewPanelProps) {
   const chatConversationId = useStudioStore(s => s.chatConversationId);
   const confirmImageProposal = useStudioStore(s => s.confirmImageProposal);
   const declineImageProposal = useStudioStore(s => s.declineImageProposal);
+  const runMediaToolProposal = useStudioStore(s => s.runMediaToolProposal);
+  const declineMediaToolProposal = useStudioStore(s => s.declineMediaToolProposal);
   const chatAttachments = useStudioStore(s => s.chatAttachments);
   // Reading a whole book: one line of where it is, instead of the step count.
   const digest = useStudioStore(s => (s.aiDigest && s.aiDigest.runId === s._currentRunId ? s.aiDigest : null));
+  const rig = useStudioStore(s => (s.aiRig && s.aiRig.runId === s._currentRunId ? s.aiRig : null));
   const assistantMode = useStudioStore(s => s.assistantMode);
   const setAssistantMode = useStudioStore(s => s.setAssistantMode);
   const buildProposal = useMemo(() => latestBuildProposal(chatMessages), [chatMessages]);
@@ -336,14 +358,17 @@ export function AiChatPanel(_props: IDockviewPanelProps) {
   const regenerateLastTurn = useStudioStore(s => s.regenerateLastTurn);
   const reconnectAgent = useStudioStore(s => s.reconnectAgent);
   const nudgeRecovery = useStudioStore(s => s.nudgeRecovery);
+  const steerAgent = useStudioStore(s => s.steerAgent);
+  const takeReturnedSteers = useStudioStore(s => s.takeReturnedSteers);
+  const returnedSteers = useStudioStore(s => s.returnedSteers);
+  // The running request's checklist; a finished run's never lingers.
+  const agentPlan = useStudioStore(s => (s.agentPlan && s.agentPlan.runId === s._currentRunId ? s.agentPlan.plan : null));
   const isReconnecting = useStudioStore(s => s.isReconnecting);
   const runCosts = useStudioStore(s => s.runCosts);
   const serverWorldId = useEditorStore(s => s.serverWorldId);
   const otherWorldTask = !!serverWorldId && !!chatWorldId && chatWorldId !== serverWorldId
     && (isAgentWorking || isResumingCredits || !!_pendingApproval || !!_pendingImage || !!_pendingImageBatch);
-  const draftEntries = useEditorStore(s => s.worldDraft.entries);
-  const { i18n: i18nInstance } = useTranslation();
-  const firstSuggestion = useMemo(() => firstSuggestionKey(draftEntries, i18nInstance.language), [draftEntries, i18nInstance.language]);
+  const hasPendingApproval = !!_pendingApproval || !!_pendingImage;
   const fetchCredits = useCreditStore(s => s.fetchCredits);
   const creditBalance = useCreditStore(s => s.balance);
   const fetchProfile = useUserProfileStore(s => s.fetchProfile);
@@ -421,6 +446,8 @@ export function AiChatPanel(_props: IDockviewPanelProps) {
   const conversationLoadRef = useRef(0);
   const conversationLoadingRef = useRef(false);
   const sendPendingRef = useRef<number | null>(null);
+  /** The first message of a never-saved card is saving it; a second submit waits. */
+  const firstSavePendingRef = useRef(false);
   const [isConversationLoading, setIsConversationLoading] = useState(false);
 
   const visibleCreditPause = creditPause?.worldId === serverWorldId
@@ -599,7 +626,7 @@ export function AiChatPanel(_props: IDockviewPanelProps) {
       useStudioStore.setState(state => ({ runCosts: { ...state.runCosts, ...loadedCosts } }));
       useStudioStore.setState({
         chatMessages: data.messages,
-        assistantMode: "advise",
+        assistantMode: conversationMode(data.messages),
         chatWorldId: requestedWorldId,
         chatConversationId: convId,
         chatStreamContent: "",
@@ -748,24 +775,63 @@ export function AiChatPanel(_props: IDockviewPanelProps) {
    *  is still creating the conversation is refused, and refusing it must not
    *  cost the creator the text they had just typed. */
   const canSend = useCallback(() => (
-    !isAgentWorking && !conversationLoadingRef.current
+    !isAgentWorking && !conversationLoadingRef.current && !firstSavePendingRef.current
       && sendPendingRef.current !== conversationLoadRef.current
   ), [isAgentWorking]);
 
-  const sendText = useCallback(async (text: string, options?: { jobApproved?: boolean; mode?: "build" | "advise"; buildProposal?: StudioBuildProposal }) => {
+  /** A brand-new card exists only in this tab until its first save, and the
+   *  assistant works on the stored copy. Its first message used to be dropped
+   *  without a word — the text just sat in the box. Save it into existence
+   *  first, then adopt the new id here so the panel does not mistake its own
+   *  card for a world switch and wipe the send in flight. */
+  const ensureServerWorld = useCallback(async (): Promise<string | null> => {
+    const existing = useEditorStore.getState().serverWorldId;
+    if (existing) return existing;
+    firstSavePendingRef.current = true;
+    try {
+      await useEditorStore.getState().saveDraft().catch(() => false);
+    } finally {
+      firstSavePendingRef.current = false;
+    }
+    const id = useEditorStore.getState().serverWorldId;
+    if (!id) {
+      feedback.error(t("studio.aiChat.firstSaveFailed"));
+      return null;
+    }
+    if (prevWorldIdRef.current !== id) {
+      ++conversationLoadRef.current;
+      conversationLoadingRef.current = false;
+      setIsConversationLoading(false);
+      const store = useStudioStore.getState();
+      if (store.chatWorldId !== id) clearChat();
+      useStudioStore.setState({ chatWorldId: id, chatConversationId: null });
+      setActiveConversationId(null);
+      setConversations([]);
+      prevWorldIdRef.current = id;
+    }
+    return id;
+  }, [clearChat, t]);
+
+  const sendText = useCallback(async (text: string, options?: { jobApproved?: boolean; mode?: "build" | "advise"; buildProposal?: StudioBuildProposal }): Promise<boolean> => {
     const trimmed = text.trim();
-    if (!trimmed || !serverWorldId || !canSend()) return;
-    const requestedWorldId = serverWorldId;
+    if (!trimmed || !canSend()) return false;
+    const freshWorld = !serverWorldId;
+    const requestedWorldId = serverWorldId ?? await ensureServerWorld();
+    if (!requestedWorldId) return false;
+    // Another submit may have started while the card was being saved.
+    if (!canSend()) return false;
     const sendId = ++conversationLoadRef.current;
     sendPendingRef.current = sendId;
     const stillCurrent = () => isCurrentStudioWorld(requestedWorldId) && conversationLoadRef.current === sendId;
 
     try {
-      let conversationIdForSend = activeConversationId;
+      // A card saved just now has no conversation yet; the state captured
+      // before the save may still name the previous card's.
+      let conversationIdForSend = freshWorld ? null : activeConversationId;
 
       // Auto-create conversation if none active. If this fails we must NOT send —
       // the turn would run against a null conversation and never get persisted.
-      if (!activeConversationId) {
+      if (!conversationIdForSend) {
         try {
           const res = await fetch(`${apiBase}/api/studio/${requestedWorldId}/conversations`, {
             method: "POST",
@@ -775,7 +841,7 @@ export function AiChatPanel(_props: IDockviewPanelProps) {
           });
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const { data } = await res.json();
-          if (!stillCurrent()) return;
+          if (!stillCurrent()) return true;
           if (!data?.id) throw new Error("missing conversation id");
           conversationIdForSend = data.id;
           setActiveConversationId(data.id);
@@ -790,18 +856,19 @@ export function AiChatPanel(_props: IDockviewPanelProps) {
             feedback.error(t("studio.aiChat.createConvFailed"));
             setInput(trimmed); // restore the user's text so Send is the retry
           }
-          return;
+          return false;
         }
       }
 
-      if (!stillCurrent()) return;
+      if (!stillCurrent()) return true;
       // What is selected on the canvas goes with the message: only that is
       // sent in full, and "this" in the message means it.
       await sendChatMessage(requestedWorldId, trimmed, model, conversationIdForSend, useAiFocus.getState().items, options);
+      return true;
     } finally {
       if (sendPendingRef.current === sendId) sendPendingRef.current = null;
     }
-  }, [canSend, serverWorldId, model, sendChatMessage, activeConversationId, apiBase, t]);
+  }, [canSend, serverWorldId, ensureServerWorld, model, sendChatMessage, activeConversationId, apiBase, t]);
 
   // Start a proposed job: mark it started, then send the go-ahead. The next
   // run gets room to finish and is told not to stop and ask.
@@ -814,16 +881,43 @@ export function AiChatPanel(_props: IDockviewPanelProps) {
 
   const handleSend = useCallback(async () => {
     const trimmed = input.trim();
-    if (!trimmed || !serverWorldId || !canSend()) return;
-    setInput("");
+    if (!trimmed) return;
     // A block pinned from the frontend inspector rides in front of whatever the
     // creator typed, so "把这里改成蓝色" carries the address of "这里". It stays
     // pinned across turns — reshaping a region takes several, and re-picking it
     // before each one is the tax that would make the inspector go unused.
-    await sendText(attachedBlock ? `${attachedBlock.context}
+    const text = attachedBlock ? `${attachedBlock.context}
 
-${trimmed}` : trimmed);
-  }, [input, serverWorldId, canSend, sendText, attachedBlock]);
+${trimmed}` : trimmed;
+    // While the assistant works, the message joins the running request: it
+    // reads it before its next step, with no stop and no steps paid twice.
+    // A change waiting for review is not working: the text stays in the box.
+    if (isAgentWorking) {
+      if (otherWorldTask || hasPendingApproval) return;
+      setInput("");
+      if (!await steerAgent(text)) setInput((current) => current.trim() ? current : trimmed);
+      return;
+    }
+    if (!canSend()) return;
+    setInput("");
+    // 「帮我把整张卡写出来……我的点子是：」 with the idea written after it is
+    // the creator asking for the whole job in their own words: it starts as
+    // a job already approved. In 构思 it came back as a plan in the chat,
+    // then a 「写进去」, then a Start — three stops before a newcomer's first
+    // card had anything on it.
+    const wholeCard = wholeCardRequest(trimmed, String(t("studio.aiChat.suggestLoreFill")));
+    // Not sent (the card could not be saved): the text goes back in the box.
+    if (!await sendText(text, wholeCard ? { jobApproved: true } : undefined)) setInput((current) => current.trim() ? current : trimmed);
+  }, [input, canSend, sendText, attachedBlock, isAgentWorking, otherWorldTask, hasPendingApproval, steerAgent, t]);
+
+  // The run ended before reading what the creator added (the store kept the
+  // text for its conversation): it goes back in the box, ready to send as the
+  // next request. Also on coming back to that conversation later.
+  useEffect(() => {
+    if (!returnedSteers) return;
+    const back = takeReturnedSteers(chatWorldId, chatConversationId);
+    if (back) setInput((current) => current.trim() ? `${back}\n\n${current}` : back);
+  }, [returnedSteers, chatWorldId, chatConversationId, takeReturnedSteers]);
 
   // The frontend inspector pins a block to this composer. It is context, not a
   // message: nothing is sent until the creator says what they want done with it.
@@ -848,15 +942,15 @@ ${trimmed}` : trimmed);
     const handler = (event: Event) => {
       const message = (event as CustomEvent<{ message?: string }>).detail?.message;
       if (!message) return;
-      if (isAgentWorking || !serverWorldId) {
+      if (isAgentWorking) {
         setInput(message);
         return;
       }
-      void sendText(message);
+      void sendText(message).then((sent) => { if (!sent) setInput(message); });
     };
     window.addEventListener("yumina:studio-ai-send", handler);
     return () => window.removeEventListener("yumina:studio-ai-send", handler);
-  }, [isAgentWorking, serverWorldId, sendText]);
+  }, [isAgentWorking, sendText]);
 
   // IME-safe Enter-to-send: won't fire while composing a pinyin/CJK candidate,
   // and honors the user's Enter vs Ctrl/⌘+Enter preference.
@@ -904,7 +998,6 @@ ${trimmed}` : trimmed);
     stopInputResize();
   }, [stopInputResize]);
 
-  const hasPendingApproval = !!_pendingApproval || !!_pendingImage;
 
   if (otherWorldTask) {
     return (
@@ -922,36 +1015,33 @@ ${trimmed}` : trimmed);
   }
 
   return (
-    <div className="flex h-full flex-col bg-background">
-      {/* Model selector */}
-      <div data-ai-chat-header="" className="flex items-center gap-1 border-b border-border px-2 py-1.5">
-        <button
-          data-learn="ai-model"
-          onClick={() => setModelBrowserOpen(true)}
-          className="hover-surface flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 py-1 text-left text-xs text-muted-foreground transition-colors"
-        >
-          <span className="min-w-0 flex-1 truncate">{formatModelId(model)}</span>
-          <ChevronDown className="h-3 w-3 shrink-0 opacity-40" />
-        </button>
-        {/* Conversation switcher */}
-        <div ref={convDropdownRef} className="relative">
+    // Beside the canvas it floats as a sheet of its own, set off from the
+    // board by its surface rather than a line (as Seko's and the desktop
+    // agents' panels are); on a phone it is the whole screen.
+    <div className={cn("flex h-full flex-col", stageAssistant ? "py-2 pr-2 pl-1" : "bg-background")}>
+    <div className={cn("flex min-h-0 flex-1 flex-col", stageAssistant && "overflow-hidden rounded-[14px] border border-white/[0.07] bg-[#17181d] shadow-[0_18px_48px_-20px_rgba(0,0,0,0.8)]")}>
+      {/* The conversation is the heading, and its name opens the others, as
+          in a desktop chat app. No tab above it saying 「创作助手」 a second
+          time, and the model sits by the send button where every other app
+          keeps it (owner, 11/15). */}
+      <div data-ai-chat-header="" className="flex h-10 shrink-0 items-center gap-0.5 px-2">
+        <div ref={convDropdownRef} className="relative min-w-0 flex-1">
           <button
             onClick={() => setConvDropdownOpen(!convDropdownOpen)}
-            className="hover-surface flex items-center gap-1 rounded-md p-1 text-muted-foreground"
+            className="hover-surface flex max-w-full items-center gap-1 rounded-md px-2 py-1 text-[12.5px] font-medium text-foreground/80 transition-colors hover:text-foreground"
             title={t("studio.aiChat.conversations")}
+            aria-expanded={convDropdownOpen}
           >
-            <MessageSquare className="h-3.5 w-3.5" />
-            {conversations.length > 0 && (
-              <span className="text-[9px] font-medium">{conversations.length}</span>
-            )}
+            <span className="min-w-0 truncate">{conversations.find((c) => c.id === activeConversationId)?.title || t("studio.aiChat.conversations")}</span>
+            <ChevronDown className={cn("h-3 w-3 shrink-0 opacity-50 transition-transform", convDropdownOpen && "rotate-180")} />
           </button>
           {convDropdownOpen && (
-            <div className="absolute right-0 top-[calc(100%+4px)] z-50 w-[220px] rounded-xl border border-border bg-popover p-1.5 shadow-xl">
+            <div className="absolute left-0 top-[calc(100%+4px)] z-50 w-[240px] rounded-xl border border-border bg-popover p-1.5 shadow-xl">
               <button
                 onClick={createNewConversation}
                 className="hover-surface flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left"
               >
-                <Plus className="h-3 w-3 text-primary" />
+                <SquarePen className="h-3 w-3 text-muted-foreground" />
                 <span className="text-xs text-muted-foreground">{t("studio.aiChat.newConversation")}</span>
               </button>
               {chatMessages.length > 0 && (
@@ -975,7 +1065,7 @@ ${trimmed}` : trimmed);
                   >
                     <button
                       onClick={() => { loadConversation(conv.id); setConvDropdownOpen(false); }}
-                      className="flex-1 min-w-0"
+                      className="flex-1 min-w-0 text-left"
                     >
                       <p className="text-xs text-foreground truncate">{conv.title}</p>
                       <p className="text-[9px] text-muted-foreground/50">
@@ -1007,12 +1097,22 @@ ${trimmed}` : trimmed);
 
         <button
           onClick={createNewConversation}
-          className="hover-surface rounded-md p-1 text-muted-foreground"
+          className="hover-surface rounded-md p-1.5 text-muted-foreground transition-colors hover:text-foreground"
           title={t("studio.aiChat.newConversation")}
           aria-label={t("studio.aiChat.newConversation")}
         >
-          <Plus className="h-3.5 w-3.5" />
+          <SquarePen className="h-3.5 w-3.5" />
         </button>
+        {stageAssistant && (
+          <button
+            onClick={stageAssistant.toggle}
+            className="hover-surface rounded-md p-1.5 text-muted-foreground transition-colors hover:text-foreground"
+            title={t("studio.stage.close")}
+            aria-label={t("studio.stage.close")}
+          >
+            <PanelRightClose className="h-3.5 w-3.5" />
+          </button>
+        )}
       </div>
 
       {/* Context usage meter — token-based, mirrors server's getContextBudget logic.
@@ -1025,27 +1125,19 @@ ${trimmed}` : trimmed);
       />
 
       {/* Messages */}
-      <div ref={messagesContainerRef} data-ai-chat-messages="" className="flex-1 space-y-3 overflow-y-auto overscroll-contain p-3">
+      <div ref={messagesContainerRef} data-ai-chat-messages="" className="flex-1 space-y-4 overflow-y-auto overscroll-contain px-3.5 pb-3 pt-1 [scrollbar-color:rgba(255,255,255,0.12)_transparent] [scrollbar-width:thin]">
         {chatMessages.length === 0 && !isChatStreaming && !visibleCreditPause && (
-          <div className="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground/70">
-            <p className="max-w-[240px] text-center text-xs">
-              {t("studio.aiChat.emptyDesc")}
+          // Everyone knows what an assistant is for: no explainer, no starter
+          // prompts. One quiet line just above the box, not a headline
+          // (owner, 11/19: a big centred title read as a poster).
+          <div className="flex h-full items-end justify-center px-4 pb-1">
+            <p className="flex items-center justify-center gap-1.5 text-center text-[12.5px] text-muted-foreground">
+              {/* A small gold four-pointed star and a face: the assistant's
+                  hello should feel friendly, still one quiet line. */}
+              <Sparkle aria-hidden className="h-3.5 w-3.5 shrink-0 fill-amber-300 text-amber-300" />
+              <span>{t("studio.aiChat.emptyTitle")}</span>
+              <span aria-hidden className="text-amber-200/80">(｡•ᴗ•｡)</span>
             </p>
-            {/* Starter prompts: a blank composer tells a newcomer nothing about
-                what the assistant can do to THIS card. Clicking fills the box
-                so they can still edit before sending. */}
-            <div data-learn="ai-suggestions" className="mt-1 flex w-full max-w-[260px] flex-col gap-1.5">
-              {([firstSuggestion, "suggestVariables", "suggestBehaviors", "suggestPolish"] as const).map((key) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => setInput(t(`studio.aiChat.${key}`))}
-                  className="rounded-lg border border-border/60 bg-card/40 px-3 py-2 text-left text-[11px] leading-snug text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-foreground"
-                >
-                  {t(`studio.aiChat.${key}`)}
-                </button>
-              ))}
-            </div>
           </div>
         )}
 
@@ -1064,7 +1156,9 @@ ${trimmed}` : trimmed);
             onResend={() => { if (serverWorldId) { trackAssistant("regenerate"); void regenerateLastTurn(serverWorldId, model, activeConversationId); } }}
           />
         ) : (
-          <div key={msg.id}>
+          // A step that only changed things is one line; a run of them reads
+          // as a list, not lines spaced like separate messages.
+          <div key={msg.id} className={cn(msg.role === "assistant" && !msg.content?.trim() && (msg.toolCalls ?? msg.mobileReviewToolCalls)?.length && "-mt-3")}>
           <div
             className={cn(
               "flex gap-2.5",
@@ -1079,9 +1173,14 @@ ${trimmed}` : trimmed);
                       {t("studio.focus.about")} · {msg.focus.map((f) => f.title).join("、")}
                     </span>
                   )}
-                  <div className="rounded-2xl rounded-br-md bg-muted px-3 py-2 text-xs text-foreground whitespace-pre-wrap break-words">
+                  <div className="rounded-2xl bg-white/[0.07] px-3.5 py-2 text-[13px] leading-relaxed text-foreground whitespace-pre-wrap break-words">
                     {msg.content}
                   </div>
+                  {msg.steer && (
+                    <span className="mt-0.5 text-[10px] text-muted-foreground/70">
+                      {msg.steer === "taken" ? t("studio.aiChat.steer.taken") : t("studio.aiChat.steer.waiting")}
+                    </span>
+                  )}
                   {msg.attachments && msg.attachments.length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-1 justify-end">
                       {msg.attachments.map((att, i) => (
@@ -1101,9 +1200,20 @@ ${trimmed}` : trimmed);
                       failed turn as "Error: <server message>"; the one failure
                       a new creator hits — no model key yet — gets its own
                       notice with the settings page a click away. */}
-                  {msg.content && (isNoApiKeyError(msg.content) && /^Error:/.test(msg.content)
+                  {msg.content && (isNoApiKeyError(msg.content) && /^\s*(Error:\s*)?No API key configured/i.test(msg.content)
                     ? <NoApiKeyNotice compact />
                     : <MessageContent content={msg.content} />)}
+
+                  {/* What the assistant looked at (screenshot_ui): the same picture, a click opens it full size. */}
+                  {msg.attachments && msg.attachments.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-2" data-assistant-shots="">
+                      {msg.attachments.map((att, i) => (
+                        <a key={i} href={att.url} target="_blank" rel="noopener noreferrer" className="block overflow-hidden rounded-lg border border-border/60 transition-colors hover:border-primary/50">
+                          <img src={att.url} alt={att.name} loading="lazy" className={att.name.includes("mobile") ? "h-56 w-auto" : "h-40 w-auto max-w-full"} />
+                        </a>
+                      ))}
+                    </div>
+                  )}
 
                   {/* Tool call proposals */}
                   {(msg.toolCalls ?? msg.mobileReviewToolCalls)?.length ? (
@@ -1136,6 +1246,15 @@ ${trimmed}` : trimmed);
                       interactive={!!_pendingImage && _pendingImage.toolCallId === msg.imageProposal.toolCallId}
                       onConfirm={confirmImageProposal}
                       onDecline={declineImageProposal}
+                    />
+                  )}
+                  {/* run_media_tool confirmation / result */}
+                  {msg.mediaToolProposal && (
+                    <MediaToolProposalCard
+                      proposal={msg.mediaToolProposal}
+                      interactive={!!_pendingImage && _pendingImage.toolCallId === msg.mediaToolProposal.toolCallId}
+                      onRun={runMediaToolProposal}
+                      onDecline={declineMediaToolProposal}
                     />
                   )}
                   {msg.imageBatchProposal && serverWorldId && chatWorldId === serverWorldId && (
@@ -1307,6 +1426,12 @@ ${trimmed}` : trimmed);
           </div>
         )}
 
+        {rig && (
+          <div className="flex gap-2 px-3 py-2">
+            <RigProgress stage={rig.stage} done={rig.done} total={rig.total} />
+          </div>
+        )}
+
         <BuildHandoff proposal={buildProposal} worldId={serverWorldId} conversationId={activeConversationId}
           available={assistantMode === "advise" && chatWorldId === serverWorldId && chatConversationId === activeConversationId
             && !isAgentWorking && !isConversationLoading && !visibleCreditPause && !hasPendingApproval}
@@ -1318,6 +1443,8 @@ ${trimmed}` : trimmed);
           }} />
         <div ref={messagesEndRef} />
       </div>
+
+      {isAgentWorking && !hasPendingApproval && agentPlan && <AgentPlan plan={agentPlan} />}
 
       {/* Agent status bar */}
       {isAgentWorking && !hasPendingApproval && (
@@ -1367,9 +1494,9 @@ ${trimmed}` : trimmed);
             </p>
           </div>
         ) : (
-          <div className="flex items-center gap-2 border-t border-primary/20 bg-primary/5 px-3 py-1.5">
-            <Loader2 className="h-3 w-3 animate-spin text-primary" />
-            <span className="min-w-0 truncate text-[11px] text-primary font-medium">
+          <div className="flex items-center gap-2 px-5 py-1.5">
+            <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+            <span className="min-w-0 truncate text-[11.5px] font-medium text-foreground/70">
               {digest
                 ? t(`studio.aiChat.digest.${digest.phase}` as never, { source: digest.source, done: digest.done, total: digest.total })
                 : agentIteration > 0
@@ -1377,11 +1504,11 @@ ${trimmed}` : trimmed);
                 : t("studio.aiChat.thinking")}
             </span>
             {toolGenName && !digest && (
-              <span className="min-w-0 truncate text-[10px] text-primary/60">
+              <span className="min-w-0 truncate text-[10.5px] text-muted-foreground/70">
                 {t("studio.aiChat.generatingTool", { tool: toolLabel(toolGenName, t as unknown as Parameters<typeof toolLabel>[1]) })}
               </span>
             )}
-            <span className="shrink-0 text-[10px] text-primary/50 tabular-nums">
+            <span className="shrink-0 text-[10.5px] text-muted-foreground/60 tabular-nums">
               {`${Math.floor(elapsedSeconds / 60)}:${String(elapsedSeconds % 60).padStart(2, "0")}`}
             </span>
           </div>
@@ -1405,7 +1532,7 @@ ${trimmed}` : trimmed);
       )}
 
       {/* Input */}
-      <div className="border-t border-border p-2">
+      <div className="px-3 pb-3 pt-1">
         <SourceTexts />
         {/* Attachment thumbnails */}
         {chatAttachments.length > 0 && (
@@ -1470,12 +1597,12 @@ ${trimmed}` : trimmed);
           </div>
         )}
         <AiFocusChips />
-        <div className="rounded-xl border border-border bg-muted/50 transition-colors focus-within:border-primary/40">
+        <div className="group/composer rounded-[18px] border border-white/[0.09] bg-white/[0.035] shadow-[0_8px_24px_-12px_rgba(0,0,0,0.6)] transition-colors focus-within:border-white/[0.16] focus-within:bg-white/[0.045]">
           <div className="relative">
             <button
               type="button"
               onPointerDown={startInputResize}
-              className="absolute right-2 top-2 z-10 flex h-5 w-5 cursor-ns-resize items-center justify-center rounded-md text-muted-foreground/45 transition-colors hover:text-foreground"
+              className="absolute right-2.5 top-2 z-10 flex h-5 w-5 cursor-ns-resize items-center justify-center rounded-md text-muted-foreground/0 transition-colors hover:text-foreground group-hover/composer:text-muted-foreground/40"
               style={{ touchAction: "none" }}
               aria-label={t("studio.aiChat.resizeInput")}
               title={t("studio.aiChat.resizeInput")}
@@ -1500,15 +1627,37 @@ ${trimmed}` : trimmed);
                       : t("studio.aiChat.placeholderDefault")
               }
               rows={1}
-              className="block w-full resize-none overflow-y-auto bg-transparent px-3 pb-1 pt-2.5 pr-9 text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none disabled:opacity-50"
+              className="block w-full resize-none overflow-y-auto bg-transparent px-3.5 pb-1 pt-3 pr-9 text-[13px] leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:outline-none disabled:opacity-50"
               style={{ minHeight: `${MIN_INPUT_HEIGHT}px`, height: `${inputHeight}px`, maxHeight: `${MAX_INPUT_HEIGHT}px` }}
             />
           </div>
-          <div className="flex items-center gap-1 px-1.5 pb-1.5">
+          {/* The composer's own row, as desktop chat apps lay it out:
+              what you add and how it works on the left (attach, 构思/搭建),
+              what it runs on and the send button on the right — the model
+              beside the send it is billed to (owner, 11/15). */}
+          <div className="flex items-center gap-1 px-2 pb-2 pt-0.5">
+          {/* Hidden file input */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/gif,.tsx,.jsx,.ts,.js,.json,.md,.txt,.html,.css"
+            multiple
+            className="hidden"
+            onChange={handleFileSelect}
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={chatAttachments.length >= 5 || isAgentWorking}
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/[0.07] hover:text-foreground disabled:opacity-30"
+            title={t("studio.aiChat.attachFile")}
+            aria-label={t("studio.aiChat.attachFile")}
+          >
+            <Plus className="h-4 w-4" />
+          </button>
           <AssistantModeSwitch disabled={isAgentWorking} />
           {turnEstimate && !isAgentWorking && !hasPendingApproval ? (
             <span
-              className="ml-auto truncate px-1 text-[10px] text-muted-foreground/70 tabular-nums"
+              className="ml-auto min-w-0 truncate px-1 text-[10.5px] text-muted-foreground/60 tabular-nums"
               title={[
                 turnEstimate.typicalRun ? t("studio.aiChat.turnTypicalHint", { low: turnEstimate.typicalRun[0], high: turnEstimate.typicalRun[1], floor: turnEstimate.floorCredits }) : "",
                 turnEstimate.coldCache ? t("studio.aiChat.turnEstimateCold") : "",
@@ -1520,49 +1669,52 @@ ${trimmed}` : trimmed);
               {conversationSpend > 0 && ` · ${t("studio.aiChat.conversationSpend", { count: conversationSpend })}`}
             </span>
           ) : <span className="ml-auto" />}
-          {/* Hidden file input */}
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/png,image/jpeg,image/webp,image/gif,.tsx,.jsx,.ts,.js,.json,.md,.txt,.html,.css"
-            multiple
-            className="hidden"
-            onChange={handleFileSelect}
-          />
-          {/* Paperclip button */}
-          {!isAgentWorking && (
+          <button
+            type="button"
+            data-learn="ai-model"
+            onClick={() => setModelBrowserOpen(true)}
+            title={formatModelId(model)}
+            className="flex min-w-0 max-w-[45%] shrink items-center gap-0.5 rounded-md px-1.5 py-1 text-[11.5px] text-muted-foreground transition-colors hover:bg-white/[0.07] hover:text-foreground"
+          >
+            <span className="min-w-0 truncate">{formatModelId(model)}</span>
+            <ChevronDown className="h-3 w-3 shrink-0 opacity-50" />
+          </button>
+          {isAgentWorking && !hasPendingApproval && input.trim() && !otherWorldTask && (
             <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={chatAttachments.length >= 5}
-              className="rounded-md p-1.5 text-muted-foreground hover:bg-background/60 hover:text-foreground transition-colors disabled:opacity-30"
-              title={t("studio.aiChat.attachFile")}
-              aria-label={t("studio.aiChat.attachFile")}
+              onClick={handleSend}
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-opacity hover:opacity-90"
+              aria-label={t("studio.aiChat.steer.send")}
+              title={t("studio.aiChat.steer.send")}
             >
-              <Paperclip className="h-3.5 w-3.5" />
+              <ArrowUp className="h-4 w-4" />
             </button>
           )}
           {isAgentWorking ? (
             <button
               onClick={handleStop}
-              className="rounded-md bg-foreground/85 p-1.5 text-background transition-colors hover:bg-foreground"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/[0.12] text-foreground transition-colors hover:bg-white/[0.18]"
               aria-label={t("studio.aiChat.stop")}
               title={t("studio.aiChat.stop")}
             >
-              <Square className="h-3.5 w-3.5 fill-current" />
+              <Square className="h-2.5 w-2.5 fill-current" />
             </button>
           ) : (
             <button
               onClick={handleSend}
               // A message needs words: attachments ride along with one.
               disabled={!input.trim() || isChatStreaming || isConversationLoading}
-              className="rounded-md bg-primary p-1.5 text-primary-foreground transition-colors disabled:bg-muted disabled:text-muted-foreground/60"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-colors hover:opacity-90 disabled:bg-white/[0.08] disabled:text-muted-foreground/50"
               aria-label={t("studio.aiChat.send")}
             >
-              <Send className="h-3.5 w-3.5" />
+              <ArrowUp className="h-4 w-4" />
             </button>
           )}
           </div>
         </div>
+        {/* On someone else's card it's still your own credits the assistant spends. */}
+        {collaborator && (
+          <p className="px-1 pt-1 text-[10px] text-muted-foreground/70">{t("collab.usesYourCredits")}</p>
+        )}
       </div>
 
       <ModelBrowser
@@ -1572,6 +1724,7 @@ ${trimmed}` : trimmed);
         selectedModel={model}
         studioMode
       />
+    </div>
     </div>
   );
 }

@@ -27,6 +27,7 @@ const SRC = resolve(here, "..", "src");
  */
 export const HOSTED_DIRS = [
   "features/invite-race/",
+  "features/halloween/",
   "features/admin/",
   "features/community/",
   "features/dm/",
@@ -48,6 +49,8 @@ export const HOSTED_DIRS = [
   "features/generation/",
   // 提示词广场 (community prompt packs)
   "features/prompt-hub/",
+  // the share season promo (hosted event)
+  "features/share-season/",
 ];
 
 export const HOSTED_FILES = [
@@ -57,6 +60,11 @@ export const HOSTED_FILES = [
   "routes/$handle_.$world",
   // components + routes that only serve hosted features
   "components/account-wallet",
+  // Studio card for hosted media tools
+  "features/studio/components/media-tool-proposal-card",
+  // the illustration LoRA picker and its model window (hosted LoRA training)
+  "features/editor/components/illustration-lora-field",
+  "features/editor/components/lora-window",
   "components/review-replies",
   "components/daily-check-in-card",
   "components/daily-supply-row",
@@ -148,6 +156,18 @@ const GENERATED_FILES = new Set(["routeTree.gen.ts"]);
 /** Route files under src/routes/app matching these prefixes are hosted. */
 export const HOSTED_ROUTE_PREFIXES = [
   "routes/app/hub",
+  // World tag pages open Discover with the tag selected.
+  "routes/app/tag",
+  // Genre addresses (yumina.io/ai-rpg, ...) open Discover the same way.
+  "routes/ai-rpg",
+  "routes/ai-roleplay",
+  "routes/ai-text-adventure",
+  "routes/ai-games",
+  "routes/ai-chat",
+  "routes/multiplayer-ai-games",
+  "routes/ai-visual-novel",
+  "routes/ai-story-games",
+  "routes/ai-dungeon-master",
   "routes/app/community",
   "routes/app/messages",
   "routes/app/users.$userId",

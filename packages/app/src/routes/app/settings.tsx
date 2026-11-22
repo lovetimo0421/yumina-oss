@@ -1,6 +1,6 @@
 import { Suspense } from "react";
-import { createFileRoute, redirect } from "@tanstack/react-router";
-import { getSessionSafe } from "@/lib/auth-client";
+import { createFileRoute } from "@tanstack/react-router";
+import { requireSession } from "@/lib/require-session";
 import { lazyRouteComponent } from "@/lib/lazy-route-component";
 
 const SettingsPage = lazyRouteComponent(
@@ -9,9 +9,8 @@ const SettingsPage = lazyRouteComponent(
 );
 
 export const Route = createFileRoute("/app/settings")({
-  beforeLoad: async () => {
-    const session = await getSessionSafe();
-    if (!session.data) throw redirect({ to: "/login" });
+  beforeLoad: async ({ location }) => {
+    await requireSession(location);
   },
   component: () => (
     <Suspense

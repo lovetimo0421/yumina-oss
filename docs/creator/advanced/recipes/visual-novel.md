@@ -1,3 +1,8 @@
+---
+title: "Visual novel mode"
+description: "Build a full-screen visual novel in a Yumina card, with backgrounds, sprites, a dialogue box and choice buttons the AI drives through variables."
+---
+
 <div v-pre>
 
 # Visual Novel Mode
@@ -24,11 +29,11 @@ The rest of this page builds the whole screen in code, for when you want a dialo
 
 A fullscreen visual novel interface:
 
-- **Scene backgrounds** — the AI switches background images by changing a variable (classroom, street, night sky...), and the interface code shows it as a fullscreen `background-image`
-- **Character sprites** — the AI sets the current speaker and emotion, and the interface code shows the matching sprite in the center of the screen
-- **Dialogue box** — a semi-transparent box at the bottom of the screen shows the character name and dialogue. *Italic text* is treated as narration/inner monologue; plain text is character dialogue
-- **Choice buttons** — when the AI offers choices, the interface code overlays clickable buttons on screen
-- **Fullscreen mode** — the interface code returns its own fullscreen layout without nesting `<Chat />`, so there are no regular chat bubbles at all
+- **Scene backgrounds.** The AI switches background images by changing a variable (classroom, street, night sky...), and the interface code shows it as a fullscreen `background-image`
+- **Character sprites.** The AI sets the current speaker and emotion, and the interface code shows the matching sprite in the center of the screen
+- **Dialogue box.** A semi-transparent box at the bottom of the screen shows the character name and dialogue. *Italic text* is treated as narration/inner monologue; plain text is character dialogue
+- **Choice buttons.** When the AI offers choices, the interface code overlays clickable buttons on screen
+- **Fullscreen mode.** The interface code returns its own fullscreen layout without nesting `<Chat />`, so there are no regular chat bubbles at all
 
 ### How it works
 
@@ -51,7 +56,7 @@ After the engine parses these directives:
 1. `current_bg` becomes the classroom picture → the interface code swaps `background-image` to the classroom
 2. `current_speaker` becomes `"Yuki"` → the dialogue box displays the name "Yuki"
 3. `speaker_emotion` becomes `"happy"` → the interface code looks up Yuki's happy sprite and shows it
-4. The interface code parses the latest message's text — *italic* sections render as narration, plain text renders as character dialogue
+4. The interface code parses the latest message's text: *italic* sections render as narration, plain text renders as character dialogue
 
 ```
 Engine processing flow:
@@ -246,7 +251,7 @@ The opening doesn't set variables with directives. A new session starts from eac
 
 The interface code takes over the entire screen. Instead of nesting `<Chat />`, it paints its own background, sprites, dialogue box, and choice buttons. Player input is handled by `<MessageInput />` placed at the bottom of the screen.
 
-Open **Panels → Front End Code** → `index.tsx` and replace its contents with the following. Fill in `SPRITES` with your own references from Step 3:
+Open **Panels → Interface code** → `index.tsx` and replace its contents with the following. Fill in `SPRITES` with your own references from Step 3:
 
 ```tsx
 // Sprite for each "name_emotion" (lowercase name). Copy the refs from Panels → Assets.
@@ -474,15 +479,15 @@ export default function MyWorld() {
 
 **Block-by-block explanation:**
 
-- **Clean content** — `cleanContent` filters out directive lines like `[current_bg: set "xxx"]` (matching all operation types: set/add/subtract/multiply/toggle/append/merge/push/delete, plus shorthand directives like `[hp: -10]`). Directives have already been parsed by the engine, so the component doesn't need to display them
-- **Parse paragraphs** — splits text on blank lines into paragraphs, classifying each as narration (starts with `*`), dialogue (plain text), or a choice (starts with `A)` format)
-- **Background layer** — uses `backgroundImage` to display the current scene background. `filter: brightness(0.7)` darkens it slightly to keep foreground text readable. `transition` adds a crossfade animation when switching backgrounds
-- **Sprite layer** — looks up the sprite in `SPRITES` by `speaker` and `emotion`. `onError` hides images that fail to load. No sprite is shown in Narrator mode or when there's no entry for that name and emotion
-- **Dialogue box layer** — a semi-transparent box at the bottom. When `speaker` is not "Narrator", a character name label appears above the dialogue box. Narration text is gray and italic; dialogue text is white and upright
-- **Choice button layer** — when `show_choices` is `true` and the text contains choices in `A)` `B)` `C)` format, buttons appear centered on screen. Clicking a button hides the choices (`show_choices` set to `false`) and sends the player's selection
+- **Clean content.** `cleanContent` filters out directive lines like `[current_bg: set "xxx"]` (matching all operation types: set/add/subtract/multiply/toggle/append/merge/push/delete, plus shorthand directives like `[hp: -10]`). Directives have already been parsed by the engine, so the component doesn't need to display them
+- **Parse paragraphs.** Splits text on blank lines into paragraphs, classifying each as narration (starts with `*`), dialogue (plain text), or a choice (starts with `A)` format)
+- **Background layer.** Uses `backgroundImage` to display the current scene background. `filter: brightness(0.7)` darkens it slightly to keep foreground text readable. `transition` adds a crossfade animation when switching backgrounds
+- **Sprite layer.** Looks up the sprite in `SPRITES` by `speaker` and `emotion`. `onError` hides images that fail to load. No sprite is shown in Narrator mode or when there's no entry for that name and emotion
+- **Dialogue box layer.** A semi-transparent box at the bottom. When `speaker` is not "Narrator", a character name label appears above the dialogue box. Narration text is gray and italic; dialogue text is white and upright
+- **Choice button layer.** When `show_choices` is `true` and the text contains choices in `A)` `B)` `C)` format, buttons appear centered on screen. Clicking a button hides the choices (`show_choices` set to `false`) and sends the player's selection
 
 ::: tip Sprite lookup
-`SPRITES` keys are the lowercase character name, an underscore, and the emotion: `yuki_happy`. Add a row for every sprite you uploaded. If a character name isn't plain ASCII, use any key you like and tell the AI to write that exact name in `current_speaker`. A value can also be an `https://` URL.
+`SPRITES` keys are the lowercase character name and the emotion joined with `_`: `yuki_happy`. Add a row for every sprite you uploaded. If a character name isn't plain ASCII, use any key you like and tell the AI to write that exact name in `current_speaker`. A value can also be an `https://` URL.
 :::
 
 ---
@@ -492,8 +497,8 @@ export default function MyWorld() {
 The code above returns its own layout, so it fills the screen. The root element uses `width: "100%"` and `minHeight: "500px"`; use `100vh` if you want it to always fill the window. There's no separate fullscreen switch.
 
 Two patterns side by side:
-- **Normal chat + custom bubble**: `return <Chat renderBubble={...} />` — keep the platform's chat shell, just restyle the bubbles
-- **Pure visual novel (this recipe)**: `return <div>...all VN elements...<MessageInput /></div>` — no `<Chat />` at all; your code draws everything
+- **Normal chat + custom bubble**: `return <Chat renderBubble={...} />`. Keep the platform's chat shell, just restyle the bubbles
+- **Pure visual novel (this recipe)**: `return <div>...all VN elements...<MessageInput /></div>`. No `<Chat />` at all; your code draws everything
 
 > **Switching between chat and VN**: for "normal chat most of the time, VN during special moments", branch inside the interface code on a variable (say `vn_mode`). Return `<Chat />` when it's off and the VN layout when it's on. The AI or a behavior flips the variable, and the screen swaps mid-session.
 
@@ -593,9 +598,9 @@ The AI has already been told these rules in the lore entry. If it occasionally g
 
 1. Click **Save** in the top bar
 2. Click **Play** to start a playtest (playtests use credits)
-3. You should see a fullscreen VN display — background + dialogue box + opening narration
+3. You should see a fullscreen VN display: background + dialogue box + opening narration
 4. Type a message in the input box (e.g., "Say hello to her")
-5. The AI's response should include directives — the background might change, a character appears, and dialogue shows in the box
+5. The AI's response should include directives. The background might change, a character appears, and dialogue shows in the box
 6. If the AI offers choices, buttons appear in the center of the screen. Click one to try it
 7. Continue the conversation and watch whether the AI updates `current_bg` when switching scenes, and `current_speaker` and `speaker_emotion` when characters speak. **This turn** in the playtest shows why a value changed or didn't
 
@@ -609,7 +614,7 @@ The AI has already been told these rules in the lore entry. If it occasionally g
 | All text is narration / all text is dialogue | The AI isn't following the format rules | Check that the lore entry's format instructions are clear. You can reinforce them in the Behavior Rules |
 | Choice buttons don't appear | `show_choices` wasn't set to `true`, or there are no `A)` format choices | Check that the AI's response includes `[show_choices: set true]` and choices in `A)` format |
 | Screen isn't fullscreen | The root element doesn't fill the visible area | Add `minHeight: "100vh"` or `height: "100%"` to the outermost div |
-| Nothing renders | A compile error | **Panels → Front End Code** shows **Error** with the message; fix the line it points to |
+| Nothing renders | A compile error | **Panels → Interface code** shows **Error** with the message; fix the line it points to |
 
 ---
 

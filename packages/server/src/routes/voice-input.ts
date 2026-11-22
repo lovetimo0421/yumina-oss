@@ -19,7 +19,7 @@ import {
 } from "../middleware/rate-limit.js";
 import { recordUsageLog } from "../lib/usage-log.js";
 import { env } from "../lib/env.js";
-import { STT_MODEL, SttProviderError, normalizeTranscriptPunctuation, transcribeAudio } from "../lib/stt/openrouter-stt.js";
+import { SttProviderError, normalizeTranscriptPunctuation, transcribeAudio } from "../lib/stt/openrouter-stt.js";
 import type { AppEnv } from "../lib/types.js";
 
 const voiceInputRoutes = new Hono<AppEnv>();
@@ -27,10 +27,10 @@ voiceInputRoutes.use("/voice-input", authMiddleware);
 
 /** ~60 s of opus/aac at recorder bitrates is well under 1 MB. */
 const MAX_CLIP_BYTES = 2 * 1024 * 1024;
-const ALLOWED_TYPES = ["audio/webm", "audio/mp4", "audio/ogg", "audio/mpeg", "audio/wav", "audio/x-m4a", "audio/aac"];
+const ALLOWED_TYPES = ["audio/webm", "audio/mp4", "audio/ogg", "audio/mpeg", "audio/wav", "audio/x-wav", "audio/wave", "audio/x-m4a", "audio/aac"];
 const EXTENSIONS: Record<string, string> = {
   "audio/webm": "webm", "audio/mp4": "mp4", "audio/ogg": "ogg", "audio/mpeg": "mp3",
-  "audio/wav": "wav", "audio/x-m4a": "m4a", "audio/aac": "aac",
+  "audio/wav": "wav", "audio/x-wav": "wav", "audio/wave": "wav", "audio/x-m4a": "m4a", "audio/aac": "aac",
 };
 const LANGS = new Set(["zh", "en", "ja", "es", "ko", "fr", "de", "ru", "pt"]);
 
@@ -100,7 +100,7 @@ voiceInputRoutes.post("/voice-input", async (c) => {
     await recordUsageLog({
       userId,
       sessionId: null,
-      model: STT_MODEL,
+      model: result.model,
       promptTokens: result.inputTokens,
       completionTokens: result.outputTokens,
       totalTokens: result.inputTokens + result.outputTokens,

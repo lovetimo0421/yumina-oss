@@ -70,7 +70,7 @@ export interface VoiceRouteServices {
     begin(userId: string, sessionId: string, connectionId?: string): Promise<string>;
     activate(id: string, providerId: string): Promise<boolean>;
     abandon(id: string): Promise<void>;
-    heartbeat(userId: string, sessionId: string): Promise<boolean>;
+    heartbeat(userId: string, sessionId: string, idleMs?: number): Promise<{ alive: boolean; lowBalance?: boolean; reason?: "idle" | "balance" | "cap" | "ended" }>;
     stop(userId: string, sessionId: string): Promise<void>;
   };
   getLiveCreditsKey?(): string | null;
@@ -173,7 +173,12 @@ export function createVoiceRoutes(services: VoiceRouteServices | (() => Promise<
       if (!/^[a-zA-Z0-9_-]{1,128}$/.test(sessionId) || !deps.liveCredits) return c.json({ error: "Session not found.", code: "SESSION_NOT_FOUND" }, 404);
       const rateLimit = await deps.checkRateLimit(`${user.id}:live-heartbeat`);
       if (rateLimit) return c.json({ error: "Too many requests.", code: "VOICE_RATE_LIMITED" }, 429);
-      return await deps.liveCredits.heartbeat(user.id, sessionId) ? c.json({ alive: true }) : c.json({ alive: false, code: "VOICE_CALL_ENDED" }, 404);
+      // The body carries how long the player has been inactive; a missing or broken body counts as active.
+      const body = await c.req.json().catch(() => null) as { idleMs?: unknown } | null;
+      const idleMs = typeof body?.idleMs === "number" ? body.idleMs : undefined;
+      const beat = await deps.liveCredits.heartbeat(user.id, sessionId, idleMs);
+      return beat.alive ? c.json({ alive: true, ...(beat.lowBalance ? { lowBalance: true } : {}) })
+        : c.json({ alive: false, code: "VOICE_CALL_ENDED", reason: beat.reason ?? "ended" }, 404);
     } catch { return c.json({ error: "Voice is temporarily unavailable. Please try again.", code: "VOICE_UNAVAILABLE" }, 503); }
   });
   routes.post("/:sessionId/connect", async (c) => {

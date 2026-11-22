@@ -74,7 +74,6 @@ export function DiscoverCoverFields() {
   }
   return <section className="rounded-lg border border-border bg-background p-5">
     <h3 className="text-sm font-semibold">{t("overview.coverImage")}</h3>
-    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{t("overview.coverImageDesc")}</p>
     <MediaGuidelinesNote className="mt-3" />
     <p className="mt-2 text-xs text-muted-foreground">{t("motion.uploadHint")}</p>
     <div className="mt-5 grid grid-cols-1 items-start gap-6 @min-[480px]:grid-cols-[minmax(0,1fr)_minmax(0,1.45fr)]">

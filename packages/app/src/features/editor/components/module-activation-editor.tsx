@@ -54,7 +54,7 @@ export function LogicToggle({ value, onChange }: { value: "all" | "any"; onChang
             className={cn(
               "flex-1 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors",
               value === v
-                ? "border-amber-500/60 bg-amber-500/15 text-amber-400"
+                ? "border-primary/40 bg-primary/10 text-foreground"
                 : "border-border text-muted-foreground hover:bg-accent",
             )}
           >
@@ -128,7 +128,7 @@ function WordList({ words, onChange, placeholder, tone = "enter" }: { words: str
               type="button"
               onClick={() => onChange(words.filter((x) => x !== w))}
               className={cn("group flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] transition-colors hover:border-destructive/50 hover:text-destructive",
-                tone === "leave" ? "border-sky-400/30 bg-sky-500/10 text-sky-200/90" : "border-amber-400/30 bg-amber-500/10 text-amber-200/90")}
+                tone === "leave" ? "border-border bg-secondary text-muted-foreground" : "border-border bg-secondary text-foreground")}
             >
               {w}
               <X className="h-2.5 w-2.5 opacity-50 group-hover:opacity-100" />
@@ -209,6 +209,9 @@ export function ModuleActivationEditor({
         value={mode}
         onChange={(e) => onChange(activationForMode(e.target.value, book))}
         className={inputClass}
+        title={mode === "manual" || (mode === "conditions" && !conditionsInline)
+          ? t(`blueprint.insp.whenOpenHint.${mode}` as never)
+          : undefined}
       >
         {(["always", "keywords", "conditions", "greeting", "manual"] as const).map((m) => (
           <option key={m} value={m}>
@@ -216,14 +219,6 @@ export function ModuleActivationEditor({
           </option>
         ))}
       </select>
-      {/* The conditions hint tells the creator to draw a wire, which is the
-          canvas's way; with the rows editable right here it would be wrong. */}
-      {/* Only where the choice needs a how-to: the others say it in their name. */}
-      {(mode === "manual" || (mode === "conditions" && !conditionsInline)) && (
-        <p className="text-[10px] leading-relaxed text-muted-foreground">
-          {t(`blueprint.insp.whenOpenHint.${mode}` as never)}
-        </p>
-      )}
       {book.activation.mode === "keywords" && (
         <KeywordEditor activation={book.activation} onChange={onChange} />
       )}
@@ -240,7 +235,7 @@ export function ModuleActivationEditor({
       {book.activation.mode === "conditions" && (
         <div className="space-y-2">
           {conditionsInline && (
-            <div className="rounded-lg border border-sky-500/20 bg-sky-500/5 p-2.5">
+            <div className="rounded-lg border border-border p-2.5">
               <ConditionEditor
                 conditions={book.activation.conditions}
                 variables={variables.filter((v) => !v.internal)}

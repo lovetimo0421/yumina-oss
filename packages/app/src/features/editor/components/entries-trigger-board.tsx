@@ -6,7 +6,7 @@ import {
   Variable,
   Monitor,
   ChevronRight,
-  Sparkles,
+  Layers,
 } from "lucide-react";
 import {
   estimateTokens,
@@ -36,42 +36,42 @@ const CATEGORY_META: Record<
   }
 > = {
   combined: {
-    icon: Sparkles,
-    gradient: "from-rose-500/20 via-rose-500/5 to-transparent",
-    ring: "ring-rose-500/25",
-    badge: "bg-rose-500/15 text-rose-600 dark:text-rose-300",
+    icon: Layers,
+    gradient: "",
+    ring: "ring-transparent",
+    badge: "bg-white/5 text-muted-foreground",
     labelKey: "entries.triggerBoard.combined",
     hintKey: "entries.triggerBoard.combinedHint",
   },
   "always-send": {
     icon: Zap,
-    gradient: "from-amber-500/20 via-amber-500/5 to-transparent",
-    ring: "ring-amber-500/25",
-    badge: "bg-amber-500/15 text-amber-600 dark:text-amber-300",
+    gradient: "",
+    ring: "ring-transparent",
+    badge: "bg-white/5 text-muted-foreground",
     labelKey: "entries.triggerBoard.alwaysSend",
     hintKey: "entries.triggerBoard.alwaysSendHint",
   },
   keywords: {
     icon: Hash,
-    gradient: "from-sky-500/20 via-sky-500/5 to-transparent",
-    ring: "ring-sky-500/25",
-    badge: "bg-sky-500/15 text-sky-600 dark:text-sky-300",
+    gradient: "",
+    ring: "ring-transparent",
+    badge: "bg-white/5 text-muted-foreground",
     labelKey: "entries.triggerBoard.keywords",
     hintKey: "entries.triggerBoard.keywordsHint",
   },
   variables: {
     icon: Variable,
-    gradient: "from-violet-500/20 via-violet-500/5 to-transparent",
-    ring: "ring-violet-500/25",
-    badge: "bg-violet-500/15 text-violet-600 dark:text-violet-300",
+    gradient: "",
+    ring: "ring-transparent",
+    badge: "bg-white/5 text-muted-foreground",
     labelKey: "entries.triggerBoard.variables",
     hintKey: "entries.triggerBoard.variablesHint",
   },
   frontend: {
     icon: Monitor,
-    gradient: "from-emerald-500/20 via-emerald-500/5 to-transparent",
-    ring: "ring-emerald-500/25",
-    badge: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300",
+    gradient: "",
+    ring: "ring-transparent",
+    badge: "bg-white/5 text-muted-foreground",
     labelKey: "entries.triggerBoard.frontend",
     hintKey: "entries.triggerBoard.frontendHint",
   },
@@ -148,28 +148,28 @@ function TriggerChips({
   return (
     <div className="mt-1.5 flex flex-wrap gap-1.5">
       {kinds.includes("frontend") && (
-        <span className="max-w-full truncate rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-300">
+        <span className="max-w-full truncate rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
           {slotId
             ? t("entries.triggerBoard.frontendChip", { slot: slotId })
             : t("entries.triggerBoard.frontend")}
         </span>
       )}
       {kinds.includes("variables") && (
-        <span className="max-w-full truncate rounded-full bg-violet-500/10 px-2 py-0.5 text-[10px] font-medium text-violet-600 dark:text-violet-300">
+        <span className="max-w-full truncate rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
           {conditionText
             ? t("entries.triggerBoard.variableChip", { condition: conditionText })
             : t("entries.triggerBoard.variables")}
         </span>
       )}
       {kinds.includes("keywords") && (
-        <span className="max-w-full truncate rounded-full bg-sky-500/10 px-2 py-0.5 text-[10px] font-medium text-sky-600 dark:text-sky-300">
+        <span className="max-w-full truncate rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
           {keywordText
             ? t("entries.triggerBoard.keywordChip", { keywords: keywordText })
             : t("entries.triggerBoard.noKeywordsYet")}
         </span>
       )}
       {kinds.includes("always-send") && (
-        <span className="max-w-full truncate rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-300">
+        <span className="max-w-full truncate rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
           {t("entries.triggerBoard.everyTurn")}
         </span>
       )}
@@ -220,17 +220,9 @@ export function EntriesTriggerBoard({
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-6 py-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-primary" />
-            <h2 className="text-sm font-semibold text-foreground">
-              {t("entries.triggerBoard.title")}
-            </h2>
-          </div>
-          <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted-foreground">
-            {t("entries.triggerBoard.description")}
-          </p>
-        </div>
+        <h2 className="text-sm font-semibold text-foreground" title={t("entries.triggerBoard.description")}>
+          {t("entries.triggerBoard.title")}
+        </h2>
         <div className="rounded-full border border-border bg-muted/40 px-3 py-1 text-[11px] font-medium text-muted-foreground">
           {t("entries.triggerBoard.total", { count: total })}
         </div>
@@ -266,14 +258,9 @@ export function EntriesTriggerBoard({
                     >
                       <Icon className="h-4 w-4" />
                     </span>
-                    <div>
-                      <h3 className="text-sm font-semibold text-foreground">
-                        {t(meta.labelKey as any)}
-                      </h3>
-                      <p className="text-[11px] text-muted-foreground">
-                        {t(meta.hintKey as any)}
-                      </p>
-                    </div>
+                    <h3 className="text-sm font-semibold text-foreground" title={t(meta.hintKey as any)}>
+                      {t(meta.labelKey as any)}
+                    </h3>
                   </div>
                   <span
                     className={cn(
@@ -300,7 +287,7 @@ export function EntriesTriggerBoard({
                       <button
                         type="button"
                         onClick={onOpenBindings}
-                        className="mt-2 text-xs font-medium text-primary hover:underline"
+                        className="mt-2 text-xs font-medium text-foreground hover:underline"
                       >
                         {t("entries.triggerBoard.openBindings")}
                       </button>
@@ -364,20 +351,6 @@ export function EntriesTriggerBoard({
             </section>
           );
         })}
-      </div>
-
-      <div className="rounded-xl border border-border/70 bg-muted/25 px-4 py-3">
-        <p className="text-xs font-medium text-foreground">
-          {t("entries.triggerBoard.activationTitle")}
-        </p>
-        <ul className="mt-2 grid gap-1.5 text-[11px] leading-relaxed text-muted-foreground sm:grid-cols-2">
-          <li>{t("entries.triggerBoard.activationMount")}</li>
-          <li>{t("entries.triggerBoard.activationClick")}</li>
-          <li>{t("entries.triggerBoard.activationVariable")}</li>
-          <li>{t("entries.triggerBoard.activationTab")}</li>
-          <li>{t("entries.triggerBoard.activationScroll")}</li>
-          <li>{t("entries.triggerBoard.activationHover")}</li>
-        </ul>
       </div>
     </div>
   );

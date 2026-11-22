@@ -17,6 +17,8 @@ import { applyPersonaMetadataToState } from "./persona-metadata.js";
 import { setSessionPersonaLock } from "./resolve-persona.js";
 import { regenerateStorySummaryForSession } from "./session-compaction.js";
 import { regenerateSessionMemoryForSession, retrySessionMemoryForSession, scheduleSessionMemoryIncrementalUpdate } from "./session-memory.js";
+// These players already allowed background AIs to charge (background-consent.ts).
+const ALLOWED = { backgroundCharges: { allowAll: true } };
 
 const model = "google/gemini-3.1-flash-lite";
 const output = "## Story So Far\nThe cafe is open.\n## Major Open Threads\n- A visitor is waiting for tea.\n## Important Past Events\n- The door was unlocked.";
@@ -46,7 +48,7 @@ test("persona snapshots are not narrative evidence for memory or story summaries
           yield { type: "text", content: output };
           yield { type: "done", content: "", stopReason: "stop", usage: { promptTokens: 100, completionTokens: 60, totalTokens: 160 } };
         });
-        await db.insert(user).values({ id: userId, name: "Fixture", email: `${userId}@example.com` });
+        await db.insert(user).values({ id: userId, name: "Fixture", email: `${userId}@example.com`, preferences: ALLOWED });
         try {
           await db.insert(creditWallets).values({ userId, balance: 100, addonBalance: 100 });
           await db.insert(userExtensions).values({ userId, extensionKey: SESSION_MEMORY_EXTENSION_KEY, status: "installed" });

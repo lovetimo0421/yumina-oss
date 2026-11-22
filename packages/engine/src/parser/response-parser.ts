@@ -1,6 +1,6 @@
 import type { Effect, AudioEffect, Variable, WorldDefinition } from "../types/index.js";
 import { ThinkingTagFilter } from "./thinking-tag-filter.js";
-import { parseLeadingSpeakerTag } from "../prompts/speaker-tag.js";
+import { parseLeadingSpeakerTag, stripFaceLines } from "../prompts/speaker-tag.js";
 import { stripStateReceipts } from "./state-receipt.js";
 import { unwrapBookkeepingBlocks, dropMarkedBookkeeping } from "./bookkeeping-blocks.js";
 import {
@@ -10,6 +10,7 @@ import {
   type JsonPatchOp,
   isPlaceholderKey,
   keyRoot,
+  OP_FIRST_RE,
   spanKey,
   stripBookkeepingLines,
   stripPlaceholderRoots,
@@ -17,6 +18,8 @@ import {
 } from "./directive-lines.js";
 import { replyRuleMatcher, type ReplyRule } from "./reply-rules.js";
 import { resolveEffectVariable } from "../state/variable-activation.js";
+import { stripTrailingDirectiveLabel } from "./directive-label.js";
+import { extractTailHeaderBlocks, type HeaderKind } from "./header-blocks.js";
 
 /** `[image:…]` / `[video:…]` bodies the directive scanners must leave intact:
  *  the render form (URL / asset ref / cdn path, optional `|key=value` options)
@@ -58,6 +61,9 @@ export interface ParseResult {
    *  lower-cased "narrator" for narration, undefined when there was no tag.
    *  Never a state effect — it names who is talking, not a variable. */
   speaker?: string;
+  /** `[face: …]` the reply named (prompts/speaker-tag.ts): the expression a
+   *  live character beside the chat shows. Never a state effect. */
+  face?: string;
   /** Bookkeeping lines hidden from the story but not applied. Present only
    *  when there are some. */
   unapplied?: UnappliedDirective[];
@@ -194,6 +200,63 @@ function numberWriteFits(world: { variables: Variable[] }, effect: Effect): bool
   return typeof value === "number" ? Number.isFinite(value) : typeof value === "string" && value.trim() !== "" && Number.isFinite(Number(value));
 }
 
+/** A real variable the AI may write (no formula, not internal, access write). */
+function aiWritable(v: Variable | undefined): v is Variable {
+  return !!v && !v.internal && !v.formula && (v.aiAccess ?? "write") === "write";
+}
+
+/** A write to a whole text variable (not a dot-path into something). */
+function isRootStringWrite(world: { variables: Variable[] }, effect: Effect): boolean {
+  if (effect.variableId.includes(".") || /\[\d+\]/.test(effect.variableId)) return false;
+  return resolveEffectVariable(world, effect.variableId)?.type === "string";
+}
+
+interface RecoveredSpan {
+  effects: Effect[];
+  complete: boolean;
+  targets: string[];
+  /** Sets whose value is unquoted text cut out of the span. */
+  fragments?: ReadonlySet<Effect>;
+}
+
+/** What of a recovery is applied. A partial one never replaces a whole text
+ *  variable with a fragment of unquoted text: `Aiko | trust +4 | event=she
+ *  smiled`, cut at a comma of the story, would wipe every other row. Reported
+ *  instead (a quoted value, `[mood: set "x", heart: "lots"]`, still applies). */
+function appliedPart(world: { variables: Variable[] }, recovered: RecoveredSpan): Effect[] {
+  if (recovered.complete || !recovered.fragments?.size) return recovered.effects;
+  return recovered.effects.filter((e) => !(recovered.fragments!.has(e) && e.operation === "set" && isRootStringWrite(world, e)));
+}
+
+const isJsonString = (s: string) => {
+  try { return typeof JSON.parse(s) === "string"; } catch { return false; }
+};
+
+/** `[log: Aiko | trust +4 | event=hugged, then left]` on a whole text
+ *  variable, with no operation word or with set/append: the body is one
+ *  value. Quotes inside an unquoted body are its own only when it runs over
+ *  several lines (rows); on one line (`set here "manor"`) it stays ambiguous.
+ *  Undefined for anything else (another operation, `+N`, a `{…}` batch, a
+ *  chained `…, mood: x`, several quoted values), which the part-by-part
+ *  recovery reads as before. */
+function wholeTextValue(world: { variables: Variable[] }, target: string, rest: string): Effect | undefined {
+  if (!isRootStringWrite(world, { variableId: target, operation: "set", value: "" })) return undefined;
+  const r = rest.trim();
+  const m = /^(set|append)\s+([\s\S]+)$/.exec(r);
+  const body = (m ? m[2]! : r).trim();
+  if (!body) return undefined;
+  if (!m && (OP_FIRST_RE.test(body) || SHORTHAND_SEGMENT_RE.test(body))) return undefined;
+  if (/^[{[]/.test(body) || CHAINED_TAIL_RE.test(body)) return undefined;
+  let value = body;
+  if (isJsonString(body)) value = JSON.parse(body) as string;
+  else if (body.includes('"')) {
+    if (!body.includes("\n") || splitTopLevel(body).every((part) => isJsonString(part.trim()))) return undefined;
+    // `"Aiko | event="gift"\nBen | …"`: one quoted value with bare quotes inside.
+    if (body.length > 1 && body.startsWith('"') && body.endsWith('"')) value = body.slice(1, -1);
+  }
+  return { variableId: target, operation: (m?.[1] ?? "set") as Effect["operation"], value };
+}
+
 /**
  * A recovered write, checked against the world: the target must be a real,
  * AI-writable variable and the value must fit its type. Returns the effect to
@@ -201,7 +264,7 @@ function numberWriteFits(world: { variables: Variable[] }, effect: Effect): bool
  */
 function checkRecoveredWrite(world: { variables: Variable[] }, effect: Effect): Effect | null {
   const v = resolveEffectVariable(world, effect.variableId);
-  if (!v || v.internal || v.formula || (v.aiAccess ?? "write") !== "write") return null;
+  if (!aiWritable(v)) return null;
   const { operation: op, value } = effect;
   const nested = effect.variableId.includes(".") || /\[\d+\]/.test(effect.variableId);
   const num = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : NaN;
@@ -283,7 +346,8 @@ export class ResponseParser {
     };
 
     // Strip leaked thinking/reasoning blocks (e.g. Gemini Flash Lite outputs <fiction-mode>...</fiction-mode>)
-    const stripped = stripStateReceipts(ThinkingTagFilter.strip(responseText));
+    const unthought = ThinkingTagFilter.strip(responseText);
+    const stripped = stripStateReceipts(unthought);
 
     // The speaker tag sits at the very start and must never reach the
     // standard directive pattern below, which would read it as `[speaker: set …]`.
@@ -292,7 +356,10 @@ export class ResponseParser {
     // `<rationale>` goes whole; `<directive>` / `[state-changes]` wrappers are
     // unwrapped so the scanners below apply what they hold, and the rest of
     // them is dropped from the clean text (see bookkeeping-blocks.ts).
-    const unwrapped = unwrapBookkeepingBlocks(speakerTag.text);
+    // A face tag the reply wrote on a line of its own elsewhere (at the end,
+    // with the directives) goes too; the leading one wins.
+    const faceLines = stripFaceLines(speakerTag.text);
+    const unwrapped = unwrapBookkeepingBlocks(faceLines.text);
 
     // Extract <UpdateVariable> JSON Patch blocks (SillyTavern compatibility)
     let text = this.extractJsonPatch(unwrapped, effects, jsonVarId ?? "game_state");
@@ -349,7 +416,7 @@ export class ResponseParser {
       // can (one write per part); a write that does not apply is reported,
       // never silently lost.
       const recovered = world && (chained || !effect) ? this.recoverSpan(match, world, ids) : null;
-      if (recovered) effects.push(...recovered.effects);
+      if (recovered) effects.push(...appliedPart(world!, recovered));
       if (!recovered?.complete) unapplied.push({ text: match, targets: recovered?.targets ?? spanTargets(match, ids) });
       return "";
     })
@@ -366,8 +433,27 @@ export class ResponseParser {
       // An echoed `[game-state]` or "no changes" note: nothing was attempted.
       if (isEmptyBookkeepingSpan(span)) continue;
       const recovered = world ? this.recoverSpan(span, world, ids) : { effects: [], complete: false, targets: spanTargets(span, ids) };
-      effects.push(...recovered.effects);
+      if (world) effects.push(...appliedPart(world, recovered));
       if (!recovered.complete) unapplied.push({ text: span, targets: recovered.targets });
+    }
+
+    // `relationship-events` on its own line, then rows: the header form some
+    // models write at the end instead of a bracket (see header-blocks.ts).
+    // With the world only an AI-writable text variable is read this way and
+    // set to the rows; with ids only (the chat bubble) it is hidden.
+    const headerKind = (id: string): HeaderKind => {
+      if (!ids?.has(id)) return null;
+      if (!world) return "block";
+      const v = world.variables.find((x) => x.id === id);
+      return v?.type === "string" && aiWritable(v) ? "block" : "stop";
+    };
+    const tail = ids?.size ? extractTailHeaderBlocks(lines.text, headerKind) : { text: lines.text, blocks: [] };
+    if (world) {
+      for (const block of tail.blocks) {
+        if (!block.body.length) continue;
+        const value = block.body.join("\n").replace(/\x00IMG(\d+)\x00/g, (_m, idx: string) => imageEmbeds[Number(idx)] ?? "");
+        effects.push({ variableId: block.id, operation: "set", value });
+      }
     }
 
     // `[game-state.location: set "客厅"]`: a placeholder root in front of a
@@ -380,13 +466,19 @@ export class ResponseParser {
       }
     }
 
-    const cleanText = dropEmptyFences(lines.text)
-      .replace(/[^\S\n]+/g, " ").replace(/\n{3,}/g, "\n\n")
-      .replace(/\x00IMG(\d+)\x00/g, (_m, idx: string) => imageEmbeds[Number(idx)] ?? "")
-      .trim();
+    const cleanText = stripTrailingDirectiveLabel(
+      dropEmptyFences(tail.text)
+        .replace(/[^\S\n]+/g, " ").replace(/\n{3,}/g, "\n\n")
+        .replace(/\x00IMG(\d+)\x00/g, (_m, idx: string) => imageEmbeds[Number(idx)] ?? "")
+        .trim(),
+      unthought,
+      { removedAny: effects.length > 0 || audioEffects.length > 0 || unapplied.length > 0 || lines.removed.length > 0 || tail.blocks.length > 0 },
+    );
 
     const result: ParseResult = { cleanText, effects, audioEffects };
     if (speakerTag.speaker) result.speaker = speakerTag.speaker;
+    const face = speakerTag.face ?? faceLines.face;
+    if (face) result.face = face;
     if (unapplied.length) result.unapplied = unapplied;
     return result;
   }
@@ -404,9 +496,10 @@ export class ResponseParser {
     spanText: string,
     world: { variables: Variable[] },
     ids: ReadonlySet<string> | undefined,
-  ): { effects: Effect[]; complete: boolean; targets: string[] } {
+  ): RecoveredSpan {
     const targets = spanTargets(spanText, ids);
     const effects: Effect[] = [];
+    const fragments = new Set<Effect>();
     let complete = true;
     const patch = jsonPatchSpan(spanText);
     if (patch) {
@@ -433,10 +526,17 @@ export class ResponseParser {
     // or a bare key that is no variable at all; after a real variable or a
     // dot-path its keys are that value's own fields.
     const isBatchTarget = (id: string) => isPlaceholderKey(id, ids) || (!id.includes(".") && !resolveEffectVariable(world, id));
-    const add = (effect: Effect | null) => {
+    const add = (effect: Effect | null, fragment = false) => {
       const checked = effect ? checkRecoveredWrite(world, effect) : null;
-      if (checked) effects.push(checked);
-      else complete = false;
+      if (checked) {
+        effects.push(checked);
+        if (fragment) fragments.add(checked);
+      } else complete = false;
+    };
+    /** Unquoted text, not a JSON value: possibly a piece cut out of one. */
+    const unquoted = (raw: string, value: Effect["value"] | undefined) => {
+      if (typeof value !== "string") return false;
+      try { JSON.parse(raw.trim()); return false; } catch { return true; }
     };
     const perKey = (raw: string, operation: Effect["operation"]) => {
       let obj: unknown;
@@ -462,7 +562,7 @@ export class ResponseParser {
         }
         if (word === "update") { complete = false; return; }
         const value = strictValue(rest);
-        add(value === undefined ? null : { variableId: id, operation: word as Effect["operation"], value });
+        add(value === undefined ? null : { variableId: id, operation: word as Effect["operation"], value }, unquoted(rest, value));
         return;
       }
       const short = SHORTHAND_SEGMENT_RE.exec(raw);
@@ -470,33 +570,57 @@ export class ResponseParser {
       if (raw.startsWith("{") && isBatchTarget(id)) { perKey(raw, "set"); return; }
       // `[mood | calm]`, `"a.b": 120`: a lone clean value is a set.
       const bare = isPlaceholderKey(id, ids) ? undefined : strictValue(raw);
-      if (bare !== undefined) { add({ variableId: id, operation: "set", value: bare }); return; }
+      if (bare !== undefined) { add({ variableId: id, operation: "set", value: bare }, unquoted(raw, bare)); return; }
       complete = false;
     };
 
+    // A whole text variable takes its body as one value: rows like
+    // `Aiko | trust +4 | event=she said "hi", then left` carry commas and
+    // quotes of their own, never a list of changes.
+    const whole = wholeTextValue(world, target, parsed.rest);
+    if (whole) {
+      add(whole);
+      if (!effects.length) complete = false;
+      return { effects, complete, targets };
+    }
+
+    let firstPart = true;
+    let continuation: "push" | "append" | undefined;
+    const applyExplicit = (id: string, raw: string) => {
+      const operation = OP_SEGMENT_RE.exec(raw)?.[1];
+      continuation = operation === "push" || operation === "append" ? operation : undefined;
+      applyOn(id, raw);
+      firstPart = false;
+    };
     for (const part of splitTopLevel(parsed.rest)) {
       const s = part.trim();
       if (!s) continue;
       // `append ", b"`, `+5`: another change on the current target.
-      if (OP_SEGMENT_RE.test(s) || SHORTHAND_SEGMENT_RE.test(s)) { applyOn(target, s); continue; }
+      if (OP_SEGMENT_RE.test(s) || SHORTHAND_SEGMENT_RE.test(s)) { applyExplicit(target, s); continue; }
       // `heart: +5`, `"npcs.x.y": 120`: a new target with its change.
       const kv = QUOTED_KEY_SEGMENT_RE.exec(s) ?? BARE_KEY_SEGMENT_RE.exec(s);
       if (kv) {
         target = stripPlaceholderRoots(kv[1]!, ids);
-        applyOn(target, kv[2]!.trim());
+        applyExplicit(target, kv[2]!.trim());
         continue;
       }
       // `npcs.a.trust +5`, `log append ", x"`: a new target, no colon.
       const spaced = SPACED_TARGET_SEGMENT_RE.exec(s);
       if (spaced) {
         target = stripPlaceholderRoots(spaced[1]!, ids);
-        applyOn(target, spaced[2]!.trim());
+        applyExplicit(target, spaced[2]!.trim());
         continue;
       }
-      applyOn(target, s);
+      // `[sms: push {a},{b}]` means two appended items, never `push a; set b`.
+      // Bare continuations of other operations are ambiguous: report them
+      // instead of silently replacing the target. Named targets still allow
+      // their own implicit set (`..., mood: "calm"`).
+      if (firstPart) applyExplicit(target, s);
+      else if (continuation) applyOn(target, `${continuation} ${s}`);
+      else complete = false;
     }
     if (!effects.length) complete = false;
-    return { effects, complete, targets };
+    return { effects, complete, targets, fragments };
   }
 
   private parseDirective(

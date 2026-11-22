@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { Plus, Pencil, Trash2, Check, X, Palette, Sparkles } from "lucide-react";
+import { Plus, Pencil, Trash2, Check, X, Palette } from "lucide-react";
 import { feedback } from "@/lib/feedback";
 import { FieldError } from "@/components/ui/field-error";
 import { cn } from "@/lib/utils";
@@ -172,7 +172,7 @@ export function TagManagerDialog({ open, onClose }: TagManagerDialogProps) {
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>{t("entries.tagManager.title")}</DialogTitle>
-          <DialogDescription>{t("entries.tagManager.description")}</DialogDescription>
+          <DialogDescription className="sr-only">{t("entries.tagManager.description")}</DialogDescription>
         </DialogHeader>
 
         <div className="mt-2 max-h-[420px] space-y-1 overflow-y-auto pr-1">
@@ -318,9 +318,8 @@ export function TagManagerDialog({ open, onClose }: TagManagerDialogProps) {
         {unusedCustomTags.length > 0 && (
           <button
             onClick={handleCleanupUnused}
-            className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-amber-400/30 bg-amber-500/[0.06] px-3 py-1.5 text-xs font-medium text-amber-300 transition-colors hover:border-amber-400/60 hover:bg-amber-500/[0.12]"
+            className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           >
-            <Sparkles className="h-3.5 w-3.5" />
             {t("entries.tagManager.cleanupUnused", {
               count: unusedCustomTags.length,
             })}

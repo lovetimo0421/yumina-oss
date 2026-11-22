@@ -1,5 +1,8 @@
 import { LANGUAGE_SHORT } from "@/lib/languages";
-import { useState, useCallback } from "react";
+import { collabApi } from "@/features/collab/collab-api";
+import { CollabInviteList, SharedWithMe } from "@/features/collab/shared-with-me";
+import { useCollabInvites } from "@/features/collab/collab-invites";
+import { useState, useCallback, useEffect } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import {
   Search,
@@ -65,6 +68,9 @@ export function LibraryMyProjects({
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const deleteWorld = useWorldsStore((s) => s.deleteWorld);
   const navigate = useNavigate();
+  // How many people work on each of my cards with me (badge on the card).
+  const [collabCounts, setCollabCounts] = useState<Record<string, number>>({});
+  useEffect(() => { collabApi.mine().then(setCollabCounts).catch(() => {}); }, []);
 
   const apiBase = import.meta.env.VITE_API_URL || "";
 
@@ -200,6 +206,10 @@ export function LibraryMyProjects({
     }
   });
 
+  // Cards shared with me answer the same search box, by name.
+  const sharedMatchCount = useCollabInvites((s) =>
+    (s.shared ?? []).filter((w) => w.name.toLowerCase().includes(searchQuery.trim().toLowerCase())).length);
+
   const drafts = sorted.filter((w) => w.status !== "pending_review" && w.status !== "rejected" && !w.isPublished);
   const inReview = sorted.filter((w) => w.status === "pending_review");
   const rejected = sorted.filter((w) => w.status === "rejected");
@@ -275,6 +285,9 @@ export function LibraryMyProjects({
         </div>
       </div>
 
+      {/* Invitations to work on someone else's card wait here, first. */}
+      <CollabInviteList />
+
       {externalLoading ? (
         <div className="flex justify-center py-20">
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground/40" />
@@ -313,6 +326,7 @@ export function LibraryMyProjects({
                   <LibraryGameCard
                     item={item}
                     languageBadge={languageBadgeOf(item)}
+                    collaboratorCount={collabCounts[item.id]}
                     onClick={() => onSelectItem(item)}
                     status="draft"
                     onEdit={() => navigate({ to: "/app/worlds/$worldId/edit", params: { worldId: item.id } })}
@@ -349,6 +363,7 @@ export function LibraryMyProjects({
                 <LibraryGameCard
                   item={item}
                   languageBadge={languageBadgeOf(item)}
+                  collaboratorCount={collabCounts[item.id]}
                   onClick={() => onSelectItem(item)}
                   status="pending_review"
                   onEdit={() => navigate({ to: "/app/worlds/$worldId/edit", params: { worldId: item.id } })}
@@ -378,6 +393,7 @@ export function LibraryMyProjects({
                 <LibraryGameCard
                   item={item}
                   languageBadge={languageBadgeOf(item)}
+                  collaboratorCount={collabCounts[item.id]}
                   onClick={() => onSelectItem(item)}
                   status="rejected"
                   onEdit={() => navigate({ to: "/app/worlds/$worldId/edit", params: { worldId: item.id } })}
@@ -428,6 +444,7 @@ export function LibraryMyProjects({
                   <LibraryGameCard
                     item={item}
                     languageBadge={languageBadgeOf(item)}
+                    collaboratorCount={collabCounts[item.id]}
                     onClick={() => onSelectItem(item)}
                     status="published"
                     onEdit={() => navigate({ to: "/app/worlds/$worldId/edit", params: { worldId: item.id } })}
@@ -450,7 +467,10 @@ export function LibraryMyProjects({
         </div>
       )}
 
-      {sorted.length === 0 && (
+      {/* Cards other people invited this creator to work on. */}
+      <SharedWithMe searchQuery={searchQuery} />
+
+      {sorted.length === 0 && sharedMatchCount === 0 && (
         searchQuery ? (
           <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
             <Search size={48} className="mb-4 opacity-20" />

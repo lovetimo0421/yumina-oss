@@ -110,19 +110,14 @@ export function SidebarPanel() {
   return (
     <div className="flex h-full flex-col bg-background">
       <div className="flex items-center gap-2 border-b border-border px-3 py-2">
-        <PanelRight className="h-3.5 w-3.5 text-primary" />
+        <PanelRight className="h-3.5 w-3.5 text-muted-foreground" />
         <span className="text-xs font-medium text-foreground">{t("studio.sidebar.title")}</span>
       </div>
 
       <div className="flex-1 space-y-4 overflow-y-auto p-3">
         <section className="rounded-lg border border-border/80 bg-card/70 p-3">
           <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-xs font-semibold text-foreground">{t("studio.sidebar.previewControls")}</p>
-              <p className="mt-1 text-[11px] text-muted-foreground">
-                {t("studio.sidebar.previewControlsDesc")}
-              </p>
-            </div>
+            <p className="text-xs font-semibold text-foreground" title={t("studio.sidebar.previewControlsDesc")}>{t("studio.sidebar.previewControls")}</p>
             <SlidersHorizontal className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           </div>
 
@@ -131,6 +126,7 @@ export function SidebarPanel() {
               <label
                 key={section.key}
                 className="flex cursor-pointer items-start gap-2 rounded-md border border-border/50 bg-background/60 px-2.5 py-2"
+                title={t(section.descriptionKey as any)}
               >
                 <input
                   type="checkbox"
@@ -140,13 +136,8 @@ export function SidebarPanel() {
                   }
                   className="mt-0.5 h-3.5 w-3.5 rounded border-border bg-background"
                 />
-                <span className="min-w-0">
-                  <span className="block text-xs font-medium text-foreground">
-                    {t(section.labelKey as any)}
-                  </span>
-                  <span className="block text-[11px] text-muted-foreground">
-                    {t(section.descriptionKey as any)}
-                  </span>
+                <span className="min-w-0 text-xs font-medium text-foreground">
+                  {t(section.labelKey as any)}
                 </span>
               </label>
             ))}

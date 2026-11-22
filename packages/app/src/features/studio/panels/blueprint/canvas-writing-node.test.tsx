@@ -115,7 +115,14 @@ test("a row offers both ways in: the click keeps the drawer, the chevron opens i
     assert.equal(open.querySelector('[data-canvas-writing-expand="entry:worldview"]')!.getAttribute("aria-expanded"), "true");
     // The board has to know the row grew, or the module below it is drawn over.
     // A line of text opens as two lines of box (openEntryEditorHeight), not the full editor.
-    assert.equal(canvasWritingNodeHeight(data()), 40 + 2 + (40 + 180 + 2 * 26) + 96);
+    assert.equal(canvasWritingNodeHeight(data()), 40 + 2 + (40 + 100 + 2 * 26) + 96);
+    const editor = open.querySelector<HTMLElement>('[data-canvas-writing-editor]')!;
+    assert.equal(editor.style.height, "", "expanded controls are not trapped in a fixed-height scroller");
+    assert.ok(!editor.className.includes("overflow-y-auto"));
+    await update({ editorHeights: new Map([["entry:worldview", 900]]) });
+    assert.equal(canvasWritingNodeHeight(data()), 40 + 2 + 40 + 900 + 96, "the next block moves below the expanded form");
+    await update({ editorHeights: new Map([["entry:worldview", 300]]) });
+    assert.equal(canvasWritingNodeHeight(data()), 40 + 2 + 40 + 300 + 96, "collapsing controls gives the extra space back");
   });
 });
 
@@ -125,7 +132,7 @@ test("detail says when each entry reaches the AI; simple says only its name", as
   await withNode({ kind: "setting", entries: [keyworded, always] }, async ({ container, update }) => {
     const first = container.querySelector('[data-canvas-writing-object="entry:gate"]')!;
     assert.equal(first.querySelector("[data-canvas-writing-delivery]")!.textContent, "Keywords: city gate、guard");
-    assert.equal(container.querySelector('[data-canvas-writing-object="entry:tone"] [data-canvas-writing-delivery]')!.textContent, "Sent every turn");
+    assert.equal(container.querySelector('[data-canvas-writing-object="entry:tone"] [data-canvas-writing-delivery]'), null, "every turn is the usual: no line for it");
     await update({ compact: true });
     assert.equal(container.querySelector("[data-canvas-writing-delivery]"), null, "simple mode is the names alone");
     assert.equal(container.querySelector("[data-canvas-writing-preview]"), null);
@@ -303,6 +310,19 @@ test("two columns share their lines: a short unwritten row beside a written one 
   });
 });
 
+test("the native phone header opens its page without inheriting a desktop inline form's height", async () => {
+  await withNode({
+    kind: "opening", entries: [entry("hello")], headOnly: true,
+    expandedIds: new Set(["greeting:hello"]),
+    editorHeights: new Map([["greeting:hello", 1200]]),
+  }, async ({ container, data, click, opened }) => {
+    assert.equal(canvasWritingNodeHeight(data()), 42);
+    assert.equal(container.querySelector("[data-canvas-writing-editor]"), null);
+    await click(container.querySelector('[data-canvas-writing-head-open="greeting:hello"]')!);
+    assert.deepEqual(opened, ["greeting:hello"]);
+  });
+});
+
 test("a double-click on a row opens its own editor; one in the open editor only selects a word", async () => {
   const drilled: string[] = [];
   const dblclick = (element: Element) => act(async () => { element.dispatchEvent(new dom.window.MouseEvent("dblclick", { bubbles: true })); });
@@ -340,5 +360,19 @@ test("the author's folder is renamed and dissolved in place; the presets group i
     // A folder made from the menu arrives with its name ready to type.
     await update({ renamingFolderId: "cast" });
     assert.ok(container.querySelector('[data-canvas-writing-folder="cast"] input'));
+  });
+});
+
+test("zoomed out on a computer a row keeps its height and its text waits as faint lines, so the board does not move", async () => {
+  const written = entry("history", { content: "The city was built on a river bend." });
+  await withNode({ kind: "setting", entries: [written] }, async ({ container, data, update }) => {
+    const full = canvasWritingNodeHeight(data());
+    await update({ quiet: true });
+    assert.equal(canvasWritingNodeHeight(data()), full, "the same height as the row that says it");
+    const row = container.querySelector('[data-canvas-writing-object="entry:history"]')!;
+    assert.ok(row.querySelector("[data-canvas-writing-quiet]"), "two faint lines in its place");
+    assert.doesNotMatch(row.textContent ?? "", /river bend/);
+    await update({ quiet: false });
+    assert.match(row.querySelector("[data-canvas-writing-preview]")!.textContent!, /river bend/);
   });
 });

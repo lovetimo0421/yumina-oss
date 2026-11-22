@@ -4,6 +4,13 @@ import { uiBlueprintSchema as _uiBlueprintSchema } from "./ui-blueprint-schema.j
 import { uiDocSchema as _uiDocSchema } from "../ui-doc/schema.js";
 import { sceneSchema as _sceneSchema } from "../spatial/schemas.js";
 
+/** A story-illustration LoRA binding (ImageLoraBinding). */
+export const imageLoraBindingSchema = z.object({
+  modelId: z.string().min(1).max(80),
+  weight: z.number().min(0).max(2).optional(),
+  trigger: z.string().max(300).optional(),
+});
+
 export const conditionSchema = z.object({
   variableId: z.string(),
   operator: z.enum(["eq", "neq", "gt", "gte", "lt", "lte", "contains"]),
@@ -342,6 +349,8 @@ export const lorebookEntrySchema = z.object({
   alwaysSend: z.boolean().default(false),
 });
 
+export const sealedMarkSchema = z.object({ by: z.string().min(1), from: z.string().optional() });
+
 export const worldEntrySchema = z.object({
   id: z.string(),
   name: z.string().min(1),
@@ -369,8 +378,10 @@ export const worldEntrySchema = z.object({
   audience: z.enum(["ai", "player", "both"]).optional(),
   portrait: z.string().optional(),
   portraitVideo: z.object({ idle: z.string().optional(), speaking: z.string().optional() }).optional(),
+  portraitLive: z.string().optional(),
   /** fish.audio reference id the character is read in. */
   voice: z.string().optional(),
+  imageLora: imageLoraBindingSchema.optional(),
   pairId: z.string().optional(),
   worldbookId: z.string().optional(),
   // Lore Shift V1 may replace content only. Missing/legacy values stay locked.
@@ -378,6 +389,7 @@ export const worldEntrySchema = z.object({
   initialVariables: z
     .record(z.union([z.number(), z.string(), z.boolean()]))
     .optional(),
+  sealed: sealedMarkSchema.optional(),
 });
 
 export const loreUiBindingSchema = z.object({
@@ -557,6 +569,29 @@ export const customUIComponentSchema = z.object({
   updatedAt: z.string().default(() => new Date().toISOString()),
 });
 
+/** settings.multiplayer (WorldMultiplayerSettings). Every key is optional and
+ *  unknown keys pass: older rules cards stored no `enabled` (and 1 seat as a
+ *  minimum, or `aiModel`), and the Krew sea stores a bare `{ roomId }`.
+ *  `readMultiplayer` in @yumina/shared is what decides whether it is on. */
+export const multiplayerSettingsSchema = z.object({
+  enabled: z.boolean().optional(),
+  mode: z.enum(["story", "rules"]).optional(),
+  minSeats: z.number().int().min(1).max(12).optional(),
+  maxSeats: z.number().int().min(1).max(12).optional(),
+  roles: z.array(z.object({
+    id: z.string().min(1).max(64),
+    name: z.string().min(1).max(40),
+    entryId: z.string().max(64).optional(),
+    note: z.string().max(200).optional(),
+  })).max(24).optional(),
+  rolesRequired: z.boolean().optional(),
+  rulesFile: z.string().max(200).optional(),
+  ai: z.object({
+    names: z.array(z.string().max(24)).max(12).optional(),
+    model: z.string().max(120).optional(),
+  }).optional(),
+}).passthrough();
+
 export const worldSettingsSchema = z.object({
   maxTokens: z.number().int().positive().optional().default(12000),
   speakerBubbles: z.boolean().optional(),
@@ -572,6 +607,7 @@ export const worldSettingsSchema = z.object({
   narratorVoice: z.string().optional(),
   /** Voice input on release: "confirm" (fill composer) or "auto" (send as spoken). */
   voiceInputMode: z.enum(["confirm", "auto"]).optional(),
+  illustrationLora: imageLoraBindingSchema.optional(),
   systemPrompt: z.string().optional(),
   greeting: z.string().optional(),
   lorebookTokenBudget: z.number().int().positive().optional(),
@@ -588,7 +624,11 @@ export const worldSettingsSchema = z.object({
   samplingPolicy: z.enum(["player", "author"]).optional(),
   recommendedModel: z.string().max(200).optional(),
   layoutMode: z.enum(["split", "game-focus", "immersive"]).optional().default("split"),
+  // 帮我写 in the player's composer. Absent = on; false for cards where the
+  // player's own wording is the game (puzzles, choices).
+  composeAssist: z.boolean().optional(),
   uiMode: z.enum(["chat", "per-reply", "persistent"]).optional().default("chat"),
+  multiplayer: multiplayerSettingsSchema.optional(),
 });
 
 export const entryFolderSchema = z.object({
@@ -598,6 +638,7 @@ export const entryFolderSchema = z.object({
   order: z.number().int(),
   collapsed: z.boolean().optional(),
   worldbookId: z.string().optional(),
+  sealed: sealedMarkSchema.optional(),
 });
 
 // ── Root Component schemas ──────────────────────────────────────────
@@ -627,11 +668,15 @@ export const rootComponentSchema = z.object({
   generatedFrom: z.literal("uiDoc").optional(),
 });
 
-export const coverCropSettingsSchema = z.object({
+const coverCropFrameSchema = z.object({
   x: z.number().min(-45).max(45).default(0),
   y: z.number().min(-45).max(45).default(0),
   zoom: z.number().min(0.25).max(3).default(1),
   fit: z.enum(["cover", "contain"]).optional().default("cover"),
+});
+
+export const coverCropSettingsSchema = coverCropFrameSchema.extend({
+  desktop: coverCropFrameSchema.extend({ aspect: z.number().positive().optional() }).optional(),
 });
 
 export const worldDefinitionSchema = z.object({

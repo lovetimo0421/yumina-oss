@@ -1,3 +1,8 @@
+---
+title: "Characters in games"
+description: "A Yumina card can be a character inside another game, talking to it only through variables. How to mark them, and how a mod runs a card with the open-source engine."
+---
+
 # Characters in games
 
 A card doesn't have to be played on the web. It can also be a character inside someone else's game: the player meets that character in the game, and the card answers. The SpireTalk mod for *Slay the Spire 2* works this way; each of the eight Ancients and the Merchant is a Yumina card.

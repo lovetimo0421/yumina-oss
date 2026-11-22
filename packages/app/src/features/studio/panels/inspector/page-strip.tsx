@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
-import { DoorClosed, Home, PanelLeftClose, PanelLeftOpen, Plus } from "lucide-react";
+import { DoorClosed, Home, Plus } from "lucide-react";
 import { UI_CANVAS_W, UI_DESKTOP_H, UI_DESKTOP_W, duplicatePage, elementActions, movePage, removePage, renamePage, setEntryPage } from "@yumina/engine";
 import type { UiDoc, UiElement, UiPage } from "@yumina/engine";
 import { getAssetCdnUrl } from "@/lib/asset-url";
@@ -45,18 +45,8 @@ export function isDeadEnd(doc: UiDoc, page: UiPage): boolean {
     || elementActions(el).some((a) => a.kind === "go-page" && a.pageId !== page.id && doc.pages.some((q) => q.id === a.pageId)));
 }
 
-/** The words a thumbnail spells out: the page's biggest line —
- *  its title — which is what tells one page from the next. */
-function headlineIds(parts: Array<{ el: UiElement }>): Set<string> {
-  const texts = parts
-    .filter((p) => p.el.type === "text" && p.el.text.template.trim())
-    .map((p) => p.el as Extract<UiElement, { type: "text" }>)
-    .sort((a, b) => (b.style?.desktopSize ?? b.style?.size ?? 16) - (a.style?.desktopSize ?? a.style?.size ?? 16));
-  return new Set(texts.slice(0, 1).map((el) => el.id));
-}
-
 /** One part as a few strokes. */
-function Mark({ el, box, spell, minSize, pageW }: { el: UiElement; box: Box; spell: boolean; minSize: number; pageW: number }) {
+function Mark({ el, box }: { el: UiElement; box: Box }) {
   const faded = el.visibleWhen ? 0.45 : 1;
   const r = (fill: string, extra: Partial<Box> = {}, radius = 6, opacity = 1) => (
     <rect x={box.x + (extra.x ?? 0)} y={box.y + (extra.y ?? 0)} width={extra.w ?? box.w} height={extra.h ?? box.h}
@@ -64,21 +54,6 @@ function Mark({ el, box, spell, minSize, pageW }: { el: UiElement; box: Box; spe
   );
   switch (el.type) {
     case "text": {
-      if (spell) {
-        // Drawn big enough to read at thumbnail size, centred on where the
-        // words sit, and cut at the page's edge.
-        const size = Math.max(el.style?.desktopSize ?? el.style?.size ?? 16, minSize);
-        const words = el.text.template.replace(/\{\{[^}]*\}\}/g, "…").replace(/\s+/g, " ").trim();
-        const align = el.style?.align ?? "left";
-        const x = align === "center" ? box.x + box.w / 2 : align === "right" ? box.x + box.w : box.x;
-        const anchor = align === "center" ? "middle" : align === "right" ? "end" : "start";
-        return (
-          <text x={Math.min(pageW, Math.max(0, x))} y={box.y + Math.min(box.h, size) / 2} dominantBaseline="central" textAnchor={anchor}
-            style={{ fill: el.style?.color ?? TEXT, fontSize: size, fontWeight: 700, opacity: faded }}>
-            {words.length > 10 ? `${words.slice(0, 9)}…` : words}
-          </text>
-        );
-      }
       const size = Math.min(box.h, Math.max(8, (el.style?.desktopSize ?? el.style?.size ?? 16)));
       const len = Math.max(2, el.text.template.replace(/\{\{[^}]*\}\}/g, "xxxx").length);
       const w = Math.min(box.w, len * size * 0.8);
@@ -127,9 +102,6 @@ export function PageThumb({ doc, page, wide }: { doc: UiDoc | undefined; page: U
     .sort((a, b) => (a.z ?? 0) - (b.z ?? 0))
     .map((el) => ({ el, box: boxOf(el, wide) }))
     .filter((p): p is { el: UiElement; box: Box } => p.box !== null);
-  const spelled = headlineIds(parts);
-  // About 11px on a tile ~108px wide.
-  const minSize = (w / 108) * 11;
   return (
     <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="xMidYMid slice" className="h-full w-full" style={vars} aria-hidden>
       <rect x={0} y={0} width={w} height={h} style={{ fill: ground }} />
@@ -146,16 +118,9 @@ export function PageThumb({ doc, page, wide }: { doc: UiDoc | undefined; page: U
           <rect x={w * 0.05} y={h * 0.85} width={w * 0.9} height={h * 0.08} rx={14} style={{ fill: SURFACE }} />
         </g>
       )}
-      {parts.map(({ el, box }) => <Mark key={el.id} el={el} box={box} spell={spelled.has(el.id)} minSize={minSize} pageW={w} />)}
+      {parts.map(({ el, box }) => <Mark key={el.id} el={el} box={box} />)}
     </svg>
   );
-}
-
-const FOLD_KEY = "yumina-page-strip-folded";
-
-/** The creator's own choice, if they made one. */
-function readFolded(): boolean | null {
-  try { const v = localStorage.getItem(FOLD_KEY); return v === "1" ? true : v === "0" ? false : null; } catch { return null; }
 }
 
 /** The ready-made chat screen a card has before it has pages of its own. */
@@ -189,10 +154,8 @@ export function PageStrip({
 }) {
   const { t } = useTranslation("editor");
   const pages = doc?.pages ?? [];
-  // Most cards have one page: the strip stays folded until there are two,
-  // unless the creator opened or folded it themselves.
-  const [foldPref, setFoldPref] = useState(readFolded);
-  const folded = foldPref ?? pages.length < 2;
+  // Always open: folded it only hid a page number behind one more click, and
+  // the open list is barely wider than the folded rail was.
   const [dragId, setDragId] = useState<string | null>(null);
   const [dropAt, setDropAt] = useState<number | null>(null);
   const [menu, setMenu] = useState<{ pageId: string; x: number; y: number } | null>(null);
@@ -208,10 +171,6 @@ export function PageStrip({
     return () => { window.removeEventListener("mousedown", close, true); window.removeEventListener("keydown", esc, true); };
   }, [menu]);
 
-  const fold = (next: boolean) => {
-    setFoldPref(next);
-    try { localStorage.setItem(FOLD_KEY, next ? "1" : "0"); } catch { /* the choice just isn't remembered */ }
-  };
   const nameOf = (p: UiPage, i: number) => p.name || String(t("studio.element.pageN", { n: i + 1 }));
   const commitRename = () => {
     if (doc && renaming && renaming.value.trim()) onEdit(renamePage(doc, renaming.pageId, renaming.value.trim()));
@@ -248,41 +207,6 @@ export function PageStrip({
   const shape = wide ? "aspect-[16/10]" : "aspect-[10/16]";
   const count = Math.max(1, pages.length);
 
-  if (folded) {
-    return (
-      <nav aria-label={t("studio.pageTemplates.pages")} data-testid="page-strip" data-folded=""
-        className="flex w-11 shrink-0 flex-col items-center gap-1.5 border-r border-border/50 bg-muted/20 py-2.5">
-        <button type="button" data-testid="page-strip-unfold" onClick={() => fold(false)}
-          title={t("studio.pageTemplates.strip.unfold")} aria-label={t("studio.pageTemplates.strip.unfold")}
-          className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
-          <PanelLeftOpen className="h-4 w-4" />
-        </button>
-        <span className="my-0.5 h-px w-5 bg-border/70" />
-        <div className="flex min-h-0 flex-col items-center gap-1 overflow-y-auto">
-          {(pages.length ? pages : [null]).map((p, i) => {
-            const active = p ? p.id === currentPageId : true;
-            return (
-              <button key={p?.id ?? "chat"} type="button" data-strip-page={p?.id}
-                onClick={() => p && onPage(p.id)}
-                title={p ? nameOf(p, i) : t("studio.pageTemplates.strip.chatPage")}
-                className={cn(
-                  "flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[11px] font-semibold tabular-nums transition-colors",
-                  active ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                )}>
-                {i + 1}
-              </button>
-            );
-          })}
-        </div>
-        <button type="button" onClick={onNew} data-testid="strip-new-page"
-          title={t("studio.pageTemplates.strip.add")} aria-label={t("studio.pageTemplates.strip.add")}
-          className="flex h-7 w-7 items-center justify-center rounded-md border border-dashed border-border text-muted-foreground transition-colors hover:border-primary/60 hover:text-primary">
-          <Plus className="h-3.5 w-3.5" />
-        </button>
-      </nav>
-    );
-  }
-
   return (
     <nav aria-label={t("studio.pageTemplates.pages")} data-testid="page-strip"
       className="flex w-[184px] shrink-0 flex-col border-r border-border/50 bg-muted/20">
@@ -294,11 +218,6 @@ export function PageStrip({
           className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
           <Plus className="h-4 w-4" />
         </button>
-        <button type="button" data-testid="page-strip-fold" onClick={() => fold(true)}
-          title={t("studio.pageTemplates.strip.fold")} aria-label={t("studio.pageTemplates.strip.fold")}
-          className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
-          <PanelLeftClose className="h-4 w-4" />
-        </button>
       </header>
 
       <ol className="flex min-h-0 flex-1 flex-col overflow-y-auto pb-3 pl-1.5 pr-3 pt-1"
@@ -308,7 +227,7 @@ export function PageStrip({
           <li className="flex items-start gap-1.5 py-1.5">
             <span className="w-4 shrink-0 pt-0.5 text-right text-[11px] font-semibold tabular-nums text-foreground">1</span>
             <span className="flex min-w-0 flex-1 flex-col gap-1.5">
-              <span className={cn("relative block w-full overflow-hidden rounded-[5px] shadow-[0_1px_3px_rgba(0,0,0,0.35)] ring-2 ring-primary ring-offset-2 ring-offset-background", shape)}>
+              <span className={cn("relative block w-full overflow-hidden rounded-[5px] shadow-[0_1px_3px_rgba(0,0,0,0.35)] ring-2 ring-foreground/70 ring-offset-2 ring-offset-background", shape)}>
                 <ChatThumb wide={wide} />
               </span>
               <span className="truncate text-[11px] text-foreground">{t("studio.pageTemplates.strip.chatPage")}</span>
@@ -329,8 +248,8 @@ export function PageStrip({
               }}
               onDrop={(e) => { e.preventDefault(); e.stopPropagation(); if (dropAt !== null) drop(dropAt); }}>
               {/* Where a dragged page will land: a bar between slides, as in a deck. */}
-              {lineAbove && <span className="pointer-events-none absolute -top-px left-5 right-0 h-[3px] rounded-full bg-primary" />}
-              {lineBelow && <span className="pointer-events-none absolute -bottom-px left-5 right-0 h-[3px] rounded-full bg-primary" />}
+              {lineAbove && <span className="pointer-events-none absolute -top-px left-5 right-0 h-[3px] rounded-full bg-foreground/70" />}
+              {lineBelow && <span className="pointer-events-none absolute -bottom-px left-5 right-0 h-[3px] rounded-full bg-foreground/70" />}
               <button type="button" data-strip-page={p.id}
                 draggable
                 onDragStart={(e) => { setDragId(p.id); e.dataTransfer.effectAllowed = "move"; }}
@@ -346,7 +265,7 @@ export function PageStrip({
                   <span className={cn(
                     "relative block w-full overflow-hidden rounded-[5px] shadow-[0_1px_3px_rgba(0,0,0,0.35)] ring-offset-2 ring-offset-background transition-shadow",
                     shape,
-                    active ? "ring-2 ring-primary" : "ring-1 ring-border/60 group-hover:ring-2 group-hover:ring-foreground/25",
+                    active ? "ring-2 ring-foreground/70" : "ring-1 ring-border/60 group-hover:ring-2 group-hover:ring-foreground/25",
                   )}>
                     <PageThumb doc={doc} page={p} wide={wide} />
                     {doc && isDeadEnd(doc, p) && (
@@ -362,11 +281,11 @@ export function PageStrip({
                       onChange={(e) => setRenaming({ pageId: p.id, value: e.target.value })}
                       onKeyDown={(e) => { if (e.key === "Enter") commitRename(); if (e.key === "Escape") { e.stopPropagation(); setRenaming(null); } }}
                       onBlur={commitRename}
-                      className="w-full rounded border border-primary bg-background px-1 py-0.5 text-[11px] outline-none" />
+                      className="w-full rounded border border-foreground/40 bg-background px-1 py-0.5 text-[11px] outline-none" />
                   ) : (
                     <span className={cn("flex min-w-0 items-center gap-1 text-[11px]", active ? "text-foreground" : "text-muted-foreground")}>
                       {p.id === doc?.entryPageId && (
-                        <Home className="h-3 w-3 shrink-0 text-primary" aria-label={t("studio.element.entryPage")} />
+                        <Home className="h-3 w-3 shrink-0 text-muted-foreground" aria-label={t("studio.element.entryPage")} />
                       )}
                       <span className="truncate">{nameOf(p, i)}</span>
                     </span>
@@ -381,7 +300,7 @@ export function PageStrip({
             className="group flex w-full items-start gap-1.5 text-left">
             <span className="w-4 shrink-0" />
             <span className={cn(
-              "flex w-full flex-col items-center justify-center gap-1 rounded-[5px] border border-dashed border-border text-muted-foreground transition-colors group-hover:border-primary/60 group-hover:bg-primary/[0.06] group-hover:text-primary",
+              "flex w-full flex-col items-center justify-center gap-1 rounded-[5px] border border-dashed border-border text-muted-foreground transition-colors group-hover:border-foreground/30 group-hover:bg-foreground/[0.04] group-hover:text-foreground",
               shape,
             )}>
               <Plus className="h-4 w-4" />

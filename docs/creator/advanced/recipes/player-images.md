@@ -1,10 +1,14 @@
+---
+title: "Player-uploaded images"
+description: "Save pictures the player uploads with api.media and keep small related JSON in session storage, for worlds that draw their own interface code."
+---
 <div v-pre>
 
 # Player-Uploaded Images
 
 Save player pictures with `api.media`, and small related JSON with `api.sessionStorage`. Both belong to the current play session and can be read on another device signed into the same account. Creator-supplied images still go in **Panels → Assets** and are used through `@asset:` references.
 
-The Player interface templates have no upload part, so this recipe needs interface code (**Panels → Front End Code**).
+The Player interface templates have no upload part, so this recipe needs interface code (**Panels → Interface code**).
 
 ## Choose where data belongs
 

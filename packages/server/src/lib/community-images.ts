@@ -1,4 +1,5 @@
 import { resolveImageCdn } from "./cdn-url.js";
+import { PUBLIC_ORIGIN } from "./env.js";
 
 export interface CommunityImageAttachment {
   url: string;
@@ -44,4 +45,15 @@ export function normalizeCommunityImages(input: unknown): CommunityImageAttachme
 
 export function hasInlineCommunityImage(content: string | undefined): boolean {
   return INLINE_IMAGE_RE.test(content ?? "");
+}
+
+/**
+ * An announcement's pictures in its text (an update post shows each screenshot beside what it describes, and its
+ * English translation shows the English ones): allowed only as markdown images whose every address is a picture on
+ * this site's CDN (/cdn/..., relative or on this origin). No <img>, no [image:...], nothing from elsewhere.
+ */
+export function inlineImagesAreOurs(content: string, origin = PUBLIC_ORIGIN): boolean {
+  if (/<img\b|\[image:/i.test(content)) return false;
+  const urls = [...content.matchAll(/!\[[^\]]*]\(([^)]*)\)/g)].map((m) => m[1]!.trim());
+  return urls.length > 0 && urls.every((u) => /^\/cdn\/[A-Za-z0-9/_=.-]+$/.test(u) || (u.startsWith(`${origin}/cdn/`) && /^[A-Za-z0-9/_=.:-]+$/.test(u)));
 }

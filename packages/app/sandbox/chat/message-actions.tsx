@@ -1,8 +1,11 @@
+import { useReadingAppearance } from "./reading-appearance";
 import { useState, useRef, useEffect, useLayoutEffect, useMemo, forwardRef } from "react";
 import { createPortal } from "react-dom";
 import { useYumina } from "../sandbox-context";
 import { makeChatT } from "./i18n";
+import { rememberInPinnedNotes } from "./core-memory";
 import { useTurnImageSettings } from "./turn-images";
+import { OwnPromptForm, turnImageCost } from "./turn-image-prompt";
 
 interface MessageActionsProps {
   message: { id: string; role: string; content: string };
@@ -49,6 +52,7 @@ export function MessageActions({
   editDisabled = false,
 }: MessageActionsProps) {
   const api = useYumina();
+  const appearance = useReadingAppearance();
   const t = useMemo(() => makeChatT(api.language), [api.language]);
   const [copied, setCopied] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -72,14 +76,19 @@ export function MessageActions({
     api.regenerateMessage(message.id);
     window.setTimeout(() => setRegenPending(false), 4000);
   };
-  const { settings: turnImages } = useTurnImageSettings(api);
+  const { settings: turnImages, refresh: refreshTurnImages } = useTurnImageSettings(api);
   const [illustrating, setIllustrating] = useState(false);
-  const handleIllustrate = async () => {
+  // The draw button opens a small menu: draw this scene, or write the picture's prompt yourself.
+  const [drawMenu, setDrawMenu] = useState(false);
+  const [ownPrompt, setOwnPrompt] = useState(false);
+  const closeDrawMenu = () => { setDrawMenu(false); setOwnPrompt(false); };
+  const handleIllustrate = async (prompt?: string) => {
     if (illustrating) return;
+    closeDrawMenu();
     setIllustrating(true);
     // A failure shows as a line under the reply (turn-image-state), not a toast.
     try {
-      await api.illustrateMessage(message.id);
+      await api.illustrateMessage(message.id, prompt ? { prompt } : undefined);
     } catch {
       /* the host already recorded why */
     } finally {
@@ -89,6 +98,7 @@ export function MessageActions({
   const popoverRef = useRef<HTMLDivElement>(null);
   const deleteBtnRef = useRef<HTMLButtonElement>(null);
   const revertBtnRef = useRef<HTMLButtonElement>(null);
+  const drawBtnRef = useRef<HTMLButtonElement>(null);
   const [popoverPos, setPopoverPos] = useState<{ left: number; top: number } | null>(null);
 
   // Compute popover position relative to its trigger when it opens, and
@@ -98,7 +108,9 @@ export function MessageActions({
       ? deleteBtnRef.current
       : confirmRevert
         ? revertBtnRef.current
-        : null;
+        : drawMenu
+          ? drawBtnRef.current
+          : null;
     if (!trigger) {
       setPopoverPos(null);
       return;
@@ -107,7 +119,7 @@ export function MessageActions({
       const triggerRect = trigger.getBoundingClientRect();
       const el = popoverRef.current;
       // Use measured size if popover has rendered, else fall back to mins.
-      const width = el?.offsetWidth ?? (confirmRevert ? 220 : 200);
+      const width = el?.offsetWidth ?? (confirmRevert ? 220 : drawMenu ? 256 : 200);
       const height = el?.offsetHeight ?? 96;
       setPopoverPos(computePopoverPos(triggerRect, width, height));
     };
@@ -121,23 +133,69 @@ export function MessageActions({
       window.removeEventListener("resize", update);
       window.removeEventListener("scroll", update, true);
     };
-  }, [confirmDelete, confirmRevert]);
+  }, [confirmDelete, confirmRevert, drawMenu, ownPrompt]);
 
-  // Click-outside to dismiss floating confirmations
+  // Click-outside (and Escape for the draw menu) to dismiss floating popovers
   useEffect(() => {
-    if (!confirmDelete && !confirmRevert) return;
+    if (!confirmDelete && !confirmRevert && !drawMenu) return;
     const handler = (e: MouseEvent) => {
+      // The draw button toggles its own menu.
+      if (drawBtnRef.current?.contains(e.target as Node)) return;
       if (
         popoverRef.current &&
         !popoverRef.current.contains(e.target as Node)
       ) {
         setConfirmDelete(false);
         setConfirmRevert(false);
+        setDrawMenu(false);
+        setOwnPrompt(false);
       }
     };
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") { setDrawMenu(false); setOwnPrompt(false); } };
     document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [confirmDelete, confirmRevert]);
+    document.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("mousedown", handler); document.removeEventListener("keydown", esc); };
+  }, [confirmDelete, confirmRevert, drawMenu]);
+
+  // 「记住这段」: the selected sentences of this message (or the whole of a
+  // short one) go into the pinned notes, the free memory the AI never edits.
+  const [remembering, setRemembering] = useState(false);
+  // One-time tip over the pin, on the latest reply only, until the player
+  // closes it or uses the pin (seen once per browser, see hintSeen).
+  const [showRememberHint, setShowRememberHint] = useState(false);
+  const hintCandidate = isLastAssistant && !!api.sessionId;
+  useEffect(() => {
+    if (!hintCandidate) { setShowRememberHint(false); return; }
+    let live = true;
+    void api.hintSeen("remember-pin").then((seen) => { if (live) setShowRememberHint(!seen); });
+    return () => { live = false; };
+  }, [api, hintCandidate]);
+  const dismissRememberHint = () => {
+    setShowRememberHint(false);
+    api.markHintSeen("remember-pin");
+  };
+  const handleRemember = async () => {
+    if (remembering) return;
+    if (showRememberHint) dismissRememberHint();
+    const selected = (typeof window !== "undefined" ? window.getSelection()?.toString() : "")?.trim() ?? "";
+    const flat = (text: string) => text.replace(/\s+/g, " ");
+    const fromThisMessage = selected && flat(message.content).includes(flat(selected));
+    const text = fromThisMessage ? selected : message.content.trim();
+    if (!fromThisMessage && text.length > 800) {
+      api.showToast(t("rememberTooLong"), "info");
+      return;
+    }
+    setRemembering(true);
+    try {
+      const result = await rememberInPinnedNotes(api, text);
+      if (result === "saved") api.showToast(t("remembered"), "success");
+      else if (result === "too-long") api.showToast(t("rememberFull"), "error");
+    } catch {
+      api.showToast(t("rememberFailed"), "error");
+    } finally {
+      setRemembering(false);
+    }
+  };
 
   const handleCopy = () => {
     api.copyToClipboard(message.content);
@@ -216,9 +274,11 @@ export function MessageActions({
       {/* Floating delete confirmation */}
       {confirmDelete && createPortal(
         <div
+          {...appearance}
+          data-message-button-color={api.messageButtonColor}
           ref={popoverRef}
           style={popoverStyle}
-          className="z-50 min-w-[200px] max-w-[calc(100vw-1rem)] rounded-xl border border-destructive/20 bg-card/95 p-3 shadow-lg backdrop-blur-md"
+          className={`${appearance.className} z-50 min-w-[200px] max-w-[calc(100vw-1rem)] rounded-xl border border-destructive/20 bg-card/95 p-3 shadow-lg backdrop-blur-md`}
         >
           <p className="text-xs font-medium text-foreground">
             {t("deleteThisMessage")}
@@ -263,9 +323,11 @@ export function MessageActions({
       {/* Floating revert confirmation */}
       {confirmRevert && createPortal(
         <div
+          {...appearance}
+          data-message-button-color={api.messageButtonColor}
           ref={popoverRef}
           style={popoverStyle}
-          className="z-50 min-w-[220px] max-w-[calc(100vw-1rem)] rounded-xl border border-destructive/20 bg-card/95 p-3 shadow-lg backdrop-blur-md"
+          className={`${appearance.className} z-50 min-w-[220px] max-w-[calc(100vw-1rem)] rounded-xl border border-destructive/20 bg-card/95 p-3 shadow-lg backdrop-blur-md`}
         >
           <p className="text-xs font-medium text-foreground">
             {t("revertThisMessage")}
@@ -302,6 +364,44 @@ export function MessageActions({
               {t("confirmRevert")}
             </button>
           </div>
+        </div>,
+        document.body,
+      )}
+
+      {/* Draw menu: this scene, or the player's own prompt */}
+      {drawMenu && createPortal(
+        <div
+          {...appearance}
+          data-message-button-color={api.messageButtonColor}
+          ref={popoverRef}
+          role="menu"
+          style={popoverStyle}
+          className={`${appearance.className} z-50 w-64 max-w-[calc(100vw-1rem)] rounded-xl border border-border bg-popover p-1.5 text-popover-foreground shadow-xl`}
+        >
+          <button type="button" role="menuitem" onClick={() => void handleIllustrate()}
+            className="hover-surface grid w-full grid-cols-[20px_1fr_auto] items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm">
+            <span className="text-muted-foreground">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <rect width="18" height="18" x="3" y="3" rx="2" />
+                <circle cx="9" cy="9" r="2" />
+                <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
+              </svg>
+            </span>
+            {t("illustrate")}
+            <span className="text-[11px] text-muted-foreground">{turnImageCost(turnImages, t)}</span>
+          </button>
+          <button type="button" role="menuitem" aria-expanded={ownPrompt} onClick={() => setOwnPrompt((v) => !v)}
+            className={`hover-surface grid w-full grid-cols-[20px_1fr] items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm ${ownPrompt ? "bg-accent" : ""}`}>
+            <span className="text-muted-foreground">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M4 6h16" /><path d="M4 12h16" /><path d="M4 18h10" />
+              </svg>
+            </span>
+            {t("turnImageOwnPrompt")}
+          </button>
+          {ownPrompt && <OwnPromptForm t={t} cost={turnImageCost(turnImages, t)} label={t("turnImageDraw")} onSubmit={(prompt) => void handleIllustrate(prompt)} />}
         </div>,
         document.body,
       )}
@@ -408,6 +508,45 @@ export function MessageActions({
         )}
       </ActionBtn>
 
+      {showRememberHint && (
+        <div
+          role="note"
+          className="absolute bottom-full left-0 z-20 mb-1.5 flex w-max max-w-[min(20rem,calc(100vw-2rem))] items-center gap-2 rounded-lg border border-primary/30 bg-card/95 px-2.5 py-1.5 text-[12px] text-foreground/90 shadow-lg backdrop-blur-md"
+        >
+          <span className="min-w-0">{t("rememberHint")}</span>
+          <button
+            type="button"
+            onClick={dismissRememberHint}
+            aria-label={t("dismiss")}
+            className="shrink-0 rounded p-0.5 text-muted-foreground/70 hover:text-foreground"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M18 6 6 18" /><path d="m6 6 12 12" />
+            </svg>
+          </button>
+        </div>
+      )}
+
+      {api.sessionId && (
+        <ActionBtn onClick={() => void handleRemember()} title={t("rememberThis")} disabled={remembering} className={showRememberHint ? "text-primary" : undefined}>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={remembering ? "animate-pulse text-primary" : undefined}
+          >
+            <path d="M12 17v5" />
+            <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" />
+          </svg>
+        </ActionBtn>
+      )}
+
       <ActionBtn onClick={handleBranch} title={t("branchFromHere")} disabled={branching}>
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -446,9 +585,15 @@ export function MessageActions({
 
       {message.role === "assistant" && turnImages?.available && (
         <ActionBtn
-          onClick={handleIllustrate}
+          ref={drawBtnRef}
+          onClick={() => {
+            if (illustrating) return;
+            if (drawMenu) { closeDrawMenu(); return; }
+            setDrawMenu(true);
+            refreshTurnImages();
+          }}
           title={illustrating ? t("illustrating") : t("illustrate")}
-          className={illustrating ? "text-primary" : ""}
+          className={illustrating || drawMenu ? "text-primary" : ""}
         >
           {illustrating ? (
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"

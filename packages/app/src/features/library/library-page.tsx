@@ -9,7 +9,7 @@ import { useUserProfileStore } from "@/stores/user-profile";
 import { LibraryGameGrid } from "./library-game-grid";
 import { LibraryMyProjects } from "./library-my-projects";
 import { LibraryResourcesTab } from "./library-session-media";
-import { LibraryBundlesTab, LibraryPromptsTab } from "@/edition/slots";
+import { LibraryBundlesTab, LibraryPromptsTab, TestingWorldsRow } from "@/edition/slots";
 import { useEdition } from "@/edition/edition";
 import { LibraryDetailPanel } from "./library-detail-panel";
 import { LibraryFavoritesView } from "./library-favorites-view";
@@ -21,10 +21,12 @@ import {
   type StoryReturnContext,
 } from "@/lib/story-return";
 import { navigateBackSafely } from "@/lib/safe-back";
+import { LibraryHeaderDecor } from "@/components/halloween-decor";
 
 export function LibraryPage() {
   const { t } = useTranslation("library");
   const worlds = useWorldsStore(s => s.worlds);
+  const linkedWorld = useWorldsStore(s => s.linkedWorld);
   const loading = useWorldsStore(s => s.loading);
   const fetchWorlds = useWorldsStore(s => s.fetchWorlds);
   const libraryLoading = useLibraryStore(s => s.loading);
@@ -83,10 +85,11 @@ export function LibraryPage() {
   }, [isAuthenticated, userId, searchWorldId, fetchWorlds, fetchLibrary, fetchProfile]);
 
   // Sync tab + selection when the URL `view` param changes mid-session
-  // (e.g. the session-export modal navigates to ?view=assets&assetId=…).
+  // (e.g. the session-export modal navigates to ?view=assets&assetId=…, and
+  // a card invitation in the bell to ?view=projects, where it waits).
   // Without this, the tab state is frozen at mount time.
   useEffect(() => {
-    if (view === "assets" || view === "prompts") {
+    if (view === "assets" || view === "prompts" || view === "projects") {
       setActiveTab(view);
       setSelectedItem(null);
     }
@@ -112,9 +115,10 @@ export function LibraryPage() {
   }, [activeTab, libraryFetchedAt, libraryItems.length, libraryLoading, loading, searchWorldId, setActiveTab, userId, view, worlds]);
 
   const searchSelectedItem = useMemo(() => {
-    if (!searchWorldId || loading || worlds.length === 0 || !session?.user?.id) return null;
+    if (!searchWorldId || loading || !session?.user?.id) return null;
+    if (linkedWorld?.id === searchWorldId) return linkedWorld;
     return worlds.find((world) => world.id === searchWorldId) ?? null;
-  }, [searchWorldId, loading, worlds, session?.user?.id]);
+  }, [searchWorldId, loading, worlds, linkedWorld, session?.user?.id]);
 
   useEffect(() => {
     if (detailSearchWorldId.current === searchWorldId) return;
@@ -228,7 +232,8 @@ export function LibraryPage() {
   return (
     <div data-scroll-restoration-id="library-main" className="library-page-shell flex h-full w-full min-w-0 flex-1 flex-col overflow-y-auto overflow-x-hidden">
       {/* Header */}
-      <div className="library-header-shell library-page-header border-b border-white/10 !pb-0">
+      <div className="library-header-shell library-page-header relative border-b border-white/10 !pb-0">
+        <LibraryHeaderDecor />
         <div className="library-header-top flex w-full flex-col gap-5 md:flex-row md:items-end md:justify-between">
           <div className="min-w-0">
             <h1 className="library-page-title text-4xl font-black text-foreground drop-shadow-lg">
@@ -270,6 +275,7 @@ export function LibraryPage() {
       </div>
 
       {/* Tab Content */}
+      {effectiveActiveTab === "games" && features.hub && <TestingWorldsRow />}
       {effectiveActiveTab === "games" && (
         <LibraryGameGrid
           searchQuery={searchQuery}

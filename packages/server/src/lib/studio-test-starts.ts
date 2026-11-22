@@ -7,6 +7,7 @@ import { normalizeGameState } from "./game-state.js";
 import { resolveSessionWorldSchema } from "./pending-edit.js";
 import { chunkRowsForInsert } from "./insert-chunks.js";
 import { rebuildRunMemories } from "./run-scopes.js";
+import { canEditWorldSql } from "./world-collaborators.js";
 
 // Server-created holders are hidden by the existing ephemeral filter. The
 // cleanup function excludes this prefix; ordinary session creation never lets
@@ -18,12 +19,14 @@ export class TestStartError extends Error {
   constructor(message: string, public status: 400 | 404 | 409 = 400, public code?: string) { super(message); }
 }
 export interface TestStartSummary { id: string; name: string; messageCount: number; createdAt: Date | null }
+// Test starts are per person: the creator and each editor collaborator keep
+// their own (playSessions.userId), on a card they may edit.
 const ownedHolder = (userId: string, worldId: string) => and(
-  eq(playSessions.userId, userId), eq(playSessions.worldId, worldId), eq(worlds.creatorId, userId),
+  eq(playSessions.userId, userId), eq(playSessions.worldId, worldId), canEditWorldSql(userId),
   eq(playSessions.ephemeral, true), like(playSessions.id, `${STUDIO_TEST_HOLDER_PREFIX}%`),
 );
 async function ownedWorld(userId: string, worldId: string) {
-  const [world] = await db.select().from(worlds).where(and(eq(worlds.id, worldId), eq(worlds.creatorId, userId)));
+  const [world] = await db.select().from(worlds).where(and(eq(worlds.id, worldId), canEditWorldSql(userId)));
   if (!world) throw new TestStartError("World not found", 404);
   return world;
 }
@@ -39,7 +42,7 @@ export async function saveTestStart(userId: string, worldId: string, sourceId: s
   const name = typeof rawName === "string" ? rawName.trim() : "";
   if (!name || name.length > MAX_TEST_START_NAME) throw new TestStartError(`Name must be 1–${MAX_TEST_START_NAME} characters`);
   const world = await ownedWorld(userId, worldId);
-  const definition = migrateWorldDefinition(await resolveSessionWorldSchema(world, userId) as unknown as WorldDefinition);
+  const definition = migrateWorldDefinition(await resolveSessionWorldSchema(world, world.creatorId) as unknown as WorldDefinition);
   return db.transaction(async (tx) => {
     // Serialize naming/saving against other saves for this card, and snapshot
     // state plus transcript under the same lock used by message/action writes.
@@ -78,12 +81,13 @@ export async function deleteTestStart(userId: string, worldId: string, checkpoin
   await db.delete(playSessions).where(and(eq(playSessions.id, holderId), eq(playSessions.userId, userId)));
 }
 
-/** Snapshot replay is a fresh temporary session using TODAY's creator schema.
+/** Snapshot replay is a fresh temporary session using TODAY's creator schema
+ * (the held working copy, which an editor collaborator sees like the creator).
  * No writes go to the source, the checkpoint, or either published/draft card. */
 export async function runTestStart(userId: string, worldId: string, checkpointId: string) {
   const { checkpoint } = await getTestStart(userId, worldId, checkpointId);
   const world = await ownedWorld(userId, worldId);
-  const schema = await resolveSessionWorldSchema(world, userId);
+  const schema = await resolveSessionWorldSchema(world, world.creatorId);
   const definition = migrateWorldDefinition(schema as unknown as WorldDefinition);
   const state = normalizeGameState(definition, checkpoint.state);
   const transcript = checkpoint.messages;

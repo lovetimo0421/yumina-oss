@@ -19,6 +19,7 @@ export const LANGUAGE_OPTIONS = [
   { code: "zh", label: "\u4E2D\u6587", short: "\u4E2D" },
   { code: "ja", label: "\u65E5\u672C\u8A9E", short: "\u65E5" },
   { code: "ko", label: "\uD55C\uAD6D\uC5B4", short: "\uD55C" },
+  { code: "id", label: "Bahasa Indonesia", short: "ID" },
   { code: "es", label: "Espa\u00F1ol", short: "ES" },
   { code: "fr", label: "Fran\u00E7ais", short: "FR" },
   { code: "de", label: "Deutsch", short: "DE" },

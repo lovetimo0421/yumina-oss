@@ -31,9 +31,11 @@ export const MODEL_ACCESS_POLICY: Record<string, ModelAccessPolicy> = {
   "routes/messages.ts": self("routes/messages.ts"),
   "routes/completions.ts": self("routes/completions.ts"),
   "routes/realtime-video.ts": self("routes/realtime-video.ts"),
+  "lib/rules-room.ts": self("lib/rules-room.ts"), // AI seats in a multiplayer rules room
   "lib/session-compaction.ts": self("lib/session-compaction.ts"),
   "lib/session-memory.ts": self("lib/session-memory.ts"),
   "lib/summaryception.ts": self("lib/summaryception.ts"),
+  "lib/run-summary.ts": self("lib/run-summary.ts"),
   "lib/module-generation-access.ts": self("lib/module-generation-access.ts"),
   "lib/station-model.ts": self("lib/station-model.ts"),
   "lib/group-reply.ts": self("lib/group-reply.ts"),
@@ -49,10 +51,16 @@ export const MODEL_ACCESS_POLICY: Record<string, ModelAccessPolicy> = {
   // ── Platform-fixed models ──
   "routes/decisions.ts": { kind: "platform-model" }, // Jev judge; narrativeModel only picks whose key
   "lib/continuity/missed-updates.ts": { kind: "platform-model" },
+  "lib/image-post-review.ts": { kind: "platform-model" }, // Plaza post review: the platform picks the model and pays
+  "lib/rig/picture-check.ts": { kind: "platform-model" }, // a live character's picture, checked before it is charged: the platform's model, the platform pays
+  "lib/music/lyrics.ts": { kind: "platform-model" }, // lyrics for music generation: fixed model, billed with the track
   "lib/music/openrouter-music.ts": { kind: "platform-model" },
   "lib/per-turn-image/illustrate.ts": { kind: "platform-model" },
   "lib/translate.ts": { kind: "platform-model" },
+  "lib/card-translate-job.ts": { kind: "platform-model" }, // AI card translation: fixed model list (CARD_TRANSLATE_MODELS)
   "lib/changelog-translate.ts": { kind: "platform-model" }, // admin update log, fixed model
+  "lib/world-ai-review.ts": { kind: "platform-model" }, // card AI review: WORLD_REVIEW_MODELS + fallback, fixed
+  "lib/studio-web-search.ts": { kind: "platform-model" }, // Studio web_search carrier, fixed cheapest model
 
   // ── Player's own key only ──
   "lib/memory-extractor.ts": { kind: "byok-only" },

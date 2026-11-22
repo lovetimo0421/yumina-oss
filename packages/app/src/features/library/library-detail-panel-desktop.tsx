@@ -1,4 +1,4 @@
-import { useDiscoverAccess } from "@/hooks/use-discover-access";
+import { GALLERY_ASPECTS, selectGalleryCrop } from "@/lib/gallery-crop";
 import { selectWorldArtwork } from "@/lib/discover-world-artwork";
 import { useOpenWorldPreview } from "@/edition/slots";
 import { useCardTextMacros } from "@/hooks/use-card-text-macros";
@@ -8,7 +8,6 @@ import { useWorldShareUrl } from "@/edition/slots.state";
 import { useStoryNavigation } from "@/hooks/use-story-navigation";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { normalizeWorldCoverCrop } from "@/lib/world-cover-crop";
 import { useNavigate } from "@tanstack/react-router";
 import {
   ArrowLeft,
@@ -16,22 +15,30 @@ import {
   Pencil,
   Heart,
   Share2,
+  UserPlus,
   Download,
+  Copy,
   FileText,
   Clapperboard,
+  Ellipsis,
   MessagesSquare,
   Loader2,
   Flag,
+  EyeOff,
+  Eye,
   Trash2,
   GitFork,
   Lock,
   History,
+  Users,
 } from "lucide-react";
 import { feedback } from "@/lib/feedback";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import type { WorldItem } from "@/stores/worlds";
 import { useWorldsStore } from "@/stores/worlds";
 import { useFavoritesStore } from "@/edition/slots.state";
 import { useLibraryStore } from "@/stores/library";
+import { LibraryCollectionsPicker, useLibraryRow } from "./library-collections";
 import { resolveTagLabel } from "@/edition/slots";
 import {
   Dialog,
@@ -45,6 +52,7 @@ import { ReportDialog } from "@/components/report-dialog";
 import { usePlayWithLanguage } from "@/hooks/use-play-with-language";
 import { escapeHtml } from "@/lib/markdown";
 import { WorldDescription } from "@/components/world-description";
+import { ClampedDescription } from "@/features/library/clamped-description";
 import { isOwnTranslationSource } from "@/lib/fork-attribution";
 import { VariantDownloadPicker } from "@/components/variant-download-picker";
 import { VariantForkPicker } from "@/components/variant-fork-picker";
@@ -53,14 +61,32 @@ import type { LanguageVariant } from "@/lib/languages";
 import { CroppedImage } from "@/lib/cover-crop";
 import { useActivityStats } from "@/lib/library-detail-stats";
 import { SessionExportModal } from "./session-export-modal";
+import { ShareDialog } from "@/features/collab/share-dialog";
 import { SharePlaythroughModal } from "@/features/chat/share-playthrough-modal";
 import { SharePlaythroughPicker } from "./share-playthrough-picker";
-import { SupportBadge } from "@/edition/slots";
-import { WorldReviewsSection } from "@/edition/slots";
+import { SupportBadge, WorldTestersDialog } from "@/edition/slots";
+import { WorldReviewsSection, WorldPlaythroughsSection, LiveSeaBadge } from "@/edition/slots";
+import { FriendRoomsBar, MultiplayerBadge, PlayWithFriendsButton, useCardMultiplayer } from "@/features/story-room/card-entry";
+import { WorldGallery } from "@/components/world-gallery";
+import { galleryImageList, withWorldDetail } from "@/lib/world-detail-info";
+import { WorldDetailFacts } from "./world-detail-facts";
 import { LibraryDetailActivityCard } from "./library-detail-activity-card";
 import { WorldUpdateHistory } from "./world-update-history";
 import { ShareLinkDialog } from "@/components/share-link-dialog";
 import { getLibraryShareUrl } from "./library-share-link";
+
+/**
+ * The title and Play bar sit on the artwork (bottom left, over a dark fade), so
+ * the banner can show the whole 21:9 cover without pushing them down the page.
+ * It stops at 68% of the screen height so the About card still shows on a wide
+ * monitor, and never gets shorter than the title and Play bar need. Past either
+ * limit the artwork keeps its framing and is trimmed evenly top and bottom.
+ */
+const LIBRARY_BANNER_MAX_HEIGHT = "68vh";
+const LIBRARY_BANNER_MIN_HEIGHT = "340px";
+/** Darkens the bottom and the left of the art, where the title and buttons are. */
+const LIBRARY_BANNER_FADE =
+  "linear-gradient(to top, rgba(12,12,15,0.92) 0%, rgba(12,12,15,0.55) 26%, transparent 56%), linear-gradient(to right, rgba(12,12,15,0.5) 0%, transparent 46%)";
 
 const apiBase = import.meta.env.VITE_API_URL || "";
 
@@ -83,9 +109,9 @@ export function LibraryDetailPanelDesktop({
   userId,
 }: LibraryDetailPanelProps) {
   const { t } = useTranslation("library");
-  const { enabled: discoverPreview } = useDiscoverAccess();
+  const { t: tCommon } = useTranslation("common");
   const previewArtwork = selectWorldArtwork(selectedItem, "landscape");
-  const artworkSrc = discoverPreview ? previewArtwork.src : selectedItem.thumbnailUrl;
+  const artworkSrc = previewArtwork.src;
   const cardMacros = useCardTextMacros();
   const navigate = useNavigate();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -94,6 +120,7 @@ export function LibraryDetailPanelDesktop({
   const copyingRef = useRef(false);
   const [showReport, setShowReport] = useState(false);
   const [shareWorldId, setShareWorldId] = useState<string | null>(null);
+  const [testersWorldId, setTestersWorldId] = useState<string | null>(null);
   // Published cards share their public address (/@creator/world-name-id),
   // looked up once if the library data does not carry it yet.
   const publicShareUrl = useWorldShareUrl(
@@ -111,6 +138,8 @@ export function LibraryDetailPanelDesktop({
   const [forkPickerOpen, setForkPickerOpen] = useState(false);
   const [forkVariants, setForkVariants] = useState<LanguageVariant[]>([]);
   const [sessionExportOpen, setSessionExportOpen] = useState(false);
+  // Inviting people to work on one of my cards, from its ⋯ menu.
+  const [collabOpen, setCollabOpen] = useState(false);
   const [sharePickerOpen, setSharePickerOpen] = useState(false);
   const [shareSession, setShareSession] = useState<{ id: string; title: string; worldId: string } | null>(null);
   const navigateToStory = useStoryNavigation();
@@ -137,6 +166,13 @@ export function LibraryDetailPanelDesktop({
     s.items.find((item) => item.worldId === selectedItem.id)?.lastPlayedAt ?? null
   );
   const favorited = isFavorited(selectedItem.sourceWorldId ?? selectedItem.id);
+  const libraryRow = useLibraryRow(selectedItem.id);
+  const setShelf = useLibraryStore((s) => s.setShelf);
+  const toggleHidden = async () => {
+    if (!libraryRow) return;
+    const hide = libraryRow.shelf !== "hidden";
+    if (!(await setShelf(libraryRow.worldId, hide ? "hidden" : null))) feedback.error(t("collections.error.failed"));
+  };
 
   const isOrphanedFork = !!selectedItem.sourceWorldId && selectedItem.sourceWorldTakenDown === true;
   // Ownership, never the tab: `isProject` follows the URL and can disagree with
@@ -145,6 +181,29 @@ export function LibraryDetailPanelDesktop({
   const canEditDirectly = !isOrphanedFork && isOwner;
   const canDelete = isOwner;
   const canViewCreatorAnalytics = true;
+
+  const isDraft = isProject && !selectedItem.isPublished;
+  const { activityStats, reconcileFavoriteCount, detail } = useActivityStats({
+    apiBase,
+    enabled: !isDraft && !isOrphanedFork,
+    creatorAnalyticsEnabled: canViewCreatorAnalytics,
+    worldId: selectedItem.id,
+    downloadCount: selectedItem.downloadCount,
+    messageCount: selectedItem.messageCount,
+    favoriteCount: selectedItem.favoriteCount,
+  });
+  // The same card details the Discover preview shows. Library rows are lighter
+  // (no gallery; a not-yet-loaded card has only what /api/library carries), so
+  // the preview response the stats hook already reads fills what is missing.
+  const shown = withWorldDetail(selectedItem, detail);
+  const galleryImages = galleryImageList(shown.galleryImages);
+  const galleryLabels = {
+    open: t("detail.openGallery", { count: galleryImages.length }),
+    imageAlt: (index: number, total: number) => t("detail.galleryImageAlt", { index, total }),
+    previous: tCommon("imageViewer.prevImage"),
+    next: tCommon("imageViewer.nextImage"),
+    close: tCommon("imageViewer.close"),
+  };
 
   // Resolve "Based on X by Y" attribution. Prefer the server-attached
   // fields (work for forks of *anyone's* world, including ones not in
@@ -161,13 +220,13 @@ export function LibraryDetailPanelDesktop({
   // the server field and the store fallback have to honor that, or the English
   // card reads "Based on <its own Chinese title>".
   const sourceIsOwnTranslation = isOwnTranslationSource(selectedItem, sourceWorldEntry);
-  const sourceWorldName = selectedItem.sourceWorldId && !sourceIsOwnTranslation
-    ? selectedItem.sourceWorldName ?? sourceWorldEntry?.name ?? null
+  const sourceWorldName = shown.sourceWorldId && !sourceIsOwnTranslation
+    ? shown.sourceWorldName ?? sourceWorldEntry?.name ?? null
     : null;
   const sourceCreatorName =
-    selectedItem.sourceCreatorName ?? sourceWorldEntry?.creatorName ?? null;
+    shown.sourceCreatorName ?? sourceWorldEntry?.creatorName ?? null;
   const sourceCreatorId =
-    selectedItem.sourceCreatorId ?? sourceWorldEntry?.creatorId ?? null;
+    shown.sourceCreatorId ?? sourceWorldEntry?.creatorId ?? null;
 
   async function handleDelete() {
     setIsDeleting(true);
@@ -268,16 +327,6 @@ export function LibraryDetailPanelDesktop({
     }
   }
 
-  const isDraft = isProject && !selectedItem.isPublished;
-  const { activityStats, reconcileFavoriteCount } = useActivityStats({
-    apiBase,
-    enabled: !isDraft && !isOrphanedFork,
-    creatorAnalyticsEnabled: canViewCreatorAnalytics,
-    worldId: selectedItem.id,
-    downloadCount: selectedItem.downloadCount,
-    messageCount: selectedItem.messageCount,
-    favoriteCount: selectedItem.favoriteCount,
-  });
 
   // Instant: the heart flips on the tap and the store syncs in the background,
   // so the count moves with it. If the server later refuses, the store puts
@@ -304,6 +353,8 @@ export function LibraryDetailPanelDesktop({
     return t("time.monthsAgo", { count: Math.floor(days / 30) });
   }
 
+  const multiplayer = useCardMultiplayer(selectedItem.id, !!selectedItem.isPublished);
+
   async function handlePlay() {
     // Pass the real languageGroupId so the session picker lists saves across
     // ALL variants in the group — the library card is dedup'd to one row per
@@ -325,7 +376,6 @@ export function LibraryDetailPanelDesktop({
 
   const tags = selectedItem.tags ?? (selectedItem.schema as Record<string, unknown>)?.tags as string[] | undefined;
   const lastActivityAt = !isProject ? libraryLastPlayedAt ?? selectedItem.updatedAt : selectedItem.updatedAt;
-  const selectedItemCrop = normalizeWorldCoverCrop(selectedItem);
 
   // Orphaned fork — source world was unpublished
   if (isOrphanedFork) {
@@ -335,8 +385,8 @@ export function LibraryDetailPanelDesktop({
         data-scroll-restoration-id="library-detail"
         className="library-detail-root relative flex h-full w-full min-w-0 flex-1 flex-col overflow-y-auto overflow-x-hidden text-foreground"
       >
-        <div className="relative z-10 h-[38rem] w-full shrink-0">
-          <div className="absolute inset-x-0 top-0 h-[28rem] overflow-hidden rounded-[2.15rem] border border-white/10 bg-[#202024]">
+        <div className="relative z-10 w-full shrink-0">
+          <div className="relative w-full overflow-hidden rounded-[2.15rem] bg-[#202024] ring-1 ring-inset ring-white/10" style={{ aspectRatio: GALLERY_ASPECTS.desktop, maxHeight: "45vh" }}>
             <button
               onClick={onBack}
               className="group absolute left-6 top-6 z-50 flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-black/40 text-white/80 shadow-lg backdrop-blur-md transition-all hover:bg-black/60 hover:text-white"
@@ -346,12 +396,15 @@ export function LibraryDetailPanelDesktop({
             </button>
 
             {artworkSrc ? (
-              <CroppedImage
-                src={artworkSrc!}
-                alt={selectedItem.name}
-                crop={discoverPreview ? previewArtwork.crop : selectedItemCrop.gallery}
-                className="h-full w-full opacity-30 grayscale"
-              />
+              <div className="absolute inset-x-0 top-1/2 min-h-full -translate-y-1/2" style={{ aspectRatio: GALLERY_ASPECTS.desktop }}>
+                <CroppedImage
+                  src={artworkSrc!}
+                  alt={selectedItem.name}
+                  crop={selectGalleryCrop(previewArtwork.crop, "desktop")}
+                  frameAspect={GALLERY_ASPECTS.desktop}
+                  className="absolute inset-0 h-full w-full opacity-30 grayscale"
+                />
+              </div>
             ) : (
               <div className="h-full w-full bg-[#212124] opacity-30" />
             )}
@@ -360,7 +413,7 @@ export function LibraryDetailPanelDesktop({
             </div>
           </div>
 
-          <div className="absolute inset-x-8 bottom-0 z-10">
+          <div className="relative z-10 mt-4 px-8">
             <div className="clouded-glass-panel clouded-glass-panel--strong rounded-[1.9rem] p-8">
               <h1 className="max-w-3xl text-5xl font-black leading-tight text-white/40 line-through drop-shadow-[0_10px_30px_rgba(0,0,0,0.35)]">
                 {selectedItem.name}
@@ -430,8 +483,9 @@ export function LibraryDetailPanelDesktop({
       />
 
       {/* Hero Banner */}
-      <div className="library-detail-hero relative z-10 w-full shrink-0 pb-[10rem]">
-        <div className="library-detail-hero-media relative aspect-[16/5] min-h-[28rem] w-full overflow-hidden rounded-[2.15rem] border border-white/10 bg-[#202024]">
+      <div className="library-detail-hero relative z-10 w-full shrink-0 overflow-hidden rounded-[2.15rem] bg-[#17171b] ring-1 ring-inset ring-white/10">
+        <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-[5]" style={{ background: LIBRARY_BANNER_FADE }} />
+        <div className="library-detail-hero-media relative w-full overflow-hidden" style={{ aspectRatio: GALLERY_ASPECTS.desktop, maxHeight: LIBRARY_BANNER_MAX_HEIGHT, minHeight: LIBRARY_BANNER_MIN_HEIGHT }}>
           <button
             onClick={onBack}
             className="library-detail-back-button group absolute left-6 top-6 z-50 flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-black/40 text-white/80 shadow-lg backdrop-blur-md transition-all hover:bg-black/60 hover:text-white"
@@ -441,24 +495,35 @@ export function LibraryDetailPanelDesktop({
           </button>
 
           {artworkSrc ? (
-            <CroppedImage
-              src={artworkSrc!}
-              alt={selectedItem.name}
-              crop={discoverPreview ? previewArtwork.crop : selectedItemCrop.gallery}
-              width={2400}
-              fetchPriority="high"
-              className="h-full w-full"
-            />
+            <div className="absolute inset-x-0 top-1/2 min-h-full -translate-y-1/2" style={{ aspectRatio: GALLERY_ASPECTS.desktop }}>
+              <CroppedImage
+                src={artworkSrc!}
+                alt={selectedItem.name}
+                crop={selectGalleryCrop(previewArtwork.crop, "desktop")}
+                frameAspect={GALLERY_ASPECTS.desktop}
+                width={2400}
+                fetchPriority="high"
+                className="absolute inset-0 h-full w-full"
+              />
+            </div>
           ) : (
             <div className="h-full w-full bg-[#212124]" />
           )}
-          <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/34 via-black/10 to-transparent" />
+          {/* Screenshots remain accessible from the corner of the cover. */}
+          {galleryImages.length > 0 && (
+            <div className="absolute right-6 top-6 z-40">
+              <WorldGallery images={galleryImages} labels={galleryLabels} />
+            </div>
+          )}
         </div>
 
-        <div className="library-detail-hero-content absolute inset-x-4 bottom-0 z-10 sm:inset-x-8">
-          <div className="library-detail-hero-shell rounded-[1.9rem] px-4 pt-4 pb-6 sm:px-8">
+        <div className="library-detail-hero-content absolute inset-x-0 bottom-0 z-10 px-4 sm:px-4">
+          <div className="px-4 pt-0 pb-7 sm:px-8">
+            {/* Live multiplayer presence (renders nothing for normal worlds). */}
+            {features.hub && selectedItem.isPublished && <LiveSeaBadge worldId={selectedItem.id} />}
+            <MultiplayerBadge mp={multiplayer} className="mb-3" />
             <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-              <h1 className="library-detail-title mb-0 max-w-3xl text-2xl font-black leading-tight text-white drop-shadow-[0_10px_30px_rgba(0,0,0,0.26)] sm:text-5xl">
+              <h1 className="library-detail-title mb-0 max-w-3xl text-2xl leading-tight text-[#f7f5f1] sm:text-[3.4rem]" style={{ fontFamily: 'Georgia, "Noto Serif SC", serif', fontWeight: 500, letterSpacing: "-1.5px" }}>
                 {selectedItem.name}
               </h1>
               {selectedItem.creatorId && features.socialProfiles ? (
@@ -493,13 +558,13 @@ export function LibraryDetailPanelDesktop({
               />
               )}
             </div>
-            {sourceWorldName ? (
+            {(sourceWorldName || (!sourceIsOwnTranslation && sourceCreatorName)) ? (
               <p className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-white/72">
                 <GitFork size={12} className="shrink-0" />
-                <span>{t("detail.basedOn", { name: sourceWorldName })}</span>
+                <span>{sourceWorldName ? t("detail.basedOn", { name: sourceWorldName }) : t("detail.originalCreator")}</span>
                 {sourceCreatorName ? (
                   <span className="text-white/40">
-                    {t("detail.basedOnBy", { defaultValue: "by" })}{" "}
+                    {sourceWorldName && t("detail.basedOnBy", { defaultValue: "by" })}{" "}
                     {sourceCreatorId && features.socialProfiles ? (
                       <button
                         onClick={() => goToUser(sourceCreatorId)}
@@ -522,15 +587,17 @@ export function LibraryDetailPanelDesktop({
                   <button
                     onClick={handlePlay}
                     disabled={false}
-                    className="library-detail-primary-action flex h-14 items-center gap-2 rounded-lg bg-primary px-10 text-lg font-bold text-primary-foreground shadow-[0_0_20px_rgba(201,162,94,0.3)] transition-all hover:scale-105 hover:bg-primary/90 disabled:opacity-50"
+                    className="library-detail-primary-action flex h-14 items-center gap-2 rounded-lg bg-primary px-10 text-lg font-bold text-primary-foreground transition-all hover:bg-primary/90 disabled:opacity-50"
                   >
                     <Play fill="currentColor" size={24} />
                     {t("detail.play")}
                   </button>
+                  <PlayWithFriendsButton mp={multiplayer} onPlay={handlePlay} className="h-14 rounded-lg px-6 text-base" />
+                  <FriendRoomsBar worldId={selectedItem.id} mp={multiplayer} className="basis-full" />
                   {canEditDirectly ? (
                     <button
                       onClick={() => handleEdit()}
-                      className="library-detail-secondary-action flex h-14 items-center gap-2 rounded-lg bg-[#3B82F6] px-8 text-lg font-bold text-white/90 shadow-[0_0_20px_rgba(59,130,246,0.3)] transition-all hover:scale-105 hover:bg-[#3B82F6]/85"
+                      className="library-detail-secondary-action flex h-14 items-center gap-2 rounded-lg border border-white/15 bg-white/10 px-7 text-base font-semibold text-white/90 backdrop-blur-md transition-all hover:bg-white/16"
                     >
                       <Pencil size={20} />
                       {t("detail.edit")}
@@ -538,7 +605,7 @@ export function LibraryDetailPanelDesktop({
                   ) : selectedItem.allowEdit !== false ? (
                     <button
                       onClick={handleEditClick}
-                      className="library-detail-secondary-action flex h-14 items-center gap-2 rounded-lg bg-[#3B82F6] px-8 text-lg font-bold text-white/90 shadow-[0_0_20px_rgba(59,130,246,0.3)] transition-all hover:scale-105 hover:bg-[#3B82F6]/85"
+                      className="library-detail-secondary-action flex h-14 items-center gap-2 rounded-lg border border-white/15 bg-white/10 px-7 text-base font-semibold text-white/90 backdrop-blur-md transition-all hover:bg-white/16"
                     >
                       <Pencil size={20} />
                       {t("detail.edit")}
@@ -561,6 +628,14 @@ export function LibraryDetailPanelDesktop({
 
                 {/* Stats */}
                 <div className="library-detail-hero-stats flex min-w-0 flex-wrap items-center gap-4 border-l border-white/10 pl-4 md:gap-8 md:pl-8">
+                  {!isProject && libraryRow && (
+                    <div className="flex flex-col">
+                      <span className="text-[11px] text-muted-foreground font-bold tracking-wider uppercase mb-1">
+                        {t("collections.label")}
+                      </span>
+                      <LibraryCollectionsPicker row={libraryRow} />
+                    </div>
+                  )}
                   <div className="flex flex-col">
                     <span className="text-[11px] text-muted-foreground font-bold tracking-wider uppercase mb-1">
                       {isProject ? t("detail.lastEdited") : t("detail.lastPlayed")}
@@ -569,49 +644,43 @@ export function LibraryDetailPanelDesktop({
                       {getRelativeTime(lastActivityAt)}
                     </span>
                   </div>
-                  <div className="flex flex-col">
-                    <span className="text-[11px] text-muted-foreground font-bold tracking-wider uppercase mb-1">
-                      {t("detail.created")}
-                    </span>
-                    <span className="text-sm font-medium text-foreground">
-                      {new Date(selectedItem.createdAt).toLocaleDateString()}
-                    </span>
-                  </div>
-                  {selectedItem.totalTokens != null && selectedItem.totalTokens > 0 && (
-                    <div className="flex flex-col">
-                      <span className="text-[11px] text-muted-foreground font-bold tracking-wider uppercase mb-1">
-                        {t("detail.tokens")}
-                      </span>
-                      <span className="text-sm font-medium text-foreground">
-                        ~{selectedItem.totalTokens.toLocaleString()}
-                      </span>
-                    </div>
-                  )}
-                  {selectedItem.approxTime && (
-                    <div className="flex flex-col">
-                      <span className="text-[11px] text-muted-foreground font-bold tracking-wider uppercase mb-1">
-                        {t("detail.estTime")}
-                      </span>
-                      <span className="text-sm font-medium text-foreground">
-                        {selectedItem.approxTime}
-                      </span>
-                    </div>
-                  )}
+                  {/* Created / tokens / est. time: the same facts the Discover preview lists. */}
+                  <WorldDetailFacts world={shown} />
                 </div>
               </div>
 
               <div className="library-detail-hero-icons flex items-center gap-2">
                 {features.hub && (
+                isDraft ? (
+                // An unpublished card of mine has no link to share: the same
+                // Share button opens its tester list instead.
                 <button
                   type="button"
-                  onClick={() => setShareWorldId(selectedItem.id)}
-                  className="text-muted-foreground hover:text-primary hover:bg-white/10 rounded-full p-2 transition-colors"
+                  onClick={() => setTestersWorldId(selectedItem.id)}
+                  className="rounded-full p-2 text-muted-foreground transition-colors hover:bg-white/10 hover:text-primary"
                   aria-label={t("detail.share")}
-                  title={t("detail.share")}
+                  title={t("detail.inviteTesters")}
                 >
                   <Share2 size={20} />
                 </button>
-                )}
+                ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (selectedItem.isPublished !== true) {
+                      feedback.notice(t("toast.unpublishedCannotShare"));
+                      return;
+                    }
+                    setShareWorldId(selectedItem.id);
+                  }}
+                  aria-disabled={selectedItem.isPublished !== true}
+                  className={`rounded-full p-2 transition-colors ${selectedItem.isPublished === true ? "text-muted-foreground hover:text-primary hover:bg-white/10" : "cursor-not-allowed text-muted-foreground opacity-40"}`}
+                  aria-label={t("detail.share")}
+                  title={selectedItem.isPublished === true ? t("detail.share") : t("toast.unpublishedCannotShare")}
+                >
+                  <Share2 size={20} />
+                </button>
+                ))}
                 {(canEditDirectly || selectedItem.allowEdit !== false) && (
                   <button
                     onClick={handleDownloadJSON}
@@ -619,38 +688,6 @@ export function LibraryDetailPanelDesktop({
                     title={t("detail.download")}
                   >
                     <Download size={20} />
-                  </button>
-                )}
-                <button
-                  onClick={() => setSessionExportOpen(true)}
-                  className="text-muted-foreground hover:text-primary hover:bg-white/10 rounded-full p-2 transition-colors"
-                  title={t("detail.sessionExport.triggerTitle")}
-                >
-                  <FileText size={20} />
-                </button>
-                <button
-                  onClick={() => setSharePickerOpen(true)}
-                  className="rounded-full p-2 text-primary/80 transition-colors hover:bg-primary/10 hover:text-primary"
-                  title={t("detail.sharePlaythrough")}
-                >
-                  <Clapperboard size={20} />
-                </button>
-                {!isProject && (
-                  <button
-                    onClick={() => setShowReport(true)}
-                    className="text-muted-foreground hover:text-destructive hover:bg-white/10 rounded-full p-2 transition-colors"
-                    title={t("detail.report")}
-                  >
-                    <Flag size={20} />
-                  </button>
-                )}
-                {canDelete && (
-                  <button
-                    onClick={() => setConfirmDelete(true)}
-                    className="text-muted-foreground hover:text-red-400 hover:bg-red-500/10 rounded-full p-2 transition-colors"
-                    title={t("detail.delete")}
-                  >
-                    <Trash2 size={20} />
                   </button>
                 )}
                 {!isProject && (
@@ -662,6 +699,56 @@ export function LibraryDetailPanelDesktop({
                     <Heart size={20} fill={favorited ? "currentColor" : "none"} />
                   </button>
                 )}
+                {/* Everything done now and then, behind one button, as the phone's page has it: the row was up to eight unlabelled icons. */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      data-detail-more=""
+                      aria-label={tCommon("dm.moreActions")}
+                      title={tCommon("dm.moreActions")}
+                      className="text-muted-foreground hover:text-primary hover:bg-white/10 rounded-full p-2 transition-colors"
+                    >
+                      {copying ? <Loader2 size={20} className="animate-spin motion-reduce:animate-none" /> : <Ellipsis size={20} />}
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" sideOffset={6} className="min-w-44">
+                    {canEditDirectly && (
+                      <DropdownMenuItem disabled={copying} onSelect={() => void performCopy(selectedItem.id)} className="gap-2.5">
+                        <Copy className="h-4 w-4 text-muted-foreground" />{t("detail.duplicate")}
+                      </DropdownMenuItem>
+                    )}
+                    {canEditDirectly && (
+                      <DropdownMenuItem onSelect={() => setCollabOpen(true)} className="gap-2.5">
+                        <UserPlus className="h-4 w-4 text-muted-foreground" />{t("detail.inviteCollaborators")}
+                      </DropdownMenuItem>
+                    )}
+                    <DropdownMenuItem onSelect={() => setSessionExportOpen(true)} className="gap-2.5">
+                      <FileText className="h-4 w-4 text-muted-foreground" />{t("detail.sessionExport.triggerTitle")}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => setSharePickerOpen(true)} className="gap-2.5">
+                      <Clapperboard className="h-4 w-4 text-muted-foreground" />{t("detail.sharePlaythrough")}
+                    </DropdownMenuItem>
+                    {!isProject && libraryRow && (
+                      <DropdownMenuItem onSelect={() => void toggleHidden()} className="gap-2.5">
+                        {libraryRow.shelf === "hidden"
+                          ? <><Eye className="h-4 w-4 text-muted-foreground" />{t("hidden.show")}</>
+                          : <><EyeOff className="h-4 w-4 text-muted-foreground" />{t("hidden.hide")}</>}
+                      </DropdownMenuItem>
+                    )}
+                    {(!isProject || canDelete) && <DropdownMenuSeparator />}
+                    {!isProject && (
+                      <DropdownMenuItem onSelect={() => setShowReport(true)} className="gap-2.5">
+                        <Flag className="h-4 w-4 text-muted-foreground" />{t("detail.report")}
+                      </DropdownMenuItem>
+                    )}
+                    {canDelete && (
+                      <DropdownMenuItem onSelect={() => setConfirmDelete(true)} className="gap-2.5 text-red-400 focus:text-red-400">
+                        <Trash2 className="h-4 w-4" />{t("detail.delete")}
+                      </DropdownMenuItem>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
                 {selectedItem.creatorId && features.socialProfiles ? (
                   <button
                     onClick={() => goToUser(selectedItem.creatorId)}
@@ -733,19 +820,19 @@ export function LibraryDetailPanelDesktop({
                     {isProject ? t("detail.project") : t("detail.game")}
                   </span>
                   <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-foreground/80">
-                    {isDraft ? t("detail.draft") : t("detail.published")}
+                    {isDraft ? t("projects.inDevelopment") : t("detail.published")}
                   </span>
                 </div>
               </div>
 
               <div className="relative z-10 mt-5 space-y-5">
-                {selectedItem.announcement && (
+                {shown.announcement && (
                   <div className="clouded-glass-inset rounded-lg p-5">
                     <div className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-primary/80">
                       {t("detail.announcement")}
                     </div>
                     <p className="text-sm leading-relaxed text-foreground/80 whitespace-pre-line">
-                      {selectedItem.announcement}
+                      {shown.announcement}
                     </p>
                     <span className="mt-3 block text-xs font-medium text-muted-foreground/60">
                       {t("detail.created")} {new Date(selectedItem.createdAt).toLocaleDateString()}
@@ -758,10 +845,12 @@ export function LibraryDetailPanelDesktop({
                     {t("detail.about")}
                   </div>
                   {selectedItem.description ? (
-                    <WorldDescription
-                      content={cardMacros(selectedItem.description, selectedItem.name)}
-                      className="mt-3 text-sm leading-relaxed text-foreground/72"
-                    />
+                    <ClampedDescription key={selectedItem.id}>
+                      <WorldDescription
+                        content={cardMacros(selectedItem.description, selectedItem.name)}
+                        className="mt-3 text-sm leading-relaxed text-foreground/72"
+                      />
+                    </ClampedDescription>
                   ) : (
                     <p className="mt-3 text-sm leading-relaxed text-foreground/72">
                       {t("detail.noDescriptionAvailable")}
@@ -811,15 +900,32 @@ export function LibraryDetailPanelDesktop({
               </section>
             )}
 
+            {/* Shared playthroughs: the Discover preview's Playthroughs tab. */}
+            {features.hub && selectedItem.isPublished && (
+              <section className="library-detail-card clouded-glass-panel clouded-glass-panel--soft relative mt-7 overflow-hidden rounded-xl p-6 md:p-7">
+                <div className="relative z-10">
+                  <h2 className="mb-5 flex items-center gap-2 border-b border-white/8 pb-5 text-lg font-bold text-foreground">
+                    <Users size={18} className="text-primary" aria-hidden="true" />
+                    {t("detail.playthroughs")}
+                  </h2>
+                  <WorldPlaythroughsSection
+                    worldId={selectedItem.id}
+                    isWorldCreator={!!userId && selectedItem.creatorId === userId}
+                    currentUserId={userId ?? null}
+                  />
+                </div>
+              </section>
+            )}
+
             {/* Reviews — inline so players can read/leave comments without
                 going back out to Discover. Only for published cards that
                 keep reviews open; drafts/orphans never reach this branch. */}
-            {features.reviews && selectedItem.isPublished && selectedItem.allowReviews !== false && (
+            {features.reviews && selectedItem.isPublished && (
               <div className="library-detail-card clouded-glass-panel clouded-glass-panel--soft relative mt-7 overflow-hidden rounded-xl p-6 md:p-7">
                 <div className="relative z-10">
                   <h2 className="mb-5 flex items-center gap-2 border-b border-white/8 pb-5 text-lg font-bold text-foreground">
                     <MessagesSquare size={18} className="text-primary" />
-                    {t("detail.reviews")}
+                    {t("detail.reviewsHeading")}
                   </h2>
                   <WorldReviewsSection
                     worldId={selectedItem.id}
@@ -860,10 +966,11 @@ export function LibraryDetailPanelDesktop({
         </DialogContent>
       </Dialog>
 
+      <WorldTestersDialog worldId={testersWorldId} isOpen={testersWorldId !== null} onClose={() => setTestersWorldId(null)} />
       <ShareLinkDialog
         title={selectedItem.name}
         url={shareUrl}
-        open={shareWorldId === selectedItem.id}
+        open={shareWorldId === selectedItem.id && selectedItem.isPublished === true}
         onOpenChange={(open) => setShareWorldId(open ? selectedItem.id : null)}
         copiedLabel={t("toast.linkCopied")}
         failedLabel={t("toast.failedToShare")}
@@ -903,6 +1010,7 @@ export function LibraryDetailPanelDesktop({
         loading={copying}
       />
 
+      {collabOpen && <ShareDialog worldId={selectedItem.id} open={collabOpen} onOpenChange={setCollabOpen} />}
       <SessionExportModal
         worldId={selectedItem.id}
         worldName={selectedItem.name}

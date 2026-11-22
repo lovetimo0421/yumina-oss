@@ -124,16 +124,6 @@ export function VisualSurfaceSwitch({ on, onToggle, disabled, tour = "studio", i
             )}
           />
         </span>
-        <span
-          data-visual-surface-beta=""
-          className={cn(
-            "rounded-full border px-1.5 py-px text-[9px] font-bold uppercase leading-none tracking-wide",
-            compact && "hidden",
-            on ? "border-primary/40 text-primary" : "border-border text-muted-foreground/80",
-          )}
-        >
-          {t("shell.visualBeta")}
-        </span>
       </button>
 
       {showIntro && (
@@ -141,11 +131,11 @@ export function VisualSurfaceSwitch({ on, onToggle, disabled, tour = "studio", i
           role="dialog"
           aria-label={t("shell.visualIntroTitle")}
           data-visual-surface-intro=""
-          className="absolute left-0 top-full mt-2 w-[19rem] rounded-xl border border-primary/30 bg-popover p-3.5 text-left text-popover-foreground shadow-xl"
+          className="absolute left-0 top-full mt-2 w-[19rem] rounded-xl border border-border bg-popover p-3.5 text-left text-popover-foreground shadow-xl"
         >
           <div className="flex items-start justify-between gap-2">
             <div className="flex items-center gap-1.5 text-sm font-semibold">
-              <Workflow className="h-4 w-4 text-primary" />
+              <Workflow className="h-4 w-4 text-muted-foreground" />
               {t("shell.visualIntroTitle")}
             </div>
             <button

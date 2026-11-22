@@ -1,0 +1,125 @@
+@theme {
+  /* Preserve existing white controls until a reader palette is selected. */
+  --color-play-ink: #ffffff;
+  --color-play-dialog: #1a1b1e;
+  --color-play-memory: #17181b;
+  --color-play-danger: #fee2e2;
+  --color-play-error: #fda4af;
+}
+
+.play-reader-surface {
+  color-scheme: dark;
+}
+
+.play-reader-surface[data-play-color-mode="light"] {
+  color-scheme: light;
+  --color-background: #f7f4ee;
+  --color-page: #f7f4ee;
+  --color-foreground: #292621;
+  --color-main: #292621;
+  --color-sub: #625b50;
+  --color-card: #fffdf8;
+  --color-card-foreground: #292621;
+  --color-popover: #fffdf8;
+  --color-popover-foreground: #292621;
+  --color-secondary: #eae4d8;
+  --color-secondary-foreground: #292621;
+  --color-muted: #eee8dd;
+  --color-muted-foreground: #625b50;
+  --color-accent: #eae1d1;
+  --color-accent-foreground: #292621;
+  --color-input: #fffdf8;
+  --color-inset: #eee8dd;
+  --color-border: #c9c0b1;
+  --color-primary: #805a20;
+  --color-primary-foreground: #ffffff;
+  --color-primary-hover: #694817;
+  --color-ring: #805a20;
+  --color-gold: #805a20;
+  --color-action-primary: #805a20;
+  --color-action-primary-foreground: #ffffff;
+  --color-action-primary-hover: #694817;
+  --color-destructive: #b12e28;
+  --color-text-secondary: #494338;
+  --color-text-muted: #625b50;
+  --color-play-ink: #292621;
+  --color-play-dialog: #fffdf8;
+  --color-play-memory: #fffdf8;
+  --color-play-danger: #721915;
+  --color-play-error: #721915;
+  --cloudy-surface-rgb: 255, 253, 248;
+  color: var(--color-foreground);
+}
+
+.play-reader-chat {
+  background: var(--color-background);
+  color: var(--color-foreground);
+}
+
+.play-reader-surface[data-play-color-mode="light"] .play-composer-card {
+  background: var(--color-card);
+  border-color: var(--color-border);
+  box-shadow: 0 4px 20px rgb(62 48 24 / 8%);
+}
+
+.play-reader-surface[data-play-color-mode="light"] .play-composer-card:focus-within {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px rgb(128 90 32 / 20%);
+}
+
+/* Low-opacity dark-mode labels disappear against paper. */
+.play-reader-surface[data-play-color-mode="light"] :is([class*="text-muted-foreground/"], [class*="text-play-ink/"]) {
+  color: var(--color-muted-foreground);
+}
+
+.play-reader-surface[data-play-color-mode="light"] :is(.glass, .glass-strong) {
+  background-color: var(--color-card);
+  border-color: var(--color-border);
+}
+
+.play-reader-surface[data-play-color-mode="light"] :is(.hover-surface, .hover-surface-strong):active {
+  background-color: var(--color-accent);
+}
+
+@media (hover: hover) {
+  .play-reader-surface[data-play-color-mode="light"] :is(.hover-surface, .hover-surface-strong):hover {
+    background-color: var(--color-accent);
+  }
+}
+
+.play-reader-surface[data-play-color-mode="light"] :is([class*="text-play-danger"], [class*="text-play-error"]) {
+  color: var(--color-play-danger);
+}
+
+/* Only platform control surfaces carry this attribute. Message HTML and
+   creator renderers may contain their own controls and keep their own ink. */
+[data-message-button-color="lighter"] {
+  --play-control-ink: #fafafa;
+  --play-control-outline: rgb(0 0 0 / 75%);
+}
+
+[data-message-button-color="darker"] {
+  --play-control-ink: #242424;
+  --play-control-outline: rgb(255 255 255 / 80%);
+}
+
+/* The outline keeps the chosen ink readable on fixed-color surfaces such as
+   mixed artwork and message backgrounds. */
+:is([data-message-button-color="lighter"], [data-message-button-color="darker"])
+  :is(button, [role="button"], label, .play-message-role, .play-message-tools,
+      button *, [role="button"] *, label *, .play-message-tools *):not(:where([data-story-content] *, .play-custom-component-shell *, input, textarea, select, option)) {
+  color: var(--play-control-ink) !important;
+  -webkit-text-fill-color: currentColor;
+  text-shadow: 0 0 2px var(--play-control-outline), 0 1px 1px var(--play-control-outline);
+}
+
+:is([data-message-button-color="lighter"], [data-message-button-color="darker"])
+  :is(button, [role="button"], label) svg:not(:where([data-story-content] *, .play-custom-component-shell *)) {
+  filter: drop-shadow(0 0 1px var(--play-control-outline));
+}
+
+:is([data-message-button-color="lighter"], [data-message-button-color="darker"]) textarea.play-message-editor {
+  color: var(--play-control-ink) !important;
+  -webkit-text-fill-color: var(--play-control-ink) !important;
+  caret-color: var(--play-control-ink) !important;
+}

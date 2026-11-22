@@ -250,7 +250,8 @@ export function AssetPicker({ worldId, mediaUsage = "assets", filterType, onSele
             filterType === "audio" ? "audio/*" :
             filterType === "font" ? ".woff,.woff2,.ttf,.otf" :
             filterType === "txt" ? "text/plain,text/markdown,text/csv,application/json,.txt,.log,.md,.markdown,.csv,.json" :
-            "image/*,audio/*,.woff,.woff2,.ttf,.otf,text/plain,text/markdown,text/csv,application/json,.txt,.log,.md,.markdown,.csv,.json"
+            // .zip/.vrm/.glb/.mavatar: Live2D, VRM and mesh avatar models for companion cards
+            "image/*,audio/*,.woff,.woff2,.ttf,.otf,text/plain,text/markdown,text/csv,application/json,.txt,.log,.md,.markdown,.csv,.json,.zip,.vrm,.glb,.mavatar"
           }
           className="hidden"
           onChange={handleUpload}
@@ -328,9 +329,6 @@ export function AssetPicker({ worldId, mediaUsage = "assets", filterType, onSele
                 <Upload className="h-6 w-6" />
               </div>
               <p className="text-sm font-semibold text-foreground">{t("assetPicker.dropToUpload")}</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {t("assetPicker.dropHint")}
-              </p>
             </div>
           </div>
         )}

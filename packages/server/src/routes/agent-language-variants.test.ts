@@ -4,11 +4,11 @@ import { and, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { migrateWorldDefinition, type WorldDefinition } from "@yumina/engine";
 import { db } from "../db/index.js";
-import { agentRuns, studioConversations, user, worldPendingEdits, worldSnapshots, worlds } from "../db/schema.js";
+import { agentRuns, studioConversations, user, worldCollaborators, worldPendingEdits, worldSnapshots, worlds } from "../db/schema.js";
 import { streamAgentLoop, type AgentLoopParams } from "./agent.js";
 import type { GenerateParams, LLMProvider, StreamChunk, ToolCall } from "../lib/llm/types.js";
 import { READ_TOOLS, WRITE_TOOLS } from "../lib/studio-tools/tools.js";
-import { listLanguageVariants, resolveVariant } from "../lib/studio-tools/language-variants.js";
+import { listLanguageVariants, loadVariantWorld, resolveVariant } from "../lib/studio-tools/language-variants.js";
 import { runWorldOp } from "../lib/world-ops.js";
 
 before(async () => { await import(new URL("../../scripts/test-local-schema.mjs", import.meta.url).href); });
@@ -100,6 +100,23 @@ async function schemaOf(worldId: string) {
 const toolResults = (params: GenerateParams) => JSON.stringify(params.messages.filter(m => m.role === "tool"));
 
 describe("Studio assistant and a card's language variants", { concurrency: false }, () => {
+  it("gives an editor collaborator the creator's versions, and a viewer none", async () => {
+    const f = await fixture();
+    const editorId = crypto.randomUUID();
+    await db.insert(user).values({ id: editorId, name: "Editor", email: `${editorId}@test.local` });
+    // A grant on one version covers the group.
+    await db.insert(worldCollaborators).values({ worldId: f.en, userId: editorId, role: "viewer", status: "accepted" });
+    assert.deepEqual((await listLanguageVariants(f.zh, editorId)).siblings, []);
+    await assert.rejects(loadVariantWorld(f.es, editorId));
+    await db.update(worldCollaborators).set({ role: "editor" }).where(eq(worldCollaborators.userId, editorId));
+    const variants = await listLanguageVariants(f.zh, editorId);
+    assert.equal(variants.language, "zh");
+    assert.deepEqual(variants.siblings.map(s => [s.language, s.status]), [["en", "draft"], ["es", "published"]]);
+    assert.equal((await loadVariantWorld(f.es, editorId)).world.name, "Español");
+    await assert.rejects(loadVariantWorld(f.foreign, editorId));
+    await assert.rejects(loadVariantWorld(f.ungrouped, editorId));
+  });
+
   it("lists only the creator's own versions in the same group", async () => {
     const f = await fixture();
     const variants = await listLanguageVariants(f.zh, f.userId);

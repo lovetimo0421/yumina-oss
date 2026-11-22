@@ -22,7 +22,7 @@ import { useEditorStore } from "@/stores/editor";
 import { describeUiDocOps, type PartLookup } from "./ui-doc-op-labels";
 import { audioTypeLabel, describeSchemaChanges, fieldLabel, toolLabel, type EntityNameLookup } from "./change-labels";
 import type { ToolCall } from "../lib/types";
-import { toneBorder, toneText, toolKind } from "../lib/kind-tone";
+import { toneText, toolKind } from "../lib/kind-tone";
 import { cn } from "@/lib/utils";
 import type { Reaction } from "@yumina/engine";
 import { whenLabel } from "../lib/reaction-summary";
@@ -79,7 +79,9 @@ export function EntityPreview({ toolCall, applied = false }: { toolCall: ToolCal
   const isCode = name.includes("component") || name.includes("renderer") || name.includes("tsx") || name === "write_custom_ui";
 
   return (
-    <div className={cn("rounded-md border bg-background/50", toneBorder(toolKind(name, { role: knownRole, ...args })))}>
+    // A quiet row: the kind's colour stays on its icon, not round the whole
+    // row (a stack of teal and red frames was the loudest thing in the chat).
+    <div className="rounded-lg bg-white/[0.035]">
       <div className="flex items-start gap-2 px-2.5 py-1.5">
         <div className="shrink-0 mt-0.5">
           <info.icon className={cn("h-3.5 w-3.5", toneText(toolKind(name, { role: knownRole, ...args })))} />
@@ -150,7 +152,7 @@ export function EntityPreview({ toolCall, applied = false }: { toolCall: ToolCal
 
       {/* Expanded full content */}
       {expanded && fullContent && (
-        <div className="border-t border-border/30 px-2.5 py-2">
+        <div className="border-t border-white/[0.05] px-2.5 py-2">
           {isCode ? (
             <pre className="text-[10px] text-muted-foreground whitespace-pre-wrap break-words max-h-64 overflow-y-auto font-mono leading-relaxed">
               {fullContent}
@@ -248,7 +250,7 @@ interface DiffLine {
   after?: string;
 }
 
-function entityNameById(draft: ReturnType<typeof useEditorStore.getState>["worldDraft"], id: unknown): string | undefined {
+export function entityNameById(draft: ReturnType<typeof useEditorStore.getState>["worldDraft"], id: unknown): string | undefined {
   if (typeof id !== "string" || !id) return undefined;
   const lists: Array<ReadonlyArray<{ id: string; name?: string }> | undefined> = [
     draft.entries, draft.variables, draft.reactions, draft.rules, draft.audioTracks, draft.sceneImages, draft.worldbooks,

@@ -50,13 +50,15 @@ export const LORE_ROW_H = 68;
 export const PLAIN_ROW_H = 30;
 /** The tray: one line of "+" for the slots a card has not used. */
 export const TRAY_H = 52;
-/** 「AI」: a row is one line — its name and its type. What it remembers is
- *  the frame's Context block, not the row. */
-export const AI_ROW_H = 30;
-/** Context never comes out shorter than this. A line or two on a half-width
- *  block read as a footnote; the room says it carries weight even on a card
- *  that has nothing special to say about it yet (owner, 10/7: taller). */
-export const CONTEXT_MIN_H = 160;
+/** 「AI」: a row is two lines — its name and its type, then what it is
+ *  handed and what it answers (or, for an AI the card configures, its job).
+ *  What it remembers is the frame's Context block, not the row. */
+export const AI_ROW_H = 44;
+/** Context is one of the things its AI knows, a line or two among them: it
+ *  takes the room its rows need. (It had a 160px floor so it would not read
+ *  as a footnote at the bottom of the tile, 10/7; it no longer stands
+ *  alone at the bottom.) */
+export const CONTEXT_MIN_H = 0;
 export const SLOT_ROW_H = 22;
 export const BLOCK_FOOT_H = 28;
 /** The "add a pack" button under an empty variables / behaviours block. */
@@ -160,20 +162,20 @@ export interface BlockChrome {
   packDoor?: boolean;
   /** App-only start slots use the same geometry as their actual flow nodes. */
   starterHeight?: number;
-  /** Rows opened for editing in place, by object id. An open row carries its
-   *  object's whole editor, so it costs a fixed block of height the layout has
-   *  to count — and puts the block back into one column while it is open. */
+  /** Rows opened for editing in place, by object id. The layout counts each
+   *  form's measured height and uses one column while an editor is open. */
   expandedIds?: ReadonlySet<string>;
+  editorHeights?: ReadonlyMap<string, number>;
 }
 
-/** An open row's editor: fixed, and scrolled inside itself, so typing can
- *  never resize the board. Matches CANVAS_WRITING_OPEN_EDITOR_HEIGHT. */
+/** Minimum editor height; expanded controls can grow beyond it.
+ *  Matches CANVAS_WRITING_OPEN_EDITOR_HEIGHT. */
 export const OPEN_ROW_EDITOR_H = 460;
 /** A variable or a behaviour is a short form (its rarer settings fold under
  *  更多), so its row opens shorter than a body of text does. */
 export const OPEN_SETTING_EDITOR_H = 340;
 export const openRowEditorHeight = (objectId: string) =>
-  objectId.startsWith("var:") || objectId.startsWith("reaction:") ? OPEN_SETTING_EDITOR_H : OPEN_ROW_EDITOR_H;
+  objectId.startsWith("var:") || objectId.startsWith("reaction:") || objectId.startsWith("audio:") ? OPEN_SETTING_EDITOR_H : OPEN_ROW_EDITOR_H;
 
 /** Rows in a list block go two abreast once there are more than a few and
  *  the block is wide enough for two — a block of one-line rows is a table of
@@ -221,7 +223,11 @@ export function blockHeight(block: Block, chrome: BlockChrome): number {
   if (block.kind === "tray") return TRAY_H;
   // Context wears the same head as the shelves above it (owner, 10/7) and
   // keeps a floor under its rows; AI has no head — a line per answerer.
-  if (block.kind === "context") return Math.max(CONTEXT_MIN_H, BLOCK_HEAD_H + BLOCK_BODY_PAD * 2 + Math.max(1, chrome.contextRows ?? 1) * PLAIN_ROW_H);
+  if (block.kind === "context") {
+    const body = Math.max(CONTEXT_MIN_H, BLOCK_HEAD_H + BLOCK_BODY_PAD * 2 + Math.max(1, chrome.contextRows ?? 1) * PLAIN_ROW_H);
+    const editor = chrome.expandedIds?.has(block.id) ? Math.max(openRowEditorHeight(block.id), chrome.editorHeights?.get(block.id) ?? 0) : 0;
+    return body + editor;
+  }
   if (block.kind === "ais") return BLOCK_BODY_PAD * 2 + Math.max(1, chrome.aiRows ?? 1) * AI_ROW_H;
   if (chrome.collapsed) return h;
 
@@ -271,7 +277,7 @@ function listBodyHeight(block: Block, chrome: BlockChrome): number {
   const heights = new Array<number>(columns).fill(0);
   block.rows.forEach((row, index) => {
     const column = Math.min(columns - 1, Math.floor(index / perColumn));
-    const open = chrome.expandedIds?.has(row.g.id) ? openRowEditorHeight(row.g.id) : 0;
+    const open = chrome.expandedIds?.has(row.g.id) ? Math.max(openRowEditorHeight(row.g.id), chrome.editorHeights?.get(row.g.id) ?? 0) : 0;
     heights[column] = heights[column]! + rowH + open + row.slots.length * SLOT_ROW_H;
   });
   let body = BLOCK_BODY_PAD * 2 + Math.max(0, ...heights);

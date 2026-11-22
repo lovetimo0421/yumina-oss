@@ -66,16 +66,15 @@ export function VariableIdEditor({ world, variable, onCommit }: {
         {t("variables.editing.applyId", { defaultValue: "Apply" })}
       </button>
     </div>
-    <p id={`${fieldId}-hint`} className="text-[11px] leading-relaxed text-muted-foreground">
-      {t("variables.editing.idReferences", { defaultValue: "Conditions, behaviors and templates use this ID. Referenced IDs are protected from direct changes." })}
-      {" "}<code className="text-primary">{`{{${variable.id}}}`}</code>
+    <p id={`${fieldId}-hint`} className="text-[11px] leading-relaxed text-muted-foreground" title={t("variables.editing.idReferences", { defaultValue: "Conditions, behaviors and templates use this ID. Referenced IDs are protected from direct changes." })}>
+      <code>{`{{${variable.id}}}`}</code>
     </p>
     {(error || usage.references.length > 0) && <p role={error ? "alert" : "status"} className="text-[11px] leading-relaxed text-amber-500">
       {error === "empty"
         ? t("variables.editing.idEmpty", { defaultValue: "Enter an ID. The current ID has been kept." })
         : error === "rejected"
           ? t("variables.editing.idRejected", { defaultValue: "The ID could not be changed. The current ID has been kept." })
-          : t("variables.editing.idInUse", { defaultValue: "This ID is in use. Resolve the references below before changing it; the display name can still be edited." })}
+          : t("variables.editing.idInUse", { defaultValue: "This ID is in use. Clear the references below first." })}
     </p>}
     {assigned && <p role="status" className="text-[11px] text-muted-foreground">{t("variables.idTaken", { id: assigned })}</p>}
     {usage.references.length > 0 && <ul aria-label={t("variables.editing.idUsages", { defaultValue: "ID references" })} className="max-h-52 space-y-2 overflow-y-auto rounded-lg border border-border/60 p-2">
@@ -85,9 +84,8 @@ export function VariableIdEditor({ world, variable, onCommit }: {
       </li>)}
     </ul>}
     {usage.codeReviews.length > 0 && <details className="rounded-lg border border-border/60 p-2 text-[11px] text-muted-foreground">
-      <summary className="cursor-pointer font-medium">{t("variables.editing.codeReview", { defaultValue: "Frontend code needs review" })}</summary>
-      <p className="my-2 leading-relaxed">{t("variables.editing.codeReviewHint", { defaultValue: "Code is not rewritten. These are review hints, not confirmed ID references; dynamic access cannot be checked completely. The frontend normally uses display names, so review it after changing a name." })}</p>
-      <ul className="space-y-2">{usage.codeReviews.map((review) => <li key={`${review.file}:${review.reason}`}>
+      <summary className="cursor-pointer font-medium" title={t("variables.editing.codeReviewHint", { defaultValue: "Code is not rewritten. These are review hints, not confirmed ID references; dynamic access cannot be checked completely. The frontend normally uses display names, so review it after changing a name." })}>{t("variables.editing.codeReview", { defaultValue: "Frontend code needs review" })}</summary>
+      <ul className="mt-2 space-y-2">{usage.codeReviews.map((review) => <li key={`${review.file}:${review.reason}`}>
         <code className="break-all text-foreground">{review.file}</code>
         <p>{t(`variables.editing.codeReasons.${review.reason}` as never, { defaultValue: review.reason })}</p>
       </li>)}</ul>
@@ -105,5 +103,5 @@ export function VariableNameReferenceHint({ world, variable }: { world: WorldDef
     [variable.id, variable.name, ...usageInputs],
   );
   if (!hasFrontendUse) return null;
-  return <p className="text-[11px] leading-relaxed text-muted-foreground">{t("variables.editing.nameReferences", { defaultValue: "The frontend may use this display name. After renaming it, check the corresponding interface code." })}</p>;
+  return <p className="text-[11px] leading-relaxed text-muted-foreground">{t("variables.editing.nameReferences", { defaultValue: "Interface code may use this name. Check it after renaming." })}</p>;
 }

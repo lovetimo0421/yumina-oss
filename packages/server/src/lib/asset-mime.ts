@@ -39,6 +39,26 @@ function getExtension(filename: string): string {
   return dotIndex >= 0 ? filename.slice(dotIndex + 1).toLowerCase() : "";
 }
 
+/**
+ * True for a content type a browser treats as a document or as script: HTML,
+ * any XML dialect (XHTML, SVG, XSLT...), JavaScript. Judged on the media type
+ * alone, so `text/html; charset=utf-8` cannot slip past an exact-string list.
+ * /cdn serves uploads from the app's own origin; one of these there is a page
+ * that acts as whoever opens it.
+ */
+export function isActiveContentType(contentType: string | null | undefined): boolean {
+  const raw = (contentType ?? "").trim().toLowerCase();
+  if (!raw) return false;
+  // Anything but a bare `type/subtype` is refused outright: parameters, commas
+  // and quotes are where a browser and this check can read the value differently.
+  if (!/^[a-z0-9][a-z0-9.+-]*[/][a-z0-9][a-z0-9.+-]*$/.test(raw)) return true;
+  const type = raw;
+  if (type === "text/html" || type === "application/xhtml" || type === "text/xml" || type === "application/xml") return true;
+  if (type.endsWith("+xml") || type.endsWith("/xml")) return true;
+  if (/(java|ecma|j)script/.test(type)) return true;
+  return type === "text/xsl" || type === "text/xslt" || type === "application/x-httpd-php" || type === "text/vtt+html";
+}
+
 export function normalizeAssetMimeType(filename: string, mimeType?: string): string {
   const raw = mimeType?.trim().toLowerCase() ?? "";
   const normalized = MIME_ALIASES[raw] ?? raw;

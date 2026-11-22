@@ -1,6 +1,6 @@
 export type WorldStatus = "draft" | "published" | "unpublished";
 export type AgeRating = "all" | "r18";
-export type WorldVisibility = "public" | "followers";
+export type WorldVisibility = "public" | "followers" | "unlisted";
 export type TargetAudience = "male" | "female" | "all";
 
 // Collapse any adult rating to "r18". The canonical adult value is now
@@ -176,6 +176,13 @@ export interface WorldVersion {
   id: string;
   worldId: string;
   createdBy: string;
+  /** A collaborator who made this version (null when the creator did). */
+  actorId?: string | null;
+  actorName?: string | null;
+  actorImage?: string | null;
+  /** The card's creator, who made every version without an actor. */
+  creatorName?: string | null;
+  creatorImage?: string | null;
   name: string;
   note: string | null;
   // Untyped on purpose: recovery versions write "save" / "restore" /
@@ -201,7 +208,7 @@ export { MAX_VERSION_NOTE as MAX_VERSION_NOTE_LENGTH } from "../constants/limits
 // ─── Edit re-review (held material changes to a published world) ─────
 
 /** The four material surfaces that gate an already-published world's edit. */
-export type MaterialChangeReason = "entries" | "frontend" | "ageRating" | "cover";
+export type MaterialChangeReason = "entries" | "frontend" | "ageRating" | "cover" | "illustration";
 
 /**
  * Lifecycle of a held edit to a published world:

@@ -32,29 +32,50 @@ test("all generation paths append the model-scoped recency instruction", () => {
   );
 });
 
-test("all generation paths reject repetitive output before persistence", () => {
+const GATE = "const repetition = detectDegenerateRepetitionForModel(";
+
+function gatePositions(): number[] {
+  const positions: number[] = [];
+  for (let at = src.indexOf(GATE); at >= 0; at = src.indexOf(GATE, at + 1)) positions.push(at);
+  return positions;
+}
+
+test("all generation paths run the repetition gate for every model", () => {
+  // The gate used to sit behind `antiRepetitionInstruction ? … : null`, which
+  // only Kimi sets — GLM's "Our Our Our …" replies went through and were billed.
+  assert.equal(gatePositions().length, 3);
+  assert.doesNotMatch(src, /const repetition = \w*[aA]ntiRepetitionInstruction\s*\?/);
+});
+
+test("all generation paths reject repetitive output before persistence and before any charge", () => {
   assert.equal(src.match(/code:\s*"REPETITIVE_REPLY"/g)?.length, 3);
+  const [sendGuard, regenerateGuard, continueGuard] = gatePositions() as [number, number, number];
 
   const firstAssistantInsert = src.indexOf("const assistantMsgResult = await tx");
-  const sendGuard = src.indexOf("? detectDegenerateRepetitionForModel(");
   assert.ok(sendGuard >= 0 && sendGuard < firstAssistantInsert);
 
   const swipePersistence = src.indexOf("const updatedSwipes = [...existingSwipes, newSwipe]");
-  const regenerateGuard = src.indexOf(
-    "? detectDegenerateRepetitionForModel(",
-    sendGuard + 1,
-  );
   assert.ok(regenerateGuard > sendGuard && regenerateGuard < swipePersistence);
 
   const continuationPersistence = src.indexOf("const finalContent = existingContent + cleanContinuation");
-  const continueGuard = src.indexOf(
-    "? detectDegenerateRepetitionForModel(",
-    regenerateGuard + 1,
-  );
   assert.ok(continueGuard > regenerateGuard && continueGuard < continuationPersistence);
+
+  // Each path's story charge (prepareStoryCharge, then the wallet debit) comes
+  // after its gate, and the gate returns — a looped reply is never billed.
+  for (const [gate, next] of [[sendGuard, regenerateGuard], [regenerateGuard, continueGuard], [continueGuard, src.length]] as const) {
+    const charge = src.indexOf("await outputAttempt.prepareStoryCharge(", gate);
+    // The send path debits through chargeRoomReply (a split story room shares the cost).
+    const debit = Math.min(...["await deductCreditsUpToBalance(", "await chargeRoomReply("]
+      .map((call) => src.indexOf(call, gate)).filter((at) => at >= 0));
+    assert.ok(charge > gate && charge < next, "story charge follows the gate");
+    assert.ok(debit > charge && debit < next, "wallet debit follows the gate");
+    const rejection = src.slice(gate, charge);
+    assert.match(rejection, /_repetitive"/);
+    assert.match(rejection, /return;/);
+  }
 });
 
-test("all output gates receive the selected model for Kimi-only scoping", () => {
+test("all output gates receive the selected model (previous-reply check is Kimi-only)", () => {
   assert.equal(
     src.match(/detectDegenerateRepetitionForModel\(\s*model,/g)?.length,
     3,
@@ -62,7 +83,7 @@ test("all output gates receive the selected model for Kimi-only scoping", () => 
   assert.doesNotMatch(src, /\bdetectDegenerateRepetition\(/);
 });
 
-test("Kimi-only prompt and output gates cannot leak into main's model fallbacks", () => {
+test("the Kimi-only prompt instruction cannot leak into main's model fallbacks", () => {
   for (const guard of [
     "antiRepetitionInstruction",
     "regenAntiRepetitionInstruction",

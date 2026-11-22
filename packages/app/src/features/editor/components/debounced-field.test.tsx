@@ -124,20 +124,31 @@ test("an authoritative revision supersedes a focused field, and its pending edit
   });
 });
 
-test("an unfocused field follows the bound value; a focused one is never yanked out from under the typist", async () => {
+test("an unfocused field follows the bound value; a focused one merges a change from elsewhere instead of reverting it", async () => {
   await withField({ value: "Card A", syncKey: "a" }, async ({ field, commits, input, update, pause, blur }) => {
     // Nobody is typing: the field is a view of the value it was given.
     await update({ value: "From the agent", syncKey: "a" });
     assert.equal(field.value, "From the agent");
-    // Now somebody is. A value arriving from elsewhere waits its turn — the
-    // whole reason this field exists is that it must not eat a keystroke.
+    // Now somebody is. What arrives from elsewhere is merged with what they
+    // typed: both stay, and the caret stays in their sentence.
     field.focus();
-    await input("Mine, still being written");
-    await update({ value: "From the agent again", syncKey: "a" });
-    assert.equal(field.value, "Mine, still being written");
+    await input("From the agent. Mine, still being written");
+    await update({ value: "From the agent, edited elsewhere", syncKey: "a" });
+    assert.equal(field.value, "From the agent, edited elsewhere. Mine, still being written");
     await blur();
-    assert.deepEqual(commits, ["Mine, still being written"], "leaving the field commits what was in it");
+    assert.deepEqual(commits, ["From the agent, edited elsewhere. Mine, still being written"], "leaving commits the merged text");
     await pause();
     assert.equal(commits.length, 1);
+  });
+});
+
+test("focusing and leaving a field without typing never writes its old text back over a newer value", async () => {
+  await withField({ value: "Original", syncKey: "a" }, async ({ field, commits, update, pause, blur }) => {
+    field.focus();
+    await update({ value: "Someone else's newer text", syncKey: "a" });
+    assert.equal(field.value, "Someone else's newer text", "a focused field the person hasn't typed in follows the store");
+    await blur();
+    await pause();
+    assert.deepEqual(commits, [], "nothing was typed, so nothing is committed");
   });
 });

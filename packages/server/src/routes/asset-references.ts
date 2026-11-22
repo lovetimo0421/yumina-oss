@@ -1,10 +1,11 @@
 import { Hono } from "hono";
 import { eq, and } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { assetReferences, userAssets, worlds } from "../db/schema.js";
+import { assetReferences, userAssets } from "../db/schema.js";
 import { authMiddleware } from "../middleware/auth.js";
 import { resolveImageCdn } from "../lib/cdn-url.js";
 import type { AppEnv } from "../lib/types.js";
+import { canEdit, getWorldAccess } from "../lib/world-collaborators.js";
 
 const assetRefRoutes = new Hono<AppEnv>();
 
@@ -12,12 +13,10 @@ assetRefRoutes.use("/*", authMiddleware);
 
 // ─── Helper ─────────────────────────────────────────────────────────
 
-async function verifyWorldOwnership(worldId: string, userId: string) {
-  const rows = await db
-    .select({ id: worlds.id })
-    .from(worlds)
-    .where(and(eq(worlds.id, worldId), eq(worlds.creatorId, userId)));
-  return rows.length > 0;
+/** "edit": the creator or an editor collaborator. "read": viewers too. */
+async function verifyWorldAccess(worldId: string, userId: string, need: "edit" | "read" = "edit") {
+  const access = await getWorldAccess(userId, worldId);
+  return need === "read" ? access !== null : canEdit(access);
 }
 
 // ─── Routes ─────────────────────────────────────────────────────────
@@ -32,11 +31,11 @@ assetRefRoutes.post("/worlds/:worldId/asset-refs", async (c) => {
     return c.json({ error: "assetId is required" }, 400);
   }
 
-  if (!(await verifyWorldOwnership(worldId, currentUser.id))) {
+  if (!(await verifyWorldAccess(worldId, currentUser.id))) {
     return c.json({ error: "World not found or not authorized" }, 404);
   }
 
-  // Verify asset belongs to user
+  // The linked asset must still be the caller's own library item.
   const assetRows = await db
     .select()
     .from(userAssets)
@@ -70,7 +69,7 @@ assetRefRoutes.delete("/worlds/:worldId/asset-refs/:assetId", async (c) => {
   const worldId = c.req.param("worldId");
   const assetId = c.req.param("assetId");
 
-  if (!(await verifyWorldOwnership(worldId, currentUser.id))) {
+  if (!(await verifyWorldAccess(worldId, currentUser.id))) {
     return c.json({ error: "World not found or not authorized" }, 404);
   }
 
@@ -86,7 +85,7 @@ assetRefRoutes.get("/worlds/:worldId/asset-refs", async (c) => {
   const currentUser = c.get("user");
   const worldId = c.req.param("worldId");
 
-  if (!(await verifyWorldOwnership(worldId, currentUser.id))) {
+  if (!(await verifyWorldAccess(worldId, currentUser.id, "read"))) {
     return c.json({ error: "World not found or not authorized" }, 404);
   }
 

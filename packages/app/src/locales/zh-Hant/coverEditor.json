@@ -1062,7 +1062,7 @@
     "saveTitle": "儲存（Ctrl+S）",
     "saveTooltip": "儲存 (Ctrl+S)",
     "publish": "釋出",
-    "publishTooltip": "釋出到發現頁",
+    "publishTooltip": "發佈設定",
     "publishUpdate": "更新發布",
     "publishUpdateTooltip": "更新已釋出作品的資訊",
     "play": "開始遊戲",
@@ -1083,7 +1083,7 @@
     "versionHistoryMenu": "版本歷史",
     "untitledWorld": "未命名世界",
     "marketplaceTitle": "資源包",
-    "marketplaceSubtitle": "瀏覽社羣，管理已使用的資源包",
+    "marketplaceSubtitle": "瀏覽社群，管理已使用的資源包",
     "saved": "已儲存",
     "loadWorldFailed": "無法載入該作品",
     "recoverDraftFound": "發現上次未儲存的變更",
@@ -1107,12 +1107,11 @@
     "customUI": "自定義 UI",
     "audio": "音訊",
     "sceneImages": "場景圖",
-    "assets": "資源",
-    "overview": "概覽",
+    "assets": "素材",
+    "overview": "卡的設定",
     "bundles": "資源包",
-    "aiGeneration": "AI 生成",
-    "packs": "玩法包",
-    "backgrounds": "背景圖"
+    "aiGeneration": "工坊",
+    "backgrounds": "聊天背景"
   },
   "kb": {
     "bindingsTab": "前端控制的詞條",
@@ -2048,7 +2047,7 @@
     "notPublished": "尚未發佈"
   },
   "assetPicker": {
-    "title": "資源",
+    "title": "素材",
     "searchPlaceholder": "搜尋...",
     "uploadButton": "上傳",
     "uploadingButton": "上傳中...",
@@ -2081,16 +2080,16 @@
   },
   "bundlesSection": {
     "title": "資源包",
-    "description": "瀏覽社羣釋出的資源包並直接安裝到當前世界，像下載 mod 一樣",
+    "description": "瀏覽社群釋出的資源包並直接安裝到當前世界，像下載 mod 一樣",
     "tabHub": "發現",
     "tabLibrary": "我的庫",
     "tabInstalled": "已安裝",
     "importFromFile": "從檔案匯入",
     "exportTitle": "匯出資源包",
     "install": "安裝",
-    "searchHub": "搜尋社羣資源包...",
+    "searchHub": "搜尋社群資源包...",
     "searchLibrary": "搜尋我的資源包...",
-    "noHubBundles": "社羣暫無公開資源包",
+    "noHubBundles": "社群暫無公開資源包",
     "noHubMatches": "沒有匹配的資源包",
     "noLibraryBundles": "你的庫裡還沒有資源包",
     "noLibraryHint": "在你的世界裡點「匯出資源包」可以把部分內容存到這裡",
@@ -2453,7 +2452,7 @@
     "stage": {
       "tabBlueprint": "故事",
       "tabFrontend": "玩家介面",
-      "tabGeneration": "AI 生成",
+      "tabGeneration": "工坊",
       "toStage": "畫布工作台——畫布鋪滿整個工作室",
       "toClassic": "切換到舊版面板佈局",
       "collapse": "收起",
@@ -2462,7 +2461,7 @@
     },
     "addPanel": "新增面板",
     "moreActions": "更多操作",
-    "openMarketplace": "瀏覽社羣資源市場",
+    "openMarketplace": "瀏覽社群資源市場",
     "importBundle": "匯入資源包",
     "exportBundle": "匯出資源包",
     "undo": "撤銷 (Ctrl+Z)",
@@ -2515,16 +2514,15 @@
       "frontEndCode": "前端程式碼",
       "audio": "音訊",
       "sceneImages": "場景圖",
-      "assets": "資源",
-      "overview": "概覽",
+      "assets": "素材",
+      "overview": "卡的設定",
       "previewControls": "預覽控制",
       "canvas": "介面預覽",
       "aiAssistant": "創作助手",
       "playtest": "測試",
       "marketplace": "資源市場",
-      "aiGeneration": "AI 生成",
-      "packs": "玩法包",
-      "backgrounds": "背景圖"
+      "aiGeneration": "工坊",
+      "backgrounds": "聊天背景"
     },
     "layouts": {
       "blueprint": "畫布",
@@ -2830,7 +2828,7 @@
       "customComponent": "自定義元件",
       "messageRenderer": "訊息渲染器",
       "audio": "音訊",
-      "asset": "資源",
+      "asset": "素材",
       "template": "模板",
       "settings": "設定",
       "entityCat": "實體",
@@ -2916,6 +2914,9 @@
         "update_settings": "改設定",
         "load_skill": "查閱說明",
         "list_assets": "瀏覽素材",
+        "view_asset": "查看圖片",
+        "set_cover": "設為封面",
+        "list_voices": "查找聲音",
         "browse_assets": "瀏覽素材",
         "compile_tsx": "檢查介面程式碼",
         "generate_image": "畫一張圖",
@@ -2924,7 +2925,8 @@
         "analyze_token_cost": "估算用量",
         "validate_ui_blueprint": "檢查介面",
         "list_templates": "瀏覽範本",
-        "other": "其他步驟"
+        "other": "其他步驟",
+        "screenshot_ui": "看畫面"
       },
       "field": {
         "name": "名稱",
@@ -4605,7 +4607,7 @@
       "switchToAdvanced": "需要更細的控制？切到畫布",
       "marketplace": {
         "title": "資源市場",
-        "hint": "社羣裡的現成開場白、設定、元件——一鍵併入"
+        "hint": "社群裡的現成開場白、設定、元件——一鍵併入"
       },
       "css": {
         "title": "全域性美化",
@@ -4625,11 +4627,11 @@
         "fileExists": "同名檔案已存在",
         "confirmDelete": "確定要刪除 {{name}} 嗎？",
         "confirmUninstall": "確定要解除安裝「{{name}}」嗎？這會刪除它下面的所有檔案。",
-        "uninstall": "解除安裝這個 bundle",
+        "uninstall": "解除安裝這個資源包",
         "lines": "行",
         "chars": "字元",
         "files": "個檔案",
-        "composerNote": "自動生成（裝/卸 bundle 時自動重寫，不要手改）",
+        "composerNote": "自動生成（裝/卸資源包時自動重寫，不要手改）",
         "composerShow": "檢視",
         "composerHide": "收起"
       },
@@ -4799,7 +4801,7 @@
     "cropSize": "裁剪尺寸",
     "cardCover": "卡片封面",
     "galleryPreview": "畫廊預覽",
-    "detailHeroPreview": "詳情橫幅 · 16:5",
+    "detailHeroPreview": "詳情橫幅 · 21:9",
     "crop": {
       "hint": "調整此封面的裁切，預覽與發現頁卡片一致。",
       "dragHint": "拖動或縮放裁剪框",
@@ -4809,7 +4811,11 @@
       "reset": "重設目前視圖",
       "save": "儲存裁剪",
       "phone": "直式卡片 · 2:3",
-      "desktop": "橫式圖片 · 16:9",
+      "desktop": "圖庫展示",
+      "galleryDesktop": "桌面橫幅 · 21:9",
+      "galleryMobile": "手機及圖庫卡片 · 16:9",
+      "galleryDevice": "圖庫檢視",
+      "galleryHint": "兩個檢視可分別調整。桌面橫幅用於故事預覽和書庫詳情；手機預覽和橫向卡片使用手機裁剪。",
       "framing": "構圖",
       "wholeImage": "顯示全圖",
       "fillFrame": "填滿畫面",
@@ -4914,7 +4920,7 @@
       },
       "publish": {
         "title": "發佈你的世界",
-        "body": "做好之後點右上角這裡提交發佈，通過審核後就會出現在大廳，讓所有人都能遊玩！"
+        "body": "選擇誰可以遊玩，然後提交審核。"
       },
       "save": {
         "title": "記得儲存",
@@ -4942,7 +4948,7 @@
       },
       "publishM": {
         "title": "發佈你的世界",
-        "body": "做好之後點上方這裡提交發佈，通過審核後就會出現在大廳，讓所有人都能遊玩！"
+        "body": "選擇誰可以遊玩，然後提交審核。"
       },
       "menuOpen": {
         "title": "欄目選單",
@@ -5002,7 +5008,7 @@
       },
       "sPublish": {
         "title": "發布",
-        "body": "滿意了就在這裡提交發布，通過審核後會出現在發現頁，讓所有人都能玩。"
+        "body": "選擇誰可以遊玩，然後提交審核。"
       },
       "sAdvanced": {
         "title": "想要更多？",
@@ -5085,19 +5091,6 @@
     "before": "原圖",
     "after": "處理後",
     "previewSentence": "雨把整座城壓得很低。她沒有回頭，只是把傘往你這邊偏了一點。"
-  },
-  "packs": {
-    "title": "玩法包",
-    "blurb": "一組能直接跑的變數、行為和詞條，一次點擊裝進來。裝進來的東西就是卡自己的內容——打得開、讀得懂、改得動。",
-    "add": "裝進這張卡",
-    "addedAgain": "已裝 — 再裝一次",
-    "installed": "已裝「{{name}}」",
-    "countVariables": "{{count}} 變數",
-    "countBehaviors": "{{count}} 行為",
-    "countEntries": "{{count}} 詞條",
-    "deterministic": "真變數——由引擎執行，換模型也不會失效。",
-    "promptOnly": "只是提示詞——聽不聽由模型決定。要精確就用變數。",
-    "footnote": "包可以疊加，好感度和生存能裝在同一張卡上。不想要了在資源市場頁卸掉，它帶來的東西會一起走。"
   },
   "reviewState": {
     "rejectReasons": {

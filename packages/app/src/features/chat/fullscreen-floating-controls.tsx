@@ -6,7 +6,9 @@ import {
   Images,
   Maximize,
   MoreHorizontal,
+  Search,
   ShieldCheck,
+  Users,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -28,10 +30,15 @@ interface FullscreenFloatingControlsProps {
   modelLabel: string;
   gallery?: GalleryAction;
   memoryLabel?: string;
+  /** Chat-history search; absent where the player cannot search (not their session). */
+  searchLabel?: string;
+  onSearch?: () => void;
   stateGuardLabel?: string;
   onStateGuard?: () => void;
   sceneVideoLabel?: string;
   onSceneVideo?: () => void;
+  storyRoomLabel?: string;
+  onStoryRoom?: () => void;
   fullscreenLabel: string;
   /** Moderation restricts general actions; Scene video retains its own explicit access. */
   showActions: boolean;
@@ -53,10 +60,14 @@ export function FullscreenFloatingControls({
   modelLabel,
   gallery,
   memoryLabel,
+  searchLabel,
+  onSearch,
   stateGuardLabel,
   onStateGuard,
   sceneVideoLabel,
   onSceneVideo,
+  storyRoomLabel,
+  onStoryRoom,
   fullscreenLabel,
   showActions,
   onBack,
@@ -118,6 +129,15 @@ export function FullscreenFloatingControls({
                   </span>
                 </DropdownMenuItem>
               )}
+              {showActions && searchLabel && onSearch && (
+                <DropdownMenuItem
+                  onSelect={onSearch}
+                  className="min-h-11 gap-2.5 rounded-lg px-3 focus:bg-gold/[0.10] focus:text-foreground"
+                >
+                  <Search className="h-4 w-4 text-gold" />
+                  {searchLabel}
+                </DropdownMenuItem>
+              )}
               {showActions && memoryLabel && (
                 <DropdownMenuItem
                   onSelect={onMemory}
@@ -131,6 +151,12 @@ export function FullscreenFloatingControls({
                 <DropdownMenuItem onSelect={onStateGuard} className="min-h-11 gap-2.5 rounded-lg px-3 focus:bg-gold/[0.10] focus:text-foreground">
                   <ShieldCheck className="h-4 w-4 text-gold" />
                   {stateGuardLabel}
+                </DropdownMenuItem>
+              )}
+              {showActions && storyRoomLabel && onStoryRoom && (
+                <DropdownMenuItem onSelect={onStoryRoom} className="min-h-11 gap-2.5 rounded-lg px-3 focus:bg-gold/[0.10] focus:text-foreground">
+                  <Users className="h-4 w-4 text-gold" />
+                  {storyRoomLabel}
                 </DropdownMenuItem>
               )}
               {sceneVideoLabel && onSceneVideo && (

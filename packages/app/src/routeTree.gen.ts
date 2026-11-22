@@ -19,6 +19,7 @@ import { Route as DeleteAccountRouteImport } from './routes/delete-account'
 import { Route as AppRouteImport } from './routes/app'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppIndexRouteImport } from './routes/app/index'
+import { Route as UpdatesIdRouteImport } from './routes/updates_.$id'
 import { Route as OauthConsentRouteImport } from './routes/oauth.consent'
 import { Route as AuthPopupDoneRouteImport } from './routes/auth.popup-done'
 import { Route as AppWorldsRouteImport } from './routes/app/worlds'
@@ -32,9 +33,13 @@ import { Route as AppExtensionsRouteImport } from './routes/app/extensions'
 import { Route as AppConfigsRouteImport } from './routes/app/configs'
 import { Route as AppWorldsIndexRouteImport } from './routes/app/worlds.index'
 import { Route as AppProfileIndexRouteImport } from './routes/app/profile.index'
+import { Route as UpdatesIdLangRouteImport } from './routes/updates_.$id_.$lang'
+import { Route as EmbedBundleCanvasBundleIdRouteImport } from './routes/embed.bundle-canvas.$bundleId'
 import { Route as AppWorldsCreateRouteImport } from './routes/app/worlds.create'
 import { Route as AppStudioWorldIdRouteImport } from './routes/app/studio.$worldId'
+import { Route as AppRoomCodeRouteImport } from './routes/app/room.$code'
 import { Route as AppPreviewWorldIdRouteImport } from './routes/app/preview.$worldId'
+import { Route as AppJoinTokenRouteImport } from './routes/app/join.$token'
 import { Route as AppChatSessionIdRouteImport } from './routes/app/chat.$sessionId'
 import { Route as AppWorldsWorldIdEditRouteImport } from './routes/app/worlds.$worldId.edit'
 
@@ -87,6 +92,11 @@ const AppIndexRoute = AppIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => AppRoute,
+} as any)
+const UpdatesIdRoute = UpdatesIdRouteImport.update({
+  id: '/updates_/$id',
+  path: '/updates/$id',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const OauthConsentRoute = OauthConsentRouteImport.update({
   id: '/oauth/consent',
@@ -153,6 +163,17 @@ const AppProfileIndexRoute = AppProfileIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AppProfileRoute,
 } as any)
+const UpdatesIdLangRoute = UpdatesIdLangRouteImport.update({
+  id: '/updates_/$id_/$lang',
+  path: '/updates/$id/$lang',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EmbedBundleCanvasBundleIdRoute =
+  EmbedBundleCanvasBundleIdRouteImport.update({
+    id: '/embed/bundle-canvas/$bundleId',
+    path: '/embed/bundle-canvas/$bundleId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const AppWorldsCreateRoute = AppWorldsCreateRouteImport.update({
   id: '/create',
   path: '/create',
@@ -163,9 +184,19 @@ const AppStudioWorldIdRoute = AppStudioWorldIdRouteImport.update({
   path: '/studio/$worldId',
   getParentRoute: () => AppRoute,
 } as any)
+const AppRoomCodeRoute = AppRoomCodeRouteImport.update({
+  id: '/room/$code',
+  path: '/room/$code',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppPreviewWorldIdRoute = AppPreviewWorldIdRouteImport.update({
   id: '/preview/$worldId',
   path: '/preview/$worldId',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppJoinTokenRoute = AppJoinTokenRouteImport.update({
+  id: '/join/$token',
+  path: '/join/$token',
   getParentRoute: () => AppRoute,
 } as any)
 const AppChatSessionIdRoute = AppChatSessionIdRouteImport.update({
@@ -200,11 +231,16 @@ export interface FileRoutesByFullPath {
   '/app/worlds': typeof AppWorldsRouteWithChildren
   '/auth/popup-done': typeof AuthPopupDoneRoute
   '/oauth/consent': typeof OauthConsentRoute
+  '/updates/$id': typeof UpdatesIdRoute
   '/app/': typeof AppIndexRoute
   '/app/chat/$sessionId': typeof AppChatSessionIdRoute
+  '/app/join/$token': typeof AppJoinTokenRoute
   '/app/preview/$worldId': typeof AppPreviewWorldIdRoute
+  '/app/room/$code': typeof AppRoomCodeRoute
   '/app/studio/$worldId': typeof AppStudioWorldIdRoute
   '/app/worlds/create': typeof AppWorldsCreateRoute
+  '/embed/bundle-canvas/$bundleId': typeof EmbedBundleCanvasBundleIdRoute
+  '/updates/$id/$lang': typeof UpdatesIdLangRoute
   '/app/profile/': typeof AppProfileIndexRoute
   '/app/worlds/': typeof AppWorldsIndexRoute
   '/app/worlds/$worldId/edit': typeof AppWorldsWorldIdEditRoute
@@ -227,11 +263,16 @@ export interface FileRoutesByTo {
   '/app/updates': typeof AppUpdatesRoute
   '/auth/popup-done': typeof AuthPopupDoneRoute
   '/oauth/consent': typeof OauthConsentRoute
+  '/updates/$id': typeof UpdatesIdRoute
   '/app': typeof AppIndexRoute
   '/app/chat/$sessionId': typeof AppChatSessionIdRoute
+  '/app/join/$token': typeof AppJoinTokenRoute
   '/app/preview/$worldId': typeof AppPreviewWorldIdRoute
+  '/app/room/$code': typeof AppRoomCodeRoute
   '/app/studio/$worldId': typeof AppStudioWorldIdRoute
   '/app/worlds/create': typeof AppWorldsCreateRoute
+  '/embed/bundle-canvas/$bundleId': typeof EmbedBundleCanvasBundleIdRoute
+  '/updates/$id/$lang': typeof UpdatesIdLangRoute
   '/app/profile': typeof AppProfileIndexRoute
   '/app/worlds': typeof AppWorldsIndexRoute
   '/app/worlds/$worldId/edit': typeof AppWorldsWorldIdEditRoute
@@ -258,11 +299,16 @@ export interface FileRoutesById {
   '/app/worlds': typeof AppWorldsRouteWithChildren
   '/auth/popup-done': typeof AuthPopupDoneRoute
   '/oauth/consent': typeof OauthConsentRoute
+  '/updates_/$id': typeof UpdatesIdRoute
   '/app/': typeof AppIndexRoute
   '/app/chat/$sessionId': typeof AppChatSessionIdRoute
+  '/app/join/$token': typeof AppJoinTokenRoute
   '/app/preview/$worldId': typeof AppPreviewWorldIdRoute
+  '/app/room/$code': typeof AppRoomCodeRoute
   '/app/studio/$worldId': typeof AppStudioWorldIdRoute
   '/app/worlds/create': typeof AppWorldsCreateRoute
+  '/embed/bundle-canvas/$bundleId': typeof EmbedBundleCanvasBundleIdRoute
+  '/updates_/$id_/$lang': typeof UpdatesIdLangRoute
   '/app/profile/': typeof AppProfileIndexRoute
   '/app/worlds/': typeof AppWorldsIndexRoute
   '/app/worlds/$worldId/edit': typeof AppWorldsWorldIdEditRoute
@@ -290,11 +336,16 @@ export interface FileRouteTypes {
     | '/app/worlds'
     | '/auth/popup-done'
     | '/oauth/consent'
+    | '/updates/$id'
     | '/app/'
     | '/app/chat/$sessionId'
+    | '/app/join/$token'
     | '/app/preview/$worldId'
+    | '/app/room/$code'
     | '/app/studio/$worldId'
     | '/app/worlds/create'
+    | '/embed/bundle-canvas/$bundleId'
+    | '/updates/$id/$lang'
     | '/app/profile/'
     | '/app/worlds/'
     | '/app/worlds/$worldId/edit'
@@ -317,11 +368,16 @@ export interface FileRouteTypes {
     | '/app/updates'
     | '/auth/popup-done'
     | '/oauth/consent'
+    | '/updates/$id'
     | '/app'
     | '/app/chat/$sessionId'
+    | '/app/join/$token'
     | '/app/preview/$worldId'
+    | '/app/room/$code'
     | '/app/studio/$worldId'
     | '/app/worlds/create'
+    | '/embed/bundle-canvas/$bundleId'
+    | '/updates/$id/$lang'
     | '/app/profile'
     | '/app/worlds'
     | '/app/worlds/$worldId/edit'
@@ -347,11 +403,16 @@ export interface FileRouteTypes {
     | '/app/worlds'
     | '/auth/popup-done'
     | '/oauth/consent'
+    | '/updates_/$id'
     | '/app/'
     | '/app/chat/$sessionId'
+    | '/app/join/$token'
     | '/app/preview/$worldId'
+    | '/app/room/$code'
     | '/app/studio/$worldId'
     | '/app/worlds/create'
+    | '/embed/bundle-canvas/$bundleId'
+    | '/updates_/$id_/$lang'
     | '/app/profile/'
     | '/app/worlds/'
     | '/app/worlds/$worldId/edit'
@@ -369,6 +430,9 @@ export interface RootRouteChildren {
   VerifiedRoute: typeof VerifiedRoute
   AuthPopupDoneRoute: typeof AuthPopupDoneRoute
   OauthConsentRoute: typeof OauthConsentRoute
+  UpdatesIdRoute: typeof UpdatesIdRoute
+  EmbedBundleCanvasBundleIdRoute: typeof EmbedBundleCanvasBundleIdRoute
+  UpdatesIdLangRoute: typeof UpdatesIdLangRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -442,6 +506,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/app/'
       preLoaderRoute: typeof AppIndexRouteImport
       parentRoute: typeof AppRoute
+    }
+    '/updates_/$id': {
+      id: '/updates_/$id'
+      path: '/updates/$id'
+      fullPath: '/updates/$id'
+      preLoaderRoute: typeof UpdatesIdRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/oauth/consent': {
       id: '/oauth/consent'
@@ -534,6 +605,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppProfileIndexRouteImport
       parentRoute: typeof AppProfileRoute
     }
+    '/updates_/$id_/$lang': {
+      id: '/updates_/$id_/$lang'
+      path: '/updates/$id/$lang'
+      fullPath: '/updates/$id/$lang'
+      preLoaderRoute: typeof UpdatesIdLangRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/embed/bundle-canvas/$bundleId': {
+      id: '/embed/bundle-canvas/$bundleId'
+      path: '/embed/bundle-canvas/$bundleId'
+      fullPath: '/embed/bundle-canvas/$bundleId'
+      preLoaderRoute: typeof EmbedBundleCanvasBundleIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/app/worlds/create': {
       id: '/app/worlds/create'
       path: '/create'
@@ -548,11 +633,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppStudioWorldIdRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/room/$code': {
+      id: '/app/room/$code'
+      path: '/room/$code'
+      fullPath: '/app/room/$code'
+      preLoaderRoute: typeof AppRoomCodeRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/preview/$worldId': {
       id: '/app/preview/$worldId'
       path: '/preview/$worldId'
       fullPath: '/app/preview/$worldId'
       preLoaderRoute: typeof AppPreviewWorldIdRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/join/$token': {
+      id: '/app/join/$token'
+      path: '/join/$token'
+      fullPath: '/app/join/$token'
+      preLoaderRoute: typeof AppJoinTokenRouteImport
       parentRoute: typeof AppRoute
     }
     '/app/chat/$sessionId': {
@@ -612,7 +711,9 @@ interface AppRouteChildren {
   AppWorldsRoute: typeof AppWorldsRouteWithChildren
   AppIndexRoute: typeof AppIndexRoute
   AppChatSessionIdRoute: typeof AppChatSessionIdRoute
+  AppJoinTokenRoute: typeof AppJoinTokenRoute
   AppPreviewWorldIdRoute: typeof AppPreviewWorldIdRoute
+  AppRoomCodeRoute: typeof AppRoomCodeRoute
   AppStudioWorldIdRoute: typeof AppStudioWorldIdRoute
 }
 
@@ -628,7 +729,9 @@ const AppRouteChildren: AppRouteChildren = {
   AppWorldsRoute: AppWorldsRouteWithChildren,
   AppIndexRoute: AppIndexRoute,
   AppChatSessionIdRoute: AppChatSessionIdRoute,
+  AppJoinTokenRoute: AppJoinTokenRoute,
   AppPreviewWorldIdRoute: AppPreviewWorldIdRoute,
+  AppRoomCodeRoute: AppRoomCodeRoute,
   AppStudioWorldIdRoute: AppStudioWorldIdRoute,
 }
 
@@ -646,6 +749,9 @@ const rootRouteChildren: RootRouteChildren = {
   VerifiedRoute: VerifiedRoute,
   AuthPopupDoneRoute: AuthPopupDoneRoute,
   OauthConsentRoute: OauthConsentRoute,
+  UpdatesIdRoute: UpdatesIdRoute,
+  EmbedBundleCanvasBundleIdRoute: EmbedBundleCanvasBundleIdRoute,
+  UpdatesIdLangRoute: UpdatesIdLangRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

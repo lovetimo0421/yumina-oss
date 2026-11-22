@@ -13,6 +13,7 @@ import { ConditionEditor } from "../condition-editor";
 import { LogicToggle } from "../module-activation-editor";
 import { DebouncedInput, DebouncedTextarea } from "../debounced-field";
 import { cn } from "@/lib/utils";
+import { temperatureMayGarble } from "@/lib/temperature-warning";
 import { ModuleContextSummary, ModuleContextWires } from "./module-context-panel";
 import { MemoryPoolPicker } from "./memory-pool-picker";
 import { StationActivity } from "./station-activity";
@@ -95,9 +96,7 @@ export function StationModelFields({ book, onChange }: { book: Worldbook; onChan
   return (
     <div className="space-y-2" data-station-model-fields>
       {/* Who sets them comes first (owner, 10/17), then the model. */}
-      {narrator ? (
-        <p className={HINT}>{t("blueprint.station.paramsNarrator")}</p>
-      ) : (
+      {narrator ? null : (
         <div className="space-y-1.5 border-b border-border/60 pb-2" data-station-params>
           <div className="flex items-center justify-between gap-2">
             <span className={LABEL}>{t("blueprint.station.params")}</span>
@@ -141,6 +140,12 @@ export function StationModelFields({ book, onChange }: { book: Worldbook; onChan
                   className={numberClass}
                 />
               </label>
+              {temperatureMayGarble(station.temperature) && (
+                <p className="flex items-start gap-1 text-[10px] leading-relaxed text-amber-300" data-temperature-garble-warn>
+                  <AlertTriangle className="mt-px h-3 w-3 shrink-0" />
+                  {t("blueprint.storyAi.temperatureGarbleWarning")}
+                </p>
+              )}
               <label className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
                 {t("blueprint.station.maxTokens", { min: STATION_MAX_TOKENS_LIMITS.min, max: STATION_MAX_TOKENS_LIMITS.max })}
                 <NumberInput
@@ -165,6 +170,9 @@ export function StationModelFields({ book, onChange }: { book: Worldbook; onChan
         value={station.model ?? ""}
         onChange={(e) => patch({ model: e.target.value.trim() || undefined })}
         placeholder={t(narrator ? "blueprint.station.modelInherit" : "blueprint.station.modelDefault")}
+        title={narrator
+          ? `${t("blueprint.station.paramsNarrator")} ${t("blueprint.station.modelHintNarrator")}`
+          : t("blueprint.station.modelHintBackground")}
         className={INPUT}
         spellCheck={false}
       />
@@ -175,7 +183,6 @@ export function StationModelFields({ book, onChange }: { book: Worldbook; onChan
           </option>
         ))}
       </datalist>
-      <p className={HINT}>{t(narrator ? "blueprint.station.modelHintNarrator" : "blueprint.station.modelHintBackground")}</p>
       {warn && (
         <p className="flex items-start gap-1 text-[10px] leading-relaxed text-amber-300" data-station-model-warn>
           <AlertTriangle className="mt-px h-3 w-3 shrink-0" />
@@ -411,7 +418,7 @@ export function ModuleConsole({
                 </select>}
                 {station.trigger?.on === "conditions" && (
                   <div className="space-y-2" data-testid="station-trigger-conditions">
-                    <div className="rounded-lg border border-sky-500/20 bg-sky-500/5 p-2">
+                    <div className="rounded-lg border border-border p-2">
                       <ConditionEditor
                         conditions={station.trigger.conditions}
                         variables={conditionVariables}

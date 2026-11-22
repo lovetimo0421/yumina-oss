@@ -1,11 +1,13 @@
 import { useDiscoverAccess } from "@/hooks/use-discover-access";
+import { noteHeldForReview } from "@/features/collab/held-for-review";
 import { DiscoverCoverFields } from "../components/discover-cover-fields";
 import { isPlaceholderCardName } from "@/lib/world-templates";
 import { WorldCoverPreview } from "@/components/world-cover-previews";
 import { useSession } from "@/lib/auth-client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { X, Plus, ImageIcon, Loader2, FolderOpen, Upload, Globe, Type, History, Sparkles, Volume2 } from "lucide-react";
+import { X, Plus, ImageIcon, Loader2, FolderOpen, Upload, Globe, Type, History, ListChecks, Palette, Volume2 } from "lucide-react";
+import { InfoTip } from "@/components/ui/info-tip";
 import { FieldError } from "@/components/ui/field-error";
 import { WorldUpdateHistory } from "@/features/library/world-update-history";
 import { MediaGuidelinesNote } from "@/components/media-guidelines-note";
@@ -23,6 +25,7 @@ import {
 import { adoptOwnWriteToken, useEditorStore } from "@/stores/editor";
 import { AssetPicker } from "../asset-picker";
 import { VoiceField } from "../components/voice-field";
+import { IllustrationLoraField, useIllustrationLorasOffered } from "@/edition/slots";
 import { DebouncedInput } from "../components/debounced-field";
 import { DescriptionField } from "../components/description-field";
 import { worldImportCounts } from "@/lib/import-summary";
@@ -30,6 +33,7 @@ import { CoverCropDialog } from "../components/cover-crop-dialog";
 import { confirmAction } from "@/components/ui/global-confirm-dialog";
 import { TwoTapDeleteButton } from "@/components/ui/two-tap-delete-button";
 import { LiveCanonGroup } from "@/features/studio/panels/blueprint/live-canon";
+import { MultiplayerGroup } from "@/features/studio/panels/blueprint/multiplayer-group";
 import { focusCoverSettings, type CoverSettingsTarget } from "../lib/cover-settings-target";
 
 
@@ -59,12 +63,14 @@ export function OverviewSection({ embedded = false, focusCover, coverOnly = fals
   const creator = useSession().data?.user;
   const worldDraft = useEditorStore(s => s.worldDraft);
   const serverWorldId = useEditorStore(s => s.serverWorldId);
+  const lorasOffered = useIllustrationLorasOffered();
   const contentRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (contentRef.current && focusCover) return focusCoverSettings(contentRef.current, focusCover);
   }, [focusCover, discoverPreview, serverWorldId]);
   const readOnlyInspect = useEditorStore(s => s.readOnlyInspect);
   const guestMode = useEditorStore(s => s.guestMode);
+  const worldIsPublished = useEditorStore(s => s.worldIsPublished);
   const historyState = useEditorStore(s => `${s.worldStatus}:${s.pendingEdit?.status ?? ""}`);
   const saveDraft = useEditorStore(s => s.saveDraft);
   const setField = useEditorStore(s => s.setField);
@@ -125,10 +131,13 @@ export function OverviewSection({ embedded = false, focusCover, coverOnly = fals
 
       try {
         const { world, coverImage } = await parseImportedFile(file, { sourceHint: "yumina" });
+        // Updating a card from a file keeps its own cover; the file's picture
+        // only fills a card that has none yet.
+        const hadOwnCover = isReplacingExisting && !!useEditorStore.getState().worldDraft.avatar;
         loadWorldDefinition(world, {
           preserveServerState: isReplacingExisting,
         });
-        if (coverImage) {
+        if (coverImage && !hadOwnCover) {
           // Use the PNG card image as the cover (saves the world first if new).
           await useEditorStore.getState().applyImportedCover(coverImage);
         }
@@ -144,7 +153,7 @@ export function OverviewSection({ embedded = false, focusCover, coverOnly = fals
         // same line, where the creator is already reading the result.
         setImportResult(
           isReplacingExisting
-            ? `${summary} — ${t("overview.importReplacedSaveReminder")}`
+            ? `${summary} · ${t("overview.importReplacedSaveReminder")}`
             : summary
         );
       } catch (error) {
@@ -330,6 +339,7 @@ export function OverviewSection({ embedded = false, focusCover, coverOnly = fals
           return;
         }
         const { data } = await res.json();
+        noteHeldForReview(data);
         // Append to the LATEST list, not the one captured when this upload
         // started — two uploads in flight used to each append to the same
         // stale array and the second overwrote the first.
@@ -368,13 +378,14 @@ export function OverviewSection({ embedded = false, focusCover, coverOnly = fals
           return;
         }
 
-        const data = await uploadAssetWithPresignedUrl<{ url: string; galleryImages: string[] }>({
+        const data = await uploadAssetWithPresignedUrl<{ url: string; galleryImages: string[]; heldForReview?: boolean }>({
           file,
           preferredType: "image",
           prepareUrl: `${apiBase}/api/worlds/${id}/gallery/upload-url`,
           registerUrl: `${apiBase}/api/worlds/${id}/gallery/confirm`,
           registerBody: ({ key }) => ({ key }),
         });
+        noteHeldForReview(data);
 
         // Latest list, not the closure's (see handleGalleryFromAsset). The
         // server's own galleryImages holds raw storage keys while the store
@@ -410,6 +421,7 @@ export function OverviewSection({ embedded = false, focusCover, coverOnly = fals
           setGalleryError(t("overview.imageRemoveFailed"));
           return;
         }
+        noteHeldForReview((await res.json().catch(() => ({}))).data);
         // The tile leaves the grid — that is the confirmation.
         const latest = useEditorStore.getState().galleryImages;
         const at = removedUrl !== undefined ? latest.indexOf(removedUrl) : -1;
@@ -427,12 +439,7 @@ export function OverviewSection({ embedded = false, focusCover, coverOnly = fals
     <div ref={contentRef} className={`${embedded ? "@container" : "@container flex-1 overflow-y-auto p-6"} [&_[data-cover-focus]]:rounded-lg [&_[data-cover-focus]]:ring-1 [&_[data-cover-focus]]:ring-primary/50 [&_[data-cover-focus]]:ring-offset-4 [&_[data-cover-focus]]:ring-offset-background`}>
       <div className={embedded ? "space-y-6" : "mx-auto max-w-3xl space-y-8"}>
         {!coverOnly && <>
-        <div>
-          <h2 className="text-lg font-semibold text-foreground">{t("overview.title")}</h2>
-          <p className="mt-1 text-sm text-muted-foreground/50">
-            {t("overview.description")}
-          </p>
-        </div>
+        <h2 className="text-lg font-semibold text-foreground">{t("overview.title")}</h2>
 
         <div className="rounded-lg border border-border bg-background p-5" data-tour="overview-title-card">
           <div className="mb-3 flex items-center justify-between gap-3">
@@ -460,7 +467,9 @@ export function OverviewSection({ embedded = false, focusCover, coverOnly = fals
           </div>
         </div>
 
-        <section className="rounded-lg border border-border bg-background p-5" aria-labelledby="overview-update-history-title">
+        {/* Update notes are for the players of a live card; on one that was
+            never published the box only said there were none yet. */}
+        {worldIsPublished && <section className="rounded-lg border border-border bg-background p-5" aria-labelledby="overview-update-history-title">
           {serverWorldId ? (
             <WorldUpdateHistory
               key={`${serverWorldId}:${historyState}`}
@@ -469,7 +478,7 @@ export function OverviewSection({ embedded = false, focusCover, coverOnly = fals
               showCreateButton
               heading={(
                 <h3 id="overview-update-history-title" className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                  <History className="h-4 w-4 text-primary" aria-hidden="true" />
+                  <History className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
                   {tLibrary("detail.updateHistory")}
                 </h3>
               )}
@@ -477,53 +486,18 @@ export function OverviewSection({ embedded = false, focusCover, coverOnly = fals
           ) : (
             <>
             <h3 id="overview-update-history-title" className="mb-4 flex items-center gap-2 text-sm font-semibold text-foreground">
-              <History className="h-4 w-4 text-primary" aria-hidden="true" />
+              <History className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
               {tLibrary("detail.updateHistory")}
             </h3>
             <p className="py-6 text-center text-sm text-muted-foreground">{tLibrary("detail.updateHistorySaveFirst")}</p>
             </>
           )}
-        </section>
-
-        <div className="rounded-lg border border-border bg-background p-5">
-          <div className="mb-3">
-            <h3 className="text-sm font-semibold text-foreground">{t("overview.importJson")}</h3>
-            <p className="mt-0.5 text-xs text-muted-foreground/50">
-              {t("overview.importJsonDesc")}
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <input
-              ref={importFileRef}
-              type="file"
-              accept=".json,.png"
-              onChange={handleImport}
-              className="hidden"
-            />
-            <button
-              onClick={() => importFileRef.current?.click()}
-              className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-accent"
-            >
-              <Upload className="h-3.5 w-3.5" />
-              {t("overview.chooseFile")}
-            </button>
-            {importResult && (
-              <span className="text-xs text-muted-foreground/60">
-                {importResult}
-              </span>
-            )}
-          </div>
-        </div>
+        </section>}
 
         </>}
         {/* Cover shortcuts on secondary variants expose artwork only, not primary-only metadata. */}
         {discoverPreview ? <DiscoverCoverFields /> : <div data-learn="ov-cover" className="rounded-lg border border-border bg-background p-5">
-          <div className="mb-4">
-            <h3 className="text-sm font-semibold text-foreground">{t("overview.coverImage")}</h3>
-            <p className="mt-0.5 text-xs text-muted-foreground/50">
-              {t("overview.coverImageDesc")}
-            </p>
-          </div>
+          <h3 className="mb-4 text-sm font-semibold text-foreground">{t("overview.coverImage")}</h3>
           <MediaGuidelinesNote className="mb-4" />
           <div className="grid grid-cols-1 gap-6 @[480px]:grid-cols-[minmax(0,1fr)_minmax(0,1.65fr)]">
             {(["portrait", "landscape"] as const).map((target) => {
@@ -544,10 +518,9 @@ export function OverviewSection({ embedded = false, focusCover, coverOnly = fals
                 }} aria-label={t(portrait ? "extra.crop.phone" : "extra.crop.desktop")} className={`relative w-full overflow-hidden rounded-lg border border-border bg-card outline-none focus-visible:ring-2 focus-visible:ring-ring ${portrait ? "max-w-52" : ""} ${source ? "block" : "flex aspect-video items-center justify-center"}`}>
                   {source ? <WorldCoverPreview src={source} crop={portrait ? coverCrop : landscapeCoverCrop} shape={target}
                     details={{ title: worldDraft.name, description: worldDraft.description, creatorName: creator?.name, creatorImage: creator?.image }} />
-                    : <span className="flex flex-col items-center gap-2 px-4 text-center text-xs text-muted-foreground"><ImageIcon className="h-7 w-7 opacity-40" />{t("overview.uploadCover")}</span>}
+                    : <ImageIcon aria-hidden className="h-7 w-7 text-muted-foreground opacity-40" />}
                 </button>
-                <p className="mb-3 mt-2 text-xs leading-relaxed text-muted-foreground">{t(portrait ? "overview.portraitUse" : "overview.landscapeUse")}</p>
-                <div className="flex flex-wrap gap-2">
+                <div className="mt-3 flex flex-wrap gap-2">
                   <button type="button" data-cover-upload disabled={uploadingCover} onClick={() => { coverTarget.current = target; coverFileRef.current?.click(); }}
                     className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-border px-3 text-xs hover:bg-accent disabled:opacity-40">
                     {uploadingCover && coverTarget.current === target ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
@@ -561,11 +534,10 @@ export function OverviewSection({ embedded = false, focusCover, coverOnly = fals
                   }} className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-border px-3 text-xs hover:bg-accent">
                     <FolderOpen className="h-3.5 w-3.5" />{t("overview.fromAssets")}
                   </button>
-                  {source && <button type="button" onClick={() => openCrop()} className="min-h-9 px-1 text-xs text-primary hover:underline">{t("extra.adjustCoverCrop")}</button>}
+                  {source && <button type="button" onClick={() => openCrop()} className="min-h-9 px-1 text-xs text-foreground hover:underline">{t("extra.adjustCoverCrop")}</button>}
                 </div>
                 {!portrait && worldDraft.avatar && !source && <button type="button" onClick={() => openCrop(worldDraft.avatar)}
-                  className="mt-3 min-h-9 text-left text-xs text-primary hover:underline">{t("overview.reusePortrait")}</button>}
-                {!portrait && !source && <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{t("overview.landscapeNeeded")}</p>}
+                  className="mt-3 min-h-9 text-left text-xs text-foreground hover:underline">{t("overview.reusePortrait")}</button>}
               </section>;
             })}
           </div>
@@ -589,20 +561,16 @@ export function OverviewSection({ embedded = false, focusCover, coverOnly = fals
         {/* Gallery Images */}
         <div data-learn="ov-gallery" className="rounded-lg border border-border bg-background p-5">
           <div className="mb-4 flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-semibold text-foreground">
-                {t("overview.galleryImages")}
-              </h3>
-              <p className="mt-0.5 text-xs text-muted-foreground/50">
-                {t("overview.galleryImagesDesc")}
-              </p>
-            </div>
+            <h3 className="flex items-center gap-1 text-sm font-semibold text-foreground">
+              {t("overview.galleryImages")}
+              <InfoTip text={t("overview.galleryImagesDesc")} />
+            </h3>
             <span className="text-xs text-muted-foreground/40">
               {galleryImages.length}/8
             </span>
           </div>
 
-          <MediaGuidelinesNote className="mb-4" />
+          {/* The rules box once: the cover box just above already shows it. */}
           <div className="grid grid-cols-2 @[640px]:grid-cols-4 gap-3">
             {galleryImages.map((url, index) => (
               <div
@@ -658,7 +626,7 @@ export function OverviewSection({ embedded = false, focusCover, coverOnly = fals
                     }
                     setShowGalleryPicker(true);
                   }}
-                  className="flex aspect-video items-center justify-center rounded-lg border border-dashed border-primary/30 bg-primary/5 text-primary/40 transition-colors hover:border-primary/50 hover:bg-primary/10 hover:text-primary/60"
+                  className="flex aspect-video items-center justify-center rounded-lg border border-dashed border-border bg-card text-muted-foreground/40 transition-colors hover:border-primary/50 hover:text-primary/60"
                 >
                   <div className="flex flex-col items-center gap-1">
                     <FolderOpen className="h-5 w-5" />
@@ -693,14 +661,10 @@ export function OverviewSection({ embedded = false, focusCover, coverOnly = fals
 
         {/* Description */}
         <div className="rounded-lg border border-border bg-background p-5" data-tour="overview-description">
-          <div className="mb-3">
-            <h3 className="text-sm font-semibold text-foreground">
-              {t("overview.descriptionTitle")}
-            </h3>
-            <p className="mt-0.5 text-xs text-muted-foreground/50">
-              {t("overview.descriptionDesc")}
-            </p>
-          </div>
+          <h3 className="mb-3 flex items-center gap-1 text-sm font-semibold text-foreground">
+            {t("overview.descriptionTitle")}
+            <InfoTip text={t("overview.descriptionDesc")} />
+          </h3>
           <DescriptionField
             value={worldDraft.description}
             onCommit={(description) => setField("description", description)}
@@ -722,14 +686,11 @@ export function OverviewSection({ embedded = false, focusCover, coverOnly = fals
         {/* Language */}
         <div data-learn="ov-language" className="rounded-lg border border-border bg-background p-5">
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
-              <Globe className="h-4 w-4 text-primary" />
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent">
+              <Globe className="h-4 w-4 text-muted-foreground" />
             </div>
             <div className="flex-1">
-              <h3 className="text-sm font-semibold text-foreground">{t("overview.language")}</h3>
-              <p className="mt-0.5 text-xs text-muted-foreground/50">
-                {t("overview.languageDesc")}
-              </p>
+              <h3 className="flex items-center gap-1 text-sm font-semibold text-foreground">{t("overview.language")}<InfoTip text={t("overview.languageDesc")} /></h3>
             </div>
             <select
               value={language ?? ""}
@@ -741,6 +702,7 @@ export function OverviewSection({ embedded = false, focusCover, coverOnly = fals
               <option value="zh">中文</option>
               <option value="ja">日本語</option>
               <option value="ko">한국어</option>
+              <option value="id">Bahasa Indonesia</option>
               <option value="es">Español</option>
               <option value="fr">Français</option>
               <option value="de">Deutsch</option>
@@ -753,14 +715,11 @@ export function OverviewSection({ embedded = false, focusCover, coverOnly = fals
         {/* Continuity judge — the one switch authors see. Default on. */}
         <div className="rounded-lg border border-border bg-background p-5">
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
-              <Sparkles className="h-4 w-4 text-primary" />
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent">
+              <ListChecks className="h-4 w-4 text-muted-foreground" />
             </div>
             <div className="flex-1">
-              <h3 className="text-sm font-semibold text-foreground">{t("overview.continuity")}</h3>
-              <p className="mt-0.5 text-xs text-muted-foreground/50">
-                {t("overview.continuityDesc")}
-              </p>
+              <h3 className="flex items-center gap-1 text-sm font-semibold text-foreground">{t("overview.continuity")}<InfoTip text={t("overview.continuityDesc")} /></h3>
             </div>
             <input
               type="checkbox"
@@ -775,12 +734,11 @@ export function OverviewSection({ embedded = false, focusCover, coverOnly = fals
         {/* Voice — what readout and voice input do on this card */}
         <div className="rounded-lg border border-border bg-background p-5">
           <div className="mb-4 flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
-              <Volume2 className="h-4 w-4 text-primary" />
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent">
+              <Volume2 className="h-4 w-4 text-muted-foreground" />
             </div>
             <div className="flex-1">
               <h3 className="text-sm font-semibold text-foreground">{t("voiceField.cardTitle")}</h3>
-              <p className="mt-0.5 text-xs text-muted-foreground/50">{t("voiceField.cardDesc")}</p>
             </div>
           </div>
           <div className="space-y-5">
@@ -795,7 +753,7 @@ export function OverviewSection({ embedded = false, focusCover, coverOnly = fals
               }}
             />
             <div className="space-y-2">
-              <label className="text-sm font-bold text-foreground">{t("blueprint.voice.inputTitle")}</label>
+              <label className="flex items-center gap-1 text-sm font-bold text-foreground">{t("blueprint.voice.inputTitle")}<InfoTip text={t("blueprint.voice.inputHint")} /></label>
               <div className="flex flex-wrap gap-2" role="group" aria-label={t("blueprint.voice.inputTitle")}>
                 {(["confirm", "auto"] as const).map((m) => {
                   const active = (worldDraft.settings?.voiceInputMode ?? "confirm") === m;
@@ -808,17 +766,36 @@ export function OverviewSection({ embedded = false, focusCover, coverOnly = fals
                         const store = useEditorStore.getState();
                         store.setField("settings", { ...store.worldDraft.settings, voiceInputMode: m });
                       }}
-                      className={`rounded-lg border px-3 py-1.5 text-sm transition-colors ${active ? "border-primary/50 bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"}`}
+                      className={`rounded-lg border px-3 py-1.5 text-sm transition-colors ${active ? "border-primary/50 bg-primary/10 text-foreground" : "border-border text-muted-foreground hover:text-foreground"}`}
                     >
                       {t(m === "auto" ? "blueprint.voice.inputAuto" : "blueprint.voice.inputConfirm")}
                     </button>
                   );
                 })}
               </div>
-              <p className="text-xs text-muted-foreground">{t("blueprint.voice.inputHint")}</p>
             </div>
           </div>
         </div>
+
+        {/* Story illustrations: the art-style LoRA every picture of this card is drawn with. */}
+        {lorasOffered && (
+          <div className="rounded-lg border border-border bg-background p-5" data-card-illustration-lora>
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent">
+                <Palette className="h-4 w-4 text-muted-foreground" />
+              </div>
+              <h3 className="flex-1 text-sm font-semibold text-foreground">{t("loraField.cardTitle")}</h3>
+            </div>
+            <IllustrationLoraField
+              kind="style"
+              value={worldDraft.settings?.illustrationLora}
+              onChange={(illustrationLora) => {
+                const store = useEditorStore.getState();
+                store.setField("settings", { ...store.worldDraft.settings, illustrationLora });
+              }}
+            />
+          </div>
+        )}
 
         {/* Lore Shift. The Studio menu's "Card settings" opens this page, and the
             docs send creators to "Card settings" for it, but it only lived in
@@ -826,6 +803,41 @@ export function OverviewSection({ embedded = false, focusCover, coverOnly = fals
             this page sits inside that inspector form, which already draws the
             group below it, so it is left out there. */}
         {!embedded && <LiveCanonGroup card />}
+
+        {/* 联机. Embedded, the inspector's card form draws it below. */}
+        {!embedded && <MultiplayerGroup card />}
+
+        {/* Last, not third: it replaces the whole card, and it sat between the
+            name and the cover where people come to change small things. */}
+        <div className="rounded-lg border border-border bg-background p-5">
+          <div className="mb-3">
+            <h3 className="flex items-center gap-1 text-sm font-semibold text-foreground">{t("overview.importJson")}<InfoTip text={t("overview.importJsonFormats")} /></h3>
+            <p className="mt-0.5 text-xs text-muted-foreground/50">
+              {t("overview.importJsonDesc")}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <input
+              ref={importFileRef}
+              type="file"
+              accept=".json,.png"
+              onChange={handleImport}
+              className="hidden"
+            />
+            <button
+              onClick={() => importFileRef.current?.click()}
+              className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-accent"
+            >
+              <Upload className="h-3.5 w-3.5" />
+              {t("overview.chooseFile")}
+            </button>
+            {importResult && (
+              <span className="text-xs text-muted-foreground/60">
+                {importResult}
+              </span>
+            )}
+          </div>
+        </div>
 
         {/* Variant Group removed — variant management is now in the tab bar above */}
         </>}
@@ -839,6 +851,7 @@ export function OverviewSection({ embedded = false, focusCover, coverOnly = fals
           initialMode={cropDialog.mode}
           initialCoverCrop={cropDialog.coverCrop}
           initialLandscapeCrop={cropDialog.landscapeCoverCrop}
+          fallbackLandscapeCrop={!worldDraft.landscapeCover && cropDialog.landscapeSrc === worldDraft.avatar ? worldDraft.galleryCoverCrop : undefined}
           saving={cropSaving}
           error={cropError ?? undefined}
           onCancel={() => { if (!cropSaving) { setCropDialog(null); setCropError(null); } }}

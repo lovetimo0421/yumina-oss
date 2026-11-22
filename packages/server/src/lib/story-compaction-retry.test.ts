@@ -66,9 +66,11 @@ test("summaryception job bookkeeping does not bump the session-row updatedAt", (
 });
 
 test("persisted summary model ids go through applyModelRedirect on background paths", () => {
-  for (const [name, src] of [["session-compaction.ts", compactionSrc], ["session-memory.ts", memorySrc], ["summaryception.ts", summaryceptionSrc]] as const) {
+  for (const [name, src] of [["session-memory.ts", memorySrc], ["summaryception.ts", summaryceptionSrc], ["role-model.ts", readSrc("role-model.ts")]] as const) {
     assert.match(src, /applyModelRedirect\(/, `${name} must redirect deprecated persisted model ids`);
   }
+  // Compaction picks its model through role-model.ts, which redirects.
+  assert.match(compactionSrc, /await storySummaryModels\(/);
 });
 
 test("history rewrites clear summaryception and abort in-flight jobs", () => {
@@ -166,7 +168,10 @@ test("a refusal fallback is used for its run only, never saved as the session's 
   assert.ok(persistCalls.length >= 3, `expected the three persist call sites, found ${persistCalls.length}`);
   for (const call of persistCalls) assert.match(call, /\n\s*job,\n/, "persist must save the job's own (player-chosen) model");
   const markUpdating = compactionSrc.slice(compactionSrc.indexOf("async function markStoryJobUpdating"));
-  assert.match(markUpdating.slice(0, 1200), /summaryModel: args\.job\.model/);
+  // The claim saves the chat's own choice (keepModel), never the model the run
+  // happened to use: that may be the player's summary default or a fallback.
+  assert.match(markUpdating.slice(0, 1200), /const claimedModel = args\.job\.keepModel \?\? args\.job\.model;/);
+  assert.match(markUpdating.slice(0, 1200), /summaryModel: claimedModel/);
   assert.ok(!/model: STORY_SUMMARY_REFUSAL_FALLBACK_MODEL \}/.test(compactionSrc), "no job may be rewritten onto the fallback model");
 });
 

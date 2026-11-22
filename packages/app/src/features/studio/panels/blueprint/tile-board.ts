@@ -123,6 +123,11 @@ export function tileSections(blocks: readonly Block[], opts: TileSlotOptions = {
   const rest = blocks.filter((b) => !placed.has(b.id));
 
   const sections: TileSection[] = [];
+  // Read top to bottom (owner, 11/07): what it knows, starting with the
+  // opening the player reads first and a newcomer writes first; what it can
+  // do; and last, the AI that reads all of it and answers. Which AI it is
+  // is already on the frame's title (its pink name), so the tile's first
+  // row is the opening, not a setting a newcomer has no reason to touch.
   // The player's screen stands above everything, alone and full width. Beside
   // the opening it was a phone-wide column that the writing kept squeezing,
   // and it moved whenever the writing grew; on top it has room, it is always
@@ -132,8 +137,13 @@ export function tileSections(blocks: readonly Block[], opts: TileSlotOptions = {
   // the screen on top reads more naturally). An empty screen on a new card
   // is one line (frontendThin), so it no longer buries the opening.
   if (screen) sections.push({ kind: "row", blocks: [screen] });
-  for (const b of [...openings, ...lore]) sections.push({ kind: "row", blocks: [b] });
-
+  // What it knows: the opening, the shelves of lore, and the conversation
+  // it remembers (Context), together. No line names the group: each block
+  // has its own title, and a labelled rule across the tile was one more
+  // thing to read (owner, 11/07: 太丑了).
+  for (const b of [...openings, ...lore, ...(context ? [context] : [])]) sections.push({ kind: "row", blocks: [b] });
+  // What it can do: change the numbers, set off behaviours, play music, show
+  // pictures; then the offer of what it cannot do yet (the tray).
   // Variables, then behaviours, each a full row (owner, 10/7). Side by side
   // each got half a tile and squeezed its rows; alone they have room to read.
   for (const b of [state, behavior]) if (b) sections.push({ kind: "row", blocks: [b] });
@@ -145,12 +155,6 @@ export function tileSections(blocks: readonly Block[], opts: TileSlotOptions = {
   const media = [...audio, ...images];
   if (media.length === 2) sections.push({ kind: "row", blocks: media });
   else for (const b of media) sections.push({ kind: "row", blocks: [b] });
-  // Context closes what the card is made of: a full row with room kept even
-  // when it says little — everything the AI here is given each turn. Then
-  // the unused slots, an offer read after what is there (owner, 10/7: under
-  // Context, not above it), anything this layout does not know, and the AIs
-  // last: who reads all of that and answers.
-  if (context) sections.push({ kind: "row", blocks: [context] });
   if (tray) sections.push({ kind: "row", blocks: [tray] });
   for (const b of rest) sections.push({ kind: "row", blocks: [b] });
   if (ais) sections.push({ kind: "row", blocks: [ais] });

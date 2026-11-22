@@ -12,15 +12,17 @@ import {
 } from "@modelcontextprotocol/server";
 import { oauthProviderAuthServerMetadata, oauthProviderOpenIdConfigMetadata } from "@better-auth/oauth-provider";
 import { oauthProviderResourceClient } from "@better-auth/oauth-provider/resource-client";
-import { eq } from "drizzle-orm";
-import { db } from "../db/index.js";
-import { oauthClient } from "../db/schema.js";
+import { and, eq } from "drizzle-orm";
+import { db, readOwn } from "../db/index.js";
+import { oauthClient, worlds } from "../db/schema.js";
 import { verifyAccessToken, type TokenAuth } from "../lib/access-tokens.js";
 import { ACCOUNT_OPS, runAccountOp } from "../lib/account-ops.js";
 import { hasConsent, noteAiCall } from "../lib/connected-ais.js";
 import { auth } from "../lib/auth.js";
 import { LEGACY_MCP_PATH, MCP_PATH, MCP_PATHS, MCP_SCOPE, mcpResourceMetadataUrl, mcpResourceUrl, type McpPath } from "../lib/mcp-oauth.js";
-import { WORLD_OPS, runWorldOp, worldOpKind } from "../lib/world-ops.js";
+import { CARD_FREE_OPS, WORLD_OPS, runCardFreeOp, runWorldOp, worldOpKind } from "../lib/world-ops.js";
+import { STUDIO_OPS, runStudioOp, type StudioOpResult } from "../lib/mcp/studio-ops.js";
+import { VIEW_META, VIEW_MIME, VIEW_TOOLS, VIEW_URI, viewHtml, viewResourceMeta } from "../lib/mcp/view.js";
 
 /**
  * /api/agent/v1 — a card, for an AI that is not ours.
@@ -46,8 +48,12 @@ import { WORLD_OPS, runWorldOp, worldOpKind } from "../lib/world-ops.js";
  * Mounted before the cookie-auth "/api/*" routers: a token is the only auth.
  */
 
-type Env = { Variables: { tokenAuth: TokenAuth } };
+type Env = { Variables: { tokenAuth: TokenAuth & { worldId: string } } };
 export const agentApiRoutes = new Hono<Env>();
+
+const STUDIO_NOTE =
+  "Pictures, video, music, voices and 3D come from Yumina's workbench and are billed to the creator in mushies (1000 = US$1): list_models and list_media_tools show prices, get_balance shows what is left. " +
+  "generate_images and generate_video answer a big spend with a quote first: tell the creator the price and run it only once they agree. After starting jobs, wait_jobs returns the results; the creator sees them appear in the chat.";
 
 const INSTRUCTIONS =
   "You are working on one Yumina card (an interactive-fiction game). Call get_world first, and load_skill('core') once before your first write: Yumina's rules for planning, writing and checking a card. " +
@@ -56,7 +62,8 @@ const INSTRUCTIONS =
   "A situation whose station.kind is 'custom', or a behavior with custom: true, is a slot the creator declared for you to implement in code; its sticky note says what, and get_world's CUSTOM SLOTS says how. " +
   "Before writing interface code or behaviors, load_skill('tsx') / load_skill('rules'). " +
   "After a batch of writes, validate_world, then playtest with a few player moves and read what changed. " +
-  "The creator sees every write appear in their open editor. Never publish; that stays with the creator.";
+  "The creator sees every write appear in their open editor. Never publish; that stays with the creator. " +
+  STUDIO_NOTE;
 
 // A light per-token limit: an agent in a loop should not take the server with it.
 const windowCounts = new Map<string, { at: number; n: number }>();
@@ -71,7 +78,9 @@ function overLimit(tokenId: string): boolean {
 agentApiRoutes.use("/*", async (c, next) => {
   // /mcp authenticates through the MCP SDK (the standard Bearer challenge).
   if (c.req.path.endsWith("/mcp")) return next();
-  const auth = await verifyAccessToken(c.req.header("authorization"));
+  const found = await verifyAccessToken(c.req.header("authorization"));
+  // This API works on one card; an account token is for /mcp.
+  const auth = found?.worldId ? { ...found, worldId: found.worldId } : null;
   if (!auth) {
     return c.json({
       error: "A Yumina card token is required: Authorization: Bearer ymn_… — make one in the Studio (⋮ → Let an outside AI work on this card).",
@@ -109,37 +118,80 @@ const ANNOTATIONS: Record<ReturnType<typeof worldOpKind>, ToolAnnotations> = {
 };
 const RESULT_CAP = 200_000;
 
+/** Studio tools that only read (or only hand back a link): free, change nothing. */
+const STUDIO_READS = new Set(["wait_jobs", "browse_library", "search_market", "install_bundle"]);
+
+/** A human title for every tool, on the tool and in its annotations (what MCP hosts and directories show). */
+function titled(name: string, annotations: ToolAnnotations): { title: string; annotations: ToolAnnotations } {
+  const words = name.split("_").join(" ").replace(/\bui\b/g, "UI");
+  const title = words.charAt(0).toUpperCase() + words.slice(1);
+  return { title, annotations: { ...annotations, title } };
+}
+
 const ACCOUNT_INSTRUCTIONS =
   "You are signed in as a Yumina creator; you can work on any of their cards (interactive-fiction games). " +
-  "Call list_my_cards first and ask which card if it is not clear, or create_card for a new one; then pass that id as card_id to every other tool, starting with get_world. " +
+  "For work on a card: call list_my_cards first and ask which card if it is not clear, or create_card for a new one; then pass that id as card_id to every card tool, starting with get_world. " +
+  "Making pictures, video or sound needs no card (card_id is optional there: give it to file the results with that card). " +
   "Before your first write in a conversation, load_skill('core') once: Yumina's rules for planning, writing and checking a card. " +
   "Entries are lore the AI reads; variables are the state; situations (worldbooks) are parts of the card that switch on, each with its own AI or none. " +
   "get_world's stickyNotes are the creator's sticky notes from the canvas, each with what it is stuck to: read them as the creator's own instructions about those parts. " +
   "A situation whose station.kind is 'custom', or a behavior with custom: true, is a slot the creator declared for you to implement in code; its sticky note says what, and get_world's CUSTOM SLOTS says how. " +
   "Before writing interface code or behaviors, load_skill('tsx') / load_skill('rules'). " +
   "After a batch of writes, validate_world, then playtest with a few player moves and read what changed. " +
-  "The creator sees every write appear in their open editor. Never publish; that stays with the creator.";
+  "The creator sees every write appear in their open editor. Never publish; that stays with the creator. " +
+  STUDIO_NOTE;
 
 /** Who is calling: a card token (one card) or a signed-in creator (OAuth). */
 type Caller =
-  | { kind: "card"; card: TokenAuth }
+  | { kind: "card"; card: TokenAuth & { worldId: string } }
   | { kind: "account"; userId: string; clientId: string; actor: string; limitKey: string };
 
 const CARD_ID = { type: "string", description: "The card to work on: an id from list_my_cards or create_card." };
 
-/** The same tool, with a required card_id for account callers. */
-function withCardId(parameters: Record<string, unknown>): Record<string, unknown> {
-  const properties = { card_id: CARD_ID, ...((parameters.properties as Record<string, unknown>) ?? {}) };
-  const required = ["card_id", ...(((parameters.required as string[]) ?? []).filter((r) => r !== "card_id"))];
-  return { ...parameters, type: "object", properties, required };
+/** The same tool, with a card_id for account callers: required, or optional for a tool that works without a card. */
+function withCardId(parameters: Record<string, unknown>, optional = false): Record<string, unknown> {
+  const properties = { card_id: optional ? CARD_ID_OPTIONAL : CARD_ID, ...((parameters.properties as Record<string, unknown>) ?? {}) };
+  const rest = ((parameters.required as string[]) ?? []).filter((r) => r !== "card_id");
+  return { ...parameters, type: "object", properties, required: optional ? rest : ["card_id", ...rest] };
+}
+const CARD_ID_OPTIONAL = { type: "string", description: "Optional: a card of the creator's (list_my_cards) to file the result with. Leave out to work without a card." };
+
+async function ownsCard(userId: string, worldId: string): Promise<boolean> {
+  if (!/^[0-9a-f-]{36}$/i.test(worldId)) return false;
+  const [row] = await (await readOwn(userId)).select({ id: worlds.id }).from(worlds).where(and(eq(worlds.id, worldId), eq(worlds.creatorId, userId))).limit(1);
+  return !!row;
 }
 
-function toolResult(r: { ok: boolean; result?: unknown; error?: string; image?: { data: string; mimeType: string } }) {
+function toolResult(r: { ok: boolean; result?: unknown; error?: string; image?: { data: string; mimeType: string }; view?: Record<string, unknown> }) {
   const text = r.ok ? (typeof r.result === "string" ? r.result : JSON.stringify(r.result, null, 1)) : (r.error ?? "Failed");
   const content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }> =
     [{ type: "text", text: text.length > RESULT_CAP ? text.slice(0, RESULT_CAP) + "\n…(truncated)" : text }];
   if (r.ok && r.image) content.push({ type: "image", data: r.image.data, mimeType: r.image.mimeType });
-  return { content, isError: !r.ok };
+  // structuredContent is what the in-chat view (lib/mcp/view.ts) draws. Some clients (Claude Code) give the AI
+  // only structuredContent when there is one, so it carries the whole result too, with the view's fields on top.
+  const whole = r.result && typeof r.result === "object" && !Array.isArray(r.result) ? r.result as Record<string, unknown> : { result: r.result };
+  return { content, isError: !r.ok, ...(r.ok && r.view ? { structuredContent: { ...whole, ...r.view } } : {}) };
+}
+
+type OpOut = { ok: boolean; result?: unknown; error?: string; image?: { data: string; mimeType: string } };
+
+/** What the in-chat view draws for a card op's result (generate_image's pictures, a playtest's turns). */
+function withView(name: string, r: OpOut): OpOut & { view?: Record<string, unknown> } {
+  if (!r.ok || !r.result || typeof r.result !== "object") return r;
+  const res = r.result as Record<string, unknown>;
+  if (name === "generate_image") {
+    const assets = Array.isArray(res.assets) ? res.assets as { assetId: string; ref: string; url: string }[] : [];
+    const items = assets.length ? [{ id: String(res.jobId ?? "image"), kind: "image", status: "succeeded",
+      results: assets.map((a) => ({ ...a, mimeType: "image/*" })) }] : [];
+    return { ...r, view: { view: "gallery", title: "new", items, pending: res.pending && res.jobId ? [res.jobId] : [] } };
+  }
+  if (name === "run_media_tool" && typeof res.jobId === "string") {
+    return { ...r, view: { view: "gallery", title: "new", items: [], pending: [res.jobId] } };
+  }
+  if (name === "playtest") {
+    return { ...r, view: { view: "playtest", sessionId: res.sessionId, turns: Array.isArray(res.turns) ? res.turns : [] } };
+  }
+  return r;
 }
 
 const schemaOf = (parameters: unknown) => fromJsonSchema(parameters as Parameters<typeof fromJsonSchema>[0]);
@@ -148,13 +200,40 @@ const schemaOf = (parameters: unknown) => fromJsonSchema(parameters as Parameter
 function buildServer(caller: Caller): McpServer {
   const account = caller.kind === "account";
   const server = new McpServer({ name: "yumina", version: "1.0.0" }, { instructions: account ? ACCOUNT_INSTRUCTIONS : INSTRUCTIONS });
+  const meta = (name: string) => (VIEW_TOOLS.has(name) ? { _meta: VIEW_META } : {});
+  server.registerResource("Yumina studio view", VIEW_URI,
+    { mimeType: VIEW_MIME, description: "Pictures, videos, prices to confirm, balance and playtests, drawn in the chat.", _meta: viewResourceMeta() },
+    async () => ({ contents: [{ uri: VIEW_URI, mimeType: VIEW_MIME, text: viewHtml(), _meta: viewResourceMeta() }] }));
+  const ownerId = caller.kind === "card" ? caller.card.userId : caller.userId;
+  for (const tool of STUDIO_OPS) {
+    const name = tool.function.name;
+    const takesCard = "card_id" in (((tool.function.parameters as { properties?: Record<string, unknown> }).properties) ?? {});
+    server.registerTool(name, {
+      ...titled(name, STUDIO_READS.has(name) || /^(get_|list_)/.test(name) ? ANNOTATIONS.read : ANNOTATIONS.run),
+      description: tool.function.description,
+      inputSchema: schemaOf(tool.function.parameters),
+      ...meta(name),
+    }, async (args) => {
+      const input = { ...((args ?? {}) as Record<string, unknown>) };
+      if (caller.kind === "card") {
+        // A card token works on its own card: what it makes is filed with that card.
+        if (typeof input.card_id === "string" && input.card_id && input.card_id !== caller.card.worldId) return toolResult({ ok: false, error: "This token works on one card only." });
+        if (takesCard) input.card_id = caller.card.worldId;
+      } else {
+        noteAiCall(caller.userId, caller.clientId, name);
+        if (typeof input.card_id === "string" && input.card_id && !(await ownsCard(caller.userId, input.card_id))) return toolResult({ ok: false, error: "Card not found." });
+      }
+      const r: StudioOpResult = await runStudioOp({ userId: ownerId, name, input });
+      return toolResult(r);
+    });
+  }
   if (account) {
     for (const tool of ACCOUNT_OPS) {
       const name = tool.function.name;
       server.registerTool(name, {
+        ...titled(name, name === "list_my_cards" ? ANNOTATIONS.read : { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }),
         description: tool.function.description,
         inputSchema: schemaOf(tool.function.parameters),
-        annotations: name === "list_my_cards" ? ANNOTATIONS.read : { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
       }, async (args) => {
         noteAiCall(caller.userId, caller.clientId, name);
         return toolResult(await runAccountOp({ userId: caller.userId, name, input: (args ?? {}) as Record<string, unknown> }));
@@ -163,20 +242,25 @@ function buildServer(caller: Caller): McpServer {
   }
   for (const tool of WORLD_OPS) {
     const name = tool.function.name;
+    const cardFree = CARD_FREE_OPS.has(name);
     server.registerTool(name, {
+      ...titled(name, ANNOTATIONS[worldOpKind(name)]),
       description: tool.function.description,
-      inputSchema: schemaOf(account ? withCardId(tool.function.parameters as Record<string, unknown>) : tool.function.parameters),
-      annotations: ANNOTATIONS[worldOpKind(name)],
+      inputSchema: schemaOf(account ? withCardId(tool.function.parameters as Record<string, unknown>, cardFree) : tool.function.parameters),
+      ...meta(name),
     }, async (args) => {
       const input = { ...((args ?? {}) as Record<string, unknown>) };
       if (caller.kind === "card") {
-        return toolResult(await runWorldOp({ userId: caller.card.userId, worldId: caller.card.worldId, name, args: input, actor: caller.card.name }));
+        return toolResult(withView(name, await runWorldOp({ userId: caller.card.userId, worldId: caller.card.worldId, name, args: input, actor: caller.card.name })));
       }
       noteAiCall(caller.userId, caller.clientId, name);
       const worldId = typeof input.card_id === "string" ? input.card_id : "";
       delete input.card_id;
-      if (!worldId) return toolResult({ ok: false, error: "Pass card_id: call list_my_cards to find it." });
-      return toolResult(await runWorldOp({ userId: caller.userId, worldId, name, args: input, actor: caller.actor }));
+      if (!worldId) {
+        if (cardFree) return toolResult(withView(name, await runCardFreeOp({ userId: caller.userId, name, args: input })));
+        return toolResult({ ok: false, error: "Pass card_id: call list_my_cards to find it." });
+      }
+      return toolResult(withView(name, await runWorldOp({ userId: caller.userId, worldId, name, args: input, actor: caller.actor })));
     });
   }
   return server;
@@ -217,7 +301,10 @@ const bearerGate = (path: McpPath) => requireBearerAuth({
       if (token.startsWith("ymn_")) {
         const card = await verifyAccessToken(`Bearer ${token}`);
         if (!card) throw new OAuthError(OAuthErrorCode.InvalidToken, "This card token was revoked or never existed.");
-        const caller: Caller = { kind: "card", card };
+        // An account token (no card) works as a signed-in AI does.
+        const caller: Caller = card.worldId
+          ? { kind: "card", card: { ...card, worldId: card.worldId } }
+          : { kind: "account", userId: card.userId, clientId: `token:${card.tokenId}`, actor: card.name, limitKey: `token:${card.tokenId}` };
         return { token, clientId: card.tokenId, scopes: [], expiresAt: Math.floor(Date.now() / 1000) + 3600, extra: { caller } };
       }
       let payload: Awaited<ReturnType<typeof resourceClient.verifyAccessToken>>;

@@ -1,3 +1,4 @@
+import { ReadingAppearanceSettings } from "./reading-appearance-settings";
 import { DeletionPreflightNotice, useDeletionPreflight, deletionErrorMessage, type DeleteAccountResponse } from "./account-deletion-preflight";
 import {
   useState,
@@ -49,7 +50,10 @@ import {
   Mic,
   Keyboard,
   Pencil,
+  EyeOff,
 } from "lucide-react";
+import { coverShouldBlur } from "@/lib/cover-blur";
+import { cardImageUrl } from "@/lib/asset-url";
 import { TTS_VOICES, TTS_VOICE_POOL_MAX, TTS_CUSTOM_VOICE_NAME_MAX, defaultTtsVoiceForLang, isTtsOptedIn, readTtsCustomVoices, readTtsVoicePool, ttsCustomVoiceLabel, type TtsCustomVoice } from "@yumina/shared";
 import { useAudioStore } from "@/stores/audio";
 import { feedback } from "@/lib/feedback";
@@ -58,7 +62,8 @@ import { useTransientFlag } from "@/hooks/use-transient-flag";
 import { useCopyFeedback } from "@/hooks/use-copy-feedback";
 import { signOut, useSession, authClient, clearSessionCache } from "@/lib/auth-client";
 import { useUserProfileStore } from "@/stores/user-profile";
-import { useStartDm } from "@/edition/slots";
+import { HiddenPumpkin, useStartDm } from "@/edition/slots";
+import { useHalloweenDecorStore, useHalloweenSeason } from "@/lib/halloween-decor";
 import { invalidateHubWorlds } from "@/edition/slots.state";
 import { useEdition } from "@/edition/edition";
 import { getUserProfileHref } from "@/edition/routes";
@@ -98,7 +103,7 @@ import {
   type AudiencePreference,
 } from "@yumina/shared";
 import { normalizeVisualStrength } from "@/lib/visual-settings";
-import { AiProviderTab } from "./ai-provider-tab";
+import { AiProviderTab, OwnAiSettings } from "./ai-provider-tab";
 import { AiConfigTab } from "./ai-config-tab";
 import { GlobalPrompts } from "@/features/configs/global-prompts";
 import {
@@ -122,6 +127,10 @@ type ContentLevel = "safe" | "sensitive";
 type WallpaperPreset = "starry-night" | "library-canvas";
 type WallpaperChoice = WallpaperPreset | string;
 type CloudedGlassTexture = "lighter" | "darker" | "cloudy";
+
+const TURN_IMAGE_STYLES = ["default", "detailed", "vivid"] as const;
+type TurnImageStyle = (typeof TURN_IMAGE_STYLES)[number];
+const TURN_IMAGE_STYLE_SECONDS: Record<TurnImageStyle, string> = { default: "≈ 5s", detailed: "≈ 9s", vivid: "≈ 7s" };
 
 interface NotificationPreferences {
   engagement: boolean;
@@ -196,6 +205,8 @@ interface ProfileSettings {
   experimentalTurnImages: boolean;
   /** "Illustrate every reply". Honoured only next to an explicit experimentalTurnImages:true. */
   autoTurnImages: boolean;
+  /** How story illustrations are drawn: "default" (fast), "detailed" (Anima's full model) or "vivid" (WAI). */
+  turnImageStyle: TurnImageStyle;
   /** Scene video, the realtime film (experimental, paid). Off unless turned on. */
   experimentalFilm: boolean;
   discoverWallpaper: WallpaperChoice;
@@ -229,6 +240,7 @@ const DEFAULTS: ProfileSettings = {
   voiceInputKey: "Space",
   experimentalTurnImages: true,
   autoTurnImages: false,
+  turnImageStyle: "default",
   experimentalFilm: false,
   discoverWallpaper: "starry-night",
   profileWallpaper: "starry-night",
@@ -242,6 +254,9 @@ const LANGUAGE_OPTIONS = [
   { code: "zh-Hant", label: "Chinese (Traditional)", native: "繁體中文" },
   { code: "es", label: "Spanish", native: "Español" },
   { code: "ja", label: "Japanese", native: "日本語" },
+  { code: "ko", label: "Korean", native: "한국어" },
+  { code: "id", label: "Indonesian", native: "Bahasa Indonesia" },
+  { code: "ru", label: "Russian", native: "Русский" },
 ] as const;
 
 function normalizeCloudedGlassTexture(
@@ -337,6 +352,7 @@ function loadSettings(preferences?: Record<string, unknown>): ProfileSettings {
     base.ttsAutoPlay = preferences.ttsAutoPlay === true;
     base.experimentalTurnImages = preferences.experimentalTurnImages !== false;
     base.autoTurnImages = preferences.experimentalTurnImages === true && preferences.autoTurnImages === true;
+    base.turnImageStyle = TURN_IMAGE_STYLES.find((s) => s === preferences.turnImageStyle) ?? "default";
     base.experimentalFilm = preferences.experimentalFilm === true;
     base.ttsMode = preferences.ttsMode === "dialogue" ? "dialogue" : "full";
     base.ttsVoice =
@@ -498,6 +514,8 @@ function createSettingsSearchItems(
     { id: "account-delete", sectionId: "account", targetId: "settings-target-account-delete", title: t("account.deleteAccount.title"), description: t("account.deleteAccount.description"), category: category.account },
 
     { id: "ai-config", sectionId: "ai-config", targetId: "settings-target-ai-config", title: category.aiConfig, description: t("search.aiConfigDescription"), category: category.aiConfig, keywords: ["API", "OpenRouter"] },
+    { id: "byok", sectionId: "ai-config", targetId: "settings-target-byok", title: t("search.byokTitle"), description: t("search.byokDescription"), category: category.aiConfig, keywords: ["API", "API key", "BYOK", "OpenRouter", "DeepSeek", "OpenAI", "Claude", "Gemini", "密钥", "金鑰", "APIキー"] },
+    { id: "local-model", sectionId: "ai-config", targetId: "settings-target-local-model", title: t("search.localModelTitle"), description: t("search.localModelDescription"), category: category.aiConfig, keywords: ["Ollama", "LM Studio", "local", "GPU", "本地", "ローカル"] },
     { id: "model-fallback", sectionId: "ai-config", targetId: "model-fallback", title: modelFallbackText(language, "settingsTitle"), description: modelFallbackText(language, "settingsBody"), category: category.aiConfig, keywords: ["fallback", modelFallbackText(language, "auto"), modelFallbackText(language, "ask")] },
 
     { id: "prompts", sectionId: "prompts", targetId: "settings-target-prompts", title: category.prompts, category: category.prompts, keywords: ["prompt", "prompts", "preset", "system prompt", "提示词", "提示詞", "预设", "プロンプト"] },
@@ -505,6 +523,7 @@ function createSettingsSearchItems(
     { id: "content-safety", sectionId: "content-safety", targetId: "settings-target-content-safety", title: category.contentSafety, description: t("contentSafety.description"), category: category.contentSafety },
     { id: "content-level", sectionId: "content-safety", targetId: "settings-target-content-level", title: t("contentSafety.contentLevel"), description: t("contentSafety.description"), category: category.contentSafety },
     { id: "audience-preference", sectionId: "content-safety", targetId: "settings-target-audience-preference", title: t("contentSafety.audiencePreference.title"), description: t("contentSafety.audiencePreference.description"), category: category.contentSafety },
+    { id: "hidden-worlds", sectionId: "content-safety", targetId: "settings-target-hidden-worlds", title: t("contentSafety.hiddenWorlds.title"), description: t("contentSafety.hiddenWorlds.subtitle"), category: category.contentSafety },
     { id: "blur-sensitive", sectionId: "content-safety", targetId: "settings-target-blur-sensitive", title: t("contentSafety.blurSensitive.title"), description: t("contentSafety.blurSensitive.description"), category: category.contentSafety },
 
     { id: "privacy", sectionId: "privacy", targetId: "settings-target-privacy", title: category.privacy, description: t("privacy.description"), category: category.privacy },
@@ -522,6 +541,7 @@ function createSettingsSearchItems(
     { id: "notification-community", sectionId: "notifications", targetId: "settings-target-notification-groups", title: t("notifications.groups.community"), description: t("notifications.groups.communityDesc"), category: category.notifications },
 
     { id: "display", sectionId: "display", targetId: "settings-target-display", title: category.display, category: category.display },
+    { id: "reading-appearance", sectionId: "display", targetId: "settings-target-reading-appearance", title: t("display.readingAppearance.title"), description: t("display.readingAppearance.description"), category: category.display },
     { id: "font-size", sectionId: "display", targetId: "settings-target-font-size", title: t("display.fontSize.title"), description: t("display.fontSize.hint"), category: category.display },
     { id: "send-key", sectionId: "display", targetId: "settings-target-send-key", title: t("display.sendKey.title"), description: t("display.sendKey.description"), category: category.display },
     { id: "auto-fullscreen", sectionId: "display", targetId: "settings-target-auto-fullscreen", title: t("display.autoFullscreenOnPlay.title"), description: t("display.autoFullscreenOnPlay.description"), category: category.display },
@@ -962,7 +982,7 @@ export function SettingsPage() {
       case "prompts":
         return <PromptsSection />;
       case "content-safety":
-        return <ContentSafetySection settings={settings} updateSetting={updateSetting} isMinor={isMinor} />;
+        return <ContentSafetySection settings={settings} updateSetting={updateSetting} isMinor={isMinor} limitedContentOnly={profile?.limitedContentOnly === true} />;
       case "privacy":
         return <PrivacySection settings={settings} updateSetting={updateSetting} />;
       case "notifications":
@@ -1182,6 +1202,7 @@ function AiConfigSection() {
 
       <AiProviderTab />
       <AiConfigTab />
+      <OwnAiSettings />
     </div>
   );
 }
@@ -1240,6 +1261,9 @@ const SOCIAL_PROVIDERS: Array<{ id: SocialProviderId; label: string; Icon: React
  * you are holding). Better Auth already exposed list/revoke session endpoints;
  * this surfaces them.
  */
+/** Rows shown before "show all": this device first, then the most recent. */
+const DEVICES_SHOWN_FOLDED = 3;
+
 function LoginDevicesCard({ currentToken }: { currentToken: string | null }) {
   const { t, i18n } = useTranslation("settings");
   const [sessions, setSessions] = useState<ActiveSession[] | null>(null);
@@ -1296,6 +1320,8 @@ function LoginDevicesCard({ currentToken }: { currentToken: string | null }) {
 
   const ordered = sortSessions(sessions ?? [], currentToken);
   const otherCount = ordered.filter((s) => s.token !== currentToken).length;
+  const [showAllDevices, setShowAllDevices] = useState(false);
+  const shown = showAllDevices ? ordered : ordered.slice(0, DEVICES_SHOWN_FOLDED);
 
   return (
     <Card id="settings-target-account-devices">
@@ -1315,7 +1341,7 @@ function LoginDevicesCard({ currentToken }: { currentToken: string | null }) {
           <div className="text-xs text-sub">{t("account.loginDevices.loadError")}</div>
         ) : (
           <div className="space-y-2">
-            {ordered.map((s) => {
+            {shown.map((s) => {
               const isCurrent = s.token === currentToken;
               const label = deviceLabel(s.userAgent) || t("account.loginDevices.unknownDevice");
               return (
@@ -1351,6 +1377,16 @@ function LoginDevicesCard({ currentToken }: { currentToken: string | null }) {
                 </div>
               );
             })}
+
+            {shown.length < ordered.length && (
+              <button
+                type="button"
+                onClick={() => setShowAllDevices(true)}
+                className="w-full rounded-lg border border-white/10 bg-white/[0.02] px-4 py-2 text-xs font-medium text-sub transition-colors hover:bg-white/[0.05] hover:text-main"
+              >
+                {t("account.loginDevices.showAll", { n: ordered.length })}
+              </button>
+            )}
 
             {otherCount > 0 && (
               <button
@@ -1653,6 +1689,7 @@ function AccountSection({
   passwordError: string | null; passwordSavedAt: number;
   handleSignOut: () => void;
 }) {
+  const [passwordFormOpen, setPasswordFormOpen] = useState(false);
   const { t } = useTranslation("settings");
   const { auth } = useEdition();
   const usernameSaved = useTransientFlag(usernameSavedAt, 1500);
@@ -1705,13 +1742,26 @@ function AccountSection({
 
       {/* Change Password — not in single-user mode (the local account has no password) */}
       {auth.mode === "multi-user" && (
-      <Card id="settings-target-account-password">
+      <Card id="settings-target-account-password" onFocusSelf={() => setPasswordFormOpen(true)}>
         <CardIcon icon={Key} />
         <div className="flex-1 space-y-4">
-          <div>
-            <div className="font-semibold text-main">{t("account.changePassword.title")}</div>
-            <div className="mt-0.5 text-xs text-sub">{t("account.changePassword.description")}</div>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="font-semibold text-main">{t("account.changePassword.title")}</div>
+              <div className="mt-0.5 text-xs text-sub">{t("account.changePassword.description")}</div>
+            </div>
+            {/* Three empty password boxes greeted everyone who opened Account; most never change it. */}
+            {!passwordFormOpen && (
+              <button
+                type="button"
+                onClick={() => setPasswordFormOpen(true)}
+                className="shrink-0 rounded-lg border border-gold/30 bg-gold/15 px-4 py-2 text-sm font-bold text-gold transition-colors hover:bg-gold/25"
+              >
+                {t("account.changePassword.submit")}
+              </button>
+            )}
           </div>
+          {passwordFormOpen && (<>
           <div className="profile-overview-glass profile-overview-glass--soft space-y-3 rounded-xl p-4">
             <PasswordField label={t("account.changePassword.currentPassword")} value={currentPassword} onChange={setCurrentPassword} autoComplete="current-password" />
             <PasswordField label={t("account.changePassword.newPassword")} value={newPassword} onChange={setNewPassword} autoComplete="new-password" />
@@ -1729,6 +1779,7 @@ function AccountSection({
                 ? t("account.changePassword.changed")
                 : t("account.changePassword.submit")}
           </button>
+          </>)}
         </div>
       </Card>
       )}
@@ -1987,11 +2038,12 @@ function DeleteAccountCard({ email, username }: { email: string; username: strin
 }
 
 function ContentSafetySection({
-  settings, updateSetting, isMinor,
+  settings, updateSetting, isMinor, limitedContentOnly,
 }: {
   settings: ProfileSettings;
   updateSetting: <K extends keyof ProfileSettings>(key: K, value: ProfileSettings[K]) => void;
   isMinor: boolean;
+  limitedContentOnly: boolean;
 }) {
   const { t } = useTranslation("settings");
   return (
@@ -2000,7 +2052,7 @@ function ContentSafetySection({
 
       {/* Content Mode — hidden entirely for minors: Limitless mode should not
           even be discoverable for them (the top-bar eye is hidden the same way). */}
-      {!isMinor && (
+      {!isMinor && !limitedContentOnly && (
         <Card id="settings-target-content-level">
           <CardIcon icon={Eye} />
           <div className="flex-1 space-y-4">
@@ -2113,7 +2165,137 @@ function ContentSafetySection({
         checked={settings.blurSensitive}
         onChange={(v) => updateSetting("blurSensitive", v)}
       />
+
+      <HiddenWorldsManager blurSensitive={settings.blurSensitive} />
     </div>
+  );
+}
+
+interface HiddenWorld {
+  worldId: string;
+  hiddenAt: string;
+  name: string | null;
+  thumbnailUrl: string | null;
+  ageRating: string | null;
+  isNsfw: boolean | null;
+  blurCover: boolean | null;
+}
+
+/** Worlds marked "not interested" on Discover. The toast's Undo lasts seconds; this list is the way back. */
+function HiddenWorldsManager({ blurSensitive }: { blurSensitive: boolean }) {
+  const { t } = useTranslation("settings");
+  const [items, setItems] = useState<HiddenWorld[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    setLoading(true);
+    fetch(`${apiBase}/api/feed/dismissals`, { credentials: "include" })
+      .then(async (res) => { if (res.ok && live) { const { data } = await res.json(); setItems(Array.isArray(data) ? data : []); } })
+      .catch(() => {})
+      .finally(() => { if (live) setLoading(false); });
+    return () => { live = false; };
+  }, []);
+
+  const showAgain = async (worldId: string) => {
+    const prev = items;
+    setItems((list) => list.filter((item) => item.worldId !== worldId));
+    const res = await fetch(`${apiBase}/api/feed/dismiss/${encodeURIComponent(worldId)}`, { method: "DELETE", credentials: "include" }).catch(() => null);
+    if (!res?.ok) {
+      setItems(prev);
+      feedback.error(t("contentSafety.hiddenWorlds.failed"), {
+        label: t("action.retry", { ns: "common" }),
+        onClick: () => void showAgain(worldId),
+      });
+      return;
+    }
+    invalidateHubWorlds();
+  };
+
+  return (
+    <>
+      <Card id="settings-target-hidden-worlds">
+        <CardIcon icon={EyeOff} />
+        <div className="flex-1">
+          <button type="button" onClick={() => setOpen(true)} className="flex w-full items-center justify-between text-left">
+            <div>
+              <div className="font-semibold text-main">{t("contentSafety.hiddenWorlds.title")}</div>
+              <div className="mt-0.5 text-xs text-sub">{t("contentSafety.hiddenWorlds.subtitle")}</div>
+            </div>
+            <div className="flex items-center gap-2">
+              {items.length > 0 && (
+                <span className="rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] font-medium tabular-nums text-sub/50">{items.length}</span>
+              )}
+              <ChevronRight className="h-4 w-4 text-sub/40" />
+            </div>
+          </button>
+        </div>
+      </Card>
+
+      {open && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center modal-backdrop px-4 animate-in fade-in duration-150" onClick={() => setOpen(false)}>
+          <div
+            role="dialog"
+            aria-label={t("contentSafety.hiddenWorlds.title")}
+            className="flex max-h-[80vh] w-full max-w-[520px] flex-col rounded-2xl border border-white/[0.08] bg-[#1A1B20] shadow-[0_18px_60px_rgba(0,0,0,0.5)] animate-in fade-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-white/[0.06] px-6 py-4">
+              <div className="flex items-center gap-2.5">
+                <EyeOff className="h-4 w-4 text-sub/60" />
+                <div className="text-sm font-semibold text-foreground">{t("contentSafety.hiddenWorlds.title")}</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="rounded-lg p-1.5 text-muted-foreground/40 transition-colors hover:bg-white/[0.06] hover:text-muted-foreground"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-5 py-4 scrollbar-hide">
+              {loading ? (
+                <div className="flex justify-center py-10"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground/40" /></div>
+              ) : items.length === 0 ? (
+                <div className="rounded-xl border border-white/6 bg-white/[0.03] px-4 py-10 text-center text-xs text-muted-foreground/45">
+                  {t("contentSafety.hiddenWorlds.empty")}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {items.map((item) => {
+                    const blur = blurSensitive && coverShouldBlur(item);
+                    return (
+                      <div key={item.worldId} className="flex items-center gap-3 rounded-xl border border-white/8 bg-white/[0.035] p-2.5 pr-3">
+                        <div className="h-14 w-11 shrink-0 overflow-hidden rounded-lg bg-white/[0.06]">
+                          {item.thumbnailUrl && (
+                            <img
+                              src={cardImageUrl(item.thumbnailUrl, 96, { still: true })}
+                              alt=""
+                              loading="lazy"
+                              className={`h-full w-full object-cover${blur ? " scale-125 blur-md" : ""}`}
+                            />
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1 truncate text-sm font-semibold text-main">{item.name || "Untitled"}</div>
+                        <button
+                          type="button"
+                          onClick={() => void showAgain(item.worldId)}
+                          className="shrink-0 rounded-lg border border-white/10 px-3 py-1.5 text-xs font-medium text-sub transition-colors hover:bg-white/[0.06] hover:text-main"
+                        >
+                          {t("contentSafety.hiddenWorlds.show")}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -2456,12 +2638,13 @@ function NotificationsSection({
   );
 }
 
-type FontSize = "small" | "default" | "large" | "x-large";
+type FontSize = "small" | "default" | "large" | "x-large" | "xx-large";
 const FONT_SIZE_OPTIONS = [
   { value: "small" as FontSize, labelKey: "display.fontSize.small" as const, scale: 0.875 },
   { value: "default" as FontSize, labelKey: "display.fontSize.default" as const, scale: 1 },
   { value: "large" as FontSize, labelKey: "display.fontSize.large" as const, scale: 1.125 },
   { value: "x-large" as FontSize, labelKey: "display.fontSize.xLarge" as const, scale: 1.25 },
+  { value: "xx-large" as FontSize, labelKey: "display.fontSize.xxLarge" as const, scale: 1.75 },
 ];
 
 function DisplaySection({
@@ -2513,7 +2696,7 @@ function DisplaySection({
 
   return (
     <div className="max-w-2xl space-y-8">
-      <SectionHeader id="settings-target-display" title={t("display.title")} />
+      <SectionHeader id="settings-target-display" title={t("nav.display")} />
 
       <Card id="settings-target-language">
         <div className="flex-1 space-y-4">
@@ -2546,10 +2729,18 @@ function DisplaySection({
         </div>
       </Card>
 
+      <Card id="settings-target-reading-appearance">
+        <div className="flex-1 space-y-4">
+          <DisplaySubsectionHeader icon={Eye} title={t("display.readingAppearance.title")} />
+          <p className="text-sm text-sub">{t("display.readingAppearance.description")}</p>
+          <ReadingAppearanceSettings labels={{ title: t("display.readingAppearance.title"), dark: t("display.readingAppearance.dark"), light: t("display.readingAppearance.light") }} />
+        </div>
+      </Card>
+
       <Card id="settings-target-font-size">
         <div className="flex-1 space-y-4">
           <DisplaySubsectionHeader icon={Type} title={t("display.fontSize.title")} />
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,8rem),1fr))] gap-2">
             {FONT_SIZE_OPTIONS.map((opt) => {
               const isActive = fontSize === opt.value;
               return (
@@ -2621,6 +2812,32 @@ function DisplaySection({
         />
       )}
 
+      <HalloweenDecorRow />
+    </div>
+  );
+}
+
+/** In season only: switch the Halloween dress-up off. One of the five pumpkins hides here. */
+function HalloweenDecorRow() {
+  const { t } = useTranslation("settings");
+  const season = useHalloweenSeason();
+  const off = useHalloweenDecorStore((s) => s.off);
+  const setOff = useHalloweenDecorStore((s) => s.setOff);
+  if (!season) return null;
+  return (
+    <div
+      id="settings-target-halloween"
+      tabIndex={-1}
+      className="profile-overview-glass profile-overview-glass--soft grid scroll-mt-8 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-6 rounded-2xl p-5 focus:outline-none focus:ring-2 focus:ring-gold/50 sm:gap-x-8"
+    >
+      <div className="min-w-0">
+        <div className="flex items-center gap-2 font-semibold text-main">
+          {t("display.halloween.title")}
+          <HiddenPumpkin spot="settings" size={20} />
+        </div>
+        <div className="mt-1 text-xs text-sub">{t("display.halloween.description")}</div>
+      </div>
+      <ToggleSwitch checked={!off} onChange={(v) => setOff(!v)} label={t("display.halloween.title")} />
     </div>
   );
 }
@@ -2637,13 +2854,15 @@ function TurnImagesSettingsCard({
   const { t } = useTranslation("settings");
   const on = settings.experimentalTurnImages;
   const [cost, setCost] = useState<{ freeLeft: number; price: number; unlimited: boolean } | null>(null);
+  const [styles, setStyles] = useState<string[]>([]);
 
   useEffect(() => {
     if (!on) return;
     let live = true;
     fetch(`${apiBase}/api/messages/turn-images/settings`, { credentials: "include" })
-      .then(async (r) => (r.ok ? ((await r.json()) as { data: { freeLeft?: number; price?: number; unlimited?: boolean } }).data : null))
+      .then(async (r) => (r.ok ? ((await r.json()) as { data: { freeLeft?: number; price?: number; unlimited?: boolean; styles?: string[] } }).data : null))
       .then((d) => {
+        if (live && Array.isArray(d?.styles)) setStyles(d.styles);
         if (live && d && typeof d.price === "number") {
           setCost({ freeLeft: d.freeLeft ?? 0, price: d.price, unlimited: d.unlimited === true });
         }
@@ -2686,6 +2905,36 @@ function TurnImagesSettingsCard({
                 }}
               />
             </div>
+            {styles.length > 1 && (
+              <div className={`grid gap-2 ${styles.length > 2 ? "grid-cols-3" : "grid-cols-2"}`}>
+                {TURN_IMAGE_STYLES.filter((style) => styles.includes(style)).map((style) => {
+                  const active = settings.turnImageStyle === style;
+                  return (
+                    <button
+                      key={style}
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() => {
+                        void updateSetting("turnImageStyle", style);
+                        forgetChatCopy();
+                      }}
+                      className={`rounded-xl border px-4 py-3 text-left transition-all ${
+                        active ? "border-gold/40 bg-gold/10" : "border-white/8 bg-white/[0.02] hover:border-white/15"
+                      }`}
+                    >
+                      <div className={`text-sm font-semibold ${active ? "text-gold" : "text-main"}`}>
+                        {t(`display.turnImages.style.${style}`)}
+                      </div>
+                      <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-sub">
+                        {TURN_IMAGE_STYLE_SECONDS[style]}
+                        {/* 亮彩 draws one-person pictures without a portrait; the rest stay on the default. */}
+                        {style === "vivid" && <span className="rounded bg-white/[0.06] px-1.5 py-px text-[10px] leading-4" data-vivid-tag>{t("display.turnImages.vividTag")}</span>}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
             {cost && (
               <p className="text-[11px] text-sub/50">
                 {cost.unlimited
@@ -3681,8 +3930,9 @@ function AboutSection() {
         </a>
 
         <a href={DOCS_URLS.openSource} target="_blank" rel="noopener noreferrer"
-          className="profile-overview-glass profile-overview-glass--soft block rounded-xl p-4 transition-colors hover:border-white/15">
+          className="profile-overview-glass profile-overview-glass--soft flex items-center justify-between rounded-xl p-4 transition-colors hover:border-white/15">
           <div className="font-semibold text-main">{t("about.licenses")}</div>
+          <ChevronRight className="h-4 w-4 text-sub/40" />
         </a>
       </div>
     </div>
@@ -3693,11 +3943,13 @@ function AboutSection() {
 // Shared UI building blocks
 // ============================================================
 
-function Card({ children, id }: { children: React.ReactNode; id?: string }) {
+function Card({ children, id, onFocusSelf }: { children: React.ReactNode; id?: string; onFocusSelf?: () => void }) {
   return (
     <div
       id={id}
       tabIndex={id ? -1 : undefined}
+      // Settings search focuses its target; a folded card opens when it arrives.
+      onFocus={onFocusSelf ? (e) => { if (e.target === e.currentTarget) onFocusSelf(); } : undefined}
       className="profile-overview-glass profile-overview-glass--soft flex max-w-full scroll-mt-8 gap-4 overflow-hidden rounded-2xl p-5 focus:outline-none focus:ring-2 focus:ring-gold/50"
     >
       {children}

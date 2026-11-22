@@ -68,6 +68,8 @@ export interface Edition {
   readonly name: EditionName;
   /** Static capability description served at GET /api/edition. */
   info(): EditionInfo;
+  /** Refresh public pages after an audience change and optionally announce a newly public URL. */
+  worldVisibilityChanged?(promotedPath?: string | null): void;
   /** Hosting-wide access policies, installed before every core/API router. */
   mountAccessPolicies?(app: Hono): void;
   /** Hosted editions may own bounded authenticated upgrade transports. */

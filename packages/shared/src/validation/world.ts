@@ -18,6 +18,9 @@ export const createWorldSchema = z.object({
   language: z.string().max(10).nullable().optional(),
   languageGroupId: z.string().uuid().nullable().optional(),
   variantLabel: z.string().max(100).nullable().optional(),
+  // The name is the untitled default: number it after the creator's other
+  // untitled cards ("Untitled World 2").
+  numberUntitled: z.boolean().optional(),
 });
 
 export const updateWorldSchema = z.object({
@@ -32,6 +35,12 @@ export const updateWorldSchema = z.object({
   isNsfw: z.boolean().optional(),
   allowEdit: z.boolean().optional(),
   allowCustomApi: z.boolean().optional(),
+  // Entries and folders the author keeps to themselves when others remix the
+  // card. null clears the choice.
+  retained: z.object({
+    entryIds: z.array(z.string().max(200)).max(2000),
+    folderIds: z.array(z.string().max(200)).max(2000),
+  }).nullable().optional(),
   allowReviews: z.boolean().optional(),
   allowSessionSharing: z.boolean().optional(),
   allowCommunityCitations: z.boolean().optional(),
@@ -44,7 +53,7 @@ export const updateWorldSchema = z.object({
     .transform((v) => (v === "all" ? "all" : "sensitive"))
     .optional(),
   targetAudience: z.enum(["male", "female", "all"]).optional(),
-  visibility: z.enum(["public", "followers"]).optional(),
+  visibility: z.enum(["public", "followers", "unlisted"]).optional(),
   tags: z.array(z.string().max(MAX_COMMUNITY_TAG_NAME)).max(MAX_WORLD_TAGS).optional(),
   galleryImages: z.array(z.string()).max(MAX_GALLERY_IMAGES).optional(),
   announcement: z.string().max(MAX_WORLD_ANNOUNCEMENT).nullable().optional(),
@@ -71,7 +80,7 @@ export const adminUpdateWorldSchema = z.object({
     .transform((v) => (v === "all" ? "all" : "sensitive"))
     .optional(),
   targetAudience: z.enum(["male", "female", "all"]).optional(),
-  visibility: z.enum(["public", "followers"]).optional(),
+  visibility: z.enum(["public", "followers", "unlisted"]).optional(),
   status: z.enum(["draft", "published", "unpublished", "rejected"]).optional(),
   allowEdit: z.boolean().optional(),
   allowCustomApi: z.boolean().optional(),
@@ -88,11 +97,15 @@ export type UpdateWorldSchema = z.infer<typeof updateWorldSchema>;
 export type AdminUpdateWorldSchema = z.infer<typeof adminUpdateWorldSchema>;
 
 /** Admin composition only: image uploads and arbitrary source URLs are excluded. */
-export const adminWorldArtworkCropSchema = z.object({
+const adminWorldArtworkFrameSchema = z.object({
   x: z.number().finite().min(-45).max(45),
   y: z.number().finite().min(-45).max(45),
   zoom: z.number().finite().min(0.25).max(1),
   fit: z.literal("cover"),
+}).strict();
+
+export const adminWorldArtworkCropSchema = adminWorldArtworkFrameSchema.extend({
+  desktop: adminWorldArtworkFrameSchema.extend({ aspect: z.number().finite().positive().optional() }).strict().optional(),
 }).strict();
 
 export const adminWorldArtworkUpdateSchema = z.object({

@@ -122,18 +122,18 @@ JSON variables still need behaviorRules — explain the **structure** and **when
 
 ## Multiplayer Variables
 
-In multiplayer, all players share one game state. Use a JSON variable for per-player data:
+In a story-mode multiplayer room (see the multiplayer skill) all players share the host's session, so one game state. Use a JSON variable for per-player data:
 
 ```json
 { "id": "players", "type": "json", "defaultValue": {} }
 ```
 
-The AI addresses individual players with dot-paths (e.g., `players.alice.hp`).
+The AI addresses individual players with dot-paths (e.g., `players.alice.hp`), using the names from the `[Name]: text` lines of the round.
 
 behaviorRules example:
 > "Each key is a player name. Each player has: hp (0-100, 0 = knocked out), gold (min 0), class (string), inventory (array). Decrease hp 5-15 on minor hits, 20-40 on major. Increase gold on quest completion."
 
-Use separate top-level variables for shared state (world events, time, quest progress).
+Use separate top-level variables for shared state (world events, time, quest progress). A rules-mode game keeps its state in its rules file, not in variables.
 
 ## Anti-Patterns (avoid these)
 

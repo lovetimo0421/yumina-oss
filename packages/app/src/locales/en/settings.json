@@ -7,7 +7,11 @@
     "results": "Settings found: {{count}}",
     "noResults": "No settings found",
     "noResultsHint": "Try another keyword, such as language or privacy.",
-    "aiConfigDescription": "Models, providers, API keys, and generation preferences."
+    "aiConfigDescription": "Models, providers, API keys, and generation preferences.",
+    "byokTitle": "Personal API connection",
+    "byokDescription": "Use your own API key",
+    "localModelTitle": "Run it on your own computer",
+    "localModelDescription": "Play free on a model on this machine"
   },
   "nav": {
     "account": "Account",
@@ -21,7 +25,8 @@
     "prompts": "Prompts"
   },
   "aiConfig": {
-    "title": "AI Config"
+    "title": "AI Config",
+    "ownAi": "Advanced: bring your own AI"
   },
   "account": {
     "saved": "Saved",
@@ -61,7 +66,8 @@
       "revoked": "Device signed out",
       "revokedOthers": "All other devices signed out",
       "revokeError": "Could not sign out that device. Try again later.",
-      "propagationNote": "A signed-out device can take up to 5 minutes to be logged out. Changing your password signs out every other device immediately."
+      "propagationNote": "A signed-out device can take up to 5 minutes to be logged out. Changing your password signs out every other device immediately.",
+      "showAll": "Show all {{n}} devices"
     },
     "deleteAccount": {
       "title": "Delete account",
@@ -198,7 +204,7 @@
     },
     "sensitive": {
       "label": "Limitless",
-      "description": "Adult content allowed. If a model still holds back, get an Unrestricted prompt from the Prompt Plaza."
+      "description": "Include Limitless content."
     },
     "minorRestriction": "Limitless mode isn't available for this account.",
     "audiencePreference": {
@@ -220,6 +226,13 @@
     "blurSensitive": {
       "title": "Blur sensitive covers",
       "description": "Hide sensitive covers behind a foggy blur until you choose to view each one. Turn this off to show all covers. Your content mode stays the same."
+    },
+    "hiddenWorlds": {
+      "title": "Hidden worlds",
+      "subtitle": "Worlds you marked \"Not interested\" on Discover",
+      "empty": "No hidden worlds.",
+      "show": "Show again",
+      "failed": "Couldn't restore it, please try again"
     }
   },
   "privacy": {
@@ -296,13 +309,25 @@
     }
   },
   "display": {
+    "readingAppearance": {
+      "title": "Play appearance",
+      "description": "Choose dark or light for the default play interface. Saved in this browser.",
+      "dark": "Dark",
+      "light": "Light"
+    },
     "turnImages": {
       "title": "Story illustrations",
       "description": "Adds a “Draw this scene” button to replies.",
       "auto": "Illustrate every reply",
       "free": "{{count}} free left, then {{price}} mushies each",
       "price": "{{price}} mushies per picture",
-      "unlimited": "Included in your plan"
+      "unlimited": "Included in your plan",
+      "style": {
+        "default": "Fast",
+        "detailed": "Detailed",
+        "vivid": "Vivid"
+      },
+      "vividTag": "One person"
     },
     "title": "Display",
     "language": {
@@ -315,6 +340,7 @@
       "default": "Default",
       "large": "Large",
       "xLarge": "X-Large",
+      "xxLarge": "XX-Large",
       "hint": "Changes apply instantly and are saved to this device."
     },
     "autoFullscreenOnPlay": {
@@ -409,6 +435,10 @@
     "sceneVideo": {
       "title": "Scene video (experimental)",
       "description": "Shows Scene video in the play menu, and in cards with a film stage. Two ways to watch: a live stream that follows the story (about 5,800 mushies a minute), or a short film with voices for every reply, ready a few minutes after it (about 100–1,400 mushies a reply)."
+    },
+    "halloween": {
+      "title": "Holiday decorations",
+      "description": "During Halloween the mushie and the logo dress up, and a little bat flies by now and then. Worlds' own screens are never changed."
     }
   },
   "wallpaper": {
@@ -496,7 +526,7 @@
     "versionValue": "Yumina v1.0.0",
     "termsOfService": "Terms of Service",
     "privacyPolicy": "Privacy Policy",
-    "licenses": "GitHub OSS",
+    "licenses": "Open source code",
     "contactSupport": "Contact Yumina",
     "messageOfficial": "Message {{username}}",
     "emailSupport": "Email support",

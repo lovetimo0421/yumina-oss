@@ -25,12 +25,14 @@ import { resolveImageUrl } from "@/lib/asset-url";
 import { useCreditStore, syncCreditsFromMessageResponse, handleStreamCreditError } from "@/edition/slots.state";
 import { useUserProfileStore } from "./user-profile";
 import { fallbackDecision, fallbackRecord, parseFallbackError, type ModelFallbackRetry } from "../lib/model-fallback";
-import { DEFAULT_MODEL_FALLBACK_POLICY, type ModelFallbackNotice, type ModelFallbackRecord } from "@yumina/shared";
+import { CARD_CODE_REQUEST_HEADERS, DEFAULT_MODEL_FALLBACK_POLICY, type ModelFallbackNotice, type ModelFallbackRecord } from "@yumina/shared";
 import type { WorldDefinition, Effect, GameState, Worldbook } from "@yumina/engine";
 import { safeParseWorldDef } from "@/lib/utils";
 import { hasGroupVoices, nextGroupVoice } from "@/features/chat/group-voices";
 import { withRuntimeState } from "@/features/studio/lib/runtime-state";
 import { appendRuntimeRecord, type RuntimeRecord, type RuntimeRecordKind } from "@/features/studio/lib/runtime-records";
+
+const isReplyCut = (v: unknown): v is "length" | "filter" => v === "length" || v === "filter";
 
 // ── Streaming Update Batcher ──
 //
@@ -113,6 +115,11 @@ export interface Attachment {
   data: string; // base64
 }
 
+/** Extra fields a send carries beyond the composer's text. */
+/** A story room's merged round (features/story-room): who said what, for the players' bubbles. */
+export type RoomContribution = { userId: string; name: string; text: string; roleId?: string; roleName?: string };
+export type SendExtra = { roomTurnId?: string; contributions?: RoomContribution[] };
+
 export interface Message {
   stateValidation?: import("@yumina/shared").StateValidationAudit | null;
   id: string;
@@ -142,6 +149,8 @@ export interface Message {
     /** The server's refusal-detector judged this reply to be a model policy
      *  refusal (set on the `done` SSE payload and persisted on the swipe). */
     refusal?: boolean;
+    /** Stopped before the model finished (set on `done`, persisted on the swipe). */
+    cut?: "length" | "filter";
     /** The AI of a group chat that said this, when it was not the turn's
      *  first voice (server lib/group-reply.ts). */
     voice?: string;
@@ -155,9 +164,13 @@ export interface Message {
   creditBalanceAfter?: number | null;
   compacted?: boolean;
   attachments?: Array<{ type: string; mimeType: string; name: string; url: string }> | null;
+  /** 给 AI 的话: the player's one-turn direction sent with this turn (never story text). */
+  playerNote?: string | null;
   createdAt: string;
   /** Client-only: the per-turn picture is drawing, or why it wasn't drawn. */
   turnImage?: import("@/features/chat/turn-image-drawing").TurnImageStatus;
+  /** A story room's round: one entry per player's action (null on ordinary turns). */
+  contributions?: RoomContribution[] | null;
   /** Client-only: this reply's short film is being made, or why it wasn't (see turn-video). */
   turnVideo?: import("@/features/chat/turn-video").TurnVideoStatus;
 }
@@ -323,6 +336,10 @@ export interface SessionData {
     image?: string | null;
   } | null;
   room?: Record<string, unknown> | null;
+  /** The open story room on this chat, when there is one. */
+  storyRoomCode?: string | null;
+  /** The viewer reads this chat as a member of its story room (never the owner). */
+  roomMember?: boolean;
   // Branching metadata — populated by GET /api/sessions/:id (Task 4)
   parentSessionId?: string | null;
   branchedFromMessageId?: string | null;
@@ -366,6 +383,9 @@ interface ChatState {
   // older pages load on demand via loadEarlierMessages.
   messageTotal: number;
   hasEarlierMessages: boolean;
+  /** Messages older than `messages[0]` that are not loaded, so the chat can
+   *  number rows by their place in the whole session (#1 = the opening). */
+  earlierMessageCount: number;
   isLoadingEarlier: boolean;
   gameState: Record<string, number | string | boolean | Record<string, unknown> | unknown[]>;
 
@@ -416,14 +436,17 @@ interface ChatState {
   updateMessage: (id: string, updates: Partial<Message>) => void;
   removeMessage: (id: string) => void;
   /** `resendUserMessageId` re-runs that persisted (failed) user row instead of inserting a new one. */
-  sendMessage: (content: string, model?: string, attachments?: Attachment[], retry?: ModelFallbackRetry, resendUserMessageId?: string) => void;
-  regenerateMessage: (messageId: string, model?: string, retry?: ModelFallbackRetry) => void;
+  sendMessage: (content: string, model?: string, attachments?: Attachment[], retry?: ModelFallbackRetry, resendUserMessageId?: string, note?: string, extra?: SendExtra) => void;
+  /** `note`: 给 AI 的话 open in the composer now; it replaces the one the turn
+   *  was sent with (none: the server re-reads the stored one). */
+  regenerateMessage: (messageId: string, model?: string, retry?: ModelFallbackRetry, note?: string) => void;
   stopGeneration: () => void;
   setPendingChoices: (choices: string[]) => void;
   clearPendingChoices: () => void;
 
   // Continue
-  continueLastMessage: (model?: string, retry?: ModelFallbackRetry) => void;
+  /** `note`: 给 AI 的话 for this reply (a note sent with no message). */
+  continueLastMessage: (model?: string, retry?: ModelFallbackRetry, note?: string) => void;
 
   // Revert & restart
   revertLastExchange: () => Promise<void>;
@@ -470,6 +493,12 @@ interface ChatState {
 
   // Prepend the previous page of history (older than the oldest loaded row).
   loadEarlierMessages: () => Promise<boolean>;
+}
+
+/** The card's screen may change the game: the owner, or a member of the
+ *  session's story room (whose chat is otherwise read-only). */
+export function canWriteGameState(state: { readOnly: boolean; session: { roomMember?: boolean } | null }): boolean {
+  return !state.readOnly || state.session?.roomMember === true;
 }
 
 type ChatStateSetter = (
@@ -892,6 +921,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   messages: [],
   messageTotal: 0,
   hasEarlierMessages: false,
+  earlierMessageCount: 0,
   isLoadingEarlier: false,
   gameState: {},
   readOnly: false,
@@ -968,6 +998,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
         credentials: "include",
         cache: "no-store",
         signal: controller.signal,
+        // The interface's compiled code is enough for this browser; the source
+        // can stay on the server (server lib/card-code/source.ts).
+        headers: CARD_CODE_REQUEST_HEADERS,
       });
 
       // Guard: if this load was superseded by a newer one, discard results
@@ -988,7 +1021,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
       if (!res.ok) {
         const body = await res.json().catch(() => null);
         const msg = typeof body?.error === "string" ? body.error : "Failed to load session";
-        set({ error: msg });
+        // 404 = not this account's chat (or deleted). Retrying can't help; the
+        // chat view offers switching account instead.
+        // WORLD_ACCESS_ENDED: a removed collaborator's playtest of a card that isn't public.
+        set({
+          error: body?.code === "WORLD_ACCESS_ENDED" ? resolveErrorToast(body.code, msg) : msg,
+          errorCode: res.status === 404 ? "SESSION_NOT_FOUND" : null,
+        });
         return;
       }
 
@@ -1020,9 +1059,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
         messages: loadedMessages,
         messageTotal,
         hasEarlierMessages: messageTotal > loadedMessages.length,
+        earlierMessageCount: Math.max(0, messageTotal - loadedMessages.length),
         isLoadingEarlier: false,
         gameState,
-        readOnly: Boolean(data.readOnly),
+        // A story room member reads the host's chat: every owner action stays
+        // off, and their lines go to the room (features/story-room).
+        readOnly: Boolean(data.readOnly) || data.roomMember === true,
         error: null,
         lastSendFailure: null,
       });
@@ -1120,7 +1162,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         });
         if (!refreshed || controller.signal.aborted || get().session?.id !== sessionId ||
             get().messages !== original || get().isStreaming || _isSending) return false;
-        set(refreshed);
+        const { earlierMessageCount, ...window } = refreshed;
+        set({ ...window, ...(typeof earlierMessageCount === "number" ? { earlierMessageCount } : {}) });
         return true;
       }
       const res = await fetch(`${apiBase}/api/sessions/${sessionId}/messages`, {
@@ -1137,6 +1180,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         set({
           messages: data as Message[],
           ...(typeof meta?.hasMore === "boolean" ? { hasEarlierMessages: meta.hasMore } : {}),
+          ...(typeof meta?.earlier === "number" ? { earlierMessageCount: meta.earlier } : {}),
         });
         return true;
       }
@@ -1176,6 +1220,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       set((s) => ({
         messages: [...older, ...s.messages],
         hasEarlierMessages: Boolean(meta?.hasMore),
+        earlierMessageCount: !meta?.hasMore ? 0
+          : typeof meta?.earlier === "number" ? meta.earlier
+          : Math.max(0, s.earlierMessageCount - older.length),
       }));
       return true;
     } catch (err) {
@@ -1186,7 +1233,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  sendMessage: (content: string, model?: string, attachments?: Attachment[], retry?: ModelFallbackRetry, resendUserMessageId?: string) => {
+  sendMessage: (content: string, model?: string, attachments?: Attachment[], retry?: ModelFallbackRetry, resendUserMessageId?: string, note?: string, extra?: SendExtra) => {
     const { session, isStreaming } = get();
     if (!session || isStreaming || _isSending || get().readOnly || (get().modelFallback && !retry)) {
       console.warn("[sendMessage] blocked:", { session: !!session, isStreaming, _isSending });
@@ -1231,7 +1278,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       lastSendFailure: null,
       errorCode: null,
       messages: reuseUserMessageId
-        ? s.messages.map((m) => m.id === resendUserMessageId ? { ...m, status: "complete" as const, errorMessage: null } : m)
+        ? s.messages.map((m) => m.id === resendUserMessageId ? { ...m, status: "complete" as const, errorMessage: null, ...(note && { playerNote: note }) } : m)
         : [
         ...s.messages,
         {
@@ -1240,6 +1287,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
           role: "user" as const,
           content,
           attachments: attachments?.map(a => ({ type: a.type, name: a.name, mimeType: a.mimeType, url: `data:${a.mimeType};base64,${a.data}` })),
+          ...(extra?.contributions?.length ? { contributions: extra.contributions } : {}),
+          ...(note && { playerNote: note }),
           createdAt: new Date().toISOString(),
         },
       ],
@@ -1250,6 +1299,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       maxTokens: config.maxTokens,
       maxContext: config.maxContext,
       storyMemory: config.storyMemory ?? undefined,
+      recapShare: config.recapShare ?? undefined,
+      memoryEvery: config.memoryEvery ?? undefined,
       temperature: config.temperature,
       topP: config.topP,
       frequencyPenalty: config.frequencyPenalty,
@@ -1275,10 +1326,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
           },
           ...(attachments && attachments.length > 0 && { attachments }),
           ...(get().liveScene && { scene: get().liveScene }),
+          ...(note && { note }),
           // Attempt #1 may have already persisted the user message server-side
           // (insert runs before the stream). The flag lets the server reuse
           // that row instead of inserting a duplicate.
           ...(isMixRetry && { mixRetry: true }),
+          // A story room's merged round (features/story-room): the server
+          // checks the claim and stores who said what on the user row.
+          ...(extra?.roomTurnId && { roomTurnId: extra.roomTurnId }),
         },
         callbacks: {
           onStateValidation: (audit) => {
@@ -1346,6 +1401,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                   creditCost: credits?.cost,
                   creditBalanceAfter: credits?.balance,
                   ...(data.refusal === true && { refusal: true }),
+                  ...(isReplyCut(data.cut) && { cut: data.cut }),
                 },
               ],
               activeSwipeIndex: 0,
@@ -1448,7 +1504,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           },
           onError: (err, meta) => {
             if (pauseForModelFallback(err, meta?.origin, session.id, retry,
-              (next, nextRetry) => get().sendMessage(content, next, attachments, nextRetry), tempUserMsgId)) return;
+              (next, nextRetry) => get().sendMessage(content, next, attachments, nextRetry, undefined, note, extra), tempUserMsgId)) return;
             if (retry) set({ modelFallback: null });
             if (meta?.origin === "http" && meta.status === 401) {
               finishChatAuthLoss(set, { dropPendingMessage: true });
@@ -1648,7 +1704,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       });
   },
 
-  regenerateMessage: (messageId: string, model?: string, retry?: ModelFallbackRetry) => {
+  regenerateMessage: (messageId: string, model?: string, retry?: ModelFallbackRetry, note?: string) => {
     const { session, isStreaming } = get();
     if (!session || isStreaming || _isSending || get().readOnly || (get().modelFallback && !retry)) return;
 
@@ -1701,10 +1757,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
           model: useModel,
           modelFallback: fallbackRecord(retry, useModel),
           ...(get().liveScene && { scene: get().liveScene }),
+          ...(note && { note }),
           overrides: {
             maxTokens: config.maxTokens,
             maxContext: config.maxContext,
             storyMemory: config.storyMemory ?? undefined,
+            recapShare: config.recapShare ?? undefined,
+      memoryEvery: config.memoryEvery ?? undefined,
             temperature: config.temperature,
             topP: config.topP,
             frequencyPenalty: config.frequencyPenalty,
@@ -1745,9 +1804,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
             if (state.session?.id !== session.id) return;
             state.applyRuntimeResult(session.id, data, "regenerate");
             _isSending = false;
+            // A note that replaced the turn's own: the server moved it onto the row it lives on.
+            const turnNote = data.playerNote as { messageId?: unknown; note?: unknown } | undefined;
+            const noteRowId = typeof turnNote?.messageId === "string" && typeof turnNote.note === "string" ? turnNote.messageId : null;
 
             set((s) => ({
               messages: s.messages.map((m) => {
+                if (m.id === noteRowId) m = { ...m, playerNote: turnNote!.note as string };
                 if (m.id !== messageId) return m;
                 const newContent =
                   (data.content as string) ?? state.streamingContent;
@@ -1769,6 +1832,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                     creditCost: credits?.cost,
                     creditBalanceAfter: credits?.balance,
                     ...(data.refusal === true && { refusal: true }),
+                    ...(isReplyCut(data.cut) && { cut: data.cut }),
                   },
                   {
                     serverSwipeIndex: data.swipeIndex as number | undefined,
@@ -1841,7 +1905,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           },
           onError: (err, meta) => {
             if (pauseForModelFallback(err, meta?.origin, session.id, retry,
-              (next, nextRetry) => get().regenerateMessage(messageId, next, nextRetry))) return;
+              (next, nextRetry) => get().regenerateMessage(messageId, next, nextRetry, note))) return;
             if (retry) set({ modelFallback: null });
             if (meta?.origin === "http" && meta.status === 401) {
               finishChatAuthLoss(set);
@@ -1864,7 +1928,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             const _tc = ["RATE_LIMITED", "CONCURRENT_LIMIT", "SUSPENDED", "NO_CREDITS", "MODEL_NOT_ALLOWED", "PROTECTED_WORLD", "REPETITIVE_REPLY", "MODEL_UNAVAILABLE"];
             if (errorCode && _tc.includes(errorCode)) {
               showStreamError(errorCode, resolveErrorToast(errorCode, errorMsg, errorBalance), () =>
-                get().regenerateMessage(messageId, model),
+                get().regenerateMessage(messageId, model, undefined, note),
               );
               if (errorCode === "NO_CREDITS" || errorCode === "MODEL_NOT_ALLOWED" || errorCode === "PROTECTED_WORLD") {
                 handleStreamCreditError(errorCode);
@@ -1902,7 +1966,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ abortController: controller });
   },
 
-  continueLastMessage: (model?: string, retry?: ModelFallbackRetry) => {
+  continueLastMessage: (model?: string, retry?: ModelFallbackRetry, note?: string) => {
     // "Continue" = generate the next AI message without user input.
     // Works for: AI never replied (case 1) + user wants AI to keep going (case 3).
     const { session, isStreaming } = get();
@@ -1912,7 +1976,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // (Lukkas 2026-10-15: "you keep ignoring my last turn"). Re-run that row.
     const last = get().messages.at(-1);
     if (!retry && last?.role === "user" && last.status === "failed" && !last.id.startsWith("__pending_") && last.content.trim()) {
-      get().sendMessage(last.content, model, undefined, undefined, last.id);
+      get().sendMessage(last.content, model, undefined, undefined, last.id, note);
       return;
     }
     _isSending = true;
@@ -1949,10 +2013,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
           model: useModel,
           modelFallback: fallbackRecord(retry, useModel),
           ...(get().liveScene && { scene: get().liveScene }),
+          ...(note && { note }),
           overrides: {
             maxTokens: config.maxTokens,
             maxContext: config.maxContext,
             storyMemory: config.storyMemory ?? undefined,
+            recapShare: config.recapShare ?? undefined,
+      memoryEvery: config.memoryEvery ?? undefined,
             temperature: config.temperature,
             topP: config.topP,
             frequencyPenalty: config.frequencyPenalty,
@@ -2009,6 +2076,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
               modelFallback: data.modelFallback as ModelFallbackRecord | undefined,
               creditCost: credits?.cost ?? null,
               creditBalanceAfter: credits?.balance ?? null,
+              ...(note && { playerNote: note }),
               createdAt: new Date().toISOString(),
               // Mirror the one swipe the send route persisted, like sendMessage
               // does, so swipes[active].refusal is readable without a refetch.
@@ -2022,6 +2090,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                   creditCost: credits?.cost,
                   creditBalanceAfter: credits?.balance,
                   ...(data.refusal === true && { refusal: true }),
+                  ...(isReplyCut(data.cut) && { cut: data.cut }),
                 },
               ],
               activeSwipeIndex: 0,
@@ -2066,7 +2135,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           },
           onError: (err, meta) => {
             if (pauseForModelFallback(err, meta?.origin, session.id, retry,
-              (next, nextRetry) => get().continueLastMessage(next, nextRetry))) return;
+              (next, nextRetry) => get().continueLastMessage(next, nextRetry, note))) return;
             if (retry) set({ modelFallback: null });
             if (meta?.origin === "http" && meta.status === 401) {
               finishChatAuthLoss(set);
@@ -2120,7 +2189,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             const _tc = ["RATE_LIMITED", "CONCURRENT_LIMIT", "SUSPENDED", "NO_CREDITS", "MODEL_NOT_ALLOWED", "PROTECTED_WORLD", "REPETITIVE_REPLY", "MODEL_UNAVAILABLE"];
             if (errorCode && _tc.includes(errorCode)) {
               showStreamError(errorCode, resolveErrorToast(errorCode, errorMsg, errorBalance), () =>
-                get().continueLastMessage(model),
+                get().continueLastMessage(model, undefined, note),
               );
               if (errorCode === "NO_CREDITS" || errorCode === "MODEL_NOT_ALLOWED" || errorCode === "PROTECTED_WORLD") {
                 handleStreamCreditError(errorCode);
@@ -2206,6 +2275,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
       for (const delay of [6_000, 18_000]) {
         setTimeout(() => { void useCreditStore.getState().forceFetchCredits(); }, delay);
       }
+    } else if (get().isStreaming && session?.id && !get().readOnly) {
+      // A story room's round is sent by the server, not this browser: there
+      // is no local stream to abort, only the server's to stop. The room's
+      // turn-done then settles the chat.
+      void fetch(`${apiBase}/api/sessions/${session.id}/messages/stop`, {
+        method: "POST",
+        credentials: "include",
+        keepalive: true,
+      }).catch(() => {});
     }
   },
 
@@ -2244,6 +2322,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           messages: data.messages ?? [],
           messageTotal: data.messageTotal ?? data.messages?.length ?? 0,
           hasEarlierMessages: (data.messageTotal ?? 0) > (data.messages?.length ?? 0),
+          earlierMessageCount: Math.max(0, (data.messageTotal ?? 0) - (data.messages?.length ?? 0)),
           isLoadingEarlier: false,
           gameState: newGameState,
           pendingChoices: [],
@@ -2288,6 +2367,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           messages: data.messages ?? [],
           messageTotal: data.messageTotal ?? data.messages?.length ?? 0,
           hasEarlierMessages: (data.messageTotal ?? 0) > (data.messages?.length ?? 0),
+          earlierMessageCount: Math.max(0, (data.messageTotal ?? 0) - (data.messages?.length ?? 0)),
           isLoadingEarlier: false,
           gameState: newGameState,
           pendingChoices: [],
@@ -2365,6 +2445,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
       set({
         messages: data.messages ?? [],
+        earlierMessageCount: 0,
         gameState: newGameState,
         pendingChoices: [],
         pendingSilentChanges: [],
@@ -2460,6 +2541,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         ?.variables as Record<string, number | string | boolean | Record<string, unknown> | unknown[]>) ?? {};
       set({
         messages: data.messages ?? [],
+        earlierMessageCount: 0,
         gameState: newGameState,
         pendingChoices: [],
       });
@@ -2573,14 +2655,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   executeActionAndWait: async (actionId: string, params?: Record<string, unknown>, clock?: number) => {
-    const { session, readOnly } = get();
-    if (!session || readOnly) throw new Error("Actions are unavailable in this read-only or missing session.");
+    const { session } = get();
+    if (!session || !canWriteGameState(get())) throw new Error("Actions are unavailable in this read-only or missing session.");
     if (clock === undefined && (typeof actionId !== "string" || !actionId)) throw new Error("Invalid action ID.");
     const sessionId = session.id;
     const tracker = { sessionId, writes: new Map<string, unknown>() };
     let stale = false;
     const unsubscribe = useChatStore.subscribe((state) => {
-      if (state.session?.id !== sessionId || state.readOnly) stale = true;
+      if (state.session?.id !== sessionId || !canWriteGameState(state)) stale = true;
     });
     sessionConfirmationWrites.add(tracker);
     try {
@@ -2588,7 +2670,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const check = () => {
           if (signal.aborted) throw signal.reason;
           if (stale || get().session?.id !== sessionId) throw new Error("Action session changed.");
-          if (get().readOnly) throw new Error("Actions are unavailable in this read-only session.");
+          if (!canWriteGameState(get())) throw new Error("Actions are unavailable in this read-only session.");
         };
         check();
         const response = await fetch(`${apiBase}/api/sessions/${sessionId}/execute-action`, {

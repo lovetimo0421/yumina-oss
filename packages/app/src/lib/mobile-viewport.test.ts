@@ -669,6 +669,57 @@ test("resume restores an accidentally scrolled outer shell without moving the fe
   assert.equal(feed.scrollTop, 600);
 });
 
+test("editor wrapper scroll is repaired after toolbar changes without moving lorebook content", (t) => {
+  const h = viewportHarness(t);
+  h.win.document.body.insertAdjacentHTML("beforeend", '<main class="app-shell-main app-shell-main-editor"><div id="lorebook"></div></main>');
+  const main = h.win.document.querySelector("main")!;
+  const lorebook = h.win.document.querySelector("#lorebook")!;
+  lorebook.scrollTop = 600;
+  main.scrollTop = 42;
+  main.dispatchEvent(new h.win.Event("scroll"));
+  h.frame();
+  h.frame();
+  assert.equal(main.scrollTop, 0);
+  assert.equal(lorebook.scrollTop, 600);
+  main.scrollTop = 48;
+  main.dispatchEvent(new h.win.Event("scroll"));
+  h.vv.height = 650;
+  h.vv.dispatchEvent(new h.win.Event("resize"));
+  h.frame();
+  h.frame();
+  assert.equal(main.scrollTop, 0);
+  assert.equal(lorebook.scrollTop, 600);
+  assert.ok(h.recoveries.some((r) => r.reason === "outer_scroll" && r.scrollTarget === "editor_main"));
+});
+
+test("editor wrapper recovery defers during touch and focus, and preserves ordinary main scrolling", (t) => {
+  const h = viewportHarness(t);
+  h.win.document.body.insertAdjacentHTML("beforeend", '<main class="app-shell-main app-shell-main-editor"></main><main class="app-shell-main app-shell-main-mobile-scrollable"></main>');
+  const [editor, page] = h.win.document.querySelectorAll("main");
+  page!.scrollTop = 500;
+  h.win.document.dispatchEvent(new h.win.Event("touchstart"));
+  editor!.scrollTop = 42;
+  editor!.dispatchEvent(new h.win.Event("scroll"));
+  h.frame();
+  h.frame();
+  assert.equal(editor!.scrollTop, 42);
+  h.win.document.dispatchEvent(new h.win.Event("touchend"));
+  h.frame();
+  h.frame();
+  assert.equal(editor!.scrollTop, 0);
+  h.win.document.querySelector("input")!.focus();
+  editor!.scrollTop = 42;
+  editor!.dispatchEvent(new h.win.Event("scroll"));
+  h.frame();
+  h.frame();
+  assert.equal(editor!.scrollTop, 42);
+  h.win.document.querySelector("input")!.blur();
+  h.settle();
+  h.frame();
+  assert.equal(editor!.scrollTop, 0);
+  assert.equal(page!.scrollTop, 500);
+});
+
 test("outer scroll recovery leaves active typing and touch gestures alone", (t) => {
   const h = viewportHarness(t);
   h.root.scrollTop = 100;
@@ -747,6 +798,81 @@ test("keyboard panning changes shell position, never its visible height", (t) =>
   h.frame();
   assert.equal(h.root.style.getPropertyValue("--mobile-vh"), "340px");
   assert.equal(h.root.style.getPropertyValue("--mobile-viewport-top"), "250px");
+});
+
+test("Home Screen play and DM canvases follow the document-relative keyboard viewport", (t) => {
+  const h = viewportHarness(t, undefined, false, true);
+  const css = readFileSync(new URL("../styles/globals.css", import.meta.url), "utf8");
+  const start = css.indexOf("@media (max-width: 767px) and (display-mode: standalone)");
+  const block = css.slice(start, css.indexOf('body[data-publish-modal-open="true"]', start));
+  const rules = [...block.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .filter(match => match[1]!.includes('.app-shell-root[data-play-page="true"]'))
+    .map(match => `${match[1]}{${match[2]}}`).join("\n");
+  h.win.document.head.innerHTML = `<style>.app-shell-root { top: var(--mobile-viewport-top); } ${rules}</style>`;
+  h.win.document.body.insertAdjacentHTML("beforeend", '<div class="app-shell-root" data-play-page="true"><iframe></iframe></div>');
+  const shell = h.win.document.querySelector<HTMLElement>(".app-shell-root")!;
+  const iframe = shell.querySelector("iframe")!;
+  iframe.focus();
+  h.win.document.querySelector("#feed")!.scrollTop = 240;
+  h.vv.height = 340;
+  h.vv.offsetTop = 20;
+  // iOS can scroll the outer document as well as pan the visual viewport.
+  // An absolute shell needs pageTop (120), whereas a fixed shell needs 20.
+  Object.defineProperty(h.win, "scrollY", { configurable: true, value: 100 });
+  Object.defineProperty(h.vv, "pageTop", { configurable: true, value: 120 });
+  h.vv.dispatchEvent(new h.win.Event("resize"));
+  h.frame();
+  const assertFillsViewport = (pageTop: number) => {
+    const style = h.win.getComputedStyle(shell);
+    assert.equal(style.position, "absolute");
+    const variable = style.top.match(/var\((--[\w-]+)/)![1]!;
+    const top = Number.parseFloat(h.root.style.getPropertyValue(variable));
+    const height = Number.parseFloat(h.root.style.getPropertyValue("--mobile-vh"));
+    assert.equal(top - pageTop, 0, "canvas top must stay at the visible top, not behind the status row");
+    assert.equal(top + height - pageTop, h.vv.height, "canvas bottom must reach the keyboard without a black band");
+  };
+  assertFillsViewport(120);
+  shell.removeAttribute("data-play-page");
+  h.root.setAttribute("data-mobile-message-canvas", "");
+  assertFillsViewport(120);
+  // Native scroll can differ from DOM scrollY (WebKit #292603). Prefer the
+  // visual viewport's page coordinate, not scrollTop repair or a focus reset.
+  Object.defineProperty(h.vv, "pageTop", { value: 180 });
+  h.vv.dispatchEvent(new h.win.Event("scroll"));
+  h.frame();
+  assertFillsViewport(180);
+  assert.equal(h.root.style.getPropertyValue("--mobile-viewport-top"), "20px", "fixed shells keep layout-relative positioning");
+  assert.equal(h.win.document.activeElement, iframe);
+  assert.equal(h.win.document.querySelector("#feed")!.scrollTop, 240);
+  h.vv.height = 844;
+  h.vv.offsetTop = 0;
+  Object.defineProperty(h.vv, "pageTop", { value: 0 });
+  h.vv.dispatchEvent(new h.win.Event("resize"));
+  h.frame();
+  assert.equal(h.root.style.getPropertyValue("--mobile-viewport-page-top"), "");
+});
+
+test("document viewport origin has a fallback and clears on blur, suspend, and cleanup", (t) => {
+  const h = viewportHarness(t, undefined, false, true);
+  const input = h.win.document.querySelector("input")!;
+  input.focus();
+  Object.defineProperty(h.win, "scrollY", { configurable: true, value: 90 });
+  h.vv.height = 340;
+  h.vv.offsetTop = 30;
+  h.vv.dispatchEvent(new h.win.Event("resize"));
+  h.frame();
+  assert.equal(h.root.style.getPropertyValue("--mobile-viewport-page-top"), "120px");
+  input.blur();
+  h.frame();
+  assert.equal(h.root.style.getPropertyValue("--mobile-viewport-page-top"), "");
+  input.focus();
+  h.frame();
+  h.visibility("hidden");
+  assert.equal(h.root.style.getPropertyValue("--mobile-viewport-page-top"), "");
+  h.visibility("visible");
+  assert.equal(h.root.style.getPropertyValue("--mobile-viewport-page-top"), "120px");
+  h.cleanup();
+  assert.equal(h.root.style.getPropertyValue("--mobile-viewport-page-top"), "");
 });
 
 test("backgrounding clears keyboard-sized geometry before the next resume paint", (t) => {

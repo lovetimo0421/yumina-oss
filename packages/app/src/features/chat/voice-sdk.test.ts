@@ -8,6 +8,8 @@ import { formatVoiceSceneReaction, isVoiceSceneReaction, isVoiceSceneReference, 
 import { hydrateVoiceSceneNotice } from "./voice-scene-notice";
 import type { SandboxState } from "../../../sandbox/protocol";
 import type { buildAPI as BuildAPI } from "../../../sandbox/sandbox-context";
+import * as composeAssist from "../../../sandbox/chat/compose-assist";
+import * as playerNoteDraft from "../../../sandbox/chat/player-note-draft";
 
 test("a committed reply crosses the bridge by reference, never iframe-authored words", () => {
   const calls: unknown[] = [];
@@ -255,6 +257,9 @@ test("assembled SDK keeps transcription/TTS independent and awaits only confirme
     "./protocol": { wrapMessage: (message: unknown) => message, postToParentWindow: (message: { method: string; args: unknown[]; callId: string }) => { calls.push(message); if (["executeActionAndWait", "ai.context", "realtimeVoice.prepare", "realtimeVoice.start", 'realtimeVoice.getConfig', 'realtimeVoice.finish'].includes(message.method)) module.exports.resolveApiCall(message.callId, actionResponse); } },
     "./voice-api": { createVoiceAPI, VOICE_EVENT },
     "./chat/markdown": { renderMarkdown: (text: string) => text },
+    "./chat/compose-assist": composeAssist,
+    // The real note lifecycle (every way a turn leaves the sandbox takes the open note), not a stub.
+    "./chat/player-note-draft": playerNoteDraft,
     // sandbox-context resolves its own relative imports here; the oncin gallery hook is unrelated to voice.
     "./legacy-gallery": { useLegacyGallery: () => undefined },
   };
@@ -267,8 +272,8 @@ test("assembled SDK keeps transcription/TTS independent and awaits only confirme
   try {
     const api = module.exports.buildAPI({ sessionId: "session", mode: "session", readOnly: false, capabilities: { canUseSessionApis: true } } as SandboxState);
     assert.deepEqual(Object.keys(api.voice).sort(), ["cancel", "prepare", "record", "setPrefs", "stop"]);
-    assert.deepEqual(Object.keys(api.realtimeVoice).sort(), ["cancelSceneReaction", 'finish', 'getConfig', "interrupt", "onEvent", "prepare", "reactToScene", "resolveDelegation", "resolveTool", "setMuted", "setSpatial", "start", "stop", "updateContext", "updateInstructions"]);
-    assert.deepEqual(Object.keys(api.tts).sort(), ["onPlaybackFrame", "preview", "setPrefs", "speak", "stop"]);
+    assert.deepEqual(Object.keys(api.realtimeVoice).sort(), ["cancelSceneReaction", 'finish', 'getConfig', "interrupt", "markActive", "onEvent", "prepare", "reactToScene", "resolveDelegation", "resolveTool", "setMuted", "setSpatial", "start", "stop", "updateContext", "updateInstructions"]);
+    assert.deepEqual(Object.keys(api.tts).sort(), ["onPlaybackFrame", "prefetch", "preview", "setPrefs", "setSpeakerVoice", "speak", "stop"]);
     api.voice.stop(); api.voice.cancel(); api.voice.setPrefs({ enabled: false }); api.tts.stop(); api.realtimeVoice.stop();
     assert.deepEqual(calls.map(call => call.method), ["voice.stop", "voice.cancel", "voice.setPrefs", "tts.stop", "realtimeVoice.stop"]);
     actionResponse = { intent: "assembled-host-intent" };

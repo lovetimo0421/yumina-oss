@@ -5,7 +5,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { sql } from "drizzle-orm";
 import { installVoiceLiveCalls, voiceLiveCallsSql } from "../db/voice-live-calls.js";
-import { LiveCreditCalls, LIVE_CREDITS_PER_MINUTE, type LiveCreditDeps } from "./voice-live-credits.js";
+import { LiveCreditCalls, LIVE_CREDITS_PER_MINUTE, LIVE_MAX_MINUTES, LIVE_IDLE_MS, type LiveCreditDeps } from "./voice-live-credits.js";
 import { VoiceConnectionError } from "./voice-realtime.js";
 import type { LedgerDatabase } from "./transaction-hash.js";
 
@@ -58,9 +58,9 @@ test("config is offered only for the priced world, and says when credits are sho
   f.setWorld(false);
   assert.equal(await calls.config("u1", "s1"), null);
   f.setWorld(true);
-  assert.deepEqual(await calls.config("u1", "s1"), { available: false, funding: "credits-live", creditsPerMinute: 60, maxDurationSeconds: 900, code: "VOICE_CREDITS_REQUIRED" });
+  assert.deepEqual(await calls.config("u1", "s1"), { available: false, funding: "credits-live", creditsPerMinute: 60, maxDurationSeconds: LIVE_MAX_MINUTES * 60, code: "VOICE_CREDITS_REQUIRED" });
   f.wallet.set("u1", 60);
-  assert.deepEqual(await calls.config("u1", "s1"), { available: true, funding: "credits-live", creditsPerMinute: 60, maxDurationSeconds: 900 });
+  assert.deepEqual(await calls.config("u1", "s1"), { available: true, funding: "credits-live", creditsPerMinute: 60, maxDurationSeconds: LIVE_MAX_MINUTES * 60 });
   await assert.rejects(f.calls().begin("u2", "s1").then(() => { f.wallet.set("u2", 0); return f.calls().begin("u2", "s2"); }), (e: unknown) => e instanceof VoiceConnectionError);
 });
 
@@ -102,13 +102,13 @@ test("each started minute is charged once, even when two instances sweep at the 
   assert.equal((await f.row())[0]!.paid_minutes, 2);
 });
 
-test("the call is hung up at the 15-minute cap, having paid for 15 minutes", async () => {
-  const f = await fixture(5000), calls = f.calls();
+test("the ceiling (a bug backstop) hangs up an always-active call, having paid for every minute", async () => {
+  const f = await fixture(LIVE_MAX_MINUTES * LIVE_CREDITS_PER_MINUTE + 100), calls = f.calls();
   const id = await calls.begin("u1", "s1"); await calls.activate(id, "rtc_cap");
-  for (let s = 0; s < 15 * 60; s += 15) { f.tick(15_000); await calls.heartbeat("u1", "s1"); await calls.sweep(); }
+  for (let s = 0; s < LIVE_MAX_MINUTES * 60; s += 15) { f.tick(15_000); await calls.heartbeat("u1", "s1", 0); await calls.sweep(); }
   const r = (await f.row())[0]!;
-  assert.equal(r.state, "closed"); assert.equal(r.close_reason, "cap"); assert.equal(r.paid_minutes, 15);
-  assert.equal(f.ledger.size, 15);
+  assert.equal(r.state, "closed"); assert.equal(r.close_reason, "cap"); assert.equal(r.paid_minutes, LIVE_MAX_MINUTES);
+  assert.equal(f.ledger.size, LIVE_MAX_MINUTES);
   assert.deepEqual(f.hangups, ["rtc_cap"]);
 });
 
@@ -126,12 +126,12 @@ test("running out of credits mid-call ends it at the unpaid minute", async () =>
 test("a tab that stops beating is hung up; a beating one is not", async () => {
   const f = await fixture(), calls = f.calls();
   const id = await calls.begin("u1", "s1"); await calls.activate(id, "rtc_tab");
-  f.tick(50_000); assert.equal(await calls.heartbeat("u1", "s1"), true); await calls.sweep();
+  f.tick(50_000); assert.equal((await calls.heartbeat("u1", "s1")).alive, true); await calls.sweep();
   assert.equal((await f.row())[0]!.state, "active");
   f.tick(80_000); await calls.sweep();
   const r = (await f.row())[0]!;
   assert.equal(r.state, "closed"); assert.equal(r.close_reason, "abandoned");
-  assert.equal(await calls.heartbeat("u1", "s1"), false, "an ended call cannot be revived");
+  assert.equal((await calls.heartbeat("u1", "s1")).alive, false, "an ended call cannot be revived");
 });
 
 test("a hangup OpenAI refuses still closes the call, so it never blocks the next one", async () => {
@@ -175,4 +175,106 @@ test("a call that never connected frees the account after two minutes", async ()
   const id = await calls.begin("u1", "s1");
   assert.equal(typeof id, "string");
   assert.equal(f.ledger.size, 0, "nothing was charged for the failed connection");
+});
+
+// --- Idle ending (owner 2026-10-24): a call ends when nobody is playing, not at a fixed clock. ---
+
+/** Beat every 30 s like the browser, reporting the given idle time, sweeping every 15 s. */
+async function play(f: Awaited<ReturnType<typeof fixture>>, calls: LiveCreditCalls, seconds: number, idleAt: (t: number) => number) {
+  for (let t = 15; t <= seconds; t += 15) {
+    f.tick(15_000);
+    if (t % 30 === 0) await calls.heartbeat("u1", "s1", idleAt(t));
+    await calls.sweep();
+  }
+}
+
+test("a player who keeps playing is never cut off and pays for every minute", async () => {
+  const f = await fixture(5000), calls = f.calls();
+  const id = await calls.begin("u1", "s1"); await calls.activate(id, "rtc_play");
+  await play(f, calls, 25 * 60, () => 5_000);
+  const r = (await f.row())[0]!;
+  assert.equal(r.state, "active");
+  assert.equal(r.paid_minutes, 26, "minute 26 is charged 10 s before it starts");
+  assert.equal(f.ledger.size, 26);
+});
+
+test("nobody playing: the call ends at three idle minutes, and the minute due in the warning window is not charged", async () => {
+  const f = await fixture(5000), calls = f.calls();
+  const id = await calls.begin("u1", "s1"); await calls.activate(id, "rtc_idle");
+  let idle = 0;
+  await play(f, calls, 6 * 60, t => (idle = t * 1000));
+  const r = (await f.row())[0]!;
+  assert.equal(r.state, "closed"); assert.equal(r.close_reason, "idle");
+  // Minutes 1-3 were started while the player could still be there (idle < 2.5 min at 0, 50, 110 s);
+  // minute 4 comes due at 170 s, already in the warning window, so the call ends instead.
+  assert.equal(r.paid_minutes, 3);
+  assert.deepEqual(f.hangups, ["rtc_idle"]);
+  assert.deepEqual(await calls.heartbeat("u1", "s1", 0), { alive: false, reason: "idle" }, "the browser is told why");
+  assert.ok(idle >= LIVE_IDLE_MS - 30_000);
+});
+
+test("coming back just before the deadline keeps the call", async () => {
+  const f = await fixture(5000), calls = f.calls();
+  const id = await calls.begin("u1", "s1"); await calls.activate(id, "rtc_back");
+  await play(f, calls, 140, t => t * 1000);          // idle for 140 s, under the warning line
+  await calls.heartbeat("u1", "s1", 0);               // the player moves: the browser beats at once
+  await play(f, calls, 120, () => 0);
+  assert.equal((await f.row())[0]!.state, "active");
+});
+
+test("activity only moves forward: a late, stale beat cannot rewind it", async () => {
+  const f = await fixture(5000), calls = f.calls();
+  const id = await calls.begin("u1", "s1"); await calls.activate(id, "rtc_order");
+  f.tick(60_000);
+  await calls.heartbeat("u1", "s1", 0);               // active at 60 s
+  await calls.heartbeat("u1", "s1", 55_000);          // an older beat arriving late: would mean 5 s
+  const activeAt = (await f.row())[0]!.last_active_at;
+  assert.equal(new Date(activeAt as string).getTime(), Date.parse("2026-10-19T10:01:00Z"), "still 60 s, not rewound to 5 s");
+  f.tick(50_000); await calls.heartbeat("u1", "s1", 50_000);
+  f.tick(50_000); await calls.sweep();
+  assert.equal((await f.row())[0]!.state, "active", "idle is 100 s, not 155 s");
+});
+
+test("absurd idle reports are clamped and negative ones count as now", async () => {
+  const f = await fixture(5000), calls = f.calls();
+  const id = await calls.begin("u1", "s1"); await calls.activate(id, "rtc_clamp");
+  f.tick(30_000);
+  assert.equal((await calls.heartbeat("u1", "s1", -99_999)).alive, true);
+  assert.equal((await calls.heartbeat("u1", "s1", Number.NaN)).alive, true);
+  assert.equal((await calls.heartbeat("u1", "s1", 9e15)).alive, true, "a huge report is clamped, not an error");
+  f.tick(15_000); await calls.sweep();
+  assert.equal((await f.row())[0]!.state, "active", "a huge report never moves activity backwards past the last real one");
+});
+
+test("an older browser that sends no idle time counts as active (ended only by a closed tab or the ceiling)", async () => {
+  const f = await fixture(5000), calls = f.calls();
+  const id = await calls.begin("u1", "s1"); await calls.activate(id, "rtc_old");
+  for (let t = 0; t < 10 * 60; t += 30) { f.tick(30_000); await calls.heartbeat("u1", "s1"); await calls.sweep(); }
+  assert.equal((await f.row())[0]!.state, "active");
+});
+
+test("the idle clock survives a restart", async () => {
+  const f = await fixture(5000), before = f.calls();
+  const id = await before.begin("u1", "s1"); await before.activate(id, "rtc_rs");
+  f.tick(30_000); await before.heartbeat("u1", "s1", 30_000);
+  const after = f.calls();
+  for (let t = 0; t < 200; t += 15) { f.tick(15_000); if (t % 30 === 0) await after.heartbeat("u1", "s1", 60_000 + t * 1000); await after.sweep(); }
+  assert.equal((await f.row())[0]!.close_reason, "idle");
+});
+
+test("the beat warns when the wallet cannot pay the next minute", async () => {
+  const f = await fixture(1000), calls = f.calls();
+  const id = await calls.begin("u1", "s1"); await calls.activate(id, "rtc_low");
+  assert.deepEqual(await calls.heartbeat("u1", "s1", 0), { alive: true, lowBalance: false });
+  f.wallet.set("u1", LIVE_CREDITS_PER_MINUTE - 1);
+  assert.deepEqual(await calls.heartbeat("u1", "s1", 0), { alive: true, lowBalance: true });
+});
+
+test("a call that predates activity tracking is not hung up by the first sweep after a deploy", async () => {
+  const f = await fixture(5000), calls = f.calls();
+  const id = await calls.begin("u1", "s1"); await calls.activate(id, "rtc_predeploy");
+  // As the deployed table would hold it: no activity recorded, ten minutes in, beat just now.
+  await f.db.execute(sql`UPDATE voice_live_calls SET last_active_at = NULL, started_at = ${new Date(Date.parse("2026-10-19T09:50:00Z")).toISOString()}, paid_minutes = 10 WHERE id = ${id}`);
+  await calls.sweep();
+  assert.equal((await f.row())[0]!.state, "active");
 });

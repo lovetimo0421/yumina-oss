@@ -30,6 +30,8 @@ export interface SpeakerEntry {
   worldbookId?: string | null;
   portrait?: string | null;
   portraitVideo?: { idle: string | null; speaking: string | null } | null;
+  /** A live character beside the chat (`@rig:` / `@asset:` ref). */
+  portraitLive?: string | null;
   /** The voice the author gave this character (fish.audio reference id). */
   voice?: string | null;
 }
@@ -132,7 +134,7 @@ export function resolveSpeaker(
   if (own.length === 1) {
     return isPlaceholderCharacterName(own[0]!.name) ? null : toSpeaker(own[0]!);
   }
-  const candidates = own.filter((c) => (typeof c.portrait === "string" && c.portrait.length > 0) || !!c.portraitVideo?.idle);
+  const candidates = own.filter((c) => (typeof c.portrait === "string" && c.portrait.length > 0) || !!c.portraitVideo?.idle || !!c.portraitLive);
   if (candidates.length === 0) return null;
 
   const text = tag.text;

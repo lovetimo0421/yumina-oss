@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ImgHTMLAttributes, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ImgHTMLAttributes, type ReactNode } from "react";
 import { resolveImageUrl, originalImageUrl, cardImageUrl, isAnimatedImageRef, isMotionCoverRef, coverPreviewUrl } from "./asset-url";
 import {
   defaultCropImageRenderer,
@@ -33,6 +33,8 @@ interface CroppedImageProps extends Omit<ImgHTMLAttributes<HTMLImageElement>, "s
   imgClassName?: string;
   overlay?: ReactNode;
   renderer?: CropImageRenderer;
+  /** Exact aspect of a constrained frame; avoids measurement rounding changing the editor crop. */
+  frameAspect?: number;
   /** Show a shimmer placeholder behind the image until it loads (covers,
    *  grids). Off by default so avatars/inline uses stay unaffected. */
   placeholder?: boolean;
@@ -55,6 +57,7 @@ export function CroppedImage({
   imgClassName,
   overlay,
   renderer = defaultCropImageRenderer,
+  frameAspect,
   placeholder = false,
   ambientBackdrop = false,
   motion = true,
@@ -65,7 +68,18 @@ export function CroppedImage({
   const imgRef = useRef<HTMLImageElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [sourceAspect, setSourceAspect] = useState<number | null>(null);
+  // With width descriptors Chrome reports naturalWidth/Height scaled to
+  // `sizes` and rounded, so every new `sizes` yields an aspect a rounding hair
+  // off. Taking that hair as a new aspect re-derives `sizes` (1px off), which
+  // fires another load: the card reloads forever and flickers. Ignore
+  // differences under 1%.
+  const noteSourceAspect = (w: number, h: number) => {
+    if (!(w > 0 && h > 0)) return;
+    const next = w / h;
+    setSourceAspect((prev) => (prev && Math.abs(next / prev - 1) < 0.01 ? prev : next));
+  };
   const [targetAspect, setTargetAspect] = useState<number | null>(null);
+  const [boxWidth, setBoxWidth] = useState<number | null>(null);
   const [loaded, setLoaded] = useState(false);
   // When a /cdn-cgi/image/ transform URL 404s (transformations toggled off),
   // fall back to the untransformed original instead of a broken cover.
@@ -89,8 +103,14 @@ export function CroppedImage({
   };
   const sized = width ? posterUrl(width) : undefined;
   const resolvedSrc = fallbackSrc ?? sized ?? resolveImageUrl(src) ?? src;
+  // Width descriptors, not 1x/2x: with "2x" every screen above 100% zoom
+  // (most laptops run at 125–150%) took the double-size file, ~300–450KB a
+  // card where the 1x one was plenty. `sizes` below is the image's real
+  // laid-out width, so the browser takes the bigger file only when the
+  // picture is actually drawn that large. Same two widths as before, so the
+  // resizer makes no new variants.
   const srcSet = !fallbackSrc && width && sized
-    ? `${sized} 1x, ${posterUrl(width * 2) ?? sized} 2x`
+    ? `${sized} ${width}w, ${posterUrl(width * 2) ?? sized} ${width * 2}w`
     : undefined;
   const [inView, setInView] = useState(false);
   const [motionLoaded, setMotionLoaded] = useState(false);
@@ -148,9 +168,14 @@ export function CroppedImage({
     else video.pause();
   }, [inView, videoSrc]);
   const imageLayoutStyle = useMemo(
-    () => renderer.getImageStyle({ crop, sourceAspect, targetAspect }),
-    [crop, renderer, sourceAspect, targetAspect],
+    () => renderer.getImageStyle({ crop, sourceAspect, targetAspect: frameAspect ?? targetAspect }),
+    [crop, renderer, sourceAspect, targetAspect, frameAspect],
   );
+  // The image's drawn width: the box, times how far a crop enlarges it.
+  const drawnScale = Number.parseFloat(String(imageLayoutStyle.width));
+  const sizes = srcSet
+    ? `${Math.ceil((boxWidth ?? width!) * (Number.isFinite(drawnScale) && drawnScale > 100 && boxWidth ? drawnScale / 100 : 1))}px`
+    : undefined;
 
   useEffect(() => {
     // A cached image can finish loading before React attaches `onLoad`, so the
@@ -158,14 +183,16 @@ export function CroppedImage({
     // already-complete state here instead of trusting `onLoad` alone.
     const image = imgRef.current;
     if (image && image.complete && image.naturalWidth > 0) {
-      setSourceAspect(image.naturalWidth / image.naturalHeight);
+      noteSourceAspect(image.naturalWidth, image.naturalHeight);
       setLoaded(true);
     } else {
       setLoaded(false);
     }
   }, [resolvedSrc]);
 
-  useEffect(() => {
+  // A layout effect: the first measurement lands before the browser paints,
+  // so a lazy image already has its real `sizes` when it starts loading.
+  useLayoutEffect(() => {
     const element = containerRef.current;
     if (!element) return;
 
@@ -176,6 +203,8 @@ export function CroppedImage({
         // value, and React bails out of re-rendering on Object.is-equal state.
         // A 0.01 aspect step is far below anything visible in crop placement.
         setTargetAspect(Math.round((rect.width / rect.height) * 100) / 100);
+        // Whole tens of pixels, for the same reason.
+        setBoxWidth(Math.ceil(rect.width / 10) * 10);
       }
     };
 
@@ -202,7 +231,7 @@ export function CroppedImage({
       style={style}
     >
       {ambientBackdrop && loaded && (Number.parseFloat(String(imageLayoutStyle.width)) < 99.9 || Number.parseFloat(String(imageLayoutStyle.height)) < 99.9) && (
-        <img aria-hidden="true" alt="" src={resolvedSrc} srcSet={srcSet}
+        <img aria-hidden="true" alt="" src={resolvedSrc} srcSet={srcSet} sizes={sizes}
           className="pointer-events-none absolute inset-0 h-full w-full scale-110 object-cover opacity-40 blur-xl"
           decoding="async" />
       )}
@@ -220,6 +249,7 @@ export function CroppedImage({
         ref={imgRef}
         src={resolvedSrc}
         srcSet={srcSet}
+        sizes={sizes}
         loading={imgProps.loading ?? "lazy"}
         decoding={imgProps.decoding ?? "async"}
         alt={alt}
@@ -231,9 +261,7 @@ export function CroppedImage({
         style={imageLayoutStyle}
         onLoad={(event) => {
           const image = event.currentTarget;
-          if (image.naturalWidth > 0 && image.naturalHeight > 0) {
-            setSourceAspect(image.naturalWidth / image.naturalHeight);
-          }
+          noteSourceAspect(image.naturalWidth, image.naturalHeight);
           setLoaded(true);
           imgProps.onLoad?.(event);
         }}

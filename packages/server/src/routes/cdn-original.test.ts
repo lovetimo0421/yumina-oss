@@ -12,7 +12,7 @@ import { gzipSync } from "node:zlib";
 const jpeg = await sharp(Buffer.from([127, 127, 255]), {
   raw: { width: 1, height: 1, channels: 3 },
 }).jpeg().toBuffer();
-const cachePolicy = "public, max-age=0, s-maxage=300, must-revalidate";
+const cachePolicy = "public, max-age=300, s-maxage=300, must-revalidate";
 
 function assetFixture(t: TestContext, key = "worlds/example/normal.jpg") {
   assert.equal(storageKind(), "local"); // Never allow a test to reach S3.

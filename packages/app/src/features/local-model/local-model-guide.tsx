@@ -28,7 +28,7 @@ export function requestGuideOpen(): void {
   try { sessionStorage.setItem(OPEN_GUIDE_FLAG, "1"); } catch { /* storage blocked: the guide just stays closed */ }
 }
 
-function guideOpenRequested(): boolean {
+export function guideOpenRequested(): boolean {
   try { return sessionStorage.getItem(OPEN_GUIDE_FLAG) === "1"; } catch { return false; }
 }
 
@@ -166,6 +166,7 @@ export function LocalModelGuide({ focusStep, origin, onCopy }: {
                 ))}
               </div>
               <p className="text-sub/50">{t("localModel.guide.step2After")}</p>
+              <p className="text-sub/50">{t("localModel.guide.step2Other")}</p>
             </Step>
 
             <Step n={3} title={t("localModel.guide.step3Title")} highlight={focusStep === 3} hereLabel={here}>

@@ -48,3 +48,36 @@ export async function captureBoundedCpuProfile(durationMs: number) {
     return summarizeCpuProfile(profile);
   } finally { session.disconnect(); }
 }
+
+type CpuProfileSummary = ReturnType<typeof summarizeCpuProfile>;
+type StallTrigger = { event_loop_utilization: number; saturated_samples: number };
+
+/** The boot-time capture only sees the first minutes of a process, but a
+ * saturated replica can tip over at any point while its sibling idles on the
+ * same traffic. Fed every runtime sample, this captures the stall itself: one
+ * bounded profile after `consecutive` saturated samples, then a cooldown. */
+export function createStallProfiler(options: {
+  captureMs: number;
+  onProfile: (profile: CpuProfileSummary, trigger: StallTrigger) => void;
+  onError: (error: unknown) => void;
+  threshold?: number;
+  consecutive?: number;
+  cooldownMs?: number;
+  capture?: (durationMs: number) => Promise<CpuProfileSummary>;
+  now?: () => number;
+}): (eventLoopUtilization: number) => void {
+  const { captureMs, onProfile, onError, threshold = 0.8, consecutive = 2,
+    cooldownMs = 6 * 3600_000, capture = captureBoundedCpuProfile, now = Date.now } = options;
+  let saturated = 0, running = false, lastCaptureAt = -Infinity;
+  return (utilization) => {
+    saturated = utilization >= threshold ? saturated + 1 : 0;
+    if (captureMs <= 0 || running || saturated < consecutive || now() - lastCaptureAt < cooldownMs) return;
+    running = true;
+    lastCaptureAt = now();
+    const trigger = { event_loop_utilization: utilization, saturated_samples: saturated };
+    capture(captureMs)
+      .then(profile => onProfile(profile, trigger))
+      .catch(onError)
+      .finally(() => { running = false; saturated = 0; });
+  };
+}

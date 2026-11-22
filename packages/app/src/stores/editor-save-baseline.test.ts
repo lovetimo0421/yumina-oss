@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import test, { after, afterEach, beforeEach } from "node:test";
 import { createServer } from "vite";
-import type { WorldDefinition } from "@yumina/engine";
+import { applyWorldChanges, diffWorld, type WorldDefinition, type WorldEdit } from "@yumina/engine";
 
 const memory = new Map<string, string>();
 Object.defineProperty(globalThis, "localStorage", { configurable: true, value: {
@@ -20,7 +20,7 @@ const vite = await createServer({
   } },
   server: { middlewareMode: true },
 });
-const { useEditorStore: store } = await vite.ssrLoadModule("/src/stores/editor.ts") as typeof import("./editor");
+const { useEditorStore: store, editorClientId, __clearRemoteSaveQueueForTests } = await vite.ssrLoadModule("/src/stores/editor.ts") as typeof import("./editor");
 const { feedback } = await vite.ssrLoadModule("/src/lib/feedback.tsx") as typeof import("../lib/feedback");
 const { useWorldsStore } = await vite.ssrLoadModule("/src/stores/worlds.ts") as typeof import("./worlds");
 const empty = structuredClone(store.getState().worldDraft);
@@ -32,6 +32,7 @@ const world = (value: string): WorldDefinition => ({
 });
 function reset(base = world("A"), local = world("B"), id: string | null = "world") {
   store.getState().stopAutosave();
+  __clearRemoteSaveQueueForTests();
   store.setState({
     worldDraft: local, _baseSchema: id ? structuredClone(base) : null,
     serverWorldId: id, baseUpdatedAt: id ? time(1) : null,
@@ -46,8 +47,15 @@ function reset(base = world("A"), local = world("B"), id: string | null = "world
 function serverData(schema: WorldDefinition, updatedAt = time(2)) {
   return { id: "world", name: schema.name, schema, updatedAt, thumbnailUrl: null };
 }
+/** The schema a save carries: whole, or as changes on the copy the server holds. */
+function savedSchemaOf(body: { schema?: WorldDefinition; schemaChanges?: WorldEdit[] }, base: WorldDefinition | null): WorldDefinition {
+  if (body.schema || !body.schemaChanges) return body.schema as WorldDefinition;
+  const { avatar: _avatar, ...server } = (base ?? {}) as WorldDefinition;
+  return applyWorldChanges(server as WorldDefinition, body.schemaChanges);
+}
 function requestBody(init?: RequestInit): { schema: WorldDefinition; baseUpdatedAt: string | null } {
-  return JSON.parse(String(init?.body));
+  const body = JSON.parse(String(init?.body));
+  return { ...body, schema: savedSchemaOf(body, store.getState()._baseSchema) };
 }
 function changeDescription(value = "Unsaved description") {
   const current = store.getState().worldDraft;
@@ -541,4 +549,149 @@ test("an old network failure stays silent after navigation", async (t) => {
   assert.equal(store.getState().saving, false);
   assert.equal(store.getState().serverWorldId, null);
   assert.equal(error.mock.callCount(), 0);
+});
+
+test("a save sends only what changed, with this tab's id", async () => {
+  const base = world("A");
+  reset(base, structuredClone(base));
+  let sent: Record<string, unknown> = {};
+  let n = 1;
+  globalThis.fetch = async (_url, init) => {
+    sent = JSON.parse(String(init?.body));
+    n++;
+    return Response.json({ data: { id: "world", updatedAt: time(n), previousUpdatedAt: time(n - 1) } });
+  };
+  // The first save also carries load-time normalization and the compiled frontend.
+  assert.equal(await store.getState().saveDraft(), true);
+  changeDescription("Only this");
+  assert.equal(await store.getState().saveDraft(), true);
+  assert.equal(sent.schema, undefined, "the whole world is not sent");
+  // Each edit says what it started from, so the server can refuse to write
+  // over someone else's change to the same field.
+  const [change, ...rest] = sent.schemaChanges as Array<Record<string, unknown>>;
+  assert.equal(rest.length, 0);
+  const { was, ...edit } = change!;
+  assert.deepEqual(edit, { op: "field", key: "description", value: "Only this" });
+  assert.equal(typeof was, "string");
+  assert.equal(sent.clientId, editorClientId);
+  assert.equal(store.getState().baseUpdatedAt, time(3));
+  assert.equal(store.getState()._pendingServerRefresh, false);
+});
+
+/** One whole save, so the base is the server's own copy and later saves are change sets. */
+async function syncWithServer(token = time(2)) {
+  globalThis.fetch = async () => Response.json({ data: { id: "world", updatedAt: token, previousUpdatedAt: time(1) } });
+  assert.equal(await store.getState().saveDraft(), true);
+}
+
+test("the first save after opening a card sends the whole world", async () => {
+  reset(world("A"), { ...world("A"), description: "Mine" });
+  let sent: Record<string, unknown> = {};
+  globalThis.fetch = async (_url, init) => {
+    sent = JSON.parse(String(init?.body));
+    return Response.json({ data: { id: "world", updatedAt: time(2), previousUpdatedAt: time(1) } });
+  };
+  assert.equal(await store.getState().saveDraft(), true);
+  assert.ok(sent.schema, "a loaded base may hold defaults the stored copy lacks");
+  assert.equal(sent.schemaChanges, undefined);
+});
+
+test("a change set the server applied on top of an unseen save pulls that save in", async () => {
+  reset(world("A"), { ...world("A"), description: "Mine" });
+  await syncWithServer();
+  changeDescription("Mine again");
+  const fetched: string[] = [];
+  globalThis.fetch = async (_url, init) => {
+    if (init?.method === "PATCH") return Response.json({ data: { id: "world", updatedAt: time(4), previousUpdatedAt: time(3) } });
+    fetched.push("GET");
+    return Response.json({ data: serverData({ ...world("Theirs"), description: "Mine again" }, time(4)) });
+  };
+  assert.equal(await store.getState().saveDraft(), true);
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(fetched, ["GET"]);
+  assert.equal(rootSource(store.getState().worldDraft), source("Theirs"));
+});
+
+test("someone's save that lands while ours is out is replayed in order, without a refetch", async () => {
+  reset(world("A"), { ...world("A"), description: "Mine" });
+  await syncWithServer();
+  changeDescription("Mine again");
+  const theirs = diffWorld(world("A"), world("Theirs"));
+  const fetched: string[] = [];
+  globalThis.fetch = async (_url, init) => {
+    if (init?.method !== "PATCH") { fetched.push("GET"); return Response.json({ data: serverData(world("X"), time(9)) }); }
+    // Their save reaches us while our request is out; the server ordered it first.
+    store.getState().applyRemoteSave({ updatedAt: time(3), previousUpdatedAt: time(2), clientId: "other", changes: theirs });
+    return Response.json({ data: { id: "world", updatedAt: time(4), previousUpdatedAt: time(3) } });
+  };
+  assert.equal(await store.getState().saveDraft(), true);
+  await new Promise((r) => setTimeout(r, 20));
+  const s = store.getState();
+  assert.deepEqual(fetched, []);
+  assert.equal(s.baseUpdatedAt, time(4));
+  assert.equal(rootSource(s.worldDraft), source("Theirs"));
+  assert.equal(s.worldDraft.description, "Mine again");
+  assert.equal(rootSource(s._baseSchema), source("Theirs"));
+  assert.equal(s._baseSchema?.description, "Mine again");
+});
+
+test("someone else's change set lands under unsaved edits and inside undo history", () => {
+  const base = world("A");
+  const local = { ...structuredClone(base), description: "My unsaved text" };
+  reset(base, local);
+  store.setState({ _past: [structuredClone(base)] });
+  const theirs = diffWorld(base, world("Their frontend"));
+  store.getState().applyRemoteSave({ updatedAt: time(2), previousUpdatedAt: time(1), clientId: "other-tab", changes: theirs });
+  const s = store.getState();
+  assert.equal(rootSource(s.worldDraft), source("Their frontend"));
+  assert.equal(s.worldDraft.description, "My unsaved text");
+  assert.equal(rootSource(s._baseSchema), source("Their frontend"));
+  assert.equal(s.baseUpdatedAt, time(2));
+  assert.equal(s.isDirty, true);
+  assert.equal(rootSource(s._past[0]!), source("Their frontend"), "undo keeps their change");
+});
+
+test("our own echo, an old event, and one arriving mid-save are not applied directly", () => {
+  reset();
+  const before = store.getState().worldDraft;
+  const changes = diffWorld(world("A"), world("X"));
+  store.getState().applyRemoteSave({ updatedAt: time(2), previousUpdatedAt: time(1), clientId: editorClientId, changes });
+  store.getState().applyRemoteSave({ updatedAt: time(1), previousUpdatedAt: time(0), clientId: "other", changes });
+  assert.equal(store.getState().worldDraft, before);
+  store.setState({ saving: true });
+  store.getState().applyRemoteSave({ updatedAt: time(2), previousUpdatedAt: time(1), clientId: "other", changes });
+  assert.equal(store.getState().worldDraft, before);
+  assert.equal(store.getState()._pendingServerRefresh, true);
+  store.setState({ saving: false });
+});
+
+test("an autosave sends only the card fields changed here, so it never puts back someone's old tags", async () => {
+  reset(world("A"), { ...world("A"), description: "Mine" });
+  await syncWithServer();
+  let sent: Record<string, unknown> = {};
+  let n = 2;
+  globalThis.fetch = async (_url, init) => {
+    sent = JSON.parse(String(init?.body));
+    n++;
+    return Response.json({ data: { id: "world", updatedAt: time(n), previousUpdatedAt: time(n - 1) } });
+  };
+  store.getState().setTags(["mine"]);
+  changeDescription("one");
+  assert.equal(await store.getState().saveDraft(), true);
+  assert.deepEqual(sent.tags, ["mine"]);
+  changeDescription("two");
+  assert.equal(await store.getState().saveDraft(), true);
+  for (const key of ["tags", "galleryImages", "announcement", "approxTime", "name"]) assert.equal(key in sent, false, `${key} not resent`);
+  assert.equal(sent.description, "two");
+});
+
+test("someone else's tags and notice show up live, without replacing tags edited here", async () => {
+  reset(world("A"), { ...world("A"), description: "Mine" });
+  await syncWithServer();
+  store.getState().applyRemoteSave({ updatedAt: time(3), previousUpdatedAt: time(2), clientId: "other", changes: [], meta: { tags: ["theirs"] } });
+  assert.deepEqual(store.getState().tags, ["theirs"]);
+  store.getState().setTags(["mine"]);
+  store.getState().applyRemoteSave({ updatedAt: time(4), previousUpdatedAt: time(3), clientId: "other", changes: [], meta: { tags: ["theirs again"], announcement: "hello" } });
+  assert.deepEqual(store.getState().tags, ["mine"], "an unsaved edit here is kept for its save");
+  assert.equal(store.getState().announcement, "hello");
 });

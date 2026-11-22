@@ -1,20 +1,21 @@
+---
+title: "Getting started on the canvas"
+description: "Build your first playable card on the Yumina canvas: an opening, a character and world entry, a variable, a behavior, a playtest and a cover."
+---
+
 # Getting Started on the Canvas
 
-The canvas lays your whole card out on one big board. Openings, lore, variables and behaviors are all right in front of you: click something, change it.
+The canvas lays your whole card out on one big board. Openings, lore, variables and behaviors are all right in front of you: click something, change it. This page starts from a blank card and makes a small playable one, a little tavern run by Yumina, a talking mushroom.
 
-This page starts from a blank card and makes a small playable one: a little tavern run by Yumina, a talking mushroom.
+The canvas is still in **Beta**. If you run into problems, tell us on Discord
 
-The canvas is still in **Beta**. If you run into problems, tell us on Discord (｡•̀ᴗ-)✧
+## 1. Make a new card
 
-## 1. Make a new card and pick the canvas
+Click **Create** on the left and choose a template or **Blank Project**. The card opens straight on the canvas.
 
-Click **Create** on the left and choose **Blank Project**. You'll be asked "How do you want to make this card?" Pick **Canvas**.
+If you'd rather fill in a one-page form, the ⋮ menu at the top right has **Simple mode**: fill it in from top to bottom and you can play. It's handy when you just want a quick character card.
 
-![Picking the canvas for a new card](./images/canvas/create-choose.webp)
-
-The other choice, **Simple**, is a one-page form. Fill it in from top to bottom and you can play. It's handy when you just want a quick character card.
-
-Cards you already have can use the canvas too. Open the editor and look at the top left: next to the back arrow is a small switch labelled **Canvas**. Turn it on and you're in. Turn it off to go back to the full editor. It's the same card either way, and nothing gets lost. Once you've turned it on, every card you open goes straight to the canvas.
+Cards you already have open on the canvas too. Look at the top left: next to the back arrow is a small switch labelled **Canvas**. Turn it off to go to the full editor, and every card you open goes there until you turn it back on. It's the same card either way, and nothing gets lost.
 
 ![The Canvas switch in the top left](./images/canvas/canvas-switch.webp)
 
@@ -26,14 +27,9 @@ A freshly made card looks like this:
 
 The big frame in the middle is **This card**. Right now it holds just two things: the opening (**Greeting**) and **Character and world**. The **Add** row near the bottom is where variables, behaviors, music and scene images come from. You'll use it in a minute. Skip **Context** above it and **AI** at the very bottom for now. We'll get to them later.
 
-The strip above the frame is the **Player interface**. Once you've written an opening, it shows what the player will see. On the right is **Cover & blurb**, the first thing players see on Discover. We'll do that last.
+The strip above the frame is the **Player interface**. Once you've written an opening, it shows what the player will see. For a different look, press **Switch interface** on it: a column of interfaces opens on the right, a click puts one on here at once, **Use this** keeps it and **Undo** puts back what you had. On the right is **Cover & blurb**, the first thing players see on Discover. We'll do that last.
 
-Moving around the board:
-
-- **Scroll wheel** moves up and down, **Shift + scroll wheel** moves left and right
-- **Ctrl + scroll wheel** (⌘ on a Mac) zooms. Pinching on a trackpad works too
-- **Just drag** on empty space to move the canvas
-- If you get lost, click **Fit everything** in the bottom left
+Drag empty space to move around, Ctrl + scroll (⌘ on a Mac) to zoom, and **Fit everything** in the bottom left if you get lost.
 
 ## 3. Write the opening
 
@@ -55,23 +51,9 @@ Lore can also do things like "only go to the AI when a certain word comes up". W
 
 ## 5. A few ways to change things
 
-Moves that work everywhere on the canvas:
+**Click once** selects a row, **click again** opens it in place, and **double-click** opens the full-page editor, which is nicer for long text. **Ctrl + click** selects several rows at once.
 
-- **Click once** to select a row (it lights up gold), **click again** to open it in place, **double-click** to open the full-page editor, which is nicer for long text
-- **Ctrl + click** selects several rows at once. Holding Ctrl or Shift and **dragging a box** works too
-- **Right-click** a row for Copy, Duplicate, Sticky note and Delete
-
-![The right-click menu](./images/canvas/w-rightclick.webp)
-
-| Key | What it does |
-|---|---|
-| Ctrl + Z / Ctrl + Y | Undo / redo (there are buttons on the left of the top bar too) |
-| Ctrl + C / Ctrl + V | Copy / paste |
-| Ctrl + D | Duplicate |
-| Delete | Delete what's selected |
-| Esc | Deselect |
-
-One more trick: drag a row out onto empty canvas and it's "taken out". It fades, gets a **Not in play** tag, and won't be sent to the AI until you drag it back. Use it to switch something off for a while without deleting it.
+One trick worth knowing: drag a row out onto empty canvas and it is "taken out". It fades, gets a **Not in play** tag, and is not sent to the AI until you drag it back. Use it to switch something off for a while without deleting it.
 
 ## 6. Add a variable
 
@@ -107,7 +89,7 @@ Type in your message and you're done. The dashed line that appeared between Affe
 
 ![The finished behavior](./images/canvas/w-beh-done.webp)
 
-Behaviors can also change values, open lore, play music, unlock a picture card, and be called from buttons. All of that is in [Behaviors](/creator/automation).
+Behaviors can also change values, open lore, play music, hand the player a picture card, and be called from buttons. All of that is in [Behaviors](/creator/automation).
 
 ## 8. Give it a try
 
@@ -129,7 +111,7 @@ Click **Add a cover** in **Cover & blurb** on the right:
 
 ![Card settings](./images/canvas/w-card-settings.webp)
 
-You need two covers: a portrait **Phone · 2:3** and a landscape **Desktop · 16:9**. You can upload each one separately, or crop a landscape one out of the portrait. After uploading you get to adjust the crop, with a preview on the right of how it looks on Discover. Watch out that the title and buttons don't cover anyone's face:
+Upload portrait artwork for 2:3 cards and wide artwork for gallery views, or reuse the portrait. In Gallery display, adjust Desktop banner (21:9) and Mobile and gallery cards (16:9) separately. Save crop keeps both selections.
 
 ![Adjusting the cover crop](./images/canvas/w-crop.webp)
 
@@ -139,51 +121,21 @@ Card settings also has the blurb, language, gallery, and card-wide switches like
 
 ## 10. The top bar
 
-The top bar also has these:
-
 ![The top bar](./images/canvas/topbar.webp)
 
-**The three in the middle** are three ways of looking at your card:
+The three buttons in the middle are three ways of looking at your card. **Story** is this canvas. **Player interface** is the screen the player sees, covered in [Player interface](/creator/player-view). **AI generation** makes pictures, covered in [Visuals & audio](/creator/visuals-audio#ai-image-generation). On the right, **Connect your AI** lets your own Claude, ChatGPT or Cursor edit the card, the ⋮ menu holds Change History, import and export, and simple mode, and **Not live** is where you publish.
 
-- **Story**: this canvas
-- **Player interface**: the screen the player actually sees. Start from one of 22 templates to build opening pages, status panels, an inventory or a map, no code needed. See [Player interface](/creator/player-view)
-- **AI generation**: make pictures here, whether portraits, scenes or covers. See [Visuals & audio](/creator/visuals-audio#ai-image-generation)
+**Panels** on the second row holds Card settings, Interface code, Assets, Languages & variants and Version History, plus **Full-page lists**, which show your openings, lore, variables and behaviors as tables on one page. Much faster when you have lots to change. **Add** holds the three things you want once a card gets big: a scenario, an AI call and a sticky note. Everything else is added where it lives, with the ＋ on its own block.
 
-**On the right**, in order:
-
-- **Connect your AI**: lets your own Claude, ChatGPT or Cursor edit this card directly. See [The Creation assistant and your own AI](/creator/studio-ai#connect-your-own-ai)
-- **⋮**: Change History, import and export, switching to simple mode
-- **Play**, **Save**, **Not live** (publishing, covered in the last section)
-
-**On the second row**, **Panels** and **Add** sit on the left, **Guide**, **Creator Guide** and **Creation assistant** on the right.
-
-**Panels** holds Card settings, Front End Code, Assets, Languages & variants, Marketplace and Version History, plus a set of **Full-page lists** that show your openings, lore, variables and behaviors as tables on one page. Much faster when you have lots to change:
-
-![The Panels menu](./images/canvas/panels-menu.webp)
-
-**Add** in the toolbar can add more than the **Add** row at the bottom of the card. Besides lore, openings, variables, behaviors, scene images and music, it has three things you'll want once a card gets big: **A scenario** (another place or another storyline inside the card, see [Scenarios](/creator/modules)), **An AI call** (one more AI, see [AIs](/creator/ais)) and **A sticky note**.
-
-![The Add menu](./images/canvas/addmenu.webp)
-
-The **Creation assistant** is the built-in AI. New conversations start in Plan. Tell it "Add a coins variable and take money off when they buy a drink", discuss the scope, then choose **Start building** when prompted, or **Keep brainstorming**. See [The Creation assistant and your own AI](/creator/studio-ai). The **Guide** is Yumina (yes, the little mushroom) walking you through it lesson by lesson, right on your own card. **Creator Guide** opens the docs you're reading now.
+The **Creation assistant** is the built-in AI. New conversations start in Plan: tell it what you want, settle the scope, then choose **Start building**. See [The Creation assistant and your own AI](/creator/studio-ai). **Guide** is Yumina, the little mushroom, walking you through it lesson by lesson on your own card.
 
 ## 11. When your card gets bigger
 
-**Search and View.** When a card has lots in it, a search box and **View** show up in the toolbar. Search looks through names, text and IDs. View lets you keep every relationship line lit, hold the view still, tidy everything up in one click, and see what the line colours mean. When a card has more than one AI, it also has the **AI table**:
-
-![The View menu](./images/canvas/view-menu.webp)
-
-**Change several things at once.** Select several rows and a bar floats up above them: **Move to…** (into a scenario), **Duplicate**, **Share with every scenario** and **Delete**:
-
-![Three variables selected](./images/canvas/selection.webp)
-
-**Sticky notes.** Little notes you stick on the canvas as reminders to yourself, like "Make the price change with the time of day?". Right-click any row and pick **Sticky note**, or use **Add → A sticky note**. Select several things first and the note sticks to all of them. Notes come in four colours, and you can fold them up or take them off.
+**Sticky notes.** Right-click any row and pick **Sticky note**, or use **Add → A sticky note**, to leave yourself a reminder like "Make the price change with the time of day?". Select several things first and the note sticks to all of them. Notes are never sent to the AI that runs the game, but the Creation assistant reads them and knows where each one is stuck, so you can jot every idea down as a note and then say "go through the sticky notes and make the changes".
 
 ![A sticky note on a behavior](./images/canvas/sticky-note.webp)
 
-Sticky notes are never sent to the AI that runs the game. The Creation assistant does read them, though, and knows where each one is stuck. So you can jot all your ideas down as notes, then tell the assistant "go through the sticky notes and make the changes" ╰(*°▽°*)╯
-
-**Relationship lines.** The lines on the canvas show you what's connected to what: which variable a behavior is watching, which lore waits for a variable before it's sent. Hover over a row and its lines light up. Some lines you can drag out yourself. Drag a variable onto a piece of lore, for example, and you get "only send this lore when the variable meets a condition". Once it's connected, click the line to change the condition.
+**Relationship lines.** The lines show what is connected to what: which variable a behavior watches, which lore waits for a variable. Hover a row and its lines light up. Some you can drag out yourself. Drag a variable onto a piece of lore and you get "only send this lore when the variable meets a condition", then click the line to change the condition. With several rows selected, a floating bar offers **Move to…** a scenario, **Share with every scenario** and **Delete**.
 
 ## 12. Save and publish
 
@@ -207,6 +159,6 @@ Later on you can add scenarios, a few more AIs and a player interface, and a car
 
 ## On a phone
 
-A phone screen can't fit the whole canvas, so phones get their own Studio. The switch in the top left is called **Studio** on a phone. Turn it on and the bar along the bottom reads **Assistant**, **Opening**, **Lore**, **Playtest** and **More**. The Creation assistant comes first and is what you see when you open it, because on a phone, typing "add some coins for me" to the assistant is often quicker than tapping around yourself.
+A phone screen can't fit the whole canvas, so phones get their own Studio. Drag empty space to pan, pinch to zoom, tap a block to edit it, then go Back to the board. The switch in the top left is called **Studio** on a phone. Turn it on and the bar along the bottom reads **Assistant**, **Opening**, **Lore**, **Playtest** and **More**. The Creation assistant comes first and is what you see when you open it, because on a phone, typing "add some coins for me" to the assistant is often quicker than tapping around yourself.
 
 You can edit openings, lore, variables and behaviors on a phone, and playtest too. Adding or editing AIs and dragging things into scenarios still needs the canvas on a computer.

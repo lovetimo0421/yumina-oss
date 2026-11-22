@@ -1,4 +1,8 @@
 {
+  "audience": {
+    "unlisted": "リンク限定",
+    "followers": "フォロワー限定"
+  },
   "reviewBanner": {
     "title": "公開状況",
     "inReview": "更新{{count}}件を審査中",
@@ -35,7 +39,8 @@
     "removeFromLibrary": "ライブラリから削除",
     "removeConfirm": "<strong>{{name}}</strong> をライブラリから削除すると、このゲームの保存済みセッションとプレイ履歴がすべて完全に削除されます。",
     "removeAction": "削除",
-    "sessionHistorySoon": "セッション履歴は近日公開"
+    "sessionHistorySoon": "セッション履歴は近日公開",
+    "filterEmpty": "条件に合うゲームはありません"
   },
   "projects": {
     "title": "マイプロジェクト",
@@ -190,7 +195,7 @@
     "invalidFile": "バンドルファイルではありません",
     "parseFailed": "バンドルファイルを読み取れませんでした",
     "title": "リソースバンドル",
-    "noResults": "「{{query}}」の結果が見つかりません - 検索条件をクリアしてみてください。",
+    "noResults": "「{{query}}」の結果はありません",
     "emptyHeadline": "まだバンドルがありません",
     "emptySubtitle": "ハブを参照してリソースバンドルを見つけ、ライブラリに追加しましょう。",
     "emptyCta": "バンドルを見る",
@@ -229,7 +234,9 @@
     "tokens": "トークン",
     "estTime": "推定時間",
     "share": "共有",
+    "inviteTesters": "フレンドをテストに招待",
     "download": "ダウンロード",
+    "duplicate": "コピーを作成",
     "report": "通報",
     "delete": "削除",
     "addToFavorites": "お気に入りに追加",
@@ -256,12 +263,22 @@
     "basedOnBy": "by",
     "tags": "タグ",
     "activity": "アクティビティ",
+    "community": "コミュニティ",
+    "allTime": "全期間",
+    "moreActivity": "その他のアクティビティ",
+    "noReviewsYet": "レビューはまだありません",
+    "viewReviews": "レビューを見る",
     "downloads": "ダウンロード",
     "chatVolume": "チャット数",
     "favoriteCount": "お気に入り",
     "uniquePlayers": "ユニークプレイヤー",
-    "averageSession": "平均セッション",
+    "averagePlaytimePerPlayer": "平均プレイ時間",
     "averageRating": "平均評価",
+    "details": "詳細",
+    "playthroughs": "プレイ記録",
+    "totalPlaytime": "累計プレイ時間",
+    "openGallery": "ギャラリーを見る（{{count}} 枚）",
+    "galleryImageAlt": "ギャラリー画像 {{index}} / {{total}}",
     "updateHistory": "更新履歴",
     "updateHistorySaveFirst": "作品を保存すると更新履歴を確認できます。",
     "updateHistoryLoading": "更新履歴を読み込んでいます...",
@@ -323,7 +340,12 @@
       "shareInCommunity": "コミュニティで共有"
     },
     "reviews": "レビュー",
-    "overviewSubtitle": "主要な情報、メモ、説明をひとつにまとめて表示。"
+    "overviewSubtitle": "主要な情報、メモ、説明をひとつにまとめて表示。",
+    "inviteCollaborators": "共同編集に招待",
+    "originalCreator": "原作者",
+    "showMore": "もっと見る",
+    "showLess": "閉じる",
+    "reviewsHeading": "レビューとディスカッション"
   },
   "bulk": {
     "select": "選択",
@@ -342,7 +364,7 @@
     "deleteConfirmBundles": "<strong>{{count}}</strong> 件のバンドルを完全に削除しますか? この操作は取り消せません。",
     "deleting": "削除中...",
     "deletedSuccess": "{{count}} 件を削除しました",
-    "deletedPartial": "{{total}} 件のうち {{success}} 件を削除しました — {{failed}} 件失敗",
+    "deletedPartial": "{{total}} 件中 {{success}} 件を削除、{{failed}} 件失敗",
     "deletedFailed": "選択した項目の削除に失敗しました"
   },
   "dialog": {
@@ -370,7 +392,9 @@
     "editAsMyProject": "マイプロジェクトとして編集",
     "favorite": "お気に入り",
     "unfavorite": "お気に入りから外す",
-    "update": "更新"
+    "update": "更新",
+    "lastPlayed": "最終プレイ {{date}}",
+    "neverPlayed": "未プレイ"
   },
   "room": {
     "dialogTitle": "ルームチャットモードを選択",
@@ -395,6 +419,7 @@
     "failedToCopy": "プロジェクトへのコピーに失敗しました",
     "linkCopied": "リンクをコピーしました",
     "failedToShare": "共有に失敗しました",
+    "unpublishedCannotShare": "未公開のカードは共有できません。",
     "failedToDownload": "ダウンロードに失敗しました",
     "failedToExport": "エクスポートに失敗しました",
     "failedToCreateRoom": "ルームの作成に失敗しました",
@@ -406,7 +431,6 @@
     "downloadBundleFailed": "バンドルをダウンロードできません",
     "deleteAssetFailed": "アセットを削除できません",
     "deleteAssetVersioned": "このアセットは保存されたカードの履歴で使用されているため、その履歴が保持されている間は削除できません。",
-
     "deleteAssetInUse": "この画像は「{{name}}」のカバーとして使われています。先にカバーを変更してください。",
     "deleteAssetUsedByCard": "「{{name}}」がまだこのファイルを使っています。先にそのカードから外してください。",
     "renameAssetFailed": "アセット名を変更できません",
@@ -432,11 +456,15 @@
       "subtitle": "画像と音楽を作成して、素材ライブラリに保存。",
       "assets": "マイ素材",
       "signInTitle": "アイデアを絵にしよう",
-      "signInBody": "ログインすると、画像と音楽の生成、作品の保存、生成履歴の確認ができます。",
-      "signInAction": "画像や音楽を生成",
+      "signInBody": "ログインして、キャラクターの画像・動画・声をつくろう。",
+      "signInAction": "画像・動画・声をつくる",
       "signIn": "ログインして始める"
     },
-    "mobileSubtitle": "世界を作り、キャラクターを描き、アイデアを一枚の絵に。"
+    "mobileSubtitle": "世界を作り、キャラクターを描き、アイデアを一枚の絵に。",
+    "aiCard": {
+      "title": "アトリエ",
+      "desc": "キャラクターの画像・動画・オーディオをつくる"
+    }
   },
   "time": {
     "justNow": "たった今",
@@ -457,7 +485,7 @@
     "worldSimulationDesc": "独自の世界観、勢力、動的なイベントを備えた世界全体を構築します。",
     "multiplayerCampaign": "マルチプレイヤーキャンペーン",
     "multiplayerCampaignDesc": "2〜4 人で楽しむ協力型マルチプレイヤー冒険。独自のゲームシステムとワールドを定義できます。",
-    "imageGeneration": "AI 生成",
+    "imageGeneration": "アトリエ",
     "imageGenerationDesc": "一言で画像と音楽を。キャラクターイラスト、背景、カバー、そしてカードのBGM。"
   },
   "newSubFolder": "新しいサブフォルダ",
@@ -480,7 +508,7 @@
     "largeFile": "大きなファイル（{{size}} MB）です。読み込みが遅くなることがあります"
   },
   "generation": {
-    "openButton": "AI生成",
+    "openButton": "アトリエ",
     "title": "AI画像生成",
     "disabled": "生成機能は現在利用できません。",
     "template": {
@@ -618,7 +646,9 @@
       "sentToModel": "モデルに送られた内容",
       "reroll": "もう一枚",
       "reuseSeed": "同じシード",
-      "seedValue": "シード {{seed}}"
+      "seedValue": "シード {{seed}}",
+      "keptInCard": "{{count}} 枚の画像は「{{worldName}}」で使われているため残しました",
+      "keptVersioned": "{{count}} 枚の画像はカードの保存済みバージョンで使われているため残しました"
     },
     "community": {
       "searchPlaceholder": "共有モデルを検索…",
@@ -756,7 +786,7 @@
       "PROVIDER_BUSY": "画像サービスが混雑しています。後でもう一度お試しください。",
       "PROVIDER_CREDITS": "スマート画像生成は一時的に利用できません。",
       "GENERATION_BUSY": "生成待ちが上限に達しています。後でお試しください。",
-      "GENERATION_BUDGET": "スマート画像生成の利用枠に達しました。後でお試しください。",
+      "GENERATION_BUDGET": "本日の生成枠が上限に達しました。後でお試しください。",
       "REFERENCE_NOT_FOUND": "参考画像が見つからないか、このアカウントでは使用できません。",
       "REFERENCE_FORMAT": "参考画像はPNG・JPEG・WebPに対応しています。",
       "REFERENCE_DIMENSIONS": "参考画像は4000万画素以下にしてください。",
@@ -792,7 +822,32 @@
       "VIDEO_STYLE_WITH_FRAME": "この画風はこの動画では使えません。別の画風を選んでください。",
       "QUALITY_BATCH": "4Kは1回に1枚だけです。枚数を1にしてもう一度お試しください。",
       "MODEL_UNAVAILABLE": "このモデルは現在使えません。別のモデルを選んでください。",
-      "REFERENCE_UNSUPPORTED": "このモデルは参考画像を使えません。画像を外すか、別のモデルを選んでください。"
+      "REFERENCE_UNSUPPORTED": "このモデルは参考画像を使えません。画像を外すか、別のモデルを選んでください。",
+      "REFERENCE_VIDEO_FORMAT": "参考動画を読み込めませんでした。MP4 か WebM でお試しください。",
+      "REFERENCE_VIDEO_LENGTH": "参考動画は 2 秒以上必要です。",
+      "VIDEO_NO_REFERENCE_VIDEO": "このモデルは参考動画に沿えません。",
+      "VIDEO_REFERENCE_VIDEO_RESOLUTION": "参考動画を使うときはこの解像度を選べません。",
+      "UNKNOWN_TOOL": "不明なツール",
+      "INVALID_INPUT": "入力を確認してください",
+      "MEDIA_FORMAT": "非対応のファイル形式",
+      "MEDIA_NOT_FOUND": "ファイルが見つかりません",
+      "MEDIA_UNAVAILABLE": "ファイルを読めません",
+      "MEDIA_TOO_LARGE": "ファイルが大きすぎます",
+      "MEDIA_TOO_LONG": "ファイルが長すぎます",
+      "MEDIA_TOO_SHORT": "ファイルが短すぎます",
+      "MEDIA_DIMENSIONS": "非対応の画像サイズ",
+      "OUTPUT_TOO_LARGE": "結果が大きすぎて保存できません",
+      "REQUEST_CONFLICT": "すでに開始しています",
+      "FOLDER_NOT_FOUND": "フォルダが見つかりません",
+      "JOB_MISSING": "ジョブが見つかりません",
+      "GENERATION_USER_BUDGET": "今日の利用上限に達しました。明日またどうぞ。",
+      "LORA_NEEDS_ANIMA": "Anima の LoRA です。Anima のベースモデルを選ぶか、外してください",
+      "LORA_NEEDS_SDXL": "SDXL の LoRA です。SDXL のベースモデルを選ぶか、外してください",
+      "LORA_FAMILY_UNSUPPORTED": "Anima と SDXL（Illustrious・NoobAI・Pony）の LoRA のみ対応しています",
+      "LORA_NOT_ANIMA": "Anima の LoRA のみ対応しています",
+      "CIVITAI_SIGN_IN": "Civitai へのログインが必要なファイルです。ダウンロードしてアップロードしてください",
+      "CIVITAI_LICENSE": "作者が生成サービスでの利用を許可していません",
+      "NOT_SAFETENSORS": ".safetensors ファイルのみ取り込めます"
     },
     "queue": {
       "waiting": "順番待ち中…",
@@ -828,6 +883,7 @@
         "seedreamFlash": "最安",
         "seedreamLite": "速い",
         "seedreamPro": "バランス",
+        "seedream55": "最新・透過PNG",
         "nanoBanana21": "最新 · 編集に強い",
         "nanoBanana2": "512 対応",
         "nanoBananaPro": "高品質",
@@ -840,19 +896,19 @@
         "qwenImage3": "安い · 遅い",
         "qwenImage3Pro": "高精細 · 遅い",
         "grokImagine": "最安 · 速い",
-        "grokImagineQuality": "速い",
         "grokImagine2": "高精細 · とても遅い",
         "klingO1": "すっきりアニメ",
         "lumaUni1": "4MP · 遅い",
         "lumaUni1Max": "4MP 高精細 · 遅い",
-        "ideogram45": "文字に強い",
+        "ideogram46": "文字に強い",
         "wan25": "絵画調 · プレビュー",
         "recraft41": "デザイン · フラット",
         "krea2Turbo": "最安",
         "krea2Medium": "スタイル重視",
         "krea2Large": "スタイル重視 · 遅い",
         "maiImage26": "すっきり · 速い",
-        "hunyuan35": "安い · 2K"
+        "hunyuan35": "安い · 2K",
+        "minimaxH3Image": "最速・安い4K"
       },
       "version": "バージョン",
       "noReference": "{{model}} は参考画像を使えません。画像を外すか、別のモデルを選んでください。",
@@ -914,15 +970,23 @@
       "emptyTitle": "まだ画像はありません",
       "emptyBody": "最初の一枚がここに出ます。",
       "thisRun": "今回 約 {{count}} マッシー",
-      "pageTitle": "AI 生成",
+      "pageTitle": "アトリエ",
       "tabImage": "画像",
       "tabAudio": "音声",
-      "audioTitle": "AI BGM 生成",
-      "audioLead": "音楽は素材ライブラリに保存されます。",
+      "audioTitle": "AI オーディオ",
+      "audioLead": "音楽・効果音・ボイスは素材ライブラリに保存されます。",
       "sectionOutput": "出力サイズ",
       "tabVideo": "動画",
       "videoTitle": "AI 動画生成",
-      "videoLead": "動画は素材ライブラリに保存され、立ち絵・オープニング・プレイヤー画面に使えます。"
+      "videoLead": "動画は素材ライブラリに保存され、立ち絵・オープニング・プレイヤー画面に使えます。",
+      "tabGallery": "ギャラリー",
+      "galleryTitle": "生成ギャラリー",
+      "galleryLead": "みんなの作品を見てみよう。気に入ったら同じレシピで生成できます。",
+      "tab3d": "3D",
+      "model3dTitle": "AI 3D モデル",
+      "model3dLead": "モデルは .glb で素材ライブラリに保存されます。",
+      "tabLive": "動く立ち絵",
+      "liveTitle": "AI 動く立ち絵"
     },
     "music": {
       "workshopTitle": "BGM を生成",
@@ -996,11 +1060,13 @@
       "slot": {
         "first": "最初のフレーム",
         "last": "最後のフレーム",
-        "ref": "キャラ参考"
+        "ref": "キャラ参考",
+        "video": "参考動画"
       },
       "slotHint": {
         "first": "この画像から動画が始まる",
-        "last": "この画像で動画が終わる"
+        "last": "この画像で動画が終わる",
+        "video": "カメラと動きがこれに沿います。手元になければ、ここで白モデルを作れます"
       },
       "slotRefHint": "見た目を保ち、場面は新しくできる・最大 {{count}} 枚、1 枚 +{{price}}",
       "slotRefHintFree": "見た目を保ち、場面は新しくできる・最大 {{count}} 枚",
@@ -1024,7 +1090,8 @@
         "firstLastShort": "首尾フレーム",
         "refsShort": "参考画像",
         "fast": "速い",
-        "needsImage": "画像が必要"
+        "needsImage": "画像が必要",
+        "refVideo": "動画に沿う"
       },
       "priceFrom": "{{count}} / {{seconds}} 秒から",
       "priceFor": "{{count}} / {{seconds}}秒",
@@ -1068,7 +1135,7 @@
       "emptyTitle": "まだ動画がありません",
       "emptyBody": "最初の動画がここに表示されます。",
       "place": "配置…",
-      "placePortrait": "キャラの動く立ち絵",
+      "placePortrait": "キャラの動画立ち絵",
       "placeGreeting": "オープニングの先頭",
       "placed": "追加しました：{{where}}",
       "unnamed": "名前のないキャラ",
@@ -1088,7 +1155,20 @@
       "howStyle": "{{style}}画風",
       "placeUi": "プレイヤー画面（新しい動画枠）",
       "styleHint": "まずこの画風で最初のフレームを描き、それを動かすので、動画全体がこの画風になります。",
-      "styleNoneHint": "{{model}} がテキストから直接生成します。写実寄りになります。"
+      "styleNoneHint": "{{model}} がテキストから直接生成します。写実寄りになります。",
+      "howReferenceVideo": "参考動画から生成",
+      "uploadVideo": "動画をアップロード",
+      "referenceVideoResolution": "{{model}} が参考動画に沿って出せるのは {{list}} だけです。",
+      "slotBlockedByVideo": "参考動画を使うときは使いません",
+      "slotBlockedByFrames": "参考動画を使うにはフレームを外してください",
+      "referenceVideoUsedAll": "{{seconds}} 秒 · 全体を使用 · {{aspect}} に切り抜き",
+      "referenceVideoUsedPart": "{{seconds}} 秒 · 最初の {{used}} 秒を使用 · {{aspect}} に切り抜き",
+      "referenceVideoOtherModel": "参考動画に沿えるのは Seedance 2.5 だけなので、{{model}} では使われません。Seedance 2.5 に戻すと使われます。",
+      "promptPlaceholderReferenceVideo": "場面が何かだけ書けば大丈夫：箱や人形が何か、場所、画風、光。カメラと動きは参考動画に沿います。",
+      "referenceVideoTooLarge": "参考動画は {{mb}} MB までです。短くしてからアップロードしてください。",
+      "referenceVideoEmpty": "ライブラリにまだ動画がありません。白モデルか画面録画をアップロードしてください。",
+      "searchVideos": "動画を検索",
+      "referenceVideoSwitch": "参照動画や 3D シーンに合わせるには {{model}} に切り替え。タップで切り替え"
     },
     "folderLoadFallback": "このカードのフォルダを読み込めませんでした。いまは「すべての素材」に生成します。",
     "quality": {
@@ -1129,6 +1209,1790 @@
         "camera": "カメラワーク",
         "dialogue": "口パク付き台詞"
       }
+    },
+    "blockout": {
+      "title": "白モデルを作る",
+      "lead": "場面と人を置き、カメラの動きを選んで、参考動画として録画します。似せる必要はなく、灰色の箱で十分です。AI はカメラと動きをなぞり、絵はプロンプトどおりに描きます。",
+      "open": "白モデルを作って参考動画にする",
+      "openShort": "作る",
+      "reopenShort": "直す",
+      "place": "場面",
+      "places": {
+        "empty": "広場",
+        "room": "部屋",
+        "classroom": "教室",
+        "street": "通り",
+        "scene": "AIシーン"
+      },
+      "scene": {
+        "off": "ここではAIシーンは使えません",
+        "promptLabel": "どんな場所",
+        "promptPlaceholder": "夕日の差し込む教室、木の机が並び、緑の黒板、左側は一面の窓…（画風も：アニメ、油絵、実写）",
+        "make": "シーンを作る · {{price}} マッシー",
+        "making": "シーンを作成中…1分ほど",
+        "makeHint": "一行の文章が、人を立たせて撮れる3Dの部屋になります。同じシーンは毎回同じなので、この場所の映像はすべて揃います。1分ほど。失敗した場合はマッシーが戻ります。",
+        "noCredits": "{{price}} マッシーが必要です。チャージするとシーンを作れます。",
+        "mine": "自分のシーン",
+        "none": "シーンを作るか、持っているものを選ぶとここに表示されます",
+        "loading": "シーンを読み込み中…（{{mb}} MB）",
+        "loadFailed": "シーンを読み込めませんでした。もう一度試してください。",
+        "change": "変更",
+        "remove": "このシーンを削除",
+        "failedShort": "失敗",
+        "refunded": "返金済み",
+        "floor": "床",
+        "floorUp": "床を上げる",
+        "floorDown": "床を下げる",
+        "floorHint": "人が浮いたり床に沈んだりするときは、床を一段動かしてください。",
+        "howToFrame": "人をドラッグして移動、何もない所をドラッグして視点を回します。シーンは作られた地点の近くが一番鮮明です。カメラと人は中心から約{{metres}}m以内に。離れるとぼやけます。",
+        "needsScene": "先にシーンを選ぶか作ってください",
+        "failed": {
+          "REFUSED": "シーンの説明がプロバイダーのコンテンツポリシーで拒否されました。言い換えてもう一度。",
+          "PROVIDER_FAILED": "その説明からはシーンを作れませんでした。別の書き方を試してください。",
+          "PROVIDER_UNAVAILABLE": "シーンサービスが応答しませんでした。しばらくしてもう一度。",
+          "STORAGE_FAILED": "シーンはできましたが保存できませんでした。もう一度試してください。",
+          "LOST": "作成が中断されました（サーバー再起動）。もう一度試してください。",
+          "GENERATION_DISABLED": "ここではAIシーンは使えません。"
+        },
+        "errors": {
+          "NO_CREDITS": "シーンを作るマッシーが足りません。",
+          "TOO_MANY_ACTIVE_JOBS": "シーンは一度に一つずつ。今のものが終わるまでお待ちください。",
+          "PROMPT_TOO_LONG": "どんな場所かを1000文字以内で書いてください。",
+          "GENERATION_DISABLED": "ここではAIシーンは使えません。",
+          "SCENE_BUSY": "そのシーンはまだ作成中です。",
+          "SCENE_FAILED": "シーンで問題が起きました。もう一度試してください。"
+        }
+      },
+      "add": "追加",
+      "things": {
+        "person": "人",
+        "box": "箱",
+        "pillar": "柱",
+        "table": "机"
+      },
+      "remove": "削除",
+      "turn": "向き",
+      "turnLeft": "左に回す",
+      "turnRight": "右に回す",
+      "size": "大きさ",
+      "smaller": "小さく",
+      "bigger": "大きく",
+      "walks": "歩く",
+      "walksHint": "半透明の人形を止まる場所までドラッグ。クリップの中ほどでそこまで歩きます",
+      "camera": "カメラ",
+      "moves": {
+        "still": "固定",
+        "push": "寄る",
+        "pull": "引く",
+        "orbit": "回り込み",
+        "pan": "横移動",
+        "follow": "追う"
+      },
+      "movesHint": {
+        "still": "カメラは動かず、人だけが動きます",
+        "push": "決めた画面からゆっくり寄ります",
+        "pull": "決めた画面からゆっくり引きます",
+        "orbit": "画面の中心を六分の一周回ります",
+        "pan": "右へ移動し、被写体が画面を横切ります",
+        "follow": "歩く人を追い、最初の構図を保ちます"
+      },
+      "followNeedsPerson": "追うには場面に人が一人以上必要です",
+      "length": "長さ",
+      "howToFrame": "人や物をドラッグで移動、何もない所をドラッグで視点を回転、ホイールかピンチでズーム。止めた所が最初の画面になります。",
+      "stayHere": "録画中です。このページから離れないでください。終わると参考動画に入ります。",
+      "recording": "録画中 {{seconds}} / {{total}} 秒",
+      "previewing": "プレビュー {{seconds}} / {{total}} 秒",
+      "uploading": "アップロード中…",
+      "preview": "プレビュー",
+      "stop": "停止",
+      "use": "この白モデルを使う（{{count}} 秒録画）",
+      "footNote": "録画はライブラリに保存され、次回もそのまま選べます。",
+      "leftWhileRecording": "録画中にページを離れたため、映像が止まりました。このページのままで録り直してください。",
+      "recordFailed": "録画に失敗しました。もう一度お試しください。続く場合は Chrome か Edge をお使いください。",
+      "fileName": "白モデル"
+    },
+    "gallery": {
+      "sortLabel": "並び替え",
+      "sortNew": "新着",
+      "sortTop": "人気",
+      "mine": "自分の投稿",
+      "loading": "読み込み中…",
+      "loadMore": "もっと見る",
+      "error": "読み込めませんでした",
+      "retry": "再試行",
+      "emptyTitle": "ギャラリーはまだ空です",
+      "emptyBody": "気に入った画像を生成するか、物語の挿絵を開いて「ギャラリーに投稿」を選んでください。審査のあとここに表示されます。",
+      "emptyAction": "生成する",
+      "mineEmptyTitle": "まだ投稿していません",
+      "mineEmptyBody": "生成履歴の画像で「ギャラリーに投稿」を押すと、レシピごと共有できます。",
+      "open": "画像を開く",
+      "untitled": "無題",
+      "detailHint": "画像・プロンプト・設定",
+      "like": "いいね",
+      "unlike": "いいねを取り消す",
+      "prompt": "プロンプト",
+      "negativePrompt": "ネガティブプロンプト",
+      "copyPrompt": "コピー",
+      "copied": "コピーしました",
+      "copyFailed": "コピーできませんでした",
+      "settings": "設定",
+      "models": "使用モデル",
+      "omittedModels": "作者は非公開モデルを {{count}} 個使っており、レシピには含まれていません。",
+      "useRecipe": "このレシピで生成",
+      "useRecipeHint": "プロンプトと設定が入力されます。生成前に変更もできます。",
+      "delete": "ギャラリーから削除",
+      "deleteConfirm": "この画像をギャラリーから削除しますか？画像自体は素材ライブラリに残ります。",
+      "deleted": "ギャラリーから削除しました",
+      "status": {
+        "pending": "審査中",
+        "approved": "公開中",
+        "rejected": "非承認"
+      },
+      "rejectReason": "理由：{{reason}}",
+      "pendingHint": "承認されると他の人にも表示されます",
+      "facts": {
+        "model": "モデル",
+        "style": "画風",
+        "aspect": "比率",
+        "size": "サイズ",
+        "steps": "ステップ",
+        "cfg": "CFG",
+        "sampler": "サンプラー",
+        "quality": "画質",
+        "seed": "シード"
+      },
+      "publish": "ギャラリーに投稿",
+      "inGallery": "ギャラリー掲載中",
+      "publishTitle": "ギャラリーに投稿",
+      "publishBody": "プロンプトと設定も公開され、他の人が同じレシピで生成できます。参照画像は公開されません。",
+      "pickImage": "投稿する画像を選ぶ",
+      "titleLabel": "タイトル（任意）",
+      "titlePlaceholder": "画像に名前をつける",
+      "sensitiveLabel": "無制限エリアに置く（無制限をオンにした成人のみ表示）",
+      "reviewNote": "まずAIが確認します。たいていすぐに公開されます。",
+      "publishAction": "投稿",
+      "publishing": "投稿中…",
+      "publishDone": "投稿しました。AIの確認後に広場に表示されます。",
+      "alreadyPosted": "この画像はすでに投稿済みです。",
+      "tooManyPending": "審査待ちの投稿が多すぎます。審査が終わってから投稿してください。",
+      "publishFailed": "投稿できませんでした。もう一度お試しください。",
+      "fromStory": "この物語から",
+      "playStory": "遊ぶ",
+      "noRecipe": "レシピの保存が始まる前に描かれた画像なので、再利用できるレシピがありません。",
+      "storyPublishBody": "この画像、描くのに使ったタグ、元の物語がほかの人に公開されます。",
+      "discoverTitle": "みんなの画像",
+      "signInBody": "ログインすると、ほかのプレイヤーの画像や物語の挿絵を見て、気に入ったレシピで自分でも生成できます。",
+      "signIn": "ログイン",
+      "report": {
+        "open": "報告",
+        "title": "この画像の問題は？",
+        "reasons": {
+          "minor": "未成年に見える",
+          "sexual_unmarked": "性的なのにセンシティブ指定がない",
+          "real_person": "実在の人物",
+          "violence": "暴力・グロテスク",
+          "hate": "差別・嫌がらせ",
+          "spam": "スパム",
+          "other": "その他"
+        },
+        "detailsPlaceholder": "補足があれば（任意）",
+        "cancel": "キャンセル",
+        "submit": "報告する",
+        "sent": "ありがとうございます。確認します。"
+      }
+    },
+    "tools": {
+      "open": "ツール",
+      "menu": "ツール",
+      "overviewTitle": "ツール",
+      "overviewLead": "すべてのツールを用途別に。",
+      "loadError": "ツールを読み込めません",
+      "unavailable": "今は利用できません",
+      "unavailableShort": "利用不可",
+      "from": "{{count}} マッシーから",
+      "goFrom": "生成（{{count}} マッシーから）",
+      "about": "約 {{seconds}} 秒",
+      "started": "開始しました",
+      "files": "ファイル",
+      "pick": {
+        "image": "画像を選ぶ",
+        "video": "動画を選ぶ",
+        "audio": "音を選ぶ"
+      },
+      "searchAudio": "音を検索",
+      "uploadAudio": "音をアップロード",
+      "audioEmpty": "ライブラリにまだ音がありません",
+      "audioFormat": "MP3・WAV・OGG・M4A・FLAC",
+      "audioTooLarge": "{{mb}} MB まで",
+      "lyricsPlaceholder": "省略可 · [verse] [chorus] [bridge]",
+      "input": {
+        "image": "画像",
+        "video": "動画",
+        "audio": "音",
+        "mask": "変える範囲",
+        "prompt": "説明",
+        "lyrics": "歌詞",
+        "seconds": "長さ",
+        "instrumental": "インストのみ",
+        "factor": "倍率",
+        "aspect": "新しい比率",
+        "light": "光",
+        "loop": "シームレスにループ",
+        "text": "セリフ",
+        "voice": "声",
+        "lang": "言語",
+        "model": "モデル",
+        "heightM": "実際の高さ",
+        "detail": "精細さ",
+        "motions": "モーション"
+      },
+      "light": {
+        "sunset": "夕暮れ",
+        "night": "夜",
+        "studio": "スタジオ",
+        "neon": "ネオン",
+        "candle": "ろうそく",
+        "overcast": "曇り"
+      },
+      "mask": {
+        "brush": "ブラシ",
+        "erase": "消しゴム",
+        "size": "サイズ",
+        "clear": "クリア",
+        "hint": "変える所を塗る",
+        "empty": "先に範囲を塗ってください",
+        "failed": "マスクのアップロード失敗"
+      },
+      "voicePreview": "{{name}} を試聴",
+      "voicePreviewStop": "停止",
+      "voiceLine": {
+        "make": "セリフを作る",
+        "short": "ボイス",
+        "making": "セリフを作成中…",
+        "failed": "セリフの生成に失敗"
+      },
+      "group": {
+        "image": "画像",
+        "video": "動画",
+        "audio": "オーディオ",
+        "3d": "3D"
+      },
+      "audioMode": {
+        "music": "音楽",
+        "song": "歌",
+        "sfx": "効果音",
+        "voice": "ボイス",
+        "voice-change": "ボイスチェンジ"
+      },
+      "engine": "モデル",
+      "engineName": {
+        "song": "ElevenLabs",
+        "song-open": "ACE-Step",
+        "song-mureka": "Mureka",
+        "bgm-mureka": "Mureka"
+      },
+      "model3d": {
+        "kindLabel": "作るもの",
+        "kind": {
+          "thing": "モノ",
+          "person": "動く人物"
+        },
+        "title": "モデル",
+        "empty": "まだ 3D モデルがありません",
+        "emptyBody": "画像を選んで始めましょう。",
+        "view": "表示",
+        "download": ".glb をダウンロード",
+        "orbit": "ドラッグで回転 · スクロールでズーム",
+        "loadFailed": "モデルを読み込めません",
+        "metres": "{{n}} m",
+        "asMade": "そのまま",
+        "models": {
+          "hunyuan": {
+            "name": "Hunyuan 3D 3.1 Pro",
+            "maker": "Tencent",
+            "facts": "近くで見て最も鮮明 · 約4分"
+          },
+          "rodin": {
+            "name": "Rodin Gen-2.5",
+            "maker": "Hyper3D",
+            "facts": "色がいちばん豊か · 約3分"
+          },
+          "tripo": {
+            "name": "Tripo H3.1",
+            "maker": "Tripo",
+            "facts": "実寸で出力 · 色は暗め · 約2分"
+          },
+          "trellis": {
+            "name": "TRELLIS.2",
+            "maker": "Microsoft",
+            "facts": "最速、約40秒 · 近くで見ると甘い、下書き向き"
+          },
+          "meshy": {
+            "name": "Meshy 7.1",
+            "maker": "Meshy",
+            "facts": "約2分"
+          }
+        },
+        "price": "{{count}} マッシー",
+        "detail": {
+          "high": "高精細",
+          "standard": "標準"
+        }
+      },
+      "item": {
+        "remove-bg": {
+          "name": "背景を消す",
+          "desc": "被写体を切り抜く。"
+        },
+        "upscale": {
+          "name": "高解像度化",
+          "desc": "2 倍か 4 倍、くっきり。"
+        },
+        "inpaint": {
+          "name": "部分描き直し",
+          "desc": "一部を塗って、何にするか書く。",
+          "placeholder": "そこに何を描くか"
+        },
+        "expand": {
+          "name": "拡張",
+          "desc": "新しい比率に広げる。",
+          "placeholder": "広げた所に何があるか（省略可）"
+        },
+        "relight": {
+          "name": "ライティング変更",
+          "desc": "光を変える。"
+        },
+        "lipsync": {
+          "name": "リップシンク",
+          "desc": "キャラにセリフを言わせる。"
+        },
+        "video-upscale": {
+          "name": "動画の高解像度化",
+          "desc": "2 倍、くっきり。"
+        },
+        "video-sound": {
+          "name": "音を付ける",
+          "desc": "動画に合う音を付ける。",
+          "placeholder": "どんな音か（省略可）"
+        },
+        "song": {
+          "name": "歌",
+          "desc": "ボーカルと歌詞入り。",
+          "placeholder": "スタイル、雰囲気、楽器、歌い手"
+        },
+        "song-open": {
+          "name": "歌（ACE-Step）",
+          "desc": "オープンモデル、安め。",
+          "placeholder": "タグ。例：city pop, female vocal"
+        },
+        "sfx": {
+          "name": "効果音",
+          "desc": "テキストから短い効果音。",
+          "placeholder": "例：扉がきしんで開く"
+        },
+        "voice": {
+          "name": "ボイス",
+          "desc": "テキスト読み上げ。",
+          "placeholder": "しゃべる内容"
+        },
+        "voice-change": {
+          "name": "ボイスチェンジ",
+          "desc": "録音を別の声に。"
+        },
+        "to-3d": {
+          "name": "3D モデル",
+          "desc": "画像を .glb モデルに。"
+        },
+        "to-3d-character": {
+          "name": "3D キャラクター",
+          "desc": "一枚の絵から動く人物を。",
+          "placeholder": "idle, walk, sit, salute…（空欄で標準セット）"
+        },
+        "talk": {
+          "name": "写真がしゃべる",
+          "desc": "写真が音声に合わせて話す。",
+          "placeholder": "表情や動き（任意）"
+        },
+        "song-mureka": {
+          "name": "歌（Mureka）",
+          "desc": "歌詞どおりに歌います。",
+          "placeholder": "スタイル、雰囲気、歌い手"
+        },
+        "bgm-mureka": {
+          "name": "インスト（Mureka）",
+          "desc": "フル尺のインスト曲。",
+          "placeholder": "場面、雰囲気、楽器"
+        },
+        "dubbing": {
+          "name": "吹き替え",
+          "desc": "同じ声のまま別の言語に。口の動きも合わせます。"
+        },
+        "reframe": {
+          "name": "比率変更",
+          "desc": "新しい比率に。足りない部分を描き足します。",
+          "placeholder": "描き足す部分の内容（任意）"
+        },
+        "motion": {
+          "name": "モーション転写",
+          "desc": "キャラクターを参考動画の動きで動かします。",
+          "placeholder": "補足（任意）"
+        }
+      },
+      "running": "処理中 · 約 {{seconds}} 秒",
+      "closeRunning": "閉じる（処理は続行）",
+      "limit": {
+        "tooLong": "{{seconds}} 秒まで",
+        "tooShort": "{{seconds}} 秒以上",
+        "tooSmall": "{{px}} px 以上",
+        "tooBig": "{{px}} px まで"
+      },
+      "proposal": {
+        "about": "約 {{seconds}} 秒",
+        "running": "{{seconds}} / 約 {{total}} 秒",
+        "done": "完了",
+        "failed": "失敗",
+        "declined": "スキップ",
+        "stillRunning": "実行中 · 完了後ライブラリへ",
+        "run": "実行 · {{count}} マッシー",
+        "runNoPrice": "実行",
+        "decline": "スキップ",
+        "charged": "{{count}} マッシー消費",
+        "view3d": "3D を見る",
+        "copyFailed": "コピー失敗"
+      },
+      "voiceTone": {
+        "Sarah": "落ち着いた女声",
+        "Laura": "おちゃめな女声",
+        "Jessica": "明るい女声",
+        "Matilda": "温かい女声",
+        "Lily": "英国風の女声",
+        "Alice": "澄んだ女声",
+        "George": "語りの男声",
+        "Brian": "低い男声",
+        "Liam": "若い男声",
+        "Callum": "ハスキーな男声",
+        "Charlie": "元気な男声",
+        "River": "中性的な声"
+      },
+      "lang": {
+        "en": "英語",
+        "zh": "中国語",
+        "ja": "日本語",
+        "ko": "韓国語",
+        "es": "スペイン語",
+        "fr": "フランス語",
+        "de": "ドイツ語",
+        "pt": "ポルトガル語",
+        "ru": "ロシア語",
+        "it": "イタリア語",
+        "ar": "アラビア語",
+        "id": "インドネシア語",
+        "th": "タイ語",
+        "vi": "ベトナム語",
+        "hi": "ヒンディー語",
+        "tr": "トルコ語"
+      }
+    },
+    "quick": {
+      "target": {
+        "portrait": "立ち絵",
+        "portraitIdle": "待機ループ",
+        "portraitSpeaking": "会話ループ",
+        "voice": "ボイス",
+        "sceneImage": "シーン画像",
+        "background": "背景",
+        "cover": "カバー",
+        "bgm": "音楽",
+        "sfx": "効果音",
+        "ambient": "環境音"
+      },
+      "description": "作ってこのブロックに入れます。",
+      "prompt": "プロンプト",
+      "model": "モデル",
+      "moreModels": "その他",
+      "size": "サイズ",
+      "count": "枚数",
+      "length": "長さ",
+      "pick": "1 つ選ぶ",
+      "retryOn": "{{model}} で再試行",
+      "edit": "編集",
+      "openHint": "オープンモデルは断りにくい。",
+      "needsPortrait": "先に立ち絵を追加",
+      "open": "自社 GPU",
+      "clip": "クリップ",
+      "full": "フル",
+      "retryAnime": "自社アニメモデルで再試行 · {{count}} マッシー",
+      "refsOn": "参考画像あり",
+      "refsOff": "このモデルは参考画像なし"
+    },
+    "wb": {
+      "style": "画風",
+      "styleAuto": "モデル標準",
+      "ownGpu": "自社 GPU",
+      "mention": "メンション",
+      "noMatch": "該当なし",
+      "noElements": "キャラと設定はまだありません",
+      "attach": "ファイルを追加",
+      "needPicture": "画像を追加",
+      "go": "生成",
+      "placeholder": {
+        "image": "描きたい画像を説明",
+        "video": "カメラと動きを説明",
+        "audio": "音を説明、またはセリフを入力",
+        "live": "キャラクターの画像を 1 枚",
+        "3d": "物体の画像を 1 枚"
+      },
+      "starter": {
+        "animate": {
+          "name": "1 枚の絵を動かす"
+        },
+        "outfit": {
+          "name": "ひと言で着替え",
+          "prompt": "同じキャラクター、同じポーズで、服を "
+        },
+        "bgm": {
+          "name": "カードの BGM",
+          "prompt": "カードの BGM："
+        },
+        "voice": {
+          "name": "キャラクターボイス",
+          "prompt": ""
+        },
+        "expressions": {
+          "name": "表情セット",
+          "prompt": "同じキャラクターの表情 3×3：笑顔、怒り、悲しみ、驚き、照れ、平静、ドヤ顔、泣き、眠い。服装はそのまま、無地の背景"
+        },
+        "canvas": {
+          "name": "白紙のキャンバス"
+        }
+      },
+      "blocked": {
+        "prompt": "先に何か書いてください",
+        "picture": "先に画像を追加",
+        "model": "使えるモデルがありません"
+      },
+      "tab": {
+        "works": "広場",
+        "skills": "レシピ",
+        "elements": "キャラと設定",
+        "mine": "マイ作品"
+      },
+      "emptyMine": "まだ作品はありません",
+      "untitled": "無題",
+      "liveTitle": "動く立ち絵 · {{date}}",
+      "myPosts": "自分の",
+      "publishWork": "公開",
+      "publishSkill": "レシピを公開",
+      "publishSkillLead": "ほかの人が自分の言葉と画像で使えます。",
+      "kind": {
+        "character": "キャラ",
+        "scene": "シーン",
+        "prop": "小物",
+        "voice": "声",
+        "style": "画風"
+      },
+      "kindLabel": "種類",
+      "all": "すべて",
+      "loadFailed": "読み込めません",
+      "saveFailed": "保存できません",
+      "addElement": "新規",
+      "editElement": "編集",
+      "name": "名前",
+      "description": "説明",
+      "refs": "参考画像 {{count}}/{{max}}",
+      "none": "なし",
+      "save": "保存",
+      "filter": "絞り込み",
+      "sortLabel": "並び替え",
+      "sort": {
+        "hot": "人気",
+        "new": "新着"
+      },
+      "mine": "自分の",
+      "workKind": {
+        "image": "画像",
+        "video": "動画",
+        "live": "動く立ち絵",
+        "audio": "音楽"
+      },
+      "emptyWorks": "まだ作品はありません",
+      "emptySkills": "まだレシピはありません",
+      "remix": "同じものを作る",
+      "useInCard": "自分のカードに入れる",
+      "copiedLink": "リンクをコピー",
+      "use": "使う",
+      "like": "いいね",
+      "skillPublished": "レシピを公開しました",
+      "title": "タイトル",
+      "cover": "カバー",
+      "publish": "公開",
+      "skillStatus": {
+        "pending": "審査中",
+        "rejected": "非承認"
+      },
+      "suggest": {
+        "character": "うちの子を作る",
+        "scene": "シーンを保存",
+        "voice": "声を保存"
+      },
+      "showPrompt": "プロンプトを見る",
+      "hidePrompt": "閉じる",
+      "studio": {
+        "image": "画像",
+        "video": "動画",
+        "audio": "オーディオ",
+        "live": "動く立ち絵",
+        "3d": "3Dモデル",
+        "lora": "LoRA 学習"
+      },
+      "home": {
+        "title": "今日は誰のために作る？",
+        "characters": "あなたのキャラ",
+        "newCharacter": "新しいキャラ",
+        "plaza": "広場",
+        "back": "戻る",
+        "forHer": "{{name}}に今日は何を作る？",
+        "heading": "アトリエ",
+        "lead": "画像、動画、サウンド",
+        "recent": "最近の作品",
+        "myCharacters": "マイキャラクター",
+        "others": "その他",
+        "firstHint": "キャラを描いて、着せ替え・ボイス・動画を作ろう",
+        "listen": "聞いてみる",
+        "make": "つくれるもの",
+        "try": "試す",
+        "line": {
+          "image": "ひとことで、挿絵・立ち絵・背景",
+          "video": "ひとこと書けば動き出す",
+          "audio": "ボイス、音楽、効果音",
+          "live": "一枚の絵で、キャラが動き出す",
+          "3d": "1枚の画像がシーンに置けるモデルになります",
+          "lora": "立ち絵1枚から学習。キャラがどの絵でも同じ顔に"
+        },
+        "tile": {
+          "outfit": {
+            "name": "着替え",
+            "desc": "同じキャラに新しい服を"
+          },
+          "expressions": {
+            "name": "表情セット",
+            "desc": "9つの表情を一度に"
+          },
+          "talk": {
+            "name": "セリフ",
+            "desc": "写真が声でしゃべる"
+          },
+          "lipsync": {
+            "name": "口パク",
+            "desc": "動画の彼女にセリフを"
+          },
+          "remove-bg": {
+            "name": "背景を消す",
+            "desc": "ワンタップで切り抜き"
+          },
+          "upscale": {
+            "name": "高画質化",
+            "desc": "2倍か4倍でくっきり"
+          },
+          "expand": {
+            "name": "拡張",
+            "desc": "画面を外へ広げる"
+          },
+          "sfx": {
+            "name": "効果音",
+            "desc": "ひとことで効果音を"
+          }
+        },
+        "whose": "どのキャラクターで？",
+        "withPicture": "画像を使う",
+        "withFiles": "画像と音声を使う",
+        "pickPicture": "キャラクターの画像を選ぶ",
+        "sc": {
+          "imgLine": "夜明けの老漁師、サイド光",
+          "still": "一枚の絵",
+          "moving": "動かす"
+        },
+        "square": {
+          "title": "広場",
+          "skills": "レシピ",
+          "lora": "LoRA",
+          "voice": "ボイス",
+          "sort": {
+            "hot": "人気",
+            "new": "新着"
+          },
+          "shared": "みんなの共有"
+        },
+        "more": {
+          "title": "ほかの使い方",
+          "clone": "ボイスクローン",
+          "line": {
+            "lora": "立ち絵1枚で、どの絵も彼女に",
+            "live": "1枚の絵でキャラが動き出す",
+            "clone": "10秒の録音で、彼女の声を",
+            "lipsync": "動画の彼女にセリフを",
+            "remove-bg": "ワンタップでキャラを切り抜く",
+            "expand": "絵を外側に広げる"
+          }
+        },
+        "live": {
+          "from": "元の絵"
+        }
+      },
+      "next": {
+        "animate": "動く立ち絵にする",
+        "video": "動画にする",
+        "lipsync": "口パク",
+        "card": "自分のカードに入れる",
+        "voice": "キャラの声にする",
+        "say": "しゃべらせる",
+        "extend": "延長",
+        "join": "1本につなぐ"
+      },
+      "card": {
+        "search": "自分のカードを検索",
+        "none": "カードがありません。作成する",
+        "done": "「{{name}}」に入れました",
+        "doneHere": "このカードに入れました",
+        "open": "開く",
+        "landed": "「{{name}}」に追加 · {{slot}}",
+        "landedHere": "追加しました · {{slot}}",
+        "look": "見に行く"
+      },
+      "char": {
+        "unnamed": "名前のないキャラ",
+        "keep": "キャラとして保存",
+        "made": "彼女と作ったもの",
+        "missing": "キャラが見つかりません",
+        "scenePrompt": "がいる場面：",
+        "action": {
+          "outfit": "着せ替え",
+          "expressions": "表情セット",
+          "voice": "ボイス",
+          "animate": "動かす",
+          "seeLive": "動きを見る",
+          "scene": "場面の中の彼女",
+          "card": "自分のカードに入れる",
+          "video": "動画にする",
+          "say": "セリフ"
+        },
+        "outfits": "衣装",
+        "expressions": "表情",
+        "lives": "動く姿",
+        "voice": "彼女の声",
+        "clips": "セリフ"
+      },
+      "audio": {
+        "voice": "ボイス",
+        "music": "音楽",
+        "sfx": "効果音",
+        "bgm": "BGM",
+        "song": "ボーカル曲",
+        "mine": "マイボイス",
+        "plaza": "広場"
+      },
+      "voiceLab": {
+        "mine": "マイボイス",
+        "design": "説明で作る",
+        "clone": "クローン",
+        "describe": "声の説明",
+        "describePh": "例：三十歳くらいの男性、穏やかで低い声、少し文学的",
+        "generate": "3つ作る",
+        "again": "もう3つ",
+        "designCost": "{{n}} マッシュ",
+        "free": "無料",
+        "candidate": "候補 {{n}}",
+        "keep": "保存",
+        "kept": "保存済み",
+        "fromSaved": "保存済み",
+        "recording": "録音",
+        "cloneHint": "{{min}}–{{max}} 秒、話者は一人",
+        "record": "録音",
+        "stop": "停止",
+        "upload": "アップロード",
+        "seconds": "{{s}} 秒",
+        "name": "名前",
+        "namePh": "任意",
+        "cloneGo": "クローン",
+        "empty": "まだ声がありません",
+        "emptyBody": "声を説明するか、録音をアップロード",
+        "fromDesign": "デザイン",
+        "fromClone": "クローン",
+        "heldBy": "@{{name}} が使用中",
+        "try": "試しに読む",
+        "tryPh": "セリフを入力して Enter",
+        "say": "読む",
+        "toCharacter": "キャラに設定",
+        "noCharacters": "キャラがいません",
+        "given": "@{{name}} に設定しました",
+        "copyName": "@名前をコピー",
+        "copied": "コピーしました",
+        "rename": "名前を変更",
+        "delete": "削除",
+        "deleteConfirm": "「{{name}}」を削除しますか？",
+        "err": {
+          "noCredits": "マッシュが足りません",
+          "tooShort": "録音が短すぎます",
+          "tooLarge": "ファイルが大きすぎます",
+          "format": "読み込めません。MP3、WAV、M4A を使ってください",
+          "expired": "候補の期限が切れました。作り直してください",
+          "busy": "リクエストが多すぎます。少し待ってください",
+          "gone": "この声は使えなくなりました",
+          "failed": "失敗しました。もう一度どうぞ",
+          "noMic": "マイクが使えません",
+          "nameTaken": "その名前は使われています",
+          "unavailable": "声の機能は現在使えません"
+        },
+        "publish": "広場に公開",
+        "unpublish": "広場から外す",
+        "published": "審査に出しました。承認後に広場に出ます",
+        "unpublished": "広場から外しました",
+        "status": {
+          "pending": "審査中",
+          "approved": "公開中",
+          "rejected": "不承認"
+        },
+        "usedBy": "{{count}} 人が使用中",
+        "designLead": "一文で声を説明して、3つの候補から選びます",
+        "designTime": "約15秒",
+        "designFor": "オリジナルキャラ向け",
+        "cloneLead": "はっきりした声を録音かアップロードすると、すぐその声になります",
+        "cloneTime": "約1分",
+        "cloneFor": "手元の録音向け",
+        "savedTab": "保存",
+        "savedEmpty": "保存した声はまだありません",
+        "savedEmptyBody": "広場の声で「使う」を押すとここに出ます",
+        "fromPlaza": "広場から",
+        "useForLine": "セリフに使う",
+        "editShown": "広場の情報を編集"
+      },
+      "field": {
+        "prompt": "説明",
+        "reference": "参考画像",
+        "model": "モデル",
+        "firstFrame": "最初のフレーム",
+        "motion": "動き",
+        "lastFrame": "最後のフレーム",
+        "characterRefs": "キャラクター参照",
+        "referenceVideo": "参考動画",
+        "camera": "カメラ"
+      },
+      "newKind": {
+        "character": "新しいキャラ",
+        "scene": "新しい場面",
+        "prop": "新しい小物",
+        "voice": "新しい声",
+        "style": "新しい画風"
+      },
+      "emptyStudio": "まだありません",
+      "moreActions": "その他",
+      "resizeSettings": "ドラッグして設定欄の幅を変更",
+      "tools": "ツール",
+      "copyRef": "参照をコピー",
+      "fullSettings": "すべての設定",
+      "simple": "シンプル設定",
+      "play": "遊ぶ",
+      "moreSettings": "詳細設定",
+      "keep": {
+        "outfits": "{{name}}の衣装にする",
+        "expressions": "{{name}}の表情にする",
+        "remove": "外す",
+        "voiceWhose": "誰の声にする？",
+        "voiceAlone": "単独の声として保存",
+        "done": {
+          "outfits": "{{name}}の衣装に追加しました",
+          "expressions": "{{name}}の表情に追加しました",
+          "voice": "{{name}}の声にしました",
+          "clips": "{{name}}のセリフに追加しました"
+        }
+      },
+      "refused": {
+        "free": "今回は無料です",
+        "retry": "別のモデルで再試行 · {{count}}",
+        "edit": "説明を直す"
+      },
+      "queue": {
+        "place": "順番待ち · {{count}} 番目",
+        "hint": "空きが出たら開始",
+        "cancel": "キャンセル",
+        "held": "順番待ちに入れました。空きが出たら始まります"
+      },
+      "budget": {
+        "useStyle": "画風で生成"
+      },
+      "slot": {
+        "portrait": "{{name}} の立ち絵",
+        "clip": "{{name}} 動画の立ち絵 · {{clip}}",
+        "live": "{{name}} の動く立ち絵",
+        "scene": "シーン画像",
+        "background": "チャット背景",
+        "cover": "カバー",
+        "opening": "オープニング",
+        "assets": "素材だけに追加",
+        "audio": {
+          "bgm": "BGM",
+          "ambient": "環境音",
+          "sfx": "効果音"
+        }
+      },
+      "download": "ダウンロード",
+      "hide": "削除",
+      "filesGone": "ファイルはマイ素材から削除済み",
+      "filesGoneCount": "ファイル削除済みの古い記録 {{count}} 件",
+      "needPrompt": "まず一言書いてください",
+      "needMotion": "まず動きを書いてください",
+      "defaultMotion": "そっとまばたき、髪が風に揺れる",
+      "styleChip": "画風：{{name}}",
+      "styleChipAuto": "画風：自動",
+      "tier": {
+        "fast": "速い",
+        "good": "標準",
+        "best": "最高",
+        "custom": "カスタム"
+      },
+      "moreModels": "他のモデル",
+      "more": "もっと",
+      "pricePer": "{{count}} / {{seconds}} 秒",
+      "preset": {
+        "custom": "カスタム…",
+        "outfit": {
+          "school": "制服",
+          "kimono": "着物 / 浴衣",
+          "winter": "冬服",
+          "sport": "スポーツウェア",
+          "gown": "ドレス"
+        },
+        "scene": {
+          "classroom": "教室",
+          "cafe": "カフェ",
+          "night": "夜の街",
+          "beach": "海辺",
+          "bedroom": "寝室"
+        }
+      },
+      "first": {
+        "title": "最初のキャラクターを描こう",
+        "placeholder": "どんな子？髪、目、服、雰囲気…",
+        "manual": "手動で入力"
+      },
+      "stage": {
+        "ask": "今日は彼女に何を作る？",
+        "others": "その他のキャラ ({{count}})",
+        "open": "彼女のページ",
+        "recent": "最近",
+        "seeAll": "彼女のページで全部見る",
+        "seeAllHere": "すべて見る"
+      },
+      "examples": "これを試す",
+      "example": {
+        "image": {
+          "cafe": "雨の日、カフェの窓辺の銀髪の少女",
+          "sakura": "桜吹雪の中の女剣士",
+          "neon": "ネオンの夜市の少女、サイバーパンク"
+        },
+        "video": {
+          "turn": "ゆっくり振り向いて微笑む",
+          "wind": "風に髪がなびき、そっとまばたき",
+          "rain": "雨のネオン街、カメラがゆっくり寄る"
+        }
+      },
+      "experimental": "実験的",
+      "edit": "編集",
+      "modelTag": {
+        "cheap": "お手頃",
+        "k4": "4K",
+        "textOnly": "テキストのみ",
+        "sound": "音声あり",
+        "ownGpu": "自社GPU",
+        "lastFrame": "最終フレーム"
+      },
+      "details": {
+        "size": "サイズ",
+        "duration": "長さ",
+        "cost": "消費",
+        "time": "日時",
+        "character": "キャラクター",
+        "expand": "もっと見る",
+        "collapse": "閉じる",
+        "loras": "LoRA",
+        "references": "参照画像",
+        "parts": "パート"
+      },
+      "custom": {
+        "change": "変更",
+        "ownBase": "自分のベースモデル",
+        "platform": "公式ベースモデル",
+        "mine": "自分のベースモデル",
+        "community": "コミュニティのベースモデル",
+        "videoLora": "動画LoRA",
+        "mismatch": "このベースモデルには合いません",
+        "mismatchShort": "非対応",
+        "noLoras": "このベースモデルはLoRAを使えません",
+        "addLora": "LoRAを追加",
+        "tab": {
+          "mine": "自分の",
+          "community": "コミュニティ",
+          "link": "取り込む"
+        },
+        "noMine": "LoRAがまだありません。コミュニティから選ぶかCivitaiリンクを貼ってください",
+        "noCommunity": "コミュニティにLoRAはまだありません",
+        "linkHint": "Civitaiのモデルリンクを貼ってください。ダウンロードと同期に数分かかります",
+        "size": "サイズ",
+        "advanced": "詳細設定",
+        "weight": "強さ",
+        "dice": "ランダムなシード",
+        "upload": ".safetensors をアップロード",
+        "uploading": "アップロード中 {{pct}}%"
+      },
+      "say": {
+        "title": "{{name}}にしゃべらせる",
+        "placeholder": "セリフ",
+        "line": "セリフ",
+        "price": "約 {{count}} マッシー · 約 {{seconds}} 秒",
+        "go": "しゃべる",
+        "voicing": "音声を作成中",
+        "runLabel": "{{name}}：{{line}}",
+        "voiceFallback": "彼女の声はまだ使えないので {{voice}} で話します"
+      },
+      "extend": {
+        "label": "延長 · {{title}}"
+      },
+      "camera": {
+        "push": "寄り",
+        "pull": "引き",
+        "orbit": "回り込み",
+        "follow": "追従",
+        "pan": "パン",
+        "static": "固定"
+      },
+      "topUp": "チャージする",
+      "join": {
+        "label": "つないだ動画 · {{title}}"
+      },
+      "audioEmpty": "まだ音声はありません",
+      "au": {
+        "describe": "説明",
+        "describePh": "一文で：場面、雰囲気、楽器",
+        "style": "スタイル",
+        "vocals": "ボーカル",
+        "instrumental": "インスト",
+        "withVocals": "ボーカルあり",
+        "lyrics": "歌詞",
+        "lyricsPh": "空のままなら先に歌詞を書きます",
+        "writeLyrics": "AI で作詞",
+        "writing": "作詞中",
+        "needAbout": "先に説明を書くか、スタイルを選んでください",
+        "lyricsFailed": "歌詞を書けませんでした。もう一度どうぞ",
+        "singer": {
+          "auto": "自動",
+          "female": "女性",
+          "male": "男性"
+        },
+        "length": "長さ",
+        "len": {
+          "s": "{{n}} 秒",
+          "m": "{{n}} 分"
+        },
+        "engineTag": {
+          "lyria": "おすすめ",
+          "bgm-mureka": "フル尺",
+          "song-mureka": "おすすめ",
+          "song": "長さ指定",
+          "song-open": "安い"
+        },
+        "tag": {
+          "daily": "日常",
+          "battle": "バトル",
+          "romance": "恋愛",
+          "sad": "悲しい",
+          "mystery": "ミステリー",
+          "horror": "ホラー",
+          "epic": "壮大",
+          "night": "夜",
+          "japanese": "和風",
+          "chinese": "中華風",
+          "piano": "ピアノ",
+          "lofi": "Lo-fi",
+          "electronic": "エレクトロ",
+          "rock": "ロック",
+          "citypop": "シティポップ",
+          "jazz": "ジャズ"
+        },
+        "line": "セリフ",
+        "linePh": "話す内容。演技の指示も書けます",
+        "cues": "演技",
+        "cue": {
+          "soft": "小声で",
+          "laugh": "笑い",
+          "sob": "涙声",
+          "sigh": "ため息",
+          "shout": "叫び",
+          "whisper": "ささやき"
+        },
+        "voice": "声",
+        "makeVoice": "声を作る",
+        "myVoice": "マイボイス",
+        "listen": "試聴",
+        "byChars": "文字数で課金",
+        "voiceFailed": "生成できませんでした。もう一度どうぞ",
+        "making": "生成中 · {{seconds}} 秒",
+        "empty": {
+          "voice": "まだセリフがありません",
+          "music": "まだ音楽がありません",
+          "sfx": "まだ効果音がありません"
+        },
+        "emptyBody": "左に一文書けば始められます",
+        "kind": {
+          "voice": "セリフ",
+          "music": "音楽",
+          "sfx": "効果音"
+        },
+        "seek": "再生位置",
+        "close": "閉じる",
+        "singerLabel": "歌い手",
+        "plaza": {
+          "title": "ボイス広場",
+          "hot": "人気",
+          "used": "使ったもの",
+          "search": "声を検索",
+          "use": "使う",
+          "inMine": "追加済み",
+          "listen": "試聴",
+          "mine": "自分の",
+          "users": "{{count}} 人が使用中",
+          "added": "マイボイスに追加しました。セリフ、カード、チャットで選べます",
+          "removed": "マイボイスから外しました",
+          "full": "マイボイスが 40 個です。先にいくつか外してください",
+          "failed": "うまくいきませんでした。もう一度どうぞ",
+          "empty": "まだ誰も声を公開していません",
+          "noneUsed": "まだ広場の声を使っていません",
+          "noMatch": "その声は見つかりません",
+          "emptyBody": "マイボイスで作るかクローンして、広場に公開しましょう",
+          "goMine": "マイボイスへ",
+          "shelf": {
+            "music": "音楽",
+            "sfx": "効果音",
+            "voice": "声"
+          },
+          "new": "新着",
+          "inMusic": "追加済み",
+          "taken": "オーディオに追加しました。カードに入れられます",
+          "storageFull": "ストレージがいっぱいです",
+          "emptyShelf": {
+            "music": "まだ音楽が共有されていません",
+            "sfx": "まだ効果音が共有されていません"
+          },
+          "emptyShelfBody": "音楽か効果音で作って、⋯ から広場に公開しましょう",
+          "untitled": {
+            "music": "音楽",
+            "sfx": "効果音"
+          },
+          "signIn": "ログインすると使えます",
+          "noneMine": "まだ声を公開していません",
+          "style": {
+            "piano": "ピアノ",
+            "orchestral": "オーケストラ",
+            "acoustic": "アコースティック",
+            "electronic": "エレクトロ",
+            "lofi": "Lo-fi",
+            "japanese": "和風",
+            "chinese": "中華風",
+            "fantasy": "ファンタジー",
+            "battle": "バトル",
+            "dark": "ダーク",
+            "tender": "やさしい",
+            "sad": "切ない",
+            "folk": "フォーク",
+            "pop": "ポップ",
+            "heroic": "勇壮",
+            "calm": "穏やか"
+          },
+          "listenIn": "おすすめ",
+          "download": "ダウンロード",
+          "best": "おすすめ",
+          "speaks": "言語",
+          "anyLang": "すべての言語"
+        },
+        "savedVoice": "保存",
+        "publish": "広場に公開",
+        "posted": "審査に出しました。承認後に広場に出ます",
+        "alreadyPosted": "公開済みです",
+        "postFailed": "公開できませんでした。もう一度どうぞ",
+        "restricted": "アカウントが制限中のため公開できません",
+        "fromPlaza": "広場から",
+        "history": "履歴",
+        "pickVoice": "声を選ぶ",
+        "pick": {
+          "all": "すべて",
+          "mine": "自分の",
+          "saved": "保存",
+          "catalog": "おすすめ"
+        },
+        "picked": "使用中",
+        "pickThis": "使う",
+        "noMine": "まだ自分の声がありません",
+        "noSaved": "まだ保存した声がありません。広場をのぞいてみましょう",
+        "morePlaza": "広場でもっと声を探す",
+        "dramaHint": "角かっこの演技指示を読み上げずに演じます",
+        "scenesLead": "試す",
+        "scene": {
+          "line": {
+            "name": "キャラのセリフ",
+            "text": "[ささやき] やっと来てくれたんだね。もう……戻ってこないと思ってた。"
+          },
+          "narration": {
+            "name": "ナレーション",
+            "text": "むかしむかし、山に囲まれた王都に、口数の少ない姫が住んでいました。"
+          },
+          "whisper": {
+            "name": "ささやき",
+            "text": "[ささやき] 静かに。やつらはすぐ外にいる。"
+          },
+          "battle": {
+            "name": "掛け声",
+            "text": "[叫び] 全員ついてこい！今日は誰ひとり置いていかない！"
+          },
+          "tease": {
+            "name": "甘え",
+            "text": "[笑い] べ、別にあなたのために作ったわけじゃないんだから……食べてみる？"
+          },
+          "announce": {
+            "name": "アナウンス",
+            "text": "お客様にご案内いたします。星港行きの列車がまもなく到着します。"
+          }
+        },
+        "sfxPh": "音を一文で。例：古い木の扉がゆっくりきしみながら開く",
+        "loopOn": "ループ",
+        "loopOff": "ループなし",
+        "sfxIdea": {
+          "door": {
+            "name": "扉",
+            "text": "古い木の扉がゆっくりきしみながら開く"
+          },
+          "rain": {
+            "name": "雨",
+            "text": "窓と屋根に当たる一定の雨音"
+          },
+          "sword": {
+            "name": "剣戟",
+            "text": "二本の鋼の剣が何度もぶつかり合う"
+          },
+          "magic": {
+            "name": "魔法",
+            "text": "魔法をためて放つ、きらめく風切り音"
+          },
+          "crowd": {
+            "name": "酒場",
+            "text": "にぎやかな酒場、笑い声とジョッキの音、言葉は聞き取れない"
+          },
+          "heart": {
+            "name": "鼓動",
+            "text": "緊張した鼓動、ゆっくりからだんだん速く"
+          }
+        }
+      },
+      "saveCharacter": "キャラクターとして保存",
+      "share": "共有",
+      "skillSeconds": "{{count}}秒",
+      "skillUsed": "{{count}} 回使用",
+      "skillWhat": "設定",
+      "skillFill": "空欄",
+      "skillStep": {
+        "image": "画像を作る",
+        "video": "動画を作る",
+        "audio": "音を作る",
+        "live": "動く立ち絵にする",
+        "tool": "加工"
+      },
+      "skillPub": {
+        "words": "プロンプト",
+        "wordsHint": "ほかの人が入れる部分を【】で囲む",
+        "how": "公開範囲",
+        "open": "レシピを公開",
+        "openNote": "モデル・設定・プロンプトを表示",
+        "closed": "使い方だけ",
+        "closedNote": "説明と空欄のみ表示",
+        "closedNo": "1ステップのレシピのみ",
+        "preview": "プレビュー",
+        "previewClosed": "プレビュー（自分のみ）",
+        "blanks": "空欄 {{count}}",
+        "noBlanks": "空欄なし",
+        "onlyMe": "自分だけ",
+        "save": "保存",
+        "savedPrivate": "保存しました",
+        "coverPick": "選ぶ・アップロード",
+        "file": {
+          "image": "画像一枚",
+          "video": "動画ひとつ",
+          "audio": "音ひとつ"
+        }
+      },
+      "skillTakes": "用意するもの",
+      "skillPrompt": "プロンプト",
+      "skillChainNote": "残り {{count}} ステップは自動で続き、それぞれ課金されます",
+      "skillSet": {
+        "size": "サイズ",
+        "aspectRatio": "比率",
+        "resolution": "解像度",
+        "durationSeconds": "長さ",
+        "sound": "音あり",
+        "fast": "高速",
+        "style": "ベースモデル",
+        "quality": "品質",
+        "steps": "ステップ数",
+        "cfg": "CFG",
+        "sampler": "サンプラー",
+        "negativePrompt": "ネガティブプロンプト",
+        "on": "オン",
+        "off": "オフ"
+      },
+      "allMade": "履歴",
+      "sealed": {
+        "title": "作者はレシピを公開していません",
+        "mine": "非公開",
+        "askPrice": "料金を見る",
+        "run": "生成（{{mushies}} Mushies）",
+        "failed": "完了できませんでした。もう一度どうぞ。",
+        "noCredits": "Mushies が足りません"
+      },
+      "skillView": {
+        "recent": "最近使った",
+        "saved": "保存済み"
+      },
+      "voiceLang": {
+        "zh": "中国語",
+        "ja": "日本語",
+        "en": "英語",
+        "es": "スペイン語"
+      },
+      "soundCover": {
+        "upload": "画像をアップロード",
+        "badFile": "20MB以内の画像を選んでください"
+      },
+      "soundPublish": {
+        "title": "広場に公開",
+        "descPh": "誰の声か、どんな素材で作ったか",
+        "lang": "おすすめ言語",
+        "go": "公開",
+        "desc": "紹介"
+      },
+      "source": {
+        "cloud": "汎用モデル",
+        "own": "画風モデル"
+      },
+      "refine": "この画像を調整",
+      "shareUpload": {
+        "title": "作品をシェア",
+        "go": "広場に公開",
+        "done": "送信しました。審査後に広場に表示されます",
+        "failed": "公開できませんでした。少ししてからもう一度",
+        "already": "この画像はすでにシェア済みです",
+        "change": "変更",
+        "kind": {
+          "image": "画像をシェア",
+          "video": "動画をシェア",
+          "music": "音楽をシェア",
+          "sfx": "効果音をシェア"
+        },
+        "titlePh": "タイトルを付ける",
+        "descPh": "紹介を書く：何の作品か、どう作ったか",
+        "tag": "タグ",
+        "removeTag": "削除",
+        "enlarge": "拡大表示",
+        "review": "審査のあと広場に表示されます",
+        "need": {
+          "work": "まず作品を選んでください",
+          "title": "タイトルがまだです"
+        },
+        "search": "検索",
+        "keepPrompt": "プロンプトを公開しない",
+        "keepPromptNote": "他の人は同じものを作れません",
+        "sensitive": "無制限エリアに置く",
+        "sensitiveNote": "成人向け表示をオンにした成人にだけ表示",
+        "tooMany": "審査待ちの作品が多すぎます。審査後にもう一度",
+        "pickOne": "1つ選ぶ",
+        "noMatch": "見つかりません",
+        "shared": "共有済み",
+        "none": {
+          "music": "音楽がまだありません。アップロードできます",
+          "sfx": "効果音がまだありません。アップロードできます"
+        },
+        "untitled": {
+          "music": "無題の音楽",
+          "sfx": "無題の効果音"
+        }
+      },
+      "myWork": "自分の作品",
+      "skillPublish": {
+        "entry": "レシピを公開",
+        "pick": "どの作品をレシピにしますか"
+      },
+      "skillReview": {
+        "title": "レビュー",
+        "send": "投稿",
+        "failed": "投稿できませんでした。少ししてからもう一度",
+        "none": "まだレビューはありません"
+      },
+      "comments": {
+        "title": "コメント",
+        "ratings": "{{count}} 件の評価",
+        "writePh": "感想を書く",
+        "makerPh": "作者としてコメント",
+        "rate": "評価",
+        "send": "投稿",
+        "reply": "返信",
+        "replyPh": "{{name}} に返信",
+        "maker": "作者",
+        "like": "いいね",
+        "delete": "削除",
+        "moreReplies": "返信をあと {{count}} 件表示",
+        "more": "もっと見る",
+        "noneTitle": "まだコメントはありません",
+        "noneBody": "最初のコメントを書きましょう",
+        "signIn": "ログインするとコメントできます",
+        "failed": "投稿できませんでした。少ししてからもう一度",
+        "loadFailed": "コメントを読み込めませんでした",
+        "retry": "再試行",
+        "menu": "その他",
+        "original": "原文",
+        "translation": "翻訳",
+        "hide": "非表示",
+        "unhide": "再表示",
+        "report": "通報",
+        "reportedShort": "通報済み",
+        "reported": "通報しました。確認します",
+        "reportWhy": "通報の理由",
+        "cancel": "キャンセル",
+        "reason": {
+          "harassment": "嫌がらせ・暴言",
+          "spam": "スパム・宣伝",
+          "sexual": "性的な内容",
+          "illegal": "違法な内容",
+          "other": "その他"
+        },
+        "hiddenBy": {
+          "maker": "作者が非表示にしました",
+          "reports": "通報により非表示",
+          "admin": "管理者が非表示にしました"
+        }
+      },
+      "detail": {
+        "how": "作り方",
+        "copy": "コピー",
+        "copied": "コピーしました",
+        "promptHidden": "作者はプロンプトを公開していません",
+        "keptMine": "自分だけに表示",
+        "prev": "前へ",
+        "next": "次へ"
+      },
+      "player": {
+        "label": "再生中",
+        "prev": "前へ",
+        "next": "次へ",
+        "play": "再生",
+        "pause": "一時停止",
+        "close": "閉じる",
+        "seek": "シーク",
+        "language": "試聴の言語",
+        "best": "おすすめ"
+      },
+      "modelFact": {
+        "upTo": "最大 {{size}}",
+        "reference": "参考画像可",
+        "textOnly": "テキストのみ",
+        "seconds": "最長 {{count}} 秒",
+        "sound": "音声付き",
+        "lastFrame": "最初と最後のフレーム",
+        "wait": "約 {{time}}"
+      },
+      "connectAi": "AI と接続",
+      "lora": {
+        "import": "LoRA ファイルがある？インポート",
+        "square": "LoRA 広場",
+        "mine": "マイ LoRA",
+        "confirmDelete": "「{{name}}」を削除しますか？使っているカードは LoRA なしで描きます。",
+        "confirmRemove": "「{{name}}」をマイ LoRA から外しますか？",
+        "attach": "キャラに使う",
+        "draw": "これで描く",
+        "remove": "外す",
+        "pickShots": "学習用の絵ができました",
+        "openTraining": "開く",
+        "inMine": "マイ LoRA にあり",
+        "addToMine": "マイ LoRA に追加",
+        "attachTitle": "使う先",
+        "attached": "完了。これからの挿絵に使われます",
+        "cardStyle": "カードの画風",
+        "noCharacters": "このカードにはまだキャラがいません",
+        "myPersona": "マイペルソナ",
+        "myCards": "マイカード",
+        "noCards": "まだカードがありません",
+        "characters": "キャラ {{count}} 人",
+        "failed": "うまくいきませんでした。もう一度お試しください",
+        "before": "LoRA なし",
+        "after": "LoRA あり",
+        "emptyLine": "LoRA がないと同じキャラでも毎回違う顔に。LoRA があれば同じ人になります"
+      }
+    },
+    "liveChar": {
+      "cue": {
+        "angry": "怒り",
+        "nod": "うなずく",
+        "sad": "悲しい",
+        "shake": "首を振る",
+        "surprised": "驚き",
+        "wave": "手を振る",
+        "happy": "うれしい",
+        "shy": "照れる",
+        "heart": "ときめき",
+        "clasp": "手を組む",
+        "laugh": "大笑い",
+        "wink": "ウインク",
+        "tilt": "首をかしげる",
+        "doubt": "疑う",
+        "sigh": "ため息",
+        "lookdown": "うつむく",
+        "welcome": "両手を広げる",
+        "chest": "胸に手を当てる",
+        "shrug": "肩をすくめる"
+      },
+      "errors": {
+        "NOT_FOUND": "見つかりません",
+        "REDRAW_EXPIRED": "時間が経ちすぎて描き直せません。もう一度作ってください",
+        "NO_CREDITS": "マッシーが足りません",
+        "STORAGE_LIMIT": "アセットライブラリがいっぱいです",
+        "TOO_MANY_ACTIVE_JOBS": "実行中が多すぎます。1 つ終わるまでお待ちください",
+        "PROVIDER_UNAVAILABLE": "現在利用できません",
+        "FAILED": "開始できませんでした。もう一度お試しください",
+        "PICTURE_MANY": "この画像にはキャラクターが複数います。1人だけの画像を使ってください。マッシーは消費されていません。",
+        "PICTURE_SIDE": "顔がこちらを向いている必要があります。横顔や後ろ姿は動く立ち絵にできません。マッシーは消費されていません。",
+        "PICTURE_SMALL": "この画像ではキャラクターが小さすぎます。頭と上半身が大きく写った画像を使ってください。マッシーは消費されていません。",
+        "PICTURE_EYES": "この画像では目が隠れています（帽子のつば、マスク、サングラスなど）。目が見える画像を使ってください。マッシーは消費されていません。",
+        "PICTURE_SKETCH": "色の塗られていない線画のようです。服が紙と同じ白なので背景と区別できません。色の付いた画像を使ってください。マッシーは消費されていません。",
+        "PICTURE_PHOTO": "実在の人物の写真のようです。動く立ち絵はイラストのキャラクターから作ります。イラストを使ってください。マッシーは消費されていません。",
+        "PICTURE_3D": "3D レンダリングの画像のようです。動く立ち絵は 2D のイラストから作ります。2D のイラストを使ってください。マッシーは消費されていません。"
+      },
+      "layers": {
+        "apart": "分解して見る",
+        "count": "{{layers}} 層 · {{parts}} パーツ",
+        "drag": "ドラッグで回転",
+        "intro": "一枚の絵を、それぞれ動くレイヤーに分けました：髪、顔、左右の白目・瞳・まつげ、眉、口の形、服、手。",
+        "open": "レイヤー",
+        "title": "この絵が分かれたレイヤー",
+        "together": "元に戻す"
+      },
+      "mood": {
+        "annoyed": "不機嫌",
+        "calm": "落ち着き",
+        "happy": "ご機嫌",
+        "low": "沈みがち",
+        "sleepy": "眠そう"
+      },
+      "part": {
+        "eyes": "目",
+        "hands": "手",
+        "mouth": "口"
+      },
+      "redraw": "一部を描き直す",
+      "redrawHint": "一部だけ描き直して新しいバージョンを作ります（今のものは残ります）",
+      "redrawIntro": "一部だけ描き直しています。ほかはそのままです（約{{count}}分）",
+      "redrawStarted": "描き直しています。新しいバージョンがここに出ます",
+      "redrawn": {
+        "angry": "怒りを描き直し",
+        "eyes": "目を描き直し",
+        "hands": "手を描き直し",
+        "mouth": "口を描き直し",
+        "sad": "悲しみを描き直し",
+        "surprised": "驚きを描き直し",
+        "x1": "自分の表情",
+        "x2": "自分の表情",
+        "x3": "自分の表情",
+        "x4": "自分の表情",
+        "laugh": "大笑いを追加",
+        "heart": "ときめきを追加"
+      },
+      "tune": {
+        "cancel": "キャンセル",
+        "draw": "描く",
+        "drawStarted": "描いています（約{{count}}分）。進み具合はキャラクターのカードに表示されます。",
+        "drawing": "{{n}}枚目",
+        "expressions": "表情",
+        "expressionsHint": "表情はそれぞれ2枚描かれています。キャラクターに合う方を選んでください。",
+        "hint": {
+          "blink": "まばたきの頻度",
+          "body": "体の揺れと傾き",
+          "breath": "呼吸の深さ",
+          "gaze": "頭がポインターを追う強さ",
+          "gesture": "腕の動きの大きさ（手を振る、手を合わせる）",
+          "hair": "髪の柔らかさと弾み",
+          "idle": "待機中に自分で動く量",
+          "mouth": "話すときの口の開き",
+          "nod": "頭が上下を向く幅",
+          "tilt": "首をかしげる幅",
+          "turn": "頭が左右に向く幅",
+          "wind": "風で髪が揺れる量",
+          "expr": "すべての表情の出方（カードでも同じ）"
+        },
+        "intro": "好きな動きに仕上げましょう。変更はすぐプレビューに反映され、保存するとこのキャラクターを使うすべてのカードに届きます。",
+        "key": {
+          "blink": "まばたき",
+          "body": "体",
+          "breath": "呼吸",
+          "gaze": "ポインターを追う",
+          "gesture": "手の動き",
+          "hair": "髪の揺れ",
+          "idle": "待機中の動き",
+          "mouth": "話すときの口",
+          "nod": "うなずき",
+          "tilt": "首かしげ",
+          "turn": "首振り",
+          "wind": "そよ風",
+          "expr": "表情の強さ"
+        },
+        "mood": "普段の気分",
+        "motion": "動きの感じ",
+        "open": "調整",
+        "own": "自分の表情",
+        "ownBusy": "いま1つ描いています。",
+        "ownExpired": "新しい表情は、キャラクターを作ってから1日以内に描けます。",
+        "ownFull": "自分の表情は4つまでです。",
+        "ownHint": "名前と見た目を書くと、AIがこのキャラクターで描きます。カードではその名前で呼び出せます。",
+        "ownName": "名前",
+        "ownNamePh": "例：ニヤリ",
+        "ownPrompt": "どんな表情か",
+        "ownPromptPh": "例：口の端を片方だけ上げ、目を細めて、少し得意げ",
+        "redrawExpr": "描き直す",
+        "remove": "削除",
+        "reset": "すべて元に戻す",
+        "save": "保存",
+        "saved": "保存しました。このキャラクターを使うカードに反映されます。",
+        "title": "このキャラクターを調整",
+        "moves": "表情と動き",
+        "movesHint": "タップでオン・オフ。オフにしたものは出ず、カードが呼んだときは穏やかな動きに替わります。",
+        "face": "表情",
+        "body": "頭と腕",
+        "drawOn": "描き足す",
+        "redrawLabel": "もう一度描く："
+      },
+      "versions": {
+        "inUse": "使用中",
+        "original": "元の版",
+        "switched": "カードはこの版を表示します",
+        "use": "この版を使う"
+      },
+      "picture": "キャラクターの絵",
+      "pictureHint": "キャラクター 1 人、正面向き・中央・上半身。横長の画像は避けてください。背景は無地で、髪と見分けやすい色に（明るい髪や細い髪には暗い背景。そうしないと輪郭に白い縁が残ります）。手を振ったり身振りをしたりできるよう、腕は後ろやポケットに隠さず見せてください。",
+      "minutes": "約 {{count}} 分",
+      "unavailable": "現在利用できません",
+      "emptyTitle": "まだキャラクターがいません",
+      "emptyBody": "できあがったキャラクターはここに表示されます。",
+      "failed": "うまくいきませんでした",
+      "failedRefunded": "うまくいきませんでした。マッシーは返却済みです",
+      "copyRef": "参照をコピー",
+      "copied": "コピーしました",
+      "make": {
+        "moves": "表情",
+        "addOwn": "自分の表情を追加"
+      },
+      "go": "生成（使った分だけ）",
+      "metered": "通常 {{lo}}–{{hi}} マッシー。実際の使用量で精算し、多い分は返ります",
+      "charged": "{{count}} マッシー",
+      "chargedHint": "使用量で精算した金額",
+      "tier": {
+        "label": "バージョン",
+        "lite": "ライト",
+        "full": "フル",
+        "liteNote": "首振りは平面的。画面で切れた手は描き足しません",
+        "fullNote": "AI が首振りを描いてから各レイヤーを合わせるので、立体的に振り向きます"
+      },
+      "liteIntro": "動く立ち絵を作成中（ライト、約 {{count}} 分）",
+      "feedback": {
+        "open": "問題を報告",
+        "title": "ライブキャラクターの問題を報告",
+        "intro": "スクリーンショットを添えてください。キャラクターを確認して修正します。",
+        "kind": "問題の種類",
+        "kinds": {
+          "looks": "見た目がおかしい",
+          "moves": "動きがおかしい",
+          "failed": "作成に失敗",
+          "price": "価格・請求",
+          "idea": "提案"
+        },
+        "pictures": "スクリーンショット（必須）",
+        "addPicture": "スクリーンショットを追加",
+        "picturesHint": "貼り付け・ドロップ・＋で追加、最大4枚。",
+        "uploadFailed": "アップロード失敗",
+        "details": "詳細",
+        "detailsPh": "どこがおかしいですか？どの動きや部位かなど。",
+        "send": "送信",
+        "sent": "受け取りました。ありがとうございます！すぐに確認します。",
+        "failed": "送信できませんでした。もう一度お試しください。"
+      },
+      "howTo": "カードでの使い方"
+    },
+    "loraTrain": {
+      "open": "LoRA を学習",
+      "title": "LoRA を学習",
+      "source": "学習に使うもの",
+      "from": {
+        "portrait": "立ち絵1枚",
+        "pictures": "複数の絵（{{min}}–{{max}} 枚）"
+      },
+      "kind": {
+        "character": "キャラクター",
+        "style": "画風"
+      },
+      "portrait": "立ち絵",
+      "add": "素材ライブラリから追加",
+      "upload": "画像をアップロード",
+      "count": "{{count}} 枚 · {{min}}–{{max}} 枚",
+      "makeSet": "学習用の絵を描く（{{count}} マッシュ）",
+      "pick": "学習用の絵を選ぶ",
+      "kept": "{{count}} 枚選択中",
+      "drawing": "描画中 {{done}}/{{total}}",
+      "name": "名前",
+      "train": "学習開始（{{count}} マッシュ）",
+      "back": "戻る",
+      "stage": {
+        "queued": "待機中",
+        "caption": "画像を準備中",
+        "waiting": "GPU 待ち",
+        "train": "学習中 {{pct}}%",
+        "sync": "保存中",
+        "samples": "サンプルを描画中"
+      },
+      "trigger": "トリガー",
+      "copied": "コピーしました",
+      "done": "完成しました",
+      "again": "もう一つ学習する",
+      "failed": "うまくいきませんでした。マッシュは返金されました。",
+      "cancelled": "キャンセルしました。{{count}} マッシュを返金しました。",
+      "errors": {
+        "FAILED": "開始できませんでした。しばらくしてからお試しください。",
+        "NO_CREDITS": "マッシュが足りません。全部で {{total}} 必要です",
+        "LORA_TRAINING_BUSY": "すでに一つ学習中です",
+        "TOO_FEW_PICTURES": "{{count}} 枚以上必要です",
+        "TOO_MANY_PICTURES": "画像が多すぎます",
+        "TOO_MANY_MODELS": "LoRA の数が上限です。先にいくつか削除してください。",
+        "STORAGE_QUOTA": "LoRA の容量がいっぱいです。先にいくつか削除してください。",
+        "STORAGE_LIMIT": "素材の容量がいっぱいです",
+        "REFERENCE_NOT_FOUND": "画像が見つかりません",
+        "PROVIDER_UNAVAILABLE": "現在は学習できません",
+        "ACCOUNT_RESTRICTED": "アカウントが制限されているため AI 生成は使えません",
+        "LORA_ALREADY_TRAINED": "学習は完了し、保存中です",
+        "LORA_JOB_BUSY": "処理中です。少ししてからお試しください。"
+      },
+      "fromLine": {
+        "portrait": "自分の画像やキャラの立ち絵から選ぶか、アップロード",
+        "pictures": "同じキャラか、同じ画風"
+      },
+      "material": "素材",
+      "namePlaceholder": "例：ミラ",
+      "cost": "約 {{minutes}} 分 · {{cost}} マッシュ",
+      "start": "学習を始める",
+      "pickPortrait": "立ち絵を選ぶ",
+      "fromMine": "自分の画像から選ぶ",
+      "uploadOne": "アップロード",
+      "change": "変更"
     }
   },
   "media": {
@@ -1179,5 +3043,40 @@
     "pending": "削除処理中です。完了後に容量が解放されます。",
     "deleted": "画像を完全に削除し、使用容量を更新しました。",
     "unlinked": "このセーブとの関連付けを解除しました。使用容量は変わりません。"
+  },
+  "filter": {
+    "all": "すべて",
+    "favorites": "お気に入り",
+    "updates": "更新あり",
+    "unplayed": "未プレイ",
+    "hidden": "非表示",
+    "label": "ゲームを絞り込む"
+  },
+  "collections": {
+    "label": "コレクション",
+    "addTo": "コレクションに追加",
+    "new": "新しいコレクション",
+    "create": "作成",
+    "save": "保存",
+    "delete": "コレクションを削除",
+    "manage": "「{{name}}」を管理",
+    "namePlaceholder": "名前",
+    "deleteTitle": "「{{name}}」を削除しますか？",
+    "deleteConfirm": "ゲームはライブラリに残ります。",
+    "error": {
+      "nameTaken": "同じ名前のコレクションがあります",
+      "tooMany": "コレクションは100個までです",
+      "failed": "保存できませんでした。もう一度お試しください"
+    },
+    "edit": "コレクションを編集",
+    "searchGames": "ゲームを検索",
+    "games": "ゲーム",
+    "picked": "{{count}} 件選択中",
+    "untitled": "無題のコレクション",
+    "noMatch": "一致するゲームがありません"
+  },
+  "hidden": {
+    "hide": "ライブラリで非表示",
+    "show": "ライブラリに表示"
   }
 }

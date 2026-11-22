@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { castingChoices, detectSpeakerNames, mergeSegments, poolFor, resolveAssignments, splitRuns } from "./cast.js";
+import { castingChoices, detectSpeakerNames, mergeSegments, planReadout, poolFor, resolveAssignments, splitRuns } from "./cast.js";
 import { TTS_VOICES, readTtsVoicePool, sanitizeTtsVoicePool } from "@yumina/shared";
 
 test("splitRuns separates narration from quoted dialogue and reassembles exactly", () => {
@@ -113,4 +113,16 @@ test("the stored pool: validated, and an old single voice reads as a pool of one
   assert.deepEqual(readTtsVoicePool({ ttsVoice: zhIds[2], ttsVoicePool: [] }), []);
   assert.deepEqual(sanitizeTtsVoicePool([zhIds[0], "nope", zhIds[0], 7, zhIds[1]!.toUpperCase()]), [zhIds[0], zhIds[1]]);
   assert.deepEqual(sanitizeTtsVoicePool("x"), []);
+});
+
+test("voices the player picked in a chat beat the card's, for a character and the narrator", async () => {
+  const [author, mine, narration] = [TTS_VOICES[0]!.id, TTS_VOICES[1]!.id, TTS_VOICES[2]!.id];
+  const world = { entries: [{ name: "Alice", role: "character", voice: author }], language: "en" };
+  const text = 'The door creaked. "Hello there."';
+  const base = { text, allDialogue: false, world, cast: {}, emotion: false };
+  const card = await planReadout(base);
+  assert.deepEqual(card.segments.map((s) => s.voice).filter((v) => v === author).length, 1);
+  const picked = await planReadout({ ...base, picks: { Alice: mine, narrator: narration } });
+  assert.deepEqual(picked.segments.map((s) => s.voice), [narration, mine]);
+  assert.equal(picked.cast.Alice, undefined, "a picked voice is not written into the cast");
 });

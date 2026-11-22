@@ -2,11 +2,12 @@ import { Hono } from "hono";
 import { eq, and } from "drizzle-orm";
 import { isModelFamily } from "@yumina/engine";
 import { db } from "../db/index.js";
-import { userPrompts, promptFolders } from "../db/schema.js";
+import { userPrompts, promptFolders, userWorldPrompts, worlds } from "../db/schema.js";
 import { authMiddleware } from "../middleware/auth.js";
 import type { AppEnv } from "../lib/types.js";
 import { getUnrestrictEligibility, UNRESTRICT_KIND } from "../lib/unrestrict.js";
 import { convertSillyTavernPreset } from "../lib/sillytavern-preset.js";
+import { loadWorldPromptSwitches } from "../lib/user-prompts.js";
 
 const PROMPT_KINDS = new Set([UNRESTRICT_KIND]);
 const API_ROLES = new Set(["system", "user", "assistant"]);
@@ -61,6 +62,49 @@ userPromptsRoutes.get("/", async (c) => {
   // in-between proxy) may ever answer for the origin.
   c.header("Cache-Control", "no-store");
   return c.json({ data: { prompts, folders } });
+});
+
+// ── Per-world switches (the in-chat 提示词 panel) ──────────────────────────
+// Switching a prompt while playing a world is remembered for that world; worlds
+// the player never changed follow the prompt's own switch (Settings).
+
+// GET /api/user-prompts/worlds/:worldId — { switches: { [promptId]: enabled } }
+userPromptsRoutes.get("/worlds/:worldId", async (c) => {
+  const userId = c.get("user").id;
+  const switches = await loadWorldPromptSwitches(userId, c.req.param("worldId"));
+  c.header("Cache-Control", "no-store");
+  return c.json({ data: { switches: Object.fromEntries(switches) } });
+});
+
+// PUT /api/user-prompts/worlds/:worldId/:promptId — body { enabled: boolean }
+userPromptsRoutes.put("/worlds/:worldId/:promptId", async (c) => {
+  const userId = c.get("user").id;
+  const worldId = c.req.param("worldId");
+  const promptId = c.req.param("promptId");
+  const body = await c.req.json<Record<string, unknown>>().catch(() => null);
+  if (!body || typeof body.enabled !== "boolean") return c.json({ error: "enabled must be a boolean" }, 400);
+  const enabled = body.enabled;
+  const [[prompt], [world]] = await Promise.all([
+    db.select({ id: userPrompts.id }).from(userPrompts)
+      .where(and(eq(userPrompts.id, promptId), eq(userPrompts.userId, userId))).limit(1),
+    db.select({ id: worlds.id }).from(worlds).where(eq(worlds.id, worldId)).limit(1),
+  ]);
+  if (!prompt) return c.json({ error: "Prompt not found" }, 404);
+  if (!world) return c.json({ error: "World not found" }, 404);
+  await db.insert(userWorldPrompts).values({ userId, worldId, promptId, enabled })
+    .onConflictDoUpdate({
+      target: [userWorldPrompts.userId, userWorldPrompts.worldId, userWorldPrompts.promptId],
+      set: { enabled, updatedAt: new Date() },
+    });
+  return c.json({ data: { promptId, enabled } });
+});
+
+// DELETE /api/user-prompts/worlds/:worldId — this world follows Settings again.
+userPromptsRoutes.delete("/worlds/:worldId", async (c) => {
+  const userId = c.get("user").id;
+  await db.delete(userWorldPrompts)
+    .where(and(eq(userWorldPrompts.userId, userId), eq(userWorldPrompts.worldId, c.req.param("worldId"))));
+  return c.json({ data: { ok: true } });
 });
 
 // PUT /api/user-prompts/bindings — set the prompt bound to a model family, exclusively.

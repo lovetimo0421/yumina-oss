@@ -1,4 +1,8 @@
 {
+  "audience": {
+    "unlisted": "Con enlace",
+    "followers": "Solo seguidores"
+  },
   "reviewBanner": {
     "title": "Estado de publicación",
     "inReview": "{{count}} actualización en revisión",
@@ -37,7 +41,8 @@
     "removeFromLibrary": "Quitar de la biblioteca",
     "removeConfirm": "Quitar <strong>{{name}}</strong> de tu biblioteca eliminará permanentemente todas tus sesiones guardadas y el historial de partidas de este juego.",
     "removeAction": "Quitar",
-    "sessionHistorySoon": "Historial de sesiones próximamente"
+    "sessionHistorySoon": "Historial de sesiones próximamente",
+    "filterEmpty": "Ningún juego coincide con este filtro"
   },
   "projects": {
     "title": "Mis Proyectos",
@@ -192,7 +197,7 @@
     "invalidFile": "Ese no es un archivo de paquete",
     "parseFailed": "No se pudo leer ese archivo de paquete",
     "title": "Paquetes de recursos",
-    "noResults": "Sin resultados para \"{{query}}\" — prueba a limpiar la búsqueda.",
+    "noResults": "Sin resultados para \"{{query}}\"",
     "emptyHeadline": "Aún no hay paquetes",
     "emptySubtitle": "Explora el hub para encontrar paquetes de recursos y añadirlos a tu biblioteca.",
     "emptyCta": "Explorar paquetes",
@@ -235,7 +240,9 @@
     "tokens": "Tokens",
     "estTime": "Tiempo est.",
     "share": "Compartir",
+    "inviteTesters": "Invitar a amigos a probar",
     "download": "Descargar",
+    "duplicate": "Hacer una copia",
     "report": "Reportar",
     "delete": "Eliminar",
     "addToFavorites": "Añadir a favoritos",
@@ -262,12 +269,22 @@
     "basedOnBy": "por",
     "tags": "Etiquetas",
     "activity": "Actividad",
+    "community": "Comunidad",
+    "allTime": "Todo el tiempo",
+    "moreActivity": "Más datos de actividad",
+    "noReviewsYet": "Todavía no hay reseñas",
+    "viewReviews": "Ver reseñas",
     "downloads": "Descargas",
     "chatVolume": "Interacciones",
     "favoriteCount": "Favoritos",
     "uniquePlayers": "Jugadores únicos",
-    "averageSession": "Sesión media",
+    "averagePlaytimePerPlayer": "Tiempo medio de juego",
     "averageRating": "Valoración media",
+    "details": "Detalles",
+    "playthroughs": "Partidas",
+    "totalPlaytime": "Tiempo total",
+    "openGallery": "Abrir galería ({{count}} imágenes)",
+    "galleryImageAlt": "Imagen {{index}} de {{total}} de la galería",
     "updateHistory": "Historial de actualizaciones",
     "updateHistorySaveFirst": "Guarda esta obra para ver su historial de actualizaciones.",
     "updateHistoryLoading": "Cargando historial de actualizaciones...",
@@ -329,7 +346,12 @@
       "shareInCommunity": "Compartir en comunidad"
     },
     "reviews": "Reseñas",
-    "overviewSubtitle": "Información clave, notas y descripción en un solo lugar."
+    "overviewSubtitle": "Información clave, notas y descripción en un solo lugar.",
+    "inviteCollaborators": "Invitar a colaborar",
+    "originalCreator": "Creador original",
+    "showMore": "Mostrar más",
+    "showLess": "Mostrar menos",
+    "reviewsHeading": "Reseñas y discusión"
   },
   "bulk": {
     "select": "Seleccionar",
@@ -356,7 +378,7 @@
     "deleting": "Eliminando...",
     "deletedSuccess_one": "Se eliminó {{count}} elemento",
     "deletedSuccess": "Se eliminaron {{count}} elementos",
-    "deletedPartial": "Se eliminaron {{success}} de {{total}} — {{failed}} fallaron",
+    "deletedPartial": "Se eliminaron {{success}} de {{total}}, {{failed}} fallaron",
     "deletedFailed": "No se pudieron eliminar los elementos seleccionados"
   },
   "dialog": {
@@ -384,7 +406,9 @@
     "editAsMyProject": "Editar como Mi Proyecto",
     "favorite": "Favorito",
     "unfavorite": "Quitar de favoritos",
-    "update": "ACTUALIZAR"
+    "update": "ACTUALIZAR",
+    "lastPlayed": "Jugado el {{date}}",
+    "neverPlayed": "Aún sin jugar"
   },
   "room": {
     "dialogTitle": "Selecciona el modo de chat de sala",
@@ -409,6 +433,7 @@
     "failedToCopy": "No se pudo copiar el juego a los proyectos",
     "linkCopied": "Enlace copiado",
     "failedToShare": "No se pudo compartir",
+    "unpublishedCannotShare": "Las tarjetas sin publicar no se pueden compartir.",
     "failedToDownload": "No se pudo descargar",
     "failedToExport": "No se pudo exportar",
     "failedToCreateRoom": "No se pudo crear la sala",
@@ -420,7 +445,6 @@
     "downloadBundleFailed": "No se pudo descargar el paquete",
     "deleteAssetFailed": "No se pudo eliminar el archivo",
     "deleteAssetVersioned": "Este archivo se usa en el historial guardado de una tarjeta y no se puede eliminar mientras se conserve ese historial.",
-
     "deleteAssetInUse": "Esta imagen sigue siendo la portada de «{{name}}». Cambia esa portada primero.",
     "deleteAssetUsedByCard": "«{{name}}» todavía usa este archivo. Quítalo primero de esa tarjeta.",
     "renameAssetFailed": "No se pudo renombrar el archivo",
@@ -446,11 +470,15 @@
       "subtitle": "Crea imágenes y música y guárdalas en tu biblioteca de recursos.",
       "assets": "Mis recursos",
       "signInTitle": "Da vida a tus ideas",
-      "signInBody": "Inicia sesión para generar imágenes y música, guardar tus obras y consultar tu historial.",
-      "signInAction": "generar imágenes y música",
+      "signInBody": "Inicia sesión para crear imágenes, vídeos y voces para tus personajes.",
+      "signInAction": "crear imágenes, vídeos y voces",
       "signIn": "Iniciar sesión para crear"
     },
-    "mobileSubtitle": "Construye un mundo, diseña un personaje o convierte tus ideas en imágenes."
+    "mobileSubtitle": "Construye un mundo, diseña un personaje o convierte tus ideas en imágenes.",
+    "aiCard": {
+      "title": "Taller",
+      "desc": "Imágenes, vídeos y audio para tus personajes"
+    }
   },
   "time": {
     "justNow": "Ahora mismo",
@@ -474,7 +502,7 @@
     "worldSimulationDesc": "Construye un mundo entero con su propio trasfondo, facciones y eventos dinámicos.",
     "multiplayerCampaign": "Campaña multijugador",
     "multiplayerCampaignDesc": "Aventura multijugador colaborativa para 2-4 jugadores. Define tu propio sistema de juego y mundo.",
-    "imageGeneration": "Generación con IA",
+    "imageGeneration": "Taller",
     "imageGenerationDesc": "Imágenes y música a partir de una línea: ilustraciones, escenas, portadas y un BGM para la carta."
   },
   "newSubFolder": "Nueva subcarpeta",
@@ -497,7 +525,7 @@
     "largeFile": "Archivo grande ({{size}} MB), puede cargar lento"
   },
   "generation": {
-    "openButton": "Generar con IA",
+    "openButton": "Taller",
     "title": "Crear imágenes con IA",
     "disabled": "La generación no está disponible por ahora.",
     "template": {
@@ -638,7 +666,11 @@
       "sentToModel": "Enviado al modelo",
       "reroll": "Otra vez",
       "reuseSeed": "Misma semilla",
-      "seedValue": "Semilla {{seed}}"
+      "seedValue": "Semilla {{seed}}",
+      "keptInCard_one": "1 imagen sigue usándose en {{worldName}}; se ha conservado",
+      "keptInCard": "{{count}} imágenes siguen usándose en {{worldName}}; se han conservado",
+      "keptVersioned_one": "1 imagen está en una versión guardada de una tarjeta; se ha conservado",
+      "keptVersioned": "{{count}} imágenes están en versiones guardadas de una tarjeta; se han conservado"
     },
     "community": {
       "searchPlaceholder": "Buscar modelos compartidos…",
@@ -757,26 +789,26 @@
       "OUTPUT_LOST": "El resultado se perdió antes de guardarse.",
       "WORKER_ERROR": "El generador tuvo un error interno. inténtalo de nuevo.",
       "WORKER_OOM": "Esta combinación necesita más memoria de GPU de la disponible. Prueba una resolución menor, menos pasos o menos LoRAs.",
-      "MODEL_MISSING": "Un archivo de modelo necesario no está disponible temporalmente. Estamos en ello — inténtalo más tarde.",
+      "MODEL_MISSING": "Un archivo de modelo necesario no está disponible temporalmente. Estamos en ello. Inténtalo más tarde.",
       "SUBMIT_FAILED": "El trabajo no llegó al generador. inténtalo de nuevo.",
       "CANCELLED": "Cancelado.",
       "INTERNAL": "Algo salió mal de nuestro lado. inténtalo de nuevo.",
       "ACCOUNT_RESTRICTED": "Tu cuenta no puede usar la generación en este momento.",
-      "MODEL_NOT_READY": "Ese modelo aún se está preparando — inténtalo cuando esté listo.",
-      "STYLE_NOT_READY": "Este estilo aún se está preparando — prueba otro estilo mientras tanto.",
+      "MODEL_NOT_READY": "Ese modelo aún se está preparando. Inténtalo cuando esté listo.",
+      "STYLE_NOT_READY": "Este estilo aún se está preparando. Prueba otro estilo mientras tanto.",
       "MODEL_REGION_MISMATCH": "Los modelos seleccionados están en regiones distintas y aún no pueden combinarse.",
       "REFERENCE_TOO_LARGE": "La imagen de referencia es demasiado grande.",
-      "PRESET_LIMIT": "Límite de presets alcanzado — borra uno primero.",
+      "PRESET_LIMIT": "Límite de presets alcanzado. Borra uno primero.",
       "MODEL_TAKEN_DOWN": "Este modelo fue retirado y ya no puede usarse.",
-      "MODEL_IN_USE": "Este modelo está siendo usado por un trabajo activo — espera a que termine.",
-      "IMPORT_IN_PROGRESS": "Ya hay una importación en curso — espera a que termine.",
-      "TOO_MANY_MODELS": "Límite de modelos alcanzado — borra uno primero.",
+      "MODEL_IN_USE": "Este modelo está siendo usado por un trabajo activo. Espera a que termine.",
+      "IMPORT_IN_PROGRESS": "Ya hay una importación en curso. Espera a que termine.",
+      "TOO_MANY_MODELS": "Límite de modelos alcanzado. Borra uno primero.",
       "MODEL_KIND_MISMATCH": "Ese archivo no coincide con el tipo de modelo seleccionado.",
       "NO_FINISHED_JOBS": "Aún no hay generaciones terminadas.",
       "PROVIDER_BUSY": "El proveedor está ocupado. Inténtalo más tarde.",
       "PROVIDER_CREDITS": "Las imágenes inteligentes no están disponibles temporalmente.",
       "GENERATION_BUSY": "La cola está llena. Inténtalo más tarde.",
-      "GENERATION_BUDGET": "Se ha alcanzado el presupuesto de imágenes inteligentes. Inténtalo más tarde.",
+      "GENERATION_BUDGET": "Se agotó el presupuesto de generación de hoy. Inténtalo más tarde.",
       "REFERENCE_NOT_FOUND": "No se encontró la referencia o esta cuenta no tiene acceso.",
       "REFERENCE_FORMAT": "Usa una imagen PNG, JPEG o WebP como referencia.",
       "REFERENCE_DIMENSIONS": "La referencia no puede superar los 40 megapíxeles.",
@@ -812,11 +844,36 @@
       "VIDEO_STYLE_WITH_FRAME": "Ese estilo no está disponible para este vídeo. Elige otro.",
       "QUALITY_BATCH": "4K genera una imagen cada vez. Pon la cantidad en 1 y vuelve a intentarlo.",
       "MODEL_UNAVAILABLE": "Este modelo no está disponible ahora. Elige otro modelo.",
-      "REFERENCE_UNSUPPORTED": "Este modelo no admite imagen de referencia. Quita la imagen o elige otro modelo."
+      "REFERENCE_UNSUPPORTED": "Este modelo no admite imagen de referencia. Quita la imagen o elige otro modelo.",
+      "REFERENCE_VIDEO_FORMAT": "No pudimos leer ese vídeo de referencia. Prueba con un MP4 o WebM.",
+      "REFERENCE_VIDEO_LENGTH": "El vídeo de referencia debe durar al menos 2 segundos.",
+      "VIDEO_NO_REFERENCE_VIDEO": "Este modelo no puede seguir un vídeo de referencia.",
+      "VIDEO_REFERENCE_VIDEO_RESOLUTION": "Esa resolución no está disponible con un vídeo de referencia.",
+      "UNKNOWN_TOOL": "Herramienta desconocida",
+      "INVALID_INPUT": "Revisa los datos",
+      "MEDIA_FORMAT": "Formato no compatible",
+      "MEDIA_NOT_FOUND": "Archivo no encontrado",
+      "MEDIA_UNAVAILABLE": "No se puede leer el archivo",
+      "MEDIA_TOO_LARGE": "Archivo demasiado grande",
+      "MEDIA_TOO_LONG": "Archivo demasiado largo",
+      "MEDIA_TOO_SHORT": "Archivo demasiado corto",
+      "MEDIA_DIMENSIONS": "Tamaño de imagen no compatible",
+      "OUTPUT_TOO_LARGE": "Resultado demasiado grande",
+      "REQUEST_CONFLICT": "Ya está en marcha",
+      "FOLDER_NOT_FOUND": "Carpeta no encontrada",
+      "JOB_MISSING": "Trabajo no encontrado",
+      "GENERATION_USER_BUDGET": "Llegaste al límite de hoy. Vuelve mañana.",
+      "LORA_NEEDS_ANIMA": "Es un LoRA de Anima: elige un modelo base de Anima o quítalo",
+      "LORA_NEEDS_SDXL": "Es un LoRA de SDXL: elige un modelo base de SDXL o quítalo",
+      "LORA_FAMILY_UNSUPPORTED": "Solo se admiten LoRA de Anima y SDXL (Illustrious, NoobAI, Pony)",
+      "LORA_NOT_ANIMA": "Solo se admiten LoRA de Anima",
+      "CIVITAI_SIGN_IN": "Civitai pide iniciar sesión para descargar este archivo. Descárgalo y súbelo aquí",
+      "CIVITAI_LICENSE": "Su autor no permite usarlo en servicios de generación",
+      "NOT_SAFETENSORS": "Solo se pueden importar archivos .safetensors"
     },
     "queue": {
       "waiting": "Esperando en la cola…",
-      "busy": "Alta demanda en este momento — tu trabajo está en cola y comenzará automáticamente."
+      "busy": "Alta demanda en este momento. Tu trabajo está en cola y comenzará automáticamente."
     },
     "smart": {
       "aspect": "Proporción",
@@ -848,6 +905,7 @@
         "seedreamFlash": "La más barata",
         "seedreamLite": "Rápido",
         "seedreamPro": "Equilibrado",
+        "seedream55": "La más nueva · PNG transparente",
         "nanoBanana21": "La más nueva · buena editando",
         "nanoBanana2": "Tiene 512",
         "nanoBananaPro": "Alta calidad",
@@ -860,19 +918,19 @@
         "qwenImage3": "Barato · lento",
         "qwenImage3Pro": "Más detalle · lento",
         "grokImagine": "El más barato · rápido",
-        "grokImagineQuality": "Rápido",
         "grokImagine2": "Más detalle · muy lento",
         "klingO1": "Anime limpio",
         "lumaUni1": "4 MP · lento",
         "lumaUni1Max": "4 MP, más detalle · lento",
-        "ideogram45": "Texto y letras",
+        "ideogram46": "Texto y letras",
         "wan25": "Pictórico · preview",
         "recraft41": "Diseño · plano",
         "krea2Turbo": "El más barato",
         "krea2Medium": "Estilizado",
         "krea2Large": "Estilizado · lento",
         "maiImage26": "Limpio · rápido",
-        "hunyuan35": "Barato · 2K"
+        "hunyuan35": "Barato · 2K",
+        "minimaxH3Image": "La más rápida · 4K barato"
       },
       "version": "Versión",
       "noReference": "{{model}} no admite imagen de referencia. Quita la imagen o elige otro modelo.",
@@ -934,15 +992,21 @@
       "emptyTitle": "Aún no hay imágenes",
       "emptyBody": "La primera aparecerá aquí.",
       "thisRun": "Unos {{count}} mushies esta vez",
-      "pageTitle": "Generación con IA",
+      "pageTitle": "Taller",
       "tabImage": "Imágenes",
       "tabAudio": "Audio",
-      "audioTitle": "Música con IA",
-      "audioLead": "La música se guarda en tu biblioteca de recursos.",
+      "audioTitle": "Audio con IA",
+      "audioLead": "La música, los sonidos y las voces se guardan en tu biblioteca de recursos.",
       "sectionOutput": "Formato",
       "tabVideo": "Vídeo",
       "videoTitle": "Vídeo con IA",
-      "videoLead": "Los vídeos se guardan en tu biblioteca y puedes usarlos en retratos, aperturas y la pantalla del jugador."
+      "videoLead": "Los vídeos se guardan en tu biblioteca y puedes usarlos en retratos, aperturas y la pantalla del jugador.",
+      "tabGallery": "Galería",
+      "galleryTitle": "Galería de imágenes",
+      "galleryLead": "Mira lo que crea la comunidad. ¿Te gusta una? Haz la tuya con la misma receta.",
+      "tab3d": "3D",
+      "model3dTitle": "Modelos 3D con IA",
+      "model3dLead": "Los modelos se guardan en tu biblioteca de recursos como .glb."
     },
     "music": {
       "workshopTitle": "Generar un BGM",
@@ -1016,11 +1080,13 @@
       "slot": {
         "first": "Primer fotograma",
         "last": "Último fotograma",
-        "ref": "Referencia de personaje"
+        "ref": "Referencia de personaje",
+        "video": "Vídeo de referencia"
       },
       "slotHint": {
         "first": "El vídeo empieza en esta imagen",
-        "last": "El vídeo termina en esta imagen"
+        "last": "El vídeo termina en esta imagen",
+        "video": "La cámara y el movimiento lo siguen. ¿No tienes uno? Crea una maqueta aquí"
       },
       "slotRefHint": "Mantiene el aspecto, la escena puede ser nueva · hasta {{count}}, +{{price}} cada una",
       "slotRefHintFree": "Mantiene el aspecto, la escena puede ser nueva · hasta {{count}}",
@@ -1044,7 +1110,8 @@
         "firstLastShort": "Inicio+fin",
         "refsShort": "Referencias",
         "fast": "Rápido",
-        "needsImage": "Necesita imagen"
+        "needsImage": "Necesita imagen",
+        "refVideo": "sigue un vídeo"
       },
       "priceFrom_one": "Desde {{count}} / {{seconds}} s",
       "priceFrom": "Desde {{count}} / {{seconds}} s",
@@ -1114,7 +1181,20 @@
       "howStyle": "Estilo {{style}}",
       "placeUi": "Pantalla del jugador (nuevo marco de vídeo)",
       "styleHint": "El primer fotograma se dibuja en este estilo y luego se anima, así todo el clip lo conserva.",
-      "styleNoneHint": "{{model}} genera directamente desde el texto; tiende a lo realista."
+      "styleNoneHint": "{{model}} genera directamente desde el texto; tiende a lo realista.",
+      "howReferenceVideo": "Siguiendo un vídeo de referencia",
+      "uploadVideo": "Subir vídeo",
+      "referenceVideoResolution": "{{model}} solo sigue un vídeo de referencia en {{list}}.",
+      "slotBlockedByVideo": "No se usa al seguir un vídeo",
+      "slotBlockedByFrames": "Quita los fotogramas para seguir un vídeo",
+      "referenceVideoUsedAll": "{{seconds}} s · entero · recortado a {{aspect}}",
+      "referenceVideoUsedPart": "{{seconds}} s · se usan los primeros {{used}} s · recortado a {{aspect}}",
+      "referenceVideoOtherModel": "Solo Seedance 2.5 puede seguir un vídeo de referencia, así que {{model}} no lo usará. Vuelve a Seedance 2.5 para usarlo.",
+      "promptPlaceholderReferenceVideo": "Basta con decir qué es la escena: qué son las cajas y las figuras, dónde ocurre, el estilo y la luz. La cámara y el movimiento siguen el vídeo de referencia.",
+      "referenceVideoTooLarge": "El vídeo de referencia puede ocupar como máximo {{mb}} MB. Recórtalo y vuelve a intentarlo.",
+      "referenceVideoEmpty": "Aún no tienes vídeos en tu biblioteca. Sube una maqueta o una grabación de pantalla.",
+      "searchVideos": "Buscar vídeos",
+      "referenceVideoSwitch": "Para seguir un video de referencia o una escena 3D, cambia a {{model}}. Toca para cambiar"
     },
     "folderLoadFallback": "No se pudo cargar la carpeta de esta carta; por ahora se genera en Todos los recursos.",
     "quality": {
@@ -1155,6 +1235,1792 @@
         "camera": "Movimientos de cámara",
         "dialogue": "Diálogo con labios"
       }
+    },
+    "blockout": {
+      "title": "Crear una maqueta",
+      "lead": "Coloca la escena y las personas, elige un movimiento de cámara y grábalo como vídeo de referencia. No tiene que parecerse a nada: bastan cajas grises. La IA sigue su cámara y su movimiento; la imagen sale de tu descripción.",
+      "open": "Crear una maqueta como vídeo de referencia",
+      "openShort": "Crear",
+      "reopenShort": "Editar",
+      "place": "Escena",
+      "places": {
+        "empty": "Explanada",
+        "room": "Habitación",
+        "classroom": "Aula",
+        "street": "Calle",
+        "scene": "Escena IA"
+      },
+      "scene": {
+        "off": "Las escenas IA no están activadas aquí",
+        "promptLabel": "Qué lugar",
+        "promptPlaceholder": "Un aula al atardecer, filas de pupitres de madera, una pizarra verde, ventanales a la izquierda… (también el estilo: anime, óleo, fotorrealista)",
+        "make": "Crear la escena · {{price}} mushies",
+        "making": "Creando la escena… alrededor de un minuto",
+        "makeHint": "Una línea de texto se convierte en una sala 3D donde colocar gente y filmar. La misma sala cada vez, así que todos los clips de este lugar coinciden. Alrededor de un minuto; si falla, los mushies vuelven.",
+        "noCredits": "Hacen falta {{price}} mushies. Recarga para crear una escena.",
+        "mine": "Mis escenas",
+        "none": "Crea una escena o elige una tuya para verla aquí",
+        "loading": "Cargando la escena… ({{mb}} MB)",
+        "loadFailed": "No se pudo cargar la escena. Inténtalo de nuevo.",
+        "change": "Cambiar",
+        "remove": "Eliminar esta escena",
+        "failedShort": "Falló",
+        "refunded": "reembolsado",
+        "floor": "Suelo",
+        "floorUp": "Subir el suelo",
+        "floorDown": "Bajar el suelo",
+        "floorHint": "Si la gente flota o se hunde en el suelo, muévelo un punto.",
+        "howToFrame": "Arrastra a la gente para moverla, arrastra el vacío para girar la vista. La escena es más nítida cerca de donde se creó: mantén la cámara y la gente a menos de {{metres}} m del centro; más lejos se emborrona.",
+        "needsScene": "Elige o crea una escena primero",
+        "failed": {
+          "REFUSED": "La política de contenido del proveedor rechazó la descripción. Reescríbela e inténtalo de nuevo.",
+          "PROVIDER_FAILED": "No se pudo crear una escena con esa descripción. Prueba otra redacción.",
+          "PROVIDER_UNAVAILABLE": "El servicio de escenas no respondió. Inténtalo en un momento.",
+          "STORAGE_FAILED": "La escena se creó pero no se pudo guardar. Inténtalo de nuevo.",
+          "LOST": "La creación se perdió (el servidor se reinició). Inténtalo de nuevo.",
+          "GENERATION_DISABLED": "Las escenas IA no están activadas aquí."
+        },
+        "errors": {
+          "NO_CREDITS": "No hay mushies suficientes para una escena.",
+          "TOO_MANY_ACTIVE_JOBS": "Una escena a la vez: espera a que termine la actual.",
+          "PROMPT_TOO_LONG": "Describe el lugar en hasta 1000 caracteres.",
+          "GENERATION_DISABLED": "Las escenas IA no están activadas aquí.",
+          "SCENE_BUSY": "Esa escena todavía se está creando.",
+          "SCENE_FAILED": "Algo falló con la escena. Inténtalo de nuevo."
+        }
+      },
+      "add": "Añadir",
+      "things": {
+        "person": "Persona",
+        "box": "Caja",
+        "pillar": "Columna",
+        "table": "Mesa"
+      },
+      "remove": "Quitar",
+      "turn": "Orientación",
+      "turnLeft": "Girar a la izquierda",
+      "turnRight": "Girar a la derecha",
+      "size": "Tamaño",
+      "smaller": "Más pequeño",
+      "bigger": "Más grande",
+      "walks": "Camina",
+      "walksHint": "Arrastra la figura translúcida a donde se detiene. Camina hasta allí a mitad del clip",
+      "camera": "Cámara",
+      "moves": {
+        "still": "Fija",
+        "push": "Acercar",
+        "pull": "Alejar",
+        "orbit": "Órbita",
+        "pan": "Travelling",
+        "follow": "Seguir"
+      },
+      "movesHint": {
+        "still": "La cámara no se mueve; solo se mueven las personas",
+        "push": "Se acerca despacio desde el plano que encuadraste",
+        "pull": "Se aleja despacio desde el plano que encuadraste",
+        "orbit": "Gira una sexta parte de vuelta alrededor del centro del plano",
+        "pan": "Se desplaza a la derecha y el sujeto cruza el encuadre",
+        "follow": "Sigue a la persona que camina, manteniendo el encuadre inicial"
+      },
+      "followNeedsPerson": "Para seguir hace falta al menos una persona en la escena",
+      "length": "Duración",
+      "howToFrame": "Arrastra personas y objetos para moverlos, arrastra el espacio vacío para girar la vista, usa la rueda o pellizca para acercar. Donde te detengas será el plano inicial.",
+      "stayHere": "Grabando. Quédate en esta página; el vídeo irá al hueco de referencia al terminar.",
+      "recording": "Grabando {{seconds}} / {{total}} s",
+      "previewing": "Vista previa {{seconds}} / {{total}} s",
+      "uploading": "Subiendo…",
+      "preview": "Vista previa",
+      "stop": "Detener",
+      "use": "Usar esta maqueta (graba {{count}} s)",
+      "footNote": "La grabación se guarda en tu biblioteca para elegirla de nuevo más tarde.",
+      "leftWhileRecording": "Saliste de la página mientras grababa y la imagen se congeló. Quédate en esta página y vuelve a grabar.",
+      "recordFailed": "La grabación falló. Inténtalo de nuevo; si sigue fallando, usa Chrome o Edge.",
+      "fileName": "maqueta"
+    },
+    "gallery": {
+      "sortLabel": "Ordenar",
+      "sortNew": "Más nuevas",
+      "sortTop": "Más gustadas",
+      "mine": "Mis publicaciones",
+      "loading": "Cargando…",
+      "loadMore": "Cargar más",
+      "error": "No se pudo cargar la galería",
+      "retry": "Reintentar",
+      "emptyTitle": "La galería está vacía",
+      "emptyBody": "Crea una imagen que te guste o abre una ilustración de una historia y elige Publicar en la galería. Aparecerá aquí después de la revisión.",
+      "emptyAction": "Empezar a crear",
+      "mineEmptyTitle": "Aún no has publicado",
+      "mineEmptyBody": "Toca Publicar en la galería en cualquier imagen de tu historial para compartirla con su receta.",
+      "open": "Ver imagen",
+      "untitled": "Sin título",
+      "detailHint": "Imagen, prompt y ajustes",
+      "like": "Me gusta",
+      "unlike": "Quitar me gusta",
+      "prompt": "Prompt",
+      "negativePrompt": "Prompt negativo",
+      "copyPrompt": "Copiar",
+      "copied": "Copiado",
+      "copyFailed": "No se pudo copiar",
+      "settings": "Ajustes",
+      "models": "Modelos usados",
+      "omittedModels": "El autor también usó {{count}} modelo(s) privado(s) que la receta no incluye.",
+      "useRecipe": "Usar esta receta",
+      "useRecipeHint": "Rellena el prompt y los ajustes. Puedes cambiarlos antes de generar.",
+      "delete": "Quitar de la galería",
+      "deleteConfirm": "¿Quitar esta imagen de la galería? Seguirá en tu biblioteca de recursos.",
+      "deleted": "Quitada de la galería",
+      "status": {
+        "pending": "En revisión",
+        "approved": "Pública",
+        "rejected": "No aprobada"
+      },
+      "rejectReason": "Motivo: {{reason}}",
+      "pendingHint": "Los demás la verán cuando se apruebe",
+      "facts": {
+        "model": "Modelo",
+        "style": "Estilo",
+        "aspect": "Proporción",
+        "size": "Tamaño",
+        "steps": "Pasos",
+        "cfg": "CFG",
+        "sampler": "Sampler",
+        "quality": "Calidad",
+        "seed": "Semilla"
+      },
+      "publish": "Publicar en la galería",
+      "inGallery": "En la galería",
+      "publishTitle": "Publicar en la galería",
+      "publishBody": "El prompt y los ajustes también se hacen públicos para que otros usen la misma receta. Las imágenes de referencia siguen privadas.",
+      "pickImage": "Elige una para publicar",
+      "titleLabel": "Título (opcional)",
+      "titlePlaceholder": "Ponle nombre a la imagen",
+      "sensitiveLabel": "Sin límites (solo lo ven adultos con Sin límites activado)",
+      "reviewNote": "Primero la revisa una IA. Suele aparecer enseguida.",
+      "publishAction": "Publicar",
+      "publishing": "Publicando…",
+      "publishDone": "Enviada. Aparece en la Plaza cuando la IA la revise.",
+      "alreadyPosted": "Ya publicaste esta imagen.",
+      "tooManyPending": "Tienes demasiadas imágenes en revisión. Publica más cuando se revisen.",
+      "publishFailed": "No se pudo publicar, inténtalo de nuevo.",
+      "fromStory": "De la historia",
+      "playStory": "Jugar",
+      "noRecipe": "Esta imagen se dibujó antes de que se guardaran las recetas, así que no hay receta para reutilizar.",
+      "storyPublishBody": "Otros verán esta imagen, las etiquetas con las que se dibujó y la historia de la que viene.",
+      "discoverTitle": "Imágenes de todos",
+      "signInBody": "Inicia sesión para ver imágenes e ilustraciones de historias de otros jugadores y crear la tuya con cualquier receta que te guste.",
+      "signIn": "Iniciar sesión",
+      "report": {
+        "open": "Reportar",
+        "title": "¿Qué problema tiene esta imagen?",
+        "reasons": {
+          "minor": "Parece menor de edad",
+          "sexual_unmarked": "Sexual sin marcar como sensible",
+          "real_person": "Una persona real",
+          "violence": "Violencia o gore",
+          "hate": "Odio o acoso",
+          "spam": "Spam",
+          "other": "Otra cosa"
+        },
+        "detailsPlaceholder": "Algo más que debamos saber (opcional)",
+        "cancel": "Cancelar",
+        "submit": "Enviar reporte",
+        "sent": "Gracias. Lo revisaremos."
+      }
+    },
+    "tools": {
+      "open": "Herramientas",
+      "menu": "Herramientas",
+      "overviewTitle": "Herramientas",
+      "overviewLead": "Todas las herramientas, por tipo.",
+      "loadError": "No cargaron las herramientas",
+      "unavailable": "No disponible ahora",
+      "unavailableShort": "No disponible",
+      "from": "Desde {{count}} mushies",
+      "goFrom": "Generar (desde {{count}})",
+      "about": "Unos {{seconds}} s",
+      "started": "En marcha",
+      "files": "Archivos",
+      "pick": {
+        "image": "Elige una imagen",
+        "video": "Elige un vídeo",
+        "audio": "Elige un sonido"
+      },
+      "searchAudio": "Buscar sonidos",
+      "uploadAudio": "Subir sonido",
+      "audioEmpty": "Aún no hay sonidos en tu biblioteca",
+      "audioFormat": "MP3, WAV, OGG, M4A o FLAC",
+      "audioTooLarge": "Hasta {{mb}} MB",
+      "lyricsPlaceholder": "Opcional · [verse] [chorus] [bridge]",
+      "input": {
+        "image": "Imagen",
+        "video": "Vídeo",
+        "audio": "Sonido",
+        "mask": "Zona a cambiar",
+        "prompt": "Descripción",
+        "lyrics": "Letra",
+        "seconds": "Duración",
+        "instrumental": "Solo instrumental",
+        "factor": "Escala",
+        "aspect": "Nuevo formato",
+        "light": "Iluminación",
+        "loop": "En bucle sin cortes",
+        "text": "Lo que dice",
+        "voice": "Voz",
+        "lang": "Idioma",
+        "model": "Modelo",
+        "heightM": "Altura real",
+        "detail": "Detalle",
+        "motions": "Movimientos"
+      },
+      "light": {
+        "sunset": "Atardecer",
+        "night": "Noche",
+        "studio": "Estudio",
+        "neon": "Neón",
+        "candle": "Velas",
+        "overcast": "Nublado"
+      },
+      "mask": {
+        "brush": "Pincel",
+        "erase": "Borrar",
+        "size": "Tamaño",
+        "clear": "Limpiar",
+        "hint": "Pinta lo que cambia",
+        "empty": "Pinta la zona primero",
+        "failed": "Falló la subida de la máscara"
+      },
+      "voicePreview": "Escuchar {{name}}",
+      "voicePreviewStop": "Parar",
+      "voiceLine": {
+        "make": "Crear una frase",
+        "short": "Voz",
+        "making": "Creando la frase…",
+        "failed": "Falló la frase"
+      },
+      "group": {
+        "image": "Imagen",
+        "video": "Vídeo",
+        "audio": "Audio",
+        "3d": "3D"
+      },
+      "audioMode": {
+        "music": "Música",
+        "song": "Canción",
+        "sfx": "Efecto",
+        "voice": "Voz",
+        "voice-change": "Cambiar voz"
+      },
+      "engine": "Modelo",
+      "engineName": {
+        "song": "ElevenLabs",
+        "song-open": "ACE-Step",
+        "song-mureka": "Mureka",
+        "bgm-mureka": "Mureka"
+      },
+      "model3d": {
+        "kindLabel": "Qué es",
+        "kind": {
+          "thing": "Objeto",
+          "person": "Persona que se mueve"
+        },
+        "title": "Modelos",
+        "empty": "Aún no hay modelos 3D",
+        "emptyBody": "Elige una imagen para empezar.",
+        "view": "Ver",
+        "download": "Descargar .glb",
+        "orbit": "Arrastra para girar · rueda para acercar",
+        "loadFailed": "El modelo no cargó",
+        "metres": "{{n}} m",
+        "asMade": "Tal cual",
+        "models": {
+          "hunyuan": {
+            "name": "Hunyuan 3D 3.1 Pro",
+            "maker": "Tencent",
+            "facts": "El más nítido de cerca · unos 4 minutos"
+          },
+          "rodin": {
+            "name": "Rodin Gen-2.5",
+            "maker": "Hyper3D",
+            "facts": "El color más rico · unos 3 minutos"
+          },
+          "tripo": {
+            "name": "Tripo H3.1",
+            "maker": "Tripo",
+            "facts": "Sale a tamaño real · colores algo oscuros · unos 2 minutos"
+          },
+          "trellis": {
+            "name": "TRELLIS.2",
+            "maker": "Microsoft",
+            "facts": "El más rápido, unos 40 segundos · borroso de cerca, bueno para un boceto"
+          },
+          "meshy": {
+            "name": "Meshy 7.1",
+            "maker": "Meshy",
+            "facts": "Unos 2 minutos"
+          }
+        },
+        "price": "{{count}} mushies",
+        "detail": {
+          "high": "Alto",
+          "standard": "Estándar"
+        }
+      },
+      "item": {
+        "remove-bg": {
+          "name": "Quitar fondo",
+          "desc": "Recorta el sujeto."
+        },
+        "upscale": {
+          "name": "Ampliar",
+          "desc": "2× o 4×, más nítida."
+        },
+        "inpaint": {
+          "name": "Retocar zona",
+          "desc": "Pinta una parte y di qué va.",
+          "placeholder": "Qué va ahí"
+        },
+        "expand": {
+          "name": "Expandir",
+          "desc": "Amplía a un nuevo formato.",
+          "placeholder": "Qué hay en la zona nueva (opcional)"
+        },
+        "relight": {
+          "name": "Reiluminar",
+          "desc": "Luz nueva."
+        },
+        "lipsync": {
+          "name": "Sincronizar labios",
+          "desc": "Haz que un personaje diga una frase."
+        },
+        "video-upscale": {
+          "name": "Ampliar vídeo",
+          "desc": "2×, más nítido."
+        },
+        "video-sound": {
+          "name": "Añadir sonido",
+          "desc": "Sonido para el vídeo.",
+          "placeholder": "Cómo suena (opcional)"
+        },
+        "song": {
+          "name": "Canción",
+          "desc": "Con voz y tu letra.",
+          "placeholder": "Estilo, ambiente, instrumentos, voz"
+        },
+        "song-open": {
+          "name": "Canción (ACE-Step)",
+          "desc": "Modelo abierto, más barato.",
+          "placeholder": "Etiquetas, p. ej. city pop, female vocal"
+        },
+        "sfx": {
+          "name": "Efecto de sonido",
+          "desc": "Un sonido corto desde texto.",
+          "placeholder": "P. ej. una puerta cruje"
+        },
+        "voice": {
+          "name": "Voz",
+          "desc": "Texto a voz.",
+          "placeholder": "Lo que dice la voz"
+        },
+        "voice-change": {
+          "name": "Cambiar voz",
+          "desc": "Una grabación con otra voz."
+        },
+        "to-3d": {
+          "name": "Modelo 3D",
+          "desc": "Imagen a modelo .glb."
+        },
+        "to-3d-character": {
+          "name": "Personaje 3D",
+          "desc": "Una persona que se mueve, desde una imagen.",
+          "placeholder": "idle, walk, sit, salute… (vacío: un conjunto estándar)"
+        },
+        "talk": {
+          "name": "Foto que habla",
+          "desc": "Una imagen dice un audio.",
+          "placeholder": "Gesto o movimiento (opcional)"
+        },
+        "song-mureka": {
+          "name": "Canción (Mureka)",
+          "desc": "Cantada con tu letra.",
+          "placeholder": "Estilo, ánimo, cantante"
+        },
+        "bgm-mureka": {
+          "name": "Instrumental (Mureka)",
+          "desc": "Una pieza instrumental completa.",
+          "placeholder": "Escena, ánimo, instrumentos"
+        },
+        "dubbing": {
+          "name": "Doblaje",
+          "desc": "Otro idioma, la misma voz, labios sincronizados."
+        },
+        "reframe": {
+          "name": "Reencuadre",
+          "desc": "Un nuevo formato, con la zona que falta dibujada.",
+          "placeholder": "Qué llena la nueva zona (opcional)"
+        },
+        "motion": {
+          "name": "Transferir movimiento",
+          "desc": "Tu personaje se mueve como en el video de referencia.",
+          "placeholder": "Algo que añadir (opcional)"
+        }
+      },
+      "running": "Procesando · unos {{seconds}} s",
+      "closeRunning": "Cerrar (sigue en marcha)",
+      "limit": {
+        "tooLong": "Hasta {{seconds}} s",
+        "tooShort": "Al menos {{seconds}} s",
+        "tooSmall": "Al menos {{px}} px",
+        "tooBig": "Hasta {{px}} px"
+      },
+      "proposal": {
+        "about": "Unos {{seconds}} s",
+        "running": "{{seconds}} / ~{{total}} s",
+        "done": "Listo",
+        "failed": "Falló",
+        "declined": "Omitido",
+        "stillRunning": "Sigue en marcha · llegará a tu biblioteca",
+        "run": "Ejecutar · {{count}} mushies",
+        "runNoPrice": "Ejecutar",
+        "decline": "Omitir",
+        "charged": "Cobrado {{count}} mushies",
+        "view3d": "Ver 3D",
+        "copyFailed": "No se pudo copiar"
+      },
+      "voiceTone": {
+        "Sarah": "serena, femenina",
+        "Laura": "traviesa, femenina",
+        "Jessica": "brillante, femenina",
+        "Matilda": "cálida, femenina",
+        "Lily": "británica, femenina",
+        "Alice": "clara, femenina",
+        "George": "narrador, masculina",
+        "Brian": "grave, masculina",
+        "Liam": "joven, masculina",
+        "Callum": "ronca, masculina",
+        "Charlie": "enérgica, masculina",
+        "River": "neutra"
+      },
+      "lang": {
+        "en": "Inglés",
+        "zh": "Chino",
+        "ja": "Japonés",
+        "ko": "Coreano",
+        "es": "Español",
+        "fr": "Francés",
+        "de": "Alemán",
+        "pt": "Portugués",
+        "ru": "Ruso",
+        "it": "Italiano",
+        "ar": "Árabe",
+        "id": "Indonesio",
+        "th": "Tailandés",
+        "vi": "Vietnamita",
+        "hi": "Hindi",
+        "tr": "Turco"
+      }
+    },
+    "quick": {
+      "target": {
+        "portrait": "Retrato",
+        "portraitIdle": "Bucle en reposo",
+        "portraitSpeaking": "Bucle hablando",
+        "voice": "Voz",
+        "sceneImage": "Imagen de escena",
+        "background": "Fondo",
+        "cover": "Portada",
+        "bgm": "Música",
+        "sfx": "Efecto de sonido",
+        "ambient": "Ambiente"
+      },
+      "description": "Créalo y añádelo a este bloque.",
+      "prompt": "Prompt",
+      "model": "Modelo",
+      "moreModels": "Más",
+      "size": "Tamaño",
+      "count": "Cantidad",
+      "length": "Duración",
+      "pick": "Elige una",
+      "retryOn": "Reintentar con {{model}}",
+      "edit": "Editar",
+      "openHint": "Los modelos abiertos rechazan menos.",
+      "needsPortrait": "Añade un retrato primero",
+      "open": "GPU propia",
+      "clip": "Clip",
+      "full": "Completa",
+      "retryAnime": "Reintentar con nuestro modelo anime · {{count}} mushies",
+      "refsOn": "Con referencias",
+      "refsOff": "Sin referencias en este modelo"
+    },
+    "wb": {
+      "style": "Estilo",
+      "styleAuto": "Del modelo",
+      "ownGpu": "GPU propias",
+      "mention": "Mencionar",
+      "noMatch": "Sin coincidencias",
+      "noElements": "Aún no hay personajes",
+      "attach": "Adjuntar",
+      "needPicture": "Añade una imagen",
+      "go": "Generar",
+      "placeholder": {
+        "image": "Describe la imagen",
+        "video": "Describe el plano y el movimiento",
+        "audio": "Describe el sonido o escribe la frase",
+        "live": "Adjunta una imagen del personaje",
+        "3d": "Adjunta una imagen del objeto"
+      },
+      "starter": {
+        "animate": {
+          "name": "Dar vida a una imagen"
+        },
+        "outfit": {
+          "name": "Cambio de ropa en una frase",
+          "prompt": "El mismo personaje, la misma pose, ahora con "
+        },
+        "bgm": {
+          "name": "BGM de la tarjeta",
+          "prompt": "Música de fondo para una tarjeta: "
+        },
+        "voice": {
+          "name": "Voz del personaje",
+          "prompt": ""
+        },
+        "expressions": {
+          "name": "Set de expresiones",
+          "prompt": "El mismo personaje, hoja de expresiones 3×3: alegre, enfadado, triste, sorprendido, tímido, tranquilo, orgulloso, llorando, con sueño. Misma ropa, fondo liso"
+        },
+        "canvas": {
+          "name": "Lienzo en blanco"
+        }
+      },
+      "blocked": {
+        "prompt": "Escribe algo primero",
+        "picture": "Añade una imagen primero",
+        "model": "No hay modelo disponible"
+      },
+      "tab": {
+        "works": "Plaza",
+        "skills": "Recetas",
+        "elements": "Personajes y referencias",
+        "mine": "Mis obras"
+      },
+      "emptyMine": "Aún no has creado nada",
+      "untitled": "Sin título",
+      "liveTitle": "Personaje vivo · {{date}}",
+      "myPosts": "Mías",
+      "publishWork": "Publicar",
+      "publishSkill": "Publicar receta",
+      "publishSkillLead": "Otros pueden usarla con sus propias palabras e imágenes.",
+      "kind": {
+        "character": "Personaje",
+        "scene": "Escena",
+        "prop": "Objeto",
+        "voice": "Voz",
+        "style": "Estilo"
+      },
+      "kindLabel": "Tipo",
+      "all": "Todo",
+      "loadFailed": "No se pudo cargar",
+      "saveFailed": "No se pudo guardar",
+      "addElement": "Nuevo",
+      "editElement": "Editar",
+      "name": "Nombre",
+      "description": "Descripción",
+      "refs": "Imágenes {{count}}/{{max}}",
+      "none": "Ninguno",
+      "save": "Guardar",
+      "filter": "Filtro",
+      "sortLabel": "Orden",
+      "sort": {
+        "hot": "Populares",
+        "new": "Recientes"
+      },
+      "mine": "Mías",
+      "workKind": {
+        "image": "Imágenes",
+        "video": "Vídeo",
+        "live": "Personaje vivo",
+        "audio": "Música"
+      },
+      "emptyWorks": "Aún no hay obras",
+      "emptySkills": "Aún no hay recetas",
+      "remix": "Hacer uno igual",
+      "useInCard": "Poner en mi tarjeta",
+      "copiedLink": "Enlace copiado",
+      "use": "Usar",
+      "like": "Me gusta",
+      "skillPublished": "Receta publicada",
+      "title": "Título",
+      "cover": "Portada",
+      "publish": "Publicar",
+      "skillStatus": {
+        "pending": "En revisión",
+        "rejected": "No aprobada"
+      },
+      "suggest": {
+        "character": "Crea tu OC",
+        "scene": "Guarda una escena",
+        "voice": "Guarda una voz"
+      },
+      "showPrompt": "Ver prompt",
+      "hidePrompt": "Ocultar prompt",
+      "studio": {
+        "image": "Imagen",
+        "video": "Video",
+        "audio": "Audio",
+        "live": "Personaje vivo",
+        "3d": "Modelo 3D",
+        "lora": "Entrenar LoRA"
+      },
+      "home": {
+        "title": "¿Para quién creamos algo hoy?",
+        "characters": "Tus personajes",
+        "newCharacter": "Nuevo personaje",
+        "plaza": "Plaza",
+        "back": "Volver",
+        "forHer": "¿Qué hacemos hoy para {{name}}?",
+        "heading": "Taller",
+        "lead": "Imágenes, video y sonido",
+        "recent": "Recientes",
+        "myCharacters": "Mis personajes",
+        "others": "Otros",
+        "firstHint": "Dibuja un personaje y luego vístela, dale voz y haz videos",
+        "listen": "Escuchar",
+        "make": "Qué puedes hacer",
+        "try": "Probar",
+        "line": {
+          "image": "Una frase y sale la ilustración",
+          "video": "Escribe una frase y míralo moverse",
+          "audio": "Voces, música y efectos",
+          "live": "Una imagen se convierte en un personaje que se mueve",
+          "3d": "Una imagen se convierte en un modelo para colocar en una escena",
+          "lora": "Entrena con un retrato; tu personaje tiene la misma cara en cada imagen"
+        },
+        "tile": {
+          "outfit": {
+            "name": "Cambio de ropa",
+            "desc": "El mismo personaje, otra ropa"
+          },
+          "expressions": {
+            "name": "Set de expresiones",
+            "desc": "Nueve expresiones de una vez"
+          },
+          "talk": {
+            "name": "Decir una frase",
+            "desc": "Una foto que habla con voz"
+          },
+          "lipsync": {
+            "name": "Sincronía labial",
+            "desc": "Pon sus frases en el vídeo"
+          },
+          "remove-bg": {
+            "name": "Quitar fondo",
+            "desc": "Recórtala con un toque"
+          },
+          "upscale": {
+            "name": "Ampliar",
+            "desc": "2x o 4x, más nítida"
+          },
+          "expand": {
+            "name": "Expandir",
+            "desc": "Agranda la imagen hacia fuera"
+          },
+          "sfx": {
+            "name": "Efecto de sonido",
+            "desc": "Una frase se vuelve sonido"
+          }
+        },
+        "whose": "¿Para qué personaje?",
+        "withPicture": "Usar una imagen",
+        "withFiles": "Usar una imagen y un audio",
+        "pickPicture": "Elige una imagen del personaje",
+        "sc": {
+          "imgLine": "Un viejo pescador al amanecer",
+          "still": "Una imagen",
+          "moving": "En movimiento"
+        },
+        "square": {
+          "title": "Plaza",
+          "skills": "Recetas",
+          "lora": "LoRA",
+          "voice": "Voces",
+          "sort": {
+            "hot": "Populares",
+            "new": "Nuevos"
+          },
+          "shared": "Compartido por creadores"
+        },
+        "more": {
+          "title": "Más para probar",
+          "clone": "Clonar voz",
+          "line": {
+            "lora": "Un retrato, ella en cada imagen",
+            "live": "Da vida a un personaje con una imagen",
+            "clone": "Diez segundos de grabación, su propia voz",
+            "lipsync": "Ponle diálogo en un vídeo",
+            "remove-bg": "Recorta al personaje con un toque",
+            "expand": "Amplía la imagen hacia fuera"
+          }
+        },
+        "live": {
+          "from": "Original"
+        }
+      },
+      "next": {
+        "animate": "Crear personaje animado",
+        "video": "Hacer video",
+        "lipsync": "Sincronizar labios",
+        "card": "Poner en mi tarjeta",
+        "voice": "Guardar como voz de personaje",
+        "say": "Hacer que hable",
+        "extend": "Alargar",
+        "join": "Unir en uno"
+      },
+      "card": {
+        "search": "Buscar mis tarjetas",
+        "none": "Aún no hay tarjetas. Crear una",
+        "done": "Añadido a «{{name}}»",
+        "doneHere": "Añadido a esta tarjeta",
+        "open": "Abrir",
+        "landed": "En «{{name}}» · {{slot}}",
+        "landedHere": "Añadido · {{slot}}",
+        "look": "Ver"
+      },
+      "char": {
+        "unnamed": "Personaje sin nombre",
+        "keep": "Guardar como personaje",
+        "made": "Hecho con ella",
+        "missing": "Personaje no encontrado",
+        "scenePrompt": "en",
+        "action": {
+          "outfit": "Cambiar ropa",
+          "expressions": "Set de expresiones",
+          "voice": "Voz",
+          "animate": "Darle vida",
+          "seeLive": "Verla moverse",
+          "scene": "Ella en una escena",
+          "card": "Poner en mi tarjeta",
+          "video": "Hacer un vídeo",
+          "say": "Decir algo"
+        },
+        "outfits": "Ropa",
+        "expressions": "Expresiones",
+        "lives": "Versiones animadas",
+        "voice": "Su voz",
+        "clips": "Frases"
+      },
+      "audio": {
+        "voice": "Voz",
+        "music": "Música",
+        "sfx": "Efectos",
+        "bgm": "Música de fondo",
+        "song": "Canción con voz",
+        "mine": "Mis voces",
+        "plaza": "Plaza"
+      },
+      "voiceLab": {
+        "mine": "Mis voces",
+        "design": "Describir",
+        "clone": "Clonar",
+        "describe": "Describe la voz",
+        "describePh": "p. ej. un hombre de unos treinta, cálido y grave, algo libresco",
+        "generate": "Crear 3",
+        "again": "Crear 3 más",
+        "designCost": "{{n}} hongos",
+        "free": "Gratis",
+        "candidate": "Toma {{n}}",
+        "keep": "Guardar",
+        "kept": "Guardada",
+        "fromSaved": "Guardada",
+        "recording": "Grabación",
+        "cloneHint": "{{min}}–{{max}} s, una sola persona hablando",
+        "record": "Grabar",
+        "stop": "Parar",
+        "upload": "Subir",
+        "seconds": "{{s}} s",
+        "name": "Nombre",
+        "namePh": "Opcional",
+        "cloneGo": "Clonar",
+        "empty": "Aún no hay voces",
+        "emptyBody": "Describe una voz o sube una grabación",
+        "fromDesign": "Diseñada",
+        "fromClone": "Clonada",
+        "heldBy": "la usa @{{name}}",
+        "try": "Probar una frase",
+        "tryPh": "Escribe una frase y pulsa Enter",
+        "say": "Decir",
+        "toCharacter": "Dar a un personaje",
+        "noCharacters": "Aún no hay personajes",
+        "given": "Asignada a @{{name}}",
+        "copyName": "Copiar @nombre",
+        "copied": "Copiado",
+        "rename": "Renombrar",
+        "delete": "Eliminar",
+        "deleteConfirm": "¿Eliminar «{{name}}»?",
+        "err": {
+          "noCredits": "No tienes suficientes hongos",
+          "tooShort": "Grabación demasiado corta",
+          "tooLarge": "Archivo demasiado grande",
+          "format": "No se puede leer. Usa MP3, WAV o M4A",
+          "expired": "Las tomas caducaron. Crea otras",
+          "busy": "Demasiadas solicitudes. Inténtalo en un momento",
+          "gone": "Esta voz ya no está disponible",
+          "failed": "Falló. Inténtalo de nuevo",
+          "noMic": "Micrófono no disponible",
+          "nameTaken": "Ese nombre ya existe",
+          "unavailable": "Las voces no están disponibles ahora"
+        },
+        "publish": "Publicar en la plaza",
+        "unpublish": "Quitar de la plaza",
+        "published": "Enviada a revisión. Aparece en la plaza al aprobarse",
+        "unpublished": "Quitada de la plaza",
+        "status": {
+          "pending": "En revisión",
+          "approved": "En la plaza",
+          "rejected": "No aprobada"
+        },
+        "usedBy": "{{count}} la usan",
+        "designLead": "Describe la voz en una frase y elige entre 3 tomas",
+        "designTime": "Unos 15 s",
+        "designFor": "Ideal para personajes originales",
+        "cloneLead": "Graba o sube una voz clara y obtén esa voz al instante",
+        "cloneTime": "Alrededor de 1 min",
+        "cloneFor": "Ideal para grabaciones existentes",
+        "savedTab": "Guardadas",
+        "savedEmpty": "Aún no hay voces guardadas",
+        "savedEmptyBody": "Las voces que uses de la plaza aparecen aquí",
+        "fromPlaza": "De la plaza",
+        "useForLine": "Usar en una frase",
+        "editShown": "Editar info de la Plaza"
+      },
+      "field": {
+        "prompt": "Descripción",
+        "reference": "Referencia",
+        "model": "Modelo",
+        "firstFrame": "Primer fotograma",
+        "motion": "Movimiento",
+        "lastFrame": "Último fotograma",
+        "characterRefs": "Referencias de personaje",
+        "referenceVideo": "Vídeo de referencia",
+        "camera": "Cámara"
+      },
+      "newKind": {
+        "character": "Nuevo personaje",
+        "scene": "Nueva escena",
+        "prop": "Nuevo objeto",
+        "voice": "Nueva voz",
+        "style": "Nuevo estilo"
+      },
+      "emptyStudio": "Aún no hay nada",
+      "moreActions": "Más",
+      "resizeSettings": "Arrastra para cambiar el ancho de los ajustes",
+      "tools": "Herramientas",
+      "copyRef": "Copiar referencia",
+      "fullSettings": "Todos los ajustes",
+      "simple": "Ajustes simples",
+      "play": "Jugar",
+      "moreSettings": "Más ajustes",
+      "keep": {
+        "outfits": "Guardar como ropa de {{name}}",
+        "expressions": "Guardar como expresiones de {{name}}",
+        "remove": "Quitar",
+        "voiceWhose": "¿La voz de quién?",
+        "voiceAlone": "Guardar como voz suelta",
+        "done": {
+          "outfits": "Guardado en la ropa de {{name}}",
+          "expressions": "Guardado en las expresiones de {{name}}",
+          "voice": "Ahora es la voz de {{name}}",
+          "clips": "Guardado en las frases de {{name}}"
+        }
+      },
+      "refused": {
+        "free": "Este no se cobró",
+        "retry": "Probar otro modelo · {{count}}",
+        "edit": "Editar descripción"
+      },
+      "queue": {
+        "place": "En cola · n.º {{count}}",
+        "hint": "Empieza cuando haya hueco",
+        "cancel": "Cancelar",
+        "held": "En cola. Empieza cuando haya hueco."
+      },
+      "budget": {
+        "useStyle": "Usar un estilo"
+      },
+      "slot": {
+        "portrait": "{{name}} · retrato",
+        "clip": "{{name}} · retrato animado · {{clip}}",
+        "live": "{{name}} · personaje vivo",
+        "scene": "Imagen de escena",
+        "background": "Fondo del chat",
+        "cover": "Portada",
+        "opening": "Apertura",
+        "assets": "Solo a recursos",
+        "audio": {
+          "bgm": "Música",
+          "ambient": "Ambiente",
+          "sfx": "Efecto de sonido"
+        }
+      },
+      "download": "Descargar",
+      "hide": "Eliminar",
+      "filesGone": "Sus archivos se borraron de Mis recursos",
+      "filesGoneCount_one": "{{count}} registro antiguo con sus archivos borrados",
+      "filesGoneCount_other": "{{count}} registros antiguos con sus archivos borrados",
+      "needPrompt": "Escribe una frase primero",
+      "needMotion": "Escribe el movimiento primero",
+      "defaultMotion": "parpadea suave, el pelo se mueve con la brisa",
+      "styleChip": "Estilo: {{name}}",
+      "styleChipAuto": "Estilo: auto",
+      "tier": {
+        "fast": "Rápido",
+        "good": "Bueno",
+        "best": "El mejor",
+        "custom": "Personalizado"
+      },
+      "moreModels": "Más modelos",
+      "more": "Más",
+      "pricePer": "{{count}} / {{seconds}} s",
+      "preset": {
+        "custom": "Personalizado…",
+        "outfit": {
+          "school": "uniforme escolar",
+          "kimono": "kimono / yukata",
+          "winter": "ropa de invierno",
+          "sport": "ropa deportiva",
+          "gown": "vestido de gala"
+        },
+        "scene": {
+          "classroom": "un aula",
+          "cafe": "una cafetería",
+          "night": "una calle de noche",
+          "beach": "la playa",
+          "bedroom": "un dormitorio"
+        }
+      },
+      "first": {
+        "title": "Dibuja tu primer personaje",
+        "placeholder": "¿Quién es? Pelo, ojos, ropa, carácter…",
+        "manual": "Rellenar a mano"
+      },
+      "stage": {
+        "ask": "¿Qué le hacemos hoy?",
+        "others": "Otros personajes ({{count}})",
+        "open": "Su página",
+        "recent": "Recientes",
+        "seeAll": "Ver todo en su página",
+        "seeAllHere": "Ver todo"
+      },
+      "examples": "Prueba una de estas",
+      "example": {
+        "image": {
+          "cafe": "Una chica de pelo plateado junto a la ventana de un café en un día de lluvia",
+          "sakura": "Una espadachina bajo una lluvia de flores de cerezo",
+          "neon": "Una chica en un mercado nocturno de neón, cyberpunk"
+        },
+        "video": {
+          "turn": "Se gira despacio y sonríe",
+          "wind": "El viento le mueve el pelo, parpadea suave",
+          "rain": "Calle de neón bajo la lluvia, la cámara se acerca despacio"
+        }
+      },
+      "experimental": "Beta",
+      "edit": "Editar",
+      "modelTag": {
+        "cheap": "Económico",
+        "k4": "4K",
+        "textOnly": "Solo texto",
+        "sound": "Con sonido",
+        "ownGpu": "GPU propias",
+        "lastFrame": "Último fotograma"
+      },
+      "details": {
+        "size": "Tamaño",
+        "duration": "Duración",
+        "cost": "Coste",
+        "time": "Fecha",
+        "character": "Personaje",
+        "expand": "Ver más",
+        "collapse": "Ver menos",
+        "loras": "LoRAs",
+        "references": "Referencias",
+        "parts": "Partes"
+      },
+      "custom": {
+        "change": "Cambiar",
+        "ownBase": "Mi modelo base",
+        "platform": "Modelos base de la plataforma",
+        "mine": "Mis modelos base",
+        "community": "Modelos base de la comunidad",
+        "videoLora": "LoRA de video",
+        "mismatch": "No encaja con este modelo base",
+        "mismatchShort": "No encaja",
+        "noLoras": "Este modelo base no admite LoRAs",
+        "addLora": "Añadir LoRA",
+        "tab": {
+          "mine": "Míos",
+          "community": "Comunidad",
+          "link": "Importar"
+        },
+        "noMine": "Aún no tienes LoRAs. Elige uno de la comunidad o pega un enlace de Civitai",
+        "noCommunity": "Aún no hay LoRAs en la comunidad",
+        "linkHint": "Pega el enlace de un modelo de Civitai. Descargar y sincronizar tarda unos minutos",
+        "size": "Tamaño",
+        "advanced": "Avanzado",
+        "weight": "Peso",
+        "dice": "Semilla aleatoria",
+        "upload": "Subir .safetensors",
+        "uploading": "Subiendo {{pct}} %"
+      },
+      "say": {
+        "title": "Haz hablar a {{name}}",
+        "placeholder": "Lo que dice",
+        "line": "Frase",
+        "price": "Unos {{count}} mushies · unos {{seconds}} s",
+        "go": "Hablar",
+        "voicing": "Creando la voz",
+        "runLabel": "{{name}}: {{line}}",
+        "voiceFallback": "Su voz aún no sirve aquí, habla {{voice}}"
+      },
+      "extend": {
+        "label": "Alargar · {{title}}"
+      },
+      "camera": {
+        "push": "Acercar",
+        "pull": "Alejar",
+        "orbit": "Órbita",
+        "follow": "Seguir",
+        "pan": "Paneo",
+        "static": "Fija"
+      },
+      "topUp": "Recargar",
+      "join": {
+        "label": "Unido · {{title}}"
+      },
+      "audioEmpty": "Aún no hay sonidos",
+      "au": {
+        "describe": "Describe",
+        "describePh": "Una frase: la escena, el ánimo, los instrumentos",
+        "style": "Estilo",
+        "vocals": "Voz",
+        "instrumental": "Instrumental",
+        "withVocals": "Con voz",
+        "lyrics": "Letra",
+        "lyricsPh": "Si la dejas vacía, primero se escribe la letra",
+        "writeLyrics": "Escribir con IA",
+        "writing": "Escribiendo",
+        "needAbout": "Describe primero o elige un estilo",
+        "lyricsFailed": "No se pudo escribir la letra. Inténtalo de nuevo",
+        "singer": {
+          "auto": "Auto",
+          "female": "Femenina",
+          "male": "Masculina"
+        },
+        "length": "Duración",
+        "len": {
+          "s": "{{n}} s",
+          "m": "{{n}} min"
+        },
+        "engineTag": {
+          "lyria": "Recomendado",
+          "bgm-mureka": "Pieza completa",
+          "song-mureka": "Recomendado",
+          "song": "Duración exacta",
+          "song-open": "Barato"
+        },
+        "tag": {
+          "daily": "Cotidiano",
+          "battle": "Batalla",
+          "romance": "Romance",
+          "sad": "Triste",
+          "mystery": "Misterio",
+          "horror": "Terror",
+          "epic": "Épico",
+          "night": "Noche",
+          "japanese": "Japonés",
+          "chinese": "Chino",
+          "piano": "Piano",
+          "lofi": "Lo-fi",
+          "electronic": "Electrónica",
+          "rock": "Rock",
+          "citypop": "City pop",
+          "jazz": "Jazz"
+        },
+        "line": "Frase",
+        "linePh": "Lo que dice. También admite indicaciones de actuación",
+        "cues": "Actuación",
+        "cue": {
+          "soft": "en voz baja",
+          "laugh": "ríe",
+          "sob": "sollozando",
+          "sigh": "suspira",
+          "shout": "gritando",
+          "whisper": "susurra"
+        },
+        "voice": "Voz",
+        "makeVoice": "Crear una voz",
+        "myVoice": "Mi voz",
+        "listen": "Escuchar",
+        "byChars": "Se cobra por longitud",
+        "voiceFailed": "No se generó nada. Inténtalo de nuevo",
+        "making": "Generando · {{seconds}} s",
+        "empty": {
+          "voice": "Aún no hay frases",
+          "music": "Aún no hay música",
+          "sfx": "Aún no hay efectos"
+        },
+        "emptyBody": "Escribe una frase a la izquierda para empezar",
+        "kind": {
+          "voice": "Frase",
+          "music": "Música",
+          "sfx": "Efecto"
+        },
+        "seek": "Posición",
+        "close": "Cerrar",
+        "singerLabel": "Cantante",
+        "plaza": {
+          "title": "Plaza de voces",
+          "hot": "Populares",
+          "used": "Usadas",
+          "search": "Buscar voces",
+          "use": "Usar",
+          "inMine": "Añadida",
+          "listen": "Escuchar",
+          "mine": "Mía",
+          "users": "{{count}} la usan",
+          "added": "Añadida a tus voces: elígela en frases, tarjetas y chats",
+          "removed": "Quitada de tus voces",
+          "full": "Ya tienes 40 voces. Quita alguna primero",
+          "failed": "No funcionó. Inténtalo de nuevo",
+          "empty": "Nadie ha publicado una voz todavía",
+          "noneUsed": "Aún no has usado voces de la plaza",
+          "noMatch": "No hay una voz con ese nombre",
+          "emptyBody": "Diseña o clona una en Mis voces y publícala",
+          "goMine": "Ir a Mis voces",
+          "shelf": {
+            "music": "Música",
+            "sfx": "Efectos",
+            "voice": "Voces"
+          },
+          "new": "Nuevas",
+          "inMusic": "Añadido",
+          "taken": "Añadido a tu audio. Ponlo en una tarjeta cuando quieras",
+          "storageFull": "Tu almacenamiento está lleno",
+          "emptyShelf": {
+            "music": "Nadie ha compartido música todavía",
+            "sfx": "Nadie ha compartido efectos todavía"
+          },
+          "emptyShelfBody": "Crea una en Música o Efectos y publícala desde su menú ⋯",
+          "untitled": {
+            "music": "Música",
+            "sfx": "Efecto"
+          },
+          "signIn": "Inicia sesión para usarla",
+          "noneMine": "Aún no has publicado ninguna voz",
+          "style": {
+            "piano": "Piano",
+            "orchestral": "Orquestal",
+            "acoustic": "Acústica",
+            "electronic": "Electrónica",
+            "lofi": "Lo-fi",
+            "japanese": "Japonesa",
+            "chinese": "China",
+            "fantasy": "Fantasía",
+            "battle": "Batalla",
+            "dark": "Oscura",
+            "tender": "Tierna",
+            "sad": "Triste",
+            "folk": "Folk",
+            "pop": "Pop",
+            "heroic": "Heroica",
+            "calm": "Tranquila"
+          },
+          "listenIn": "Recomendado",
+          "download": "Descargar",
+          "best": "Mejor",
+          "speaks": "Idioma",
+          "anyLang": "Cualquier idioma"
+        },
+        "savedVoice": "Guardada",
+        "publish": "Publicar en la plaza",
+        "posted": "Enviada a revisión. Aparece en la plaza al aprobarse",
+        "alreadyPosted": "Ya está publicada",
+        "postFailed": "No se pudo publicar. Inténtalo de nuevo",
+        "restricted": "Tu cuenta no puede publicar ahora",
+        "fromPlaza": "De la plaza",
+        "history": "Historial",
+        "pickVoice": "Elige una voz",
+        "pick": {
+          "all": "Todas",
+          "mine": "Mías",
+          "saved": "Guardadas",
+          "catalog": "Destacadas"
+        },
+        "picked": "En uso",
+        "pickThis": "Usar",
+        "noMine": "Aún no tienes voces propias",
+        "noSaved": "Nada guardado aún. Echa un vistazo a la plaza",
+        "morePlaza": "Más voces en la plaza",
+        "dramaHint": "Interpreta las indicaciones entre corchetes sin leerlas",
+        "scenesLead": "Prueba",
+        "scene": {
+          "line": {
+            "name": "Frase de personaje",
+            "text": "[susurra] Volviste. Pensé que... nunca lo harías."
+          },
+          "narration": {
+            "name": "Narración",
+            "text": "Hace mucho, en una ciudad real rodeada de montañas, vivía una princesa que apenas hablaba."
+          },
+          "whisper": {
+            "name": "Susurro",
+            "text": "[susurra] Ni un ruido. Están justo detrás de la puerta."
+          },
+          "battle": {
+            "name": "Grito de batalla",
+            "text": "[gritando] ¡Todos conmigo! ¡Hoy no dejamos a nadie atrás!"
+          },
+          "tease": {
+            "name": "Coqueta",
+            "text": "[ríe] No es que lo haya hecho para ti... pero ¿quieres probarlo?"
+          },
+          "announce": {
+            "name": "Anuncio",
+            "text": "Atención, viajeros: el tren a Puerto Estelar está llegando."
+          }
+        },
+        "sfxPh": "Describe un sonido, p. ej. una vieja puerta de madera se abre crujiendo",
+        "loopOn": "En bucle",
+        "loopOff": "Sin bucle",
+        "sfxIdea": {
+          "door": {
+            "name": "Puerta",
+            "text": "una vieja puerta de madera abriéndose despacio con un crujido"
+          },
+          "rain": {
+            "name": "Lluvia",
+            "text": "lluvia constante sobre una ventana y un tejado"
+          },
+          "sword": {
+            "name": "Espadas",
+            "text": "dos espadas de acero chocando en un combate"
+          },
+          "magic": {
+            "name": "Magia",
+            "text": "un hechizo que se carga y se libera con un silbido brillante"
+          },
+          "crowd": {
+            "name": "Taberna",
+            "text": "una taberna llena de gente charlando y riendo, jarras chocando, sin palabras claras"
+          },
+          "heart": {
+            "name": "Latido",
+            "text": "un latido tenso, lento y luego más rápido"
+          }
+        }
+      },
+      "saveCharacter": "Guardar como personaje",
+      "share": "Compartir",
+      "skillSeconds": "{{count}} s",
+      "skillUsed": "{{count}} usos",
+      "skillWhat": "Ajustes",
+      "skillFill": "Huecos",
+      "skillStep": {
+        "image": "Crea una imagen",
+        "video": "Crea un vídeo",
+        "audio": "Crea un sonido",
+        "live": "Da vida a un retrato",
+        "tool": "Edita"
+      },
+      "skillPub": {
+        "words": "Prompt",
+        "wordsHint": "Pon 【】 en lo que completan los demás",
+        "how": "Visibilidad",
+        "open": "Receta abierta",
+        "openNote": "Modelo, ajustes y prompt visibles",
+        "closed": "Solo el uso",
+        "closedNote": "Solo la descripción y los huecos",
+        "closedNo": "Solo recetas de un paso",
+        "preview": "Vista previa",
+        "previewClosed": "Vista previa (solo tú)",
+        "blanks": "{{count}} huecos",
+        "noBlanks": "Sin huecos",
+        "onlyMe": "Solo yo",
+        "save": "Guardar",
+        "savedPrivate": "Guardado",
+        "coverPick": "Elegir o subir",
+        "file": {
+          "image": "Una imagen",
+          "video": "Un vídeo",
+          "audio": "Un sonido"
+        }
+      },
+      "skillTakes": "Trae",
+      "skillPrompt": "Prompt",
+      "skillChainNote": "Los {{count}} pasos siguientes continúan solos, cada uno con su cargo",
+      "skillSet": {
+        "size": "Tamaño",
+        "aspectRatio": "Proporción",
+        "resolution": "Resolución",
+        "durationSeconds": "Duración",
+        "sound": "Sonido",
+        "fast": "Rápido",
+        "style": "Modelo base",
+        "quality": "Calidad",
+        "steps": "Pasos",
+        "cfg": "CFG",
+        "sampler": "Sampler",
+        "negativePrompt": "Prompt negativo",
+        "on": "Sí",
+        "off": "No"
+      },
+      "allMade": "Historial",
+      "sealed": {
+        "title": "El autor mantiene esta receta cerrada",
+        "mine": "Cerrada",
+        "askPrice": "Ver el precio",
+        "run": "Generar ({{mushies}} mushies)",
+        "failed": "No se pudo completar. Inténtalo de nuevo.",
+        "noCredits": "No hay suficientes mushies"
+      },
+      "skillView": {
+        "recent": "Recientes",
+        "saved": "Guardadas"
+      },
+      "voiceLang": {
+        "zh": "Chino",
+        "ja": "Japonés",
+        "en": "Inglés",
+        "es": "Español"
+      },
+      "soundCover": {
+        "upload": "Subir imagen",
+        "badFile": "Elige una imagen de menos de 20 MB"
+      },
+      "soundPublish": {
+        "title": "Publicar en la Plaza",
+        "descPh": "De quién es la voz y con qué se hizo",
+        "lang": "Idioma recomendado",
+        "go": "Publicar",
+        "desc": "Descripción"
+      },
+      "source": {
+        "cloud": "General",
+        "own": "Estilos"
+      },
+      "refine": "Retocar",
+      "shareUpload": {
+        "title": "Compartir una imagen",
+        "go": "Publicar en la Plaza",
+        "done": "Enviado. Aparecerá en la Plaza tras la revisión",
+        "failed": "No se pudo publicar. Inténtalo de nuevo",
+        "already": "Esta imagen ya está compartida",
+        "change": "Cambiar",
+        "kind": {
+          "image": "Compartir imagen",
+          "video": "Compartir vídeo",
+          "music": "Compartir música",
+          "sfx": "Compartir efecto"
+        },
+        "titlePh": "Ponle un título",
+        "descPh": "Añade una descripción: qué es y cómo se hizo",
+        "tag": "Etiqueta",
+        "removeTag": "Quitar",
+        "enlarge": "Ver en grande",
+        "review": "Se revisa primero y luego aparece en la Plaza",
+        "need": {
+          "work": "Elige primero una obra",
+          "title": "Falta el título"
+        },
+        "search": "Buscar",
+        "keepPrompt": "No publicar el prompt",
+        "keepPromptNote": "Otros no podrán hacer uno igual",
+        "sensitive": "Sin límites",
+        "sensitiveNote": "Solo lo ven adultos con el contenido para adultos activado",
+        "tooMany": "Demasiadas obras en revisión. Vuelve a intentarlo después",
+        "pickOne": "Elige una",
+        "noMatch": "Sin resultados",
+        "shared": "Compartido",
+        "none": {
+          "music": "Aún no hay música. Sube un archivo",
+          "sfx": "Aún no hay efectos. Sube un archivo"
+        },
+        "untitled": {
+          "music": "Música sin título",
+          "sfx": "Efecto sin título"
+        }
+      },
+      "myWork": "Mis creaciones",
+      "skillPublish": {
+        "entry": "Publicar receta",
+        "pick": "Qué resultado será la receta"
+      },
+      "skillReview": {
+        "title": "Reseñas",
+        "send": "Publicar",
+        "failed": "No se pudo publicar. Inténtalo de nuevo",
+        "none": "Aún no hay reseñas"
+      },
+      "comments": {
+        "title": "Comentarios",
+        "ratings": "{{count}} valoraciones",
+        "writePh": "Cuenta qué te parece",
+        "makerPh": "Comenta como autor",
+        "rate": "Valorar",
+        "send": "Publicar",
+        "reply": "Responder",
+        "replyPh": "Responder a {{name}}",
+        "maker": "Autor",
+        "like": "Me gusta",
+        "delete": "Eliminar",
+        "moreReplies": "Ver {{count}} respuestas más",
+        "more": "Cargar más",
+        "noneTitle": "Aún no hay comentarios",
+        "noneBody": "Escribe el primero",
+        "signIn": "Inicia sesión para comentar",
+        "failed": "No se pudo publicar. Inténtalo de nuevo",
+        "loadFailed": "No se cargaron los comentarios",
+        "retry": "Reintentar",
+        "menu": "Más",
+        "original": "Original",
+        "translation": "Traducción",
+        "hide": "Ocultar",
+        "unhide": "Volver a mostrar",
+        "report": "Denunciar",
+        "reportedShort": "Denunciado",
+        "reported": "Denunciado. Lo revisaremos",
+        "reportWhy": "Motivo",
+        "cancel": "Cancelar",
+        "reason": {
+          "harassment": "Acoso o insultos",
+          "spam": "Spam o publicidad",
+          "sexual": "Contenido sexual",
+          "illegal": "Contenido ilegal",
+          "other": "Otro"
+        },
+        "hiddenBy": {
+          "maker": "Oculto por el creador",
+          "reports": "Oculto tras varias denuncias",
+          "admin": "Oculto por un moderador"
+        }
+      },
+      "detail": {
+        "how": "Cómo se hizo",
+        "copy": "Copiar",
+        "copied": "Copiado",
+        "promptHidden": "El creador no publicó el prompt",
+        "keptMine": "Solo lo ves tú",
+        "prev": "Anterior",
+        "next": "Siguiente"
+      },
+      "player": {
+        "label": "Reproduciendo",
+        "prev": "Anterior",
+        "next": "Siguiente",
+        "play": "Reproducir",
+        "pause": "Pausar",
+        "close": "Cerrar",
+        "seek": "Avance",
+        "language": "Idioma de la muestra",
+        "best": "Mejor"
+      },
+      "modelFact": {
+        "upTo": "Hasta {{size}}",
+        "reference": "Admite referencia",
+        "textOnly": "Solo texto",
+        "seconds": "Hasta {{count}} s",
+        "sound": "Con sonido",
+        "lastFrame": "Primer y último fotograma",
+        "wait": "Unos {{time}}"
+      },
+      "connectAi": "Conectar una IA",
+      "lora": {
+        "import": "¿Ya tienes un archivo LoRA? Importar",
+        "square": "Plaza de LoRA",
+        "mine": "Mis LoRA",
+        "confirmDelete": "¿Eliminar «{{name}}»? Las tarjetas que lo usan dibujarán sin él.",
+        "confirmRemove": "¿Quitar «{{name}}» de tus LoRA?",
+        "attach": "Usar en un personaje",
+        "draw": "Dibujar con él",
+        "remove": "Quitar",
+        "pickShots": "Imágenes listas para elegir",
+        "openTraining": "Abrir",
+        "inMine": "En mis LoRA",
+        "addToMine": "Añadir a mis LoRA",
+        "attachTitle": "Usar en…",
+        "attached": "Listo. Las nuevas ilustraciones lo usarán.",
+        "cardStyle": "El estilo de la tarjeta",
+        "noCharacters": "Esta tarjeta aún no tiene personajes",
+        "myPersona": "Mi persona",
+        "myCards": "Mis tarjetas",
+        "noCards": "Aún no tienes tarjetas",
+        "characters": "{{count}} personajes",
+        "characters_one": "{{count}} personaje",
+        "failed": "No funcionó, inténtalo de nuevo",
+        "before": "Sin LoRA",
+        "after": "Con LoRA",
+        "emptyLine": "Sin LoRA el mismo personaje sale distinto en cada imagen; con LoRA es la misma persona."
+      }
+    },
+    "liveChar": {
+      "cue": {
+        "angry": "Enfadada",
+        "nod": "Asentir",
+        "sad": "Triste",
+        "shake": "Negar",
+        "surprised": "Sorprendida",
+        "wave": "Saludar",
+        "happy": "Contenta",
+        "shy": "Tímida",
+        "heart": "Enamorada",
+        "clasp": "Manos juntas",
+        "laugh": "Reír",
+        "wink": "Guiñar",
+        "tilt": "Ladear la cabeza",
+        "doubt": "Dudar",
+        "sigh": "Suspirar",
+        "lookdown": "Bajar la mirada",
+        "welcome": "Brazos abiertos",
+        "chest": "Mano al pecho",
+        "shrug": "Encogerse de hombros"
+      },
+      "errors": {
+        "NOT_FOUND": "No encontrado",
+        "REDRAW_EXPIRED": "Ha pasado demasiado tiempo para redibujar; créalo de nuevo",
+        "NO_CREDITS": "No tienes suficientes mushies",
+        "STORAGE_LIMIT": "Tu biblioteca de recursos está llena",
+        "TOO_MANY_ACTIVE_JOBS": "Hay demasiados en marcha; espera a que termine uno",
+        "PROVIDER_UNAVAILABLE": "No disponible ahora mismo",
+        "FAILED": "No se pudo empezar; inténtalo de nuevo",
+        "PICTURE_MANY": "Esta imagen tiene más de un personaje. Usa una imagen de un solo personaje. No se cobró nada.",
+        "PICTURE_SIDE": "La cara tiene que mirar hacia ti. Una vista de perfil o de espaldas no puede convertirse en un personaje vivo. No se cobró nada.",
+        "PICTURE_SMALL": "El personaje es demasiado pequeño en esta imagen. Usa una donde la cabeza y el torso ocupen casi todo. No se cobró nada.",
+        "PICTURE_EYES": "Algo tapa los ojos en esta imagen (el ala de un sombrero, una máscara o gafas oscuras). Usa una donde se vean los ojos. No se cobró nada.",
+        "PICTURE_SKETCH": "Parece un boceto sin color: la ropa es del blanco del papel y no se distingue del fondo. Usa una imagen coloreada. No se cobró nada.",
+        "PICTURE_PHOTO": "Parece una foto de una persona real. Los personajes vivos se hacen a partir de personajes dibujados; usa una ilustración. No se cobró nada.",
+        "PICTURE_3D": "Parece un render 3D. Los personajes vivos se hacen con dibujos 2D; usa una ilustración 2D. No se cobró nada."
+      },
+      "layers": {
+        "apart": "Separar",
+        "count": "{{layers}} capas · {{parts}} piezas",
+        "drag": "arrastra para girar",
+        "intro": "Una imagen, separada en capas que se mueven por su cuenta: pelo, cara, el blanco, iris y pestañas de cada ojo, cejas, formas de la boca, ropa, manos.",
+        "open": "Capas",
+        "title": "Las capas en que se separó la imagen",
+        "together": "Unir"
+      },
+      "mood": {
+        "annoyed": "Molesta",
+        "calm": "Tranquila",
+        "happy": "Contenta",
+        "low": "Decaída",
+        "sleepy": "Con sueño"
+      },
+      "part": {
+        "eyes": "Ojos",
+        "hands": "Manos",
+        "mouth": "Boca"
+      },
+      "redraw": "Redibujar una parte",
+      "redrawHint": "Dibuja de nuevo una parte como una versión nueva; esta se queda",
+      "redrawIntro": "Redibujando una parte; el resto queda igual (unos {{count}} min)",
+      "redrawStarted": "Redibujando; la versión nueva aparecerá aquí",
+      "redrawn": {
+        "angry": "Enfado redibujado",
+        "eyes": "Ojos redibujados",
+        "hands": "Manos redibujadas",
+        "mouth": "Boca redibujada",
+        "sad": "Tristeza redibujada",
+        "surprised": "Sorpresa redibujada",
+        "x1": "Expresión propia",
+        "x2": "Expresión propia",
+        "x3": "Expresión propia",
+        "x4": "Expresión propia",
+        "laugh": "Risa añadida",
+        "heart": "Enamorada añadida"
+      },
+      "tune": {
+        "cancel": "Cancelar",
+        "draw": "Dibujar",
+        "drawStarted": "Dibujándolo (unos {{count}} min). La tarjeta del personaje muestra el progreso.",
+        "drawing": "Dibujo {{n}}",
+        "expressions": "Expresiones",
+        "expressionsHint": "Cada expresión se dibujó dos veces. Elige la que encaje con el personaje.",
+        "hint": {
+          "blink": "Con qué frecuencia parpadea",
+          "body": "Cuánto se balancea el cuerpo",
+          "breath": "Qué tan profunda es cada respiración",
+          "gaze": "Cuánto sigue la cabeza al puntero",
+          "gesture": "Qué tan amplios son los gestos de brazos",
+          "hair": "Qué tan suelto y elástico es el pelo",
+          "idle": "Cuánto se mueve sola en reposo",
+          "mouth": "Cuánto abre la boca al hablar",
+          "nod": "Cuánto mira arriba y abajo",
+          "tilt": "Cuánto inclina la cabeza",
+          "turn": "Cuánto gira la cabeza a los lados",
+          "wind": "Cuánto mueve la brisa el pelo",
+          "expr": "Cuánto se notan todas las expresiones (también en las tarjetas)"
+        },
+        "intro": "Haz que se mueva como quieres. Cada cambio se ve en la vista previa; al guardar llega a todas las tarjetas que muestran este personaje.",
+        "key": {
+          "blink": "Parpadeo",
+          "body": "Cuerpo",
+          "breath": "Respiración",
+          "gaze": "Sigue el puntero",
+          "gesture": "Gestos",
+          "hair": "Rebote del pelo",
+          "idle": "Movimiento en reposo",
+          "mouth": "Boca al hablar",
+          "nod": "Asentir",
+          "tilt": "Inclinar cabeza",
+          "turn": "Giro de cabeza",
+          "wind": "Brisa",
+          "expr": "Intensidad de las expresiones"
+        },
+        "mood": "Ánimo en reposo",
+        "motion": "Sensación del movimiento",
+        "open": "Ajustar",
+        "own": "Tus propias expresiones",
+        "ownBusy": "Se está dibujando una ahora.",
+        "ownExpired": "Las expresiones nuevas se pueden dibujar durante el día siguiente a crear el personaje.",
+        "ownFull": "Hasta cuatro expresiones propias.",
+        "ownHint": "Ponle un nombre y describe cómo es; la IA la dibuja en este personaje. Las tarjetas la llaman por su nombre.",
+        "ownName": "Nombre",
+        "ownNamePh": "p. ej. Sonrisa pícara",
+        "ownPrompt": "Cómo es",
+        "ownPromptPh": "p. ej. una comisura levantada, ojos entrecerrados, algo engreída",
+        "redrawExpr": "Redibujar",
+        "remove": "Quitar",
+        "reset": "Restablecer todo",
+        "save": "Guardar",
+        "saved": "Guardado. Las tarjetas con este personaje ya lo usan.",
+        "title": "Ajustar este personaje",
+        "moves": "Expresiones y gestos",
+        "movesHint": "Toca para activar o desactivar. Lo desactivado no aparece; si una tarjeta lo pide, hace un gesto más suave.",
+        "face": "Cara",
+        "body": "Cabeza y brazos",
+        "drawOn": "Dibujar",
+        "redrawLabel": "Volver a dibujar:"
+      },
+      "versions": {
+        "inUse": "en uso",
+        "original": "Original",
+        "switched": "Las tarjetas muestran ahora esta versión",
+        "use": "Usar esta versión"
+      },
+      "picture": "Imagen del personaje",
+      "pictureHint": "Un personaje de frente, centrado, de medio cuerpo, sin imágenes panorámicas. Fondo liso de un color que se distinga del pelo (oscuro detrás de pelo claro o suelto, o queda un borde pálido). Brazos a la vista, no detrás ni en los bolsillos, para que pueda saludar y hacer gestos.",
+      "minutes": "Unos {{count}} min",
+      "unavailable": "No disponible ahora mismo",
+      "emptyTitle": "Aún no hay personajes",
+      "emptyBody": "Los personajes terminados aparecen aquí.",
+      "failed": "No salió bien",
+      "failedRefunded": "No salió bien; te devolvimos los mushies",
+      "copyRef": "Copiar referencia",
+      "copied": "Copiado",
+      "make": {
+        "moves": "Expresiones",
+        "addOwn": "Añadir una propia"
+      },
+      "go": "Generar (pagas lo que use)",
+      "metered": "Normalmente {{lo}}–{{hi}} mushies; se cobra lo que use y el resto se devuelve",
+      "charged": "{{count}} mushies",
+      "chargedHint": "Lo que costó, según lo que usó",
+      "tier": {
+        "label": "Versión",
+        "lite": "Ligera",
+        "full": "Completa",
+        "liteNote": "La cabeza gira en plano; no se dibujan las manos que corta el encuadre",
+        "fullNote": "La IA dibuja primero el giro de la cabeza y cada capa se ajusta a él: gira con profundidad"
+      },
+      "liteIntro": "Creando un personaje animado (ligera, unos {{count}} min)",
+      "feedback": {
+        "open": "Informar de un problema",
+        "title": "Informar de un problema con este personaje vivo",
+        "intro": "Añade una captura y revisaremos tu personaje para arreglarlo.",
+        "kind": "Tipo de problema",
+        "kinds": {
+          "looks": "Se ve mal",
+          "moves": "Se mueve mal",
+          "failed": "No se pudo crear",
+          "price": "Precio o cobro",
+          "idea": "Sugerencia"
+        },
+        "pictures": "Capturas (obligatorio)",
+        "addPicture": "Añadir captura",
+        "picturesHint": "Pega, arrastra o pulsa + para añadir, hasta 4.",
+        "uploadFailed": "Error al subir",
+        "details": "Detalles",
+        "detailsPh": "¿Qué falla? Por ejemplo, en qué movimiento o qué parte.",
+        "send": "Enviar",
+        "sent": "¡Recibido, gracias! Lo revisaremos pronto.",
+        "failed": "No se pudo enviar. Inténtalo de nuevo."
+      },
+      "howTo": "Cómo usarlo en una tarjeta"
+    },
+    "loraTrain": {
+      "open": "Entrenar un LoRA",
+      "title": "Entrenar un LoRA",
+      "source": "Entrenar con",
+      "from": {
+        "portrait": "Un retrato",
+        "pictures": "Varias imágenes ({{min}}–{{max}})"
+      },
+      "kind": {
+        "character": "Personaje",
+        "style": "Estilo artístico"
+      },
+      "portrait": "Retrato",
+      "add": "Añadir desde la biblioteca",
+      "upload": "Subir imágenes",
+      "count": "{{count}} imágenes · {{min}}–{{max}}",
+      "makeSet": "Dibujar imágenes de entrenamiento ({{count}} mushies)",
+      "pick": "Elige las imágenes de entrenamiento",
+      "kept": "{{count}} seleccionadas",
+      "drawing": "Dibujando {{done}}/{{total}}",
+      "name": "Nombre",
+      "train": "Entrenar ({{count}} mushies)",
+      "back": "Volver",
+      "stage": {
+        "queued": "En cola",
+        "caption": "Preparando imágenes",
+        "waiting": "Esperando una GPU",
+        "train": "Entrenando {{pct}} %",
+        "sync": "Guardando",
+        "samples": "Dibujando ejemplos"
+      },
+      "trigger": "Activador",
+      "copied": "Copiado",
+      "done": "Listo",
+      "again": "Entrenar otro",
+      "failed": "No salió bien. Te devolvimos los mushies.",
+      "cancelled": "Cancelado. Te devolvimos {{count}} mushies.",
+      "errors": {
+        "FAILED": "No se pudo empezar. Inténtalo más tarde.",
+        "NO_CREDITS": "No tienes suficientes mushies: esto cuesta {{total}} en total",
+        "LORA_TRAINING_BUSY": "Ya hay uno entrenándose",
+        "TOO_FEW_PICTURES": "Al menos {{count}} imágenes",
+        "TOO_MANY_PICTURES": "Demasiadas imágenes",
+        "TOO_MANY_MODELS": "Tu lista de LoRAs está llena. Borra alguno primero.",
+        "STORAGE_QUOTA": "Tu espacio de LoRAs está lleno. Borra alguno primero.",
+        "STORAGE_LIMIT": "Tu espacio de recursos está lleno",
+        "REFERENCE_NOT_FOUND": "No se encontró esa imagen",
+        "PROVIDER_UNAVAILABLE": "El entrenamiento no está disponible ahora",
+        "ACCOUNT_RESTRICTED": "Tu cuenta no puede usar la generación con IA",
+        "LORA_ALREADY_TRAINED": "Ya está entrenado y se está guardando",
+        "LORA_JOB_BUSY": "Está ocupado. Inténtalo en un momento."
+      },
+      "fromLine": {
+        "portrait": "Elige de tus imágenes o retratos de personajes, o sube una",
+        "pictures": "Un personaje o un estilo"
+      },
+      "material": "Material",
+      "namePlaceholder": "Mira",
+      "cost": "Unos {{minutes}} min · {{cost}} mushies",
+      "start": "Empezar a entrenar",
+      "pickPortrait": "Elige un retrato",
+      "fromMine": "De mis imágenes",
+      "uploadOne": "Subir",
+      "change": "Cambiar"
     }
   },
   "media": {
@@ -1205,5 +3071,41 @@
     "pending": "Eliminación en curso. El espacio se liberará al terminar.",
     "deleted": "Imágenes eliminadas definitivamente. Almacenamiento actualizado.",
     "unlinked": "Referencia eliminada de esta partida. El espacio utilizado no cambia."
+  },
+  "filter": {
+    "all": "Todos",
+    "favorites": "Favoritos",
+    "updates": "Actualizados",
+    "unplayed": "Sin jugar",
+    "hidden": "Ocultos",
+    "label": "Filtrar juegos"
+  },
+  "collections": {
+    "label": "Colecciones",
+    "addTo": "Añadir a colección",
+    "new": "Nueva colección",
+    "create": "Crear",
+    "save": "Guardar",
+    "delete": "Eliminar colección",
+    "manage": "Gestionar {{name}}",
+    "namePlaceholder": "Nombre",
+    "deleteTitle": "¿Eliminar «{{name}}»?",
+    "deleteConfirm": "Los juegos siguen en tu biblioteca.",
+    "error": {
+      "nameTaken": "Ya tienes una colección con ese nombre",
+      "tooMany": "Puedes tener hasta 100 colecciones",
+      "failed": "No se pudo guardar, inténtalo de nuevo"
+    },
+    "edit": "Editar colección",
+    "searchGames": "Buscar en tus juegos",
+    "games": "Juegos",
+    "picked_one": "{{count}} seleccionado",
+    "picked": "{{count}} seleccionados",
+    "untitled": "Colección sin título",
+    "noMatch": "Ningún juego coincide"
+  },
+  "hidden": {
+    "hide": "Ocultar de la biblioteca",
+    "show": "Mostrar en la biblioteca"
   }
 }

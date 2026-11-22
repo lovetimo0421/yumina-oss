@@ -93,3 +93,73 @@ test("singleAttempt callers keep their one request and see the 400", async () =>
     mock.restore();
   }
 });
+
+for (const stream of [true, false]) {
+  test(`Doubao Seed runs with reasoning off unless the turn asks for an effort (${stream ? "stream" : "non-stream"})`, async () => {
+    const mock = withMockedFetch([() => (stream ? sseReply("ok") : jsonReply("ok"))]);
+    try {
+      const seed = { model: "bytedance-seed/seed-2-1-turbo", messages: [{ role: "user" as const, content: "hi" }], maxTokens: 300, stream };
+      await collect(new OpenRouterProvider("fixture:" + crypto.randomUUID()).generateStream(seed));
+      await collect(new OpenRouterProvider("fixture:" + crypto.randomUUID()).generateStream({ ...seed, reasoningEffort: "none" }));
+      await collect(new OpenRouterProvider("fixture:" + crypto.randomUUID()).generateStream({ ...seed, reasoningEffort: "medium" }));
+      await collect(new OpenRouterProvider("fixture:" + crypto.randomUUID()).generateStream({ ...seed, model: "z-ai/glm-5.3-flash" }));
+      const [plain, none, medium, other] = mock.bodies();
+      assert.deepEqual(plain!.reasoning, { effort: "none" });
+      assert.equal(plain!.max_tokens, 300, "no reasoning headroom");
+      assert.deepEqual(none!.reasoning, { effort: "none" });
+      assert.deepEqual(medium!.reasoning, { effort: "medium" });
+      assert.equal(other!.reasoning, undefined, "other models keep the provider default");
+    } finally {
+      mock.restore();
+    }
+  });
+}
+
+test("Doubao Seed that refuses to switch reasoning off is re-sent at low effort", async () => {
+  const mock = withMockedFetch([
+    () => new Response(MANDATORY_400, { status: 400, headers: { "Content-Type": "application/json" } }),
+    () => sseReply("ok"),
+  ]);
+  try {
+    await collect(new OpenRouterProvider("fixture:" + crypto.randomUUID()).generateStream({ model: "bytedance-seed/seed-2-1-turbo", messages: [{ role: "user", content: "hi" }], maxTokens: 300 }));
+    const [first, second] = mock.bodies();
+    assert.deepEqual(first!.reasoning, { effort: "none" });
+    assert.deepEqual(second!.reasoning, { effort: "low" });
+  } finally {
+    mock.restore();
+  }
+});
+
+for (const stream of [true, false]) {
+  test(`a player's 「关闭」 switches thinking off, except on a model that must think (${stream ? "stream" : "non-stream"})`, async () => {
+    const mock = withMockedFetch([() => (stream ? sseReply("ok") : jsonReply("ok")), () => (stream ? sseReply("ok") : jsonReply("ok")), () => (stream ? sseReply("ok") : jsonReply("ok"))]);
+    try {
+      const turn = { messages: [{ role: "user" as const, content: "hi" }], maxTokens: 300, stream, reasoningEffort: "none" };
+      await collect(new OpenRouterProvider("fixture:" + crypto.randomUUID()).generateStream({ ...turn, model: "x-ai/grok-4.3" }));
+      await collect(new OpenRouterProvider("fixture:" + crypto.randomUUID()).generateStream({ ...turn, model: "google/gemini-3.7-flash" }));
+      await collect(new OpenRouterProvider("fixture:" + crypto.randomUUID()).generateStream({ ...turn, model: "x-ai/grok-4.3", reasoningEffort: "low" }));
+      const [off, mustThink, low] = mock.bodies();
+      assert.deepEqual(off!.reasoning, { effort: "none" });
+      assert.equal(mustThink!.reasoning, undefined, "a model that must think keeps its default instead of a 400");
+      assert.deepEqual(low!.reasoning, { effort: "low" });
+    } finally {
+      mock.restore();
+    }
+  });
+}
+
+test("Gemini 4 Neon plays at low effort when the turn names none or asks for 「关闭」", async () => {
+  for (const reasoningEffort of [undefined, "none", "high"] as const) {
+    const mock = withMockedFetch([() => sseReply("ok")]);
+    try {
+      await collect(new OpenRouterProvider("fixture:" + crypto.randomUUID()).generateStream({
+        model: "google/gemini-4-neon", messages: [{ role: "user" as const, content: "hi" }], maxTokens: 1000, stream: true, reasoningEffort,
+      }));
+      const [body] = mock.bodies();
+      assert.deepEqual(body!.reasoning, { effort: reasoningEffort === "high" ? "high" : "low" });
+      assert.ok(Number(body!.max_tokens) > 1000, "the default effort gets reasoning headroom");
+    } finally {
+      mock.restore();
+    }
+  }
+});

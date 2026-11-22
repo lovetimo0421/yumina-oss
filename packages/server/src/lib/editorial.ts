@@ -2,7 +2,7 @@ import { and, asc, inArray } from "drizzle-orm";
 import type { Database } from "../db/index.js";
 import { editorialBoosts, featuredHeroWorlds, featuredWorlds } from "../db/schema.js";
 import { resolveHeroSlots, type HeroSlot } from "./hero-worlds.js";
-import { normalizeHubLanguage } from "./world-language.js";
+import { normalizeEditorialLanguage } from "./world-language.js";
 export type { HeroSlot } from "./hero-worlds.js";
 
 const TTL_MS = 60_000;
@@ -95,7 +95,7 @@ export async function loadFeaturedHeroSlots(
   db: Database,
   language: string,
 ): Promise<HeroSlot[]> {
-  const locale = normalizeHubLanguage(language) ?? "en";
+  const locale = normalizeEditorialLanguage(language) ?? "en";
   const rows = await db
     .select({
       slot: featuredHeroWorlds.slot,

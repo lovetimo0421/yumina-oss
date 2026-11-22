@@ -10,10 +10,10 @@ import {
   Save,
   Check,
   AlertTriangle,
-  Sparkles,
   Radio,
   ChevronRight,
 } from "lucide-react";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { FieldError } from "@/components/ui/field-error";
 import { useTransientFlag } from "@/hooks/use-transient-flag";
 import {
@@ -25,6 +25,7 @@ import {
 } from "@yumina/shared";
 import { useEditorStore } from "@/stores/editor";
 import { formatTimeAgo } from "@/lib/format-time";
+import { useSession } from "@/lib/auth-client";
 import { foldAutosaves } from "./version-history-fold";
 
 const apiBase = import.meta.env.VITE_API_URL || "";
@@ -35,6 +36,9 @@ type AtCapErrorBody = { error: string; cap: number; oldest: { id: string; name: 
 interface VersionHistoryDialogProps {
   worldId: string;
   onClose: () => void;
+  /** The assistant's edits are kept apart (each can be taken back on its
+   *  own). Studio passes this so the one 历史 entry reaches both. */
+  onOpenAiChanges?: () => void;
 }
 
 type ConfirmState =
@@ -55,7 +59,7 @@ function defaultVersionName(locale: string): string {
   }).format(new Date());
 }
 
-export function VersionHistoryDialog({ worldId, onClose }: VersionHistoryDialogProps) {
+export function VersionHistoryDialog({ worldId, onClose, onOpenAiChanges }: VersionHistoryDialogProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const confirmRef = useRef<HTMLDivElement>(null);
   const { t, i18n } = useTranslation("editor");
@@ -63,6 +67,9 @@ export function VersionHistoryDialog({ worldId, onClose }: VersionHistoryDialogP
   const saveDraft = useEditorStore((s) => s.saveDraft);
   // The blueprint canvas tracks its layout separately; both count as "unsaved".
   const isDirty = useEditorStore((s) => s.isDirty || s.layoutDirty);
+  // A collaborator may delete only the named versions they saved themselves.
+  const isOwner = useEditorStore((s) => !s.access || s.access.role === "owner");
+  const myUserId = useSession().data?.user?.id ?? null;
 
   const [versions, setVersions] = useState<WorldVersion[] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -149,7 +156,9 @@ export function VersionHistoryDialog({ worldId, onClose }: VersionHistoryDialogP
       body: JSON.stringify({ name: opts.nameToUse, note: opts.noteToUse, evictOldest: opts.evictOldest }),
     });
     if (res.status === 409) {
-      const body = (await res.json()) as AtCapErrorBody;
+      const body = (await res.json()) as AtCapErrorBody & { canEvict?: boolean };
+      // Making room would drop someone else's version: only the creator may.
+      if (body.canEvict === false) return { kind: "fullNotYours" as const };
       return { kind: "atCap" as const, oldestName: body.oldest.name };
     }
     if (!res.ok) return { kind: "error" as const };
@@ -187,6 +196,10 @@ export function VersionHistoryDialog({ worldId, onClose }: VersionHistoryDialogP
       }
       if (result.kind === "error") {
         setSaveError(t("versionHistory.saveFailed"));
+        return;
+      }
+      if (result.kind === "fullNotYours") {
+        setSaveError(t("versionHistory.fullNotYours", { cap }));
         return;
       }
 
@@ -324,11 +337,20 @@ export function VersionHistoryDialog({ worldId, onClose }: VersionHistoryDialogP
     }
   };
 
+  // Who made it: a collaborator when one did, else the creator — named only
+  // for collaborators, since a creator alone on the card knows it was them.
+  const madeBy = (v: WorldVersion): { name: string; image: string | null } | null =>
+    v.actorName ? { name: v.actorName, image: v.actorImage ?? null }
+    : !isOwner && v.creatorName ? { name: v.creatorName, image: v.creatorImage ?? null }
+    : null;
+
   const renderVersion = (v: WorldVersion) => (
-    <VersionRow key={v.id} version={v} busy={actionsBusy} locale={i18n.language}
+    <VersionRow key={v.id} version={v} by={madeBy(v)} busy={actionsBusy} locale={i18n.language}
       onRestore={() => { setConfirmError(null); setConfirm({ kind: "restore", version: v }); }}
       onMakeLive={() => { setConfirmError(null); setConfirm({ kind: "makeLive", version: v }); }}
-      onDelete={() => { setConfirmError(null); setConfirm({ kind: "delete", version: v }); }} />
+      onDelete={isOwner || (!!myUserId && v.actorId === myUserId)
+        ? () => { setConfirmError(null); setConfirm({ kind: "delete", version: v }); }
+        : undefined} />
   );
 
   const capColor = capPct >= 90 ? "bg-destructive" : capPct >= 70 ? "bg-amber-500" : "bg-primary";
@@ -351,14 +373,17 @@ export function VersionHistoryDialog({ worldId, onClose }: VersionHistoryDialogP
         {/* Header */}
         <div className="relative shrink-0 border-b border-border/60 px-6 py-5">
           <div className="flex items-start gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent text-muted-foreground">
               <History className="h-5 w-5" />
             </div>
             <div className="flex-1 min-w-0">
-              <h3 id="version-history-title" className="text-lg font-semibold text-foreground">{t("versionHistory.title")}</h3>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                {t("versionHistory.subtitle", { cap, automaticCap: MAX_AUTO_VERSIONS_PER_WORLD })}
-              </p>
+              <h3 id="version-history-title" className="text-lg font-semibold text-foreground" title={t("versionHistory.subtitle", { cap, automaticCap: MAX_AUTO_VERSIONS_PER_WORLD })}>{t("versionHistory.title")}</h3>
+              {onOpenAiChanges && (
+                <button type="button" onClick={onOpenAiChanges} disabled={actionsBusy} data-version-ai-changes=""
+                  className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-foreground hover:underline disabled:opacity-40">
+                  {t("versionHistory.aiChanges")} →
+                </button>
+              )}
             </div>
             <button
               onClick={onClose}
@@ -387,7 +412,6 @@ export function VersionHistoryDialog({ worldId, onClose }: VersionHistoryDialogP
         {/* Save form */}
         <div className="shrink-0 border-b border-border/60 bg-background/40 px-6 py-4">
           <label className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            <Sparkles className="h-3 w-3 text-primary" />
             {t("versionHistory.formTitle")}
           </label>
           <input
@@ -408,13 +432,12 @@ export function VersionHistoryDialog({ worldId, onClose }: VersionHistoryDialogP
           />
           <div className="mt-3 flex items-center justify-between gap-2">
             <p className="text-xs text-muted-foreground">
-              {isDirty
-                ? t("versionHistory.dirtyHint")
-                : t("versionHistory.cleanHint")}
+              {isDirty ? t("versionHistory.dirtyHint") : null}
             </p>
             <button
               onClick={handleSave}
               disabled={!canSave}
+              title={t("versionHistory.cleanHint")}
               className="flex shrink-0 items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:bg-primary-hover disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : justSaved ? <Check className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
@@ -442,11 +465,10 @@ export function VersionHistoryDialog({ worldId, onClose }: VersionHistoryDialogP
             </div>
           ) : versions && versions.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-10 text-center">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary/70">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-accent text-muted-foreground">
                 <History className="h-6 w-6" />
               </div>
               <p className="mt-3 text-sm font-medium text-foreground">{t("versionHistory.emptyTitle")}</p>
-              <p className="mt-1 text-xs text-muted-foreground max-w-xs">{t("versionHistory.empty")}</p>
             </div>
           ) : (
             <div className="space-y-5">
@@ -506,7 +528,10 @@ export function VersionHistoryDialog({ worldId, onClose }: VersionHistoryDialogP
           busy={busyId === confirm.version.id}
           error={confirmError}
           extra={
-            <label className="mt-4 flex cursor-pointer items-start gap-2.5 rounded-lg border border-border bg-background/40 px-3 py-2.5 text-sm transition-colors hover:bg-background/70">
+            <label
+              className="mt-4 flex cursor-pointer items-start gap-2.5 rounded-lg border border-border bg-background/40 px-3 py-2.5 text-sm transition-colors hover:bg-background/70"
+              title={t("versionHistory.safetyToggleHint", { automaticCap: MAX_AUTO_VERSIONS_PER_WORLD })}
+            >
               <input
                 type="checkbox"
                 checked={makeSafetySnapshot}
@@ -516,9 +541,6 @@ export function VersionHistoryDialog({ worldId, onClose }: VersionHistoryDialogP
               <span className="flex-1">
                 <span className="font-medium text-foreground">
                   {t("versionHistory.safetyToggleLabel")}
-                </span>
-                <span className="mt-0.5 block text-xs text-muted-foreground">
-                  {t("versionHistory.safetyToggleHint", { automaticCap: MAX_AUTO_VERSIONS_PER_WORLD })}
                 </span>
               </span>
             </label>
@@ -567,7 +589,7 @@ function AutosaveRun({ versions, locale, renderVersion }: {
       >
         <ChevronRight className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`} />
         <span className="text-sm font-semibold text-foreground">
-          {t("versionHistory.autosaveRun", { count: versions.length })}
+          {t("versionHistory.autosaveRun", { count: versions.length, defaultValue: "{{count}} autosave points" })}
         </span>
         <span className="truncate text-xs text-muted-foreground">
           · {full.format(earliest)}–{sameDay ? time.format(latest) : full.format(latest)}
@@ -580,14 +602,17 @@ function AutosaveRun({ versions, locale, renderVersion }: {
 
 interface VersionRowProps {
   version: WorldVersion;
+  /** Who made it, when worth saying. */
+  by?: { name: string; image: string | null } | null;
   busy: boolean;
   locale: string;
   onRestore: () => void;
   onMakeLive: () => void;
-  onDelete: () => void;
+  /** Absent when this person may not delete the version. */
+  onDelete?: () => void;
 }
 
-function VersionRow({ version, busy, locale, onRestore, onMakeLive, onDelete }: VersionRowProps) {
+function VersionRow({ version, by, busy, locale, onRestore, onMakeLive, onDelete }: VersionRowProps) {
   const { t } = useTranslation("editor");
   const relative = useMemo(() => formatTimeAgo(String(version.createdAt), locale), [version.createdAt, locale]);
   const source = version.source;
@@ -623,7 +648,17 @@ function VersionRow({ version, busy, locale, onRestore, onMakeLive, onDelete }: 
             <p className="truncate text-sm font-semibold text-foreground">{displayName}</p>
             {version.isLive && <span className="shrink-0 rounded-full bg-primary/15 px-2 py-0.5 text-xs font-medium text-primary">{t("versionHistory.currentLive")}</span>}
           </div>
-          <p className="mt-0.5 ml-3.5 text-xs text-muted-foreground" title={new Date(version.createdAt).toLocaleString(locale)}>{automatic ? new Date(version.createdAt).toLocaleString(locale) : relative}</p>
+          <p className="mt-0.5 ml-3.5 flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground" title={new Date(version.createdAt).toLocaleString(locale)}>
+            <span>{automatic ? new Date(version.createdAt).toLocaleString(locale) : relative}</span>
+            {by && <span className="inline-flex items-center gap-1">
+              <span aria-hidden>·</span>
+              <Avatar className="h-4 w-4">
+                {by.image ? <AvatarImage src={by.image} alt="" /> : null}
+                <AvatarFallback className="bg-primary/15 text-[9px] font-semibold text-primary">{by.name.slice(0, 1).toUpperCase()}</AvatarFallback>
+              </Avatar>
+              {t("versionHistory.byPerson", { name: by.name })}
+            </span>}
+          </p>
           {!version.isLive && <p className="mt-1 ml-3.5 text-xs text-muted-foreground">
             {t(version.source === "live" ? "versionHistory.previousPublished" : "versionHistory.notPublished")}
           </p>}
@@ -635,7 +670,7 @@ function VersionRow({ version, busy, locale, onRestore, onMakeLive, onDelete }: 
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-1">
           {version.canMakeLive && !version.isLive && <button onClick={onMakeLive} disabled={busy}
-            className="flex min-h-9 items-center gap-1 rounded-lg border border-primary/30 px-2.5 py-2 text-xs font-medium text-primary transition-colors hover:bg-primary/10 disabled:opacity-40">
+            className="flex min-h-9 items-center gap-1 rounded-lg border border-border px-2.5 py-2 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-40">
             <Radio className="h-3.5 w-3.5" />{t("versionHistory.makeLive")}
           </button>}
           <button
@@ -647,7 +682,7 @@ function VersionRow({ version, busy, locale, onRestore, onMakeLive, onDelete }: 
             {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
             {t("versionHistory.restore")}
           </button>
-          {!automatic && <button
+          {!automatic && onDelete && <button
             onClick={onDelete}
             disabled={busy}
             title={t("versionHistory.delete")}

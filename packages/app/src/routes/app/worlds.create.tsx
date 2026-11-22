@@ -1,30 +1,30 @@
 import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
 import { Suspense, useState, useRef, useCallback, useEffect, useLayoutEffect } from "react";
-import { useModalFocus } from "@/hooks/use-modal-focus";
 import {
   ChevronRight,
   Loader2,
   ArrowLeft,
-  Sparkles,
-  Wand2,
   Upload,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { feedback } from "@/lib/feedback";
 import { useEditorStore } from "@/stores/editor";
 import { clampWorldTags } from "@yumina/shared";
 import { useAuthGuard } from "@/hooks/use-auth-guard";
 import { WORLD_TEMPLATES, type WorldTemplate, defaultOpening } from "@/lib/world-templates";
 import { parseImportedFileFlexible } from "@/lib/import-world";
 import type { WorldDefinition } from "@yumina/engine";
+import { loadWorldFromBundle } from "@/edition/slots";
 import { ApplyChangesDialog } from "@/features/world-changes/apply-changes-dialog";
 import { findImportTargets, type ApplyTarget } from "@/features/world-changes/apply-world-changes";
 import { useCreatePageStore } from "@/stores/create-page";
 import { lazyRouteComponent } from "@/lib/lazy-route-component";
 import i18n from "@/lib/i18n";
-import { getGlobalEditorMode, saveGlobalEditorMode } from "@/features/editor/lib/editor-mode";
+import { getGlobalEditorMode } from "@/features/editor/lib/editor-mode";
 import { prepareStudioEntry } from "@/features/editor/editor-entry";
 import { fetchBlueprintAccess } from "@/lib/blueprint-access";
-import { getEditorSurface, isPhoneScreen, shouldOpenVisual } from "@/lib/editor-surface";
+import { getEditorSurface, isPhoneScreen, saveEditorSurface, shouldOpenVisual } from "@/lib/editor-surface";
+import { GuestSignInBar } from "@/features/editor/components/guest-editor-readonly";
 import { requestQuietTour } from "@/lib/studio-entry";
 import { useUnsavedChangesGuard } from "@/features/editor/use-unsaved-changes-guard";
 import { UnsavedChangesDialog } from "@/features/editor/unsaved-changes-dialog";
@@ -37,6 +37,11 @@ import { FieldError } from "@/components/ui/field-error";
 const EditorShell = lazyRouteComponent(
   () => import("@/features/editor/editor-shell"),
   (m) => m.EditorShell
+);
+
+const StudioShell = lazyRouteComponent(
+  () => import("@/features/studio/studio-shell"),
+  (m) => m.StudioShell
 );
 
 const QuickCreateEditor = lazyRouteComponent(
@@ -107,9 +112,9 @@ function TemplatePicker({
   const navigate = useNavigate();
   // The image-generation card leads to a hosted-only route; drop it without the feature.
   const imageGeneration = useFeature("imageGeneration");
-  const createOptions = imageGeneration
-    ? CREATE_OPTIONS
-    : CREATE_OPTIONS.filter((option) => option.id !== "image-generation");
+  // AI 生成 leads the page as its own large card (the way into /app/generate), not one card among the rest.
+  const createOptions = CREATE_OPTIONS.filter((option) => option.id !== "image-generation");
+  const aiOption = imageGeneration ? CREATE_OPTIONS.find((option) => option.id === "image-generation")! : null;
 
   const handleClick = (option: (typeof CREATE_OPTIONS)[number]) => {
     if (option.id === "image-generation") {
@@ -185,6 +190,25 @@ function TemplatePicker({
 
         {importError ? <FieldError message={importError} /> : null}
 
+        {aiOption && (
+          // AI 生成 leads as one wide card in the same language as the cards under it: a real clip made on Yumina
+          // fills it edge to edge (public/workbench, the one the generation page opens on), the words on its dark side.
+          <button
+            type="button"
+            onClick={() => handleClick(aiOption)}
+            data-create-ai
+            className="create-ai group relative mt-[clamp(0.75rem,3vh,1.75rem)] block h-[148px] w-full flex-none shrink-0 cursor-pointer overflow-hidden rounded-xl border border-border bg-[#0d0d10] text-left transition-transform duration-300 hover:scale-[1.01] focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/70 animate-[fadeInUp_0.5s_ease-out_both] md:h-[210px]"
+          >
+            <video src="/workbench/video.mp4" poster="/workbench/video.webp" muted loop autoPlay playsInline aria-hidden
+              className="absolute inset-y-0 right-0 h-full w-[78%] -scale-x-100 object-cover object-[center_22%] transition-transform duration-700 md:w-[64%]" />
+            <span aria-hidden className="absolute inset-0 bg-[linear-gradient(90deg,#0d0d10_0%,#0d0d10_24%,rgba(13,13,16,0.82)_38%,rgba(13,13,16,0.25)_60%,rgba(13,13,16,0)_78%)] md:bg-[linear-gradient(90deg,#0d0d10_0%,#0d0d10_34%,rgba(13,13,16,0.75)_46%,rgba(13,13,16,0.1)_66%,rgba(13,13,16,0)_100%)]" />
+            <span className="relative z-10 flex h-full max-w-[62%] flex-col justify-center gap-1 px-5 md:max-w-[44%] md:gap-2 md:px-8">
+              <span className="text-[22px] font-black leading-tight tracking-tight text-white md:text-[30px]">{t("create.aiCard.title")}</span>
+              <span className="text-[13px] leading-snug text-white/70 md:text-[15px]">{t("create.aiCard.desc")}</span>
+            </span>
+          </button>
+        )}
+
         <div className="create-mobile-grid mt-[clamp(0.75rem,3vh,2rem)] grid min-h-0 flex-1 auto-rows-fr grid-cols-1 gap-[clamp(0.375rem,1vh,0.625rem)] md:hidden">
           {createOptions.map((option, index) => {
             return (
@@ -210,8 +234,9 @@ function TemplatePicker({
           })}
         </div>
 
+        {/* Desktop has the Import button in the page's corner, so its card stays on the phone list only. */}
         <div className="create-grid mt-7 hidden grid-cols-1 gap-4 pb-4 md:grid md:grid-cols-2 md:gap-5 lg:grid-cols-3">
-          {createOptions.map((option, index) => {
+          {createOptions.filter((option) => option.id !== "import").map((option, index) => {
             return (
               <button
                 key={option.id}
@@ -270,6 +295,14 @@ function TemplatePicker({
           .create-col {
             min-height: 100%;
           }
+          /* The AI card and the cards under it float as one group: no gap opens between them. */
+          .create-ai {
+            margin-top: auto;
+          }
+          .create-ai ~ .create-grid {
+            margin-top: 1.75rem;
+            padding-top: 0;
+          }
           .create-grid {
             margin-top: auto;
             margin-bottom: auto;
@@ -295,74 +328,6 @@ function TemplatePicker({
   );
 }
 
-function ModeSelectionDialog({
-  open,
-  onSelect,
-  onClose,
-}: {
-  open: boolean;
-  onSelect: (mode: "simple" | "advanced") => void;
-  onClose: () => void;
-}) {
-  const { t } = useTranslation("editor");
-  // Escape used to be wired to a div nobody could focus, so the key never
-  // reached the handler: the backdrop closed the dialog and the keyboard did
-  // not. Trapping focus inside the panel puts the keydown back in range, and
-  // brings Tab containment and focus return with it.
-  const panelRef = useRef<HTMLDivElement>(null);
-  useModalFocus(panelRef, open);
-  if (!open) return null;
-
-  return (
-    <div
-      ref={panelRef}
-      className="fixed inset-0 z-50 flex items-center justify-center"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="mode-dialog-title"
-      onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}
-    >
-      <div className="absolute inset-0 modal-backdrop" onClick={onClose} />
-      <div className="relative z-10 w-full max-w-lg mx-4 rounded-2xl border border-border bg-popover p-6 shadow-2xl animate-[fadeInUp_0.3s_ease-out_both]">
-        <h2 id="mode-dialog-title" className="text-xl font-bold text-foreground mb-1">
-          {t("quickCreate.modeDialogTitle")}
-        </h2>
-        <p className="text-sm text-muted-foreground mb-6">
-          {t("quickCreate.modeDialogSubtitle")}
-        </p>
-
-        <div className="grid grid-cols-2 gap-4">
-          <button
-            onClick={() => onSelect("simple")}
-            className="group flex flex-col rounded-xl border border-border bg-card p-5 text-left transition-all hover:border-gold/50 hover:bg-gold/5"
-          >
-            <Sparkles className="mb-3 h-8 w-8 text-gold" />
-            <span className="text-base font-bold text-foreground mb-1">
-              {t("quickCreate.modeSimpleTitle")}
-            </span>
-            <span className="text-xs text-muted-foreground leading-relaxed">
-              {t("quickCreate.modeSimpleDesc")}
-            </span>
-          </button>
-
-          <button
-            onClick={() => onSelect("advanced")}
-            className="group flex flex-col rounded-xl border border-border bg-card p-5 text-left transition-all hover:border-primary/50 hover:bg-primary/5"
-          >
-            <Wand2 className="mb-3 h-8 w-8 text-primary" />
-            <span className="text-base font-bold text-foreground mb-1">
-              {t("quickCreate.modeAdvancedTitle")}
-            </span>
-            <span className="text-xs text-muted-foreground leading-relaxed">
-              {t("quickCreate.modeAdvancedDesc")}
-            </span>
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function WorldCreatePage() {
   const [picked, setPicked] = useState(false);
   const [quickCreate, setQuickCreate] = useState(false);
@@ -370,9 +335,10 @@ function WorldCreatePage() {
    *  round trip, and rendering the classic editor meanwhile was a flash of the
    *  surface the creator is not going to use. */
   const [enteringStudio, setEnteringStudio] = useState(false);
+  /** Signed out, an advanced card is shown on the canvas right here,
+   *  read-only: Studio itself needs a session and a saved card. */
+  const [guestCanvas, setGuestCanvas] = useState(false);
   const mounted = useRef(true);
-  const [pendingTemplate, setPendingTemplate] = useState<WorldTemplate | null | undefined>(undefined);
-  const [pendingLoadedDraft, setPendingLoadedDraft] = useState(false);
   const pendingCover = useRef<Blob | null>(null);
   /** An imported file becomes a saved card the moment it opens, PNG or JSON
    *  alike. A PNG always had to save first (its cover uploads against a real
@@ -386,13 +352,12 @@ function WorldCreatePage() {
     targets: ApplyTarget[];
     fileName: string;
   } | null>(null);
-  const [showModeDialog, setShowModeDialog] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
   const setPickerActive = useCreatePageStore((s: { setPickerActive: (active: boolean) => void }) => s.setPickerActive);
   const isDirty = useEditorStore((s) => s.isDirty);
-  const { isAuthenticated, requireAuth } = useAuthGuard();
+  const { isAuthenticated, isPending: authPending, requireAuth } = useAuthGuard();
 
   useEffect(() => {
     mounted.current = true;
@@ -408,8 +373,8 @@ function WorldCreatePage() {
   }, [isAuthenticated]);
 
   // Block SPA navigation + browser close when there are unsaved changes (skip for guests)
-  const blocker = useUnsavedChangesGuard(isAuthenticated && (picked || pendingLoadedDraft) && isDirty, {
-    getIsDirty: () => isAuthenticated && (picked || pendingLoadedDraft) && useEditorStore.getState().isDirty,
+  const blocker = useUnsavedChangesGuard(isAuthenticated && picked && isDirty, {
+    getIsDirty: () => isAuthenticated && picked && useEditorStore.getState().isDirty,
   });
 
   // Once the first save gives the card an id, the address bar says where it
@@ -449,8 +414,7 @@ function WorldCreatePage() {
   // them in this editor, which still works and still carries the switch.
   const openLoadedDraft = useCallback(async (mode: "simple" | "advanced", fromTemplate = false) => {
     useEditorStore.getState().setField("editorMode", mode);
-    setPendingLoadedDraft(false);
-    setPendingTemplate(undefined);
+    setGuestCanvas(false);
     setQuickCreate(mode === "simple");
     // Held on a spinner until we know whether this card opens on the canvas;
     // only a card that stays here (phone, switch turned off, save failed)
@@ -480,8 +444,16 @@ function WorldCreatePage() {
       // the first Ctrl+Z must not take the whole template away.
       useEditorStore.getState().clearHistory();
       if (mode !== "advanced") return;
-      if (!shouldOpenVisual({ mode: "advanced", last: getEditorSurface(),
-        allowed: await fetchBlueprintAccess(), guest: !isAuthenticated, phone: isPhoneScreen() })) return;
+      if (!shouldOpenVisual({ mode: "advanced", last: isAuthenticated ? getEditorSurface() : null,
+        allowed: await fetchBlueprintAccess(), guest: false, phone: isPhoneScreen() })) return;
+      // Signed out, the same card is shown on the canvas here, read-only (the
+      // classic editor was what they saw before). Signing in carries on below.
+      // Its lessons are about editing, so the welcome waits for a real card.
+      if (!isAuthenticated) {
+        requestQuietTour();
+        setGuestCanvas(true);
+        return;
+      }
       const id = await prepareStudioEntry(useEditorStore.getState);
       if (!id) return;
       // A template or an imported card opens on a board it filled; the
@@ -518,15 +490,12 @@ function WorldCreatePage() {
   /** The saved editor-mode preference short-circuits straight into the
    *  editor, otherwise ask simple/advanced. */
   const proceedWithTemplate = useCallback((template: WorldTemplate | null) => {
-    const globalPref = getGlobalEditorMode();
-    if (globalPref) {
-      void applyTemplate(template, globalPref);
-    } else {
-      setPendingTemplate(template);
-      setPendingLoadedDraft(false);
-      setShowModeDialog(true);
-    }
-  }, [applyTemplate]);
+    // Nobody is asked simple-or-canvas any more (owner, 11/06: the canvas is
+    // the editor). A creator who set 简单 keeps it; everyone else, signed in
+    // or not, lands on the canvas, and nothing is remembered as their choice:
+    // the 画布 switch, and 简单模式 in ⋮, are the choices.
+    void applyTemplate(template, (isAuthenticated ? getGlobalEditorMode() : null) ?? "advanced");
+  }, [applyTemplate, isAuthenticated]);
 
   const handleSelect = useCallback(async (template: WorldTemplate | null) => {
     if (importInFlight.current) return;
@@ -536,15 +505,11 @@ function WorldCreatePage() {
     proceedWithTemplate(template);
   }, [proceedWithTemplate]);
 
-  const handleModeSelected = useCallback((mode: "simple" | "advanced") => {
-    saveGlobalEditorMode(mode);
-    setShowModeDialog(false);
-    if (pendingLoadedDraft) {
-      void openLoadedDraft(mode);
-    } else if (pendingTemplate !== undefined) {
-      void applyTemplate(pendingTemplate, mode);
-    }
-  }, [pendingLoadedDraft, pendingTemplate, openLoadedDraft, applyTemplate]);
+  // Signed in from the bar over the guest canvas: the card is theirs now, so it
+  // saves and opens in Studio like any other advanced card.
+  useEffect(() => {
+    if (guestCanvas && isAuthenticated) void openLoadedDraft("advanced");
+  }, [guestCanvas, isAuthenticated, openLoadedDraft]);
 
   // Continue an import as a brand-new card (also the "keep as a new project"
   // answer when the file turned out to be one of the creator's own cards).
@@ -568,17 +533,11 @@ function WorldCreatePage() {
     // open it — it must never run createNew/loadTemplate again.
     store.stopAutosave();
     pendingCover.current = coverImage ?? null;
-    const globalPref = getGlobalEditorMode();
-    if (!globalPref) {
-      setPendingTemplate(undefined);
-      setPendingLoadedDraft(true);
-      setShowModeDialog(true);
-    }
     // The editor that appears next is the confirmation; no pill needed.
     // openLoadedDraft also applies the PNG card image as the cover (it is
-    // parked in pendingCover above). When no mode is stored the dialog runs
-    // first, so the cover waits for that choice rather than being orphaned.
-    if (globalPref) await openLoadedDraft(globalPref);
+    // parked in pendingCover above). Like a template, an import opens on the
+    // canvas unless the creator set 简单.
+    await openLoadedDraft(getGlobalEditorMode() ?? "advanced");
   }, [openLoadedDraft]);
 
   const handleFileImport = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -654,6 +613,25 @@ function WorldCreatePage() {
     }
   }, [isAuthenticated, requireAuth, openLoadedDraft, importAsNewWorld]);
 
+  // Arrived from the market's "start a card from this" (or "install into a new
+  // card"): build the card with the pack in it and open it like an import.
+  const { fromBundle } = Route.useSearch();
+  const fromBundleStarted = useRef<string | null>(null);
+  useEffect(() => {
+    if (!fromBundle || fromBundleStarted.current === fromBundle || authPending) return;
+    if (!isAuthenticated) { requireAuth("create worlds"); return; }
+    fromBundleStarted.current = fromBundle;
+    void (async () => {
+      try {
+        const world = await loadWorldFromBundle(fromBundle);
+        if (!world) return;
+        await importAsNewWorld(world, null);
+      } catch {
+        feedback.error(i18n.t("bundlesSection.installFailed", { ns: "editor" }));
+      }
+    })();
+  }, [fromBundle, isAuthenticated, authPending, requireAuth, importAsNewWorld]);
+
   if (!picked) {
     return (
       <>
@@ -679,11 +657,6 @@ function WorldCreatePage() {
           className="hidden"
           onChange={handleFileImport}
         />
-        <ModeSelectionDialog
-          open={showModeDialog}
-          onSelect={handleModeSelected}
-          onClose={() => setShowModeDialog(false)}
-        />
         <UnsavedChangesDialog blocker={blocker} />
         {applyOffer && (
           <ApplyChangesDialog
@@ -704,6 +677,24 @@ function WorldCreatePage() {
   }
 
   if (enteringStudio) return <LoadingSpinner />;
+
+  if (guestCanvas) {
+    return (
+      <div className="flex h-full min-h-0 w-full flex-col">
+        <GuestSignInBar />
+        <div className="min-h-0 flex-1">
+          <Suspense fallback={<LoadingSpinner />}>
+            <StudioShell
+              guest={{
+                onBack: () => { setGuestCanvas(false); setPicked(false); },
+                onLeaveCanvas: () => { saveEditorSurface("classic"); setGuestCanvas(false); },
+              }}
+            />
+          </Suspense>
+        </div>
+      </div>
+    );
+  }
 
   if (quickCreate) {
     return (
@@ -731,6 +722,9 @@ function WorldCreatePage() {
 }
 
 export const Route = createFileRoute("/app/worlds/create")({
+  validateSearch: (search: Record<string, unknown>): { fromBundle?: string } => ({
+    fromBundle: typeof search.fromBundle === "string" && search.fromBundle ? search.fromBundle : undefined,
+  }),
   component: WorldCreatePage,
 });
 

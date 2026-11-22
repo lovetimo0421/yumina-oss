@@ -6,14 +6,14 @@ test("parseGoogleModels: strips Google's models/ prefix and keeps gemini chat mo
   // Google's OpenAI-compat /models returns ids like "models/gemini-2.5-flash".
   // The original filter matched on startsWith("gemini-") and so dropped them all.
   const models = parseGoogleModels([
-    { id: "models/gemini-2.5-flash" },
-    { id: "models/gemini-2.5-pro" },
+    { id: "models/gemini-3.5-flash" },
+    { id: "models/gemini-3.1-pro-preview" },
   ]);
   assert.deepEqual(
     models.map((m) => m.id),
-    ["google/gemini-2.5-flash", "google/gemini-2.5-pro"],
+    ["google/gemini-3.5-flash", "google/gemini-3.1-pro-preview"],
   );
-  assert.equal(models[0]?.name, "Gemini 2.5 Flash");
+  assert.equal(models[0]?.name, "Gemini 3.5 Flash");
   assert.equal(models[0]?.contextLength, 1_048_576);
 });
 
@@ -29,11 +29,24 @@ test("parseGoogleModels: drops non-chat (embedding/image/live) and non-gemini mo
     { id: "models/gemini-2.5-flash-image-preview" },
     { id: "models/imagen-3.0-generate-002" },
     { id: "models/text-embedding-004" },
-    { id: "models/gemini-2.5-flash" },
+    { id: "models/gemini-3.5-flash" },
   ]);
   assert.deepEqual(
     models.map((m) => m.id),
-    ["google/gemini-2.5-flash"],
+    ["google/gemini-3.5-flash"],
+  );
+});
+
+test("parseGoogleModels: hides 2.5 Flash/Pro, which 404 for keys made after Google retired them", () => {
+  const models = parseGoogleModels([
+    { id: "models/gemini-2.5-flash" },
+    { id: "models/gemini-2.5-pro" },
+    { id: "models/gemini-2.5-flash-lite" },
+    { id: "models/gemini-3.5-flash" },
+  ]);
+  assert.deepEqual(
+    models.map((m) => m.id),
+    ["google/gemini-2.5-flash-lite", "google/gemini-3.5-flash"],
   );
 });
 
@@ -202,6 +215,31 @@ test("Google surfaces HTTP failures and network failures", async (t) => {
   assert.match((await collect())[0]!.content, /Google AI error \(403\)/);
   fetch.mock.mockImplementation(async () => { throw new Error("Network unavailable"); });
   assert.match((await collect())[0]!.content, /Network unavailable/);
+});
+
+test("Google retries once without penalties when the model has them switched off", async (t) => {
+  const bodies: Record<string, unknown>[] = [];
+  t.mock.method(globalThis, "fetch", async (_url: string, init: RequestInit) => {
+    const body = JSON.parse(init.body as string);
+    bodies.push(body.generationConfig);
+    return bodies.length === 1
+      ? Response.json({ error: { code: 400, message: "Penalty is not enabled for this model", status: "INVALID_ARGUMENT" } }, { status: 400 })
+      : Response.json(answer);
+  });
+  const chunks = await collect({ stream: false, frequencyPenalty: 0.3, presencePenalty: 0.2 });
+  assert.equal(bodies.length, 2);
+  assert.equal((bodies[0] as { frequencyPenalty?: number }).frequencyPenalty, 0.3);
+  assert.equal("frequencyPenalty" in bodies[1]! && (bodies[1] as { frequencyPenalty?: number }).frequencyPenalty !== undefined, false);
+  assert.equal((bodies[1] as { presencePenalty?: number }).presencePenalty, undefined);
+  assert.equal(chunks[0]?.content, "Hello back");
+});
+
+test("Google does not retry a penalty 400 when no penalty was sent", async (t) => {
+  const fetch = t.mock.method(globalThis, "fetch", async () =>
+    Response.json({ error: { code: 400, message: "Penalty is not enabled for this model" } }, { status: 400 }));
+  const chunks = await collect({ stream: false });
+  assert.equal(fetch.mock.callCount(), 1);
+  assert.match(chunks[0]!.content, /Google AI error \(400\)/);
 });
 
 test("Google rejects malformed JSON and missing response bodies", async (t) => {

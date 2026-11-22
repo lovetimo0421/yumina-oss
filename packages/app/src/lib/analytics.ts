@@ -22,6 +22,7 @@
  */
 
 import posthog from "posthog-js";
+import { rememberAiReferrer, type AiReferrer } from "./ai-referrer";
 import { isAnalyticsEnabled } from "./analytics-enabled";
 import { arrivalProperties } from "./arrival-attribution";
 import { queueFeedEvent, type FeedBeaconEvent } from "./feed-beacon";
@@ -211,6 +212,24 @@ export type HubEventMap = {
     trigger: "navigate" | "resume" | "manual";
   };
 
+  /** The canvas's resource-pack drawer, step by step: opened, a pack looked
+   *  at, its canvas shown, opened large, added to the card. Whether anyone
+   *  uses packs, and where they stop. */
+  studio_pack: {
+    step: "drawer_open" | "peek" | "peek_canvas" | "browse" | "install" | "publish" | "try_on";
+    pack_id?: string;
+    /** publish only: where the button was (drawer, market page, save window). */
+    from?: string;
+    /** try_on only: shown on the open card, or on a blank one. */
+    on?: "card" | "blank";
+    source?: "hub" | "library";
+    kind?: "module" | "template";
+    /** install only: the row's button, a drag onto the board, the peek's
+     *  button, or the large view's. */
+    via?: "button" | "drag" | "peek" | "browse" | "switcher";
+    /** The pack is tagged with a language other than the viewer's. */
+    other_language?: boolean;
+  };
   /** The blueprint (Studio) opened for a card: the funnel's first step. */
   studio_blueprint_opened: {
     world_id: string;
@@ -243,7 +262,7 @@ export type HubEventMap = {
   /** A switch in the board's View menu was used. `on` is the state it was switched to. */
   studio_view_toggle: {
     world_id: string;
-    item: "wires" | "lock" | "tidy" | "legend" | "estimate" | "rail" | "ai-table" | "ai-calls";
+    item: "wires" | "lock" | "tidy" | "legend" | "estimate" | "rail" | "ai-table" | "ai-calls" | "ai-lineup";
     on: boolean;
   };
   /**
@@ -303,7 +322,7 @@ export type HubEventMap = {
     layoutHeight?: number;
     visualHeight?: number;
     keyboardInset?: number;
-    scrollTarget?: "html" | "body" | "root" | "shell" | "shell_content";
+    scrollTarget?: "html" | "body" | "root" | "shell" | "shell_content" | "editor_main";
     previousScrollTop?: number;
     scrollTop?: number;
   };
@@ -363,6 +382,29 @@ export function captureHubEvent<K extends keyof HubEventMap>(
   }
 }
 
+// ── Arrived from an AI assistant ────────────────────────────────────
+// ChatGPT, Claude, Perplexity, Gemini or Copilot sent this session here
+// (lib/ai-referrer.ts reads the landing referrer and utm_source once per
+// tab). `ai_referrer` rides on every event of the session as a super
+// property; `ai_referrer_first` is set once on the person when they are
+// identified, so an anonymous visitor never gets a profile created just to
+// hold it (person_profiles: identified_only).
+
+/** Called from PostHog's `loaded` hook (main.tsx). */
+export function registerAiReferrer(ph: { register: (props: Record<string, string>) => void }): void {
+  try {
+    const source = rememberAiReferrer();
+    if (source) ph.register({ ai_referrer: source });
+  } catch {
+    // Never let analytics break the app.
+  }
+}
+
+function aiReferrerFirst(): { ai_referrer_first: AiReferrer } | undefined {
+  const source = rememberAiReferrer();
+  return source ? { ai_referrer_first: source } : undefined;
+}
+
 /**
  * Associate the current browser session with an authenticated user id.
  * Call after login / session restore. Reset on logout.
@@ -374,7 +416,7 @@ export function identifyAnalyticsUser(
 ): void {
   try {
     if (typeof window === "undefined") return;
-    if (isAnalyticsEnabled()) posthog.identify(userId, traits);
+    if (isAnalyticsEnabled()) posthog.identify(userId, traits, aiReferrerFirst());
     linkObservedGameGuest(userId);
     // Ad pixels get hashed identifiers only; the email never reaches PostHog.
     void identifyTikTokUser(userId, match?.email ?? null);

@@ -1,9 +1,10 @@
-import { useCallback, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2, CheckCircle2, AlertTriangle, Copy, RefreshCw, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useLocalModelStore } from "./store";
+import { runtimeNames, type RuntimeKind } from "./detect";
 import { detectOs } from "./local-model-guide";
 import { installerCommand } from "./local-model-installer";
 
@@ -80,18 +81,21 @@ export function LocalModelDiagnosis({ tone = "panel" }: { tone?: "panel" | "pick
         </div>
       )}
 
-      {/* Found, but it won't answer this site. One pasted line lets it in and
-          restarts Ollama; the page then connects by itself. */}
-      {!enabled && !detecting && detection?.status === "blocked" && (
+      {/* Found, but it won't answer this site. For Ollama one pasted line lets
+          it in and restarts it; the others have a switch in their own app.
+          Either way the page then connects by itself. */}
+      {!enabled && !detecting && detection?.status === "blocked" && (detection.runtime.kind === "ollama" ? (
         <BlockedFix tone={tone} runtime={detection.runtime.label} watching={watching} onCopied={watchForRuntime} lang={i18n.language} />
-      )}
+      ) : (
+        <BlockedInApp tone={tone} kind={detection.runtime.kind} runtime={detection.runtime.label} />
+      ))}
 
       {/* Ready to go. */}
       {!enabled && !detecting && detection?.status === "ready" && (
         <div className="space-y-1.5 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
           <div className="flex items-center gap-1.5 text-[11px] font-medium text-emerald-200">
             <CheckCircle2 className="h-3.5 w-3.5" />
-            {t("localModel.readyTitle", { runtime: detection.runtime.label, count: detection.models.length })}
+            {t("localModel.readyTitle", { runtime: runtimeNames(detection), count: detection.models.length })}
           </div>
           <div className={cn("text-[11px] leading-relaxed", c.sub)}>{t("localModel.readyBody")}</div>
         </div>
@@ -152,7 +156,7 @@ export function LocalModelStatus({ tone = "panel", extraActions }: {
             )}
           />
           <span className={c.main}>{statusLabel}</span>
-          {detection?.status === "ready" && <span className={c.faint}>· {detection.runtime.label}</span>}
+          {detection?.status === "ready" && <span className={c.faint}>· {runtimeNames(detection)}</span>}
         </div>
       )}
 
@@ -197,6 +201,39 @@ export function LocalModelStatus({ tone = "panel", extraActions }: {
 
         {extraActions}
       </div>
+    </div>
+  );
+}
+
+/**
+ * LM Studio, Jan and llama.cpp turn cross-origin requests on with a setting,
+ * not a command. Watch while the player flips it, so they never have to come
+ * back and press "check again".
+ */
+function BlockedInApp({ tone, kind, runtime }: { tone: "panel" | "picker"; kind: RuntimeKind; runtime: string }) {
+  const { t } = useTranslation("profile");
+  const c = toneClasses(tone);
+  const { watching, watchForRuntime } = useLocalModelStore();
+  useEffect(() => {
+    watchForRuntime();
+  }, [watchForRuntime]);
+  return (
+    <div className="space-y-2 rounded-xl border border-amber-500/25 bg-amber-500/[0.06] p-3">
+      <div className="flex items-center gap-1.5 text-[12px] font-medium text-amber-200">
+        <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+        {t("localModel.blockedTitle", { runtime })}
+      </div>
+      <div className={cn("text-[11px] leading-relaxed", c.sub)}>
+        {kind === "lmstudio"
+          ? t("localModel.blockedFixLmStudio")
+          : t("localModel.blockedFixOther", { runtime, origin: currentOrigin() })}
+      </div>
+      {watching && (
+        <span className="inline-flex items-center gap-1.5 text-[11px] text-emerald-300/85">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          {t("localModel.blockedWatchingApp", { runtime })}
+        </span>
+      )}
     </div>
   );
 }

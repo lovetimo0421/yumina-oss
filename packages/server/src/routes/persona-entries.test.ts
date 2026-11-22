@@ -12,7 +12,7 @@ import type { AppEnv } from "../lib/types.js";
 import { buildPersonaSystemMessage } from "../lib/persona-prompt.js";
 import { applyPersonaMetadataToState } from "../lib/persona-metadata.js";
 import { setSessionPersona, resolvePersonaForSession } from "../lib/resolve-persona.js";
-import { MAX_PERSONA_ENTRIES, MAX_PERSONA_ENTRY_CONTENT } from "@yumina/shared";
+import { MAX_PERSONA_ENTRIES, MAX_PERSONA_ENTRY_CONTENT, MAX_PERSONA_ENTRIES_TOTAL } from "@yumina/shared";
 
 test("custom persona entries round-trip through API, preserve legacy patches, and follow the selected identity", async () => {
   const id = crypto.randomUUID();
@@ -42,7 +42,7 @@ test("custom persona entries round-trip through API, preserve legacy patches, an
     assert.deepEqual((await read(await request(`/${persona.id}`))).data.entries, entries, "old clients cannot erase entries by omission");
     for (const invalid of [null, {}, [{ title: "", content: "x" }], [{ title: "X", content: 12 }],
       [{ title: "X", content: "x".repeat(MAX_PERSONA_ENTRY_CONTENT + 1) }], Array(MAX_PERSONA_ENTRIES + 1).fill(entries[0]),
-      Array(5).fill({ title: "X", content: "x".repeat(MAX_PERSONA_ENTRY_CONTENT) })]) {
+      Array(Math.floor(MAX_PERSONA_ENTRIES_TOTAL / MAX_PERSONA_ENTRY_CONTENT) + 1).fill({ title: "X", content: "x".repeat(MAX_PERSONA_ENTRY_CONTENT) })]) {
       assert.equal((await request(`/${persona.id}`, "PATCH", { entries: invalid })).status, 400);
     }
     caller = other;

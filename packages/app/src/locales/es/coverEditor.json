@@ -1084,7 +1084,7 @@
     "saveTitle": "Guardar (Ctrl+S)",
     "saveTooltip": "Guardar (Ctrl+S)",
     "publish": "Publicar",
-    "publishTooltip": "Publicar en Descubrir",
+    "publishTooltip": "Opciones de publicación",
     "publishUpdate": "Actualizar",
     "publishUpdateTooltip": "Actualizar la publicación",
     "play": "Jugar",
@@ -1189,13 +1189,12 @@
     "customUI": "UI personalizada",
     "audio": "Audio",
     "sceneImages": "Imágenes de escena",
-    "assets": "Recursos",
-    "overview": "Vista general",
+    "assets": "Materiales",
+    "overview": "Ajustes de la carta",
     "bundles": "Paquetes",
-    "aiGeneration": "Generación IA",
+    "aiGeneration": "Taller",
     "worldbooks": "Escenarios",
-    "packs": "Mecánicas",
-    "backgrounds": "Fondo"
+    "backgrounds": "Fondo del chat"
   },
   "firstMessage": {
     "title": "Primer mensaje",
@@ -2000,7 +1999,7 @@
     "notPublished": "Sin publicar"
   },
   "assetPicker": {
-    "title": "Recursos",
+    "title": "Materiales",
     "searchPlaceholder": "Buscar...",
     "uploadButton": "Subir",
     "uploadingButton": "Subiendo...",
@@ -2411,7 +2410,7 @@
     "stage": {
       "tabBlueprint": "Historia",
       "tabFrontend": "Interfaz",
-      "tabGeneration": "Generación IA",
+      "tabGeneration": "Taller",
       "toStage": "Estación de lienzo — el lienzo llena el estudio",
       "toClassic": "Cambiar al diseño clásico de paneles",
       "collapse": "Plegar",
@@ -2472,17 +2471,16 @@
       "frontEndCode": "Código de frontend",
       "audio": "Audio",
       "sceneImages": "Imágenes de escena",
-      "assets": "Recursos",
-      "overview": "Vista general",
+      "assets": "Materiales",
+      "overview": "Ajustes de la carta",
       "previewControls": "Controles de vista previa",
       "canvas": "Vista previa de la interfaz",
       "aiAssistant": "Asistente IA",
       "playtest": "Playtest",
       "marketplace": "Mercado",
-      "aiGeneration": "Generación IA",
+      "aiGeneration": "Taller",
       "worldbooks": "Escenarios",
-      "packs": "Mecánicas",
-      "backgrounds": "Fondo"
+      "backgrounds": "Fondo del chat"
     },
     "layouts": {
       "blueprint": "Lienzo",
@@ -2792,7 +2790,7 @@
       "customComponent": "Componente personalizado",
       "messageRenderer": "Renderizador de mensajes",
       "audio": "Audio",
-      "asset": "Recurso",
+      "asset": "Material",
       "template": "Plantilla",
       "settings": "Ajustes",
       "entityCat": "Entidad",
@@ -2881,6 +2879,9 @@
         "update_settings": "Cambiar ajustes",
         "load_skill": "Leer una guía",
         "list_assets": "Ver recursos",
+        "view_asset": "Ver una imagen",
+        "set_cover": "Poner como portada",
+        "list_voices": "Buscar voces",
         "browse_assets": "Ver recursos",
         "compile_tsx": "Comprobar código de interfaz",
         "generate_image": "Crear una imagen",
@@ -2889,7 +2890,8 @@
         "analyze_token_cost": "Estimar el uso",
         "validate_ui_blueprint": "Comprobar la interfaz",
         "list_templates": "Ver plantillas",
-        "other": "Otro paso"
+        "other": "Otro paso",
+        "screenshot_ui": "Mirar la pantalla"
       },
       "field": {
         "name": "Nombre",
@@ -4757,7 +4759,7 @@
     "cropSize": "Tamaño de recorte",
     "cardCover": "Portada de la tarjeta",
     "galleryPreview": "Vista previa de la galería",
-    "detailHeroPreview": "Banner de detalles · 16:5",
+    "detailHeroPreview": "Banner de detalles · 21:9",
     "crop": {
       "hint": "Elige el recorte. La vista previa coincide con la tarjeta de Descubrir.",
       "dragHint": "Arrastra o cambia el tamaño del recuadro",
@@ -4767,7 +4769,11 @@
       "reset": "Restablecer esta vista",
       "save": "Guardar recorte",
       "phone": "Tarjetas verticales · 2:3",
-      "desktop": "Imagen horizontal · 16:9",
+      "desktop": "Vista de galería",
+      "galleryDesktop": "Banner de escritorio · 21:9",
+      "galleryMobile": "Móvil y tarjetas de galería · 16:9",
+      "galleryDevice": "Vista de galería",
+      "galleryHint": "Ajusta cada vista por separado. El banner de escritorio aparece en las vistas previas de historias y los detalles de la biblioteca. Las vistas móviles y las tarjetas horizontales usan el recorte móvil.",
       "framing": "Encuadre",
       "wholeImage": "Imagen completa",
       "fillFrame": "Llenar marco",
@@ -4872,7 +4878,7 @@
       },
       "publish": {
         "title": "Publica tu mundo",
-        "body": "Cuando esté listo, haz clic aquí arriba a la derecha para enviarlo a publicación. ¡Una vez aprobado aparecerá en el hub para que todos lo jueguen!"
+        "body": "Elige quién puede jugar y envía tu mundo a revisión."
       },
       "save": {
         "title": "Recuerda guardar",
@@ -4900,7 +4906,7 @@
       },
       "publishM": {
         "title": "Publica tu mundo",
-        "body": "Cuando esté listo, toca aquí arriba para enviarlo a publicación. ¡Una vez aprobado aparecerá en el hub para que todos lo jueguen!"
+        "body": "Elige quién puede jugar y envía tu mundo a revisión."
       },
       "menuOpen": {
         "title": "El menú de secciones",
@@ -4960,7 +4966,7 @@
       },
       "sPublish": {
         "title": "Publicar",
-        "body": "Cuando estés contento, envíalo a publicación aquí. Una vez aprobado aparece en Descubrir para que todos jueguen."
+        "body": "Elige quién puede jugar y envía tu mundo a revisión."
       },
       "sAdvanced": {
         "title": "¿Necesitas más potencia?",
@@ -5074,22 +5080,6 @@
     "before": "Original",
     "after": "Procesado",
     "previewSentence": "La lluvia aplastaba la ciudad entera. Ella no miró atrás: solo inclinó el paraguas hacia ti."
-  },
-  "packs": {
-    "title": "Paquetes de mecánicas",
-    "blurb": "Un conjunto funcional de variables, comportamientos y entradas, añadido con un clic. Todo lo que añade es contenido normal de la carta: ábrelo, léelo, cámbialo.",
-    "add": "Añadir a esta carta",
-    "addedAgain": "Añadido — añadir otra vez",
-    "installed": "{{name}} añadido",
-    "countVariables_one": "{{count}} variable",
-    "countVariables": "{{count}} variables",
-    "countBehaviors_one": "{{count}} comportamiento",
-    "countBehaviors": "{{count}} comportamientos",
-    "countEntries_one": "{{count}} entrada",
-    "countEntries": "{{count}} entradas",
-    "deterministic": "Variables reales: las aplica el motor, así que cambiar de modelo no altera nada.",
-    "promptOnly": "Solo prompt: el modelo decide si obedece. Usa variables cuando tenga que ser exacto.",
-    "footnote": "Los paquetes se acumulan: afecto y supervivencia pueden convivir en la misma carta. Quita uno desde la página de paquetes y se va todo lo que trajo."
   },
   "reviewState": {
     "rejectReasons": {

@@ -30,6 +30,7 @@ export function createVoiceAPI(options: {
   post(method: string, args: unknown[]): void;
   target: Pick<EventTarget, "addEventListener" | "removeEventListener">;
 }): VoiceAPI {
+  let lastActive = 0;
   return {
     async getConfig() {
       if (!options.available) return { available: false, funding: null, transport: null, maxDurationSeconds: 0, finishAcknowledged: false };
@@ -67,6 +68,12 @@ export function createVoiceAPI(options: {
     stop: () => options.post("realtimeVoice.stop", []),
     interrupt: () => { if (options.available) options.post("realtimeVoice.interrupt", []); },
     setMuted: params => options.post("realtimeVoice.setMuted", [params]),
+    markActive: () => {
+      // At most one message every 5 s, however often the world calls it.
+      const now = Date.now();
+      if (!options.available || now - lastActive < 5_000) return;
+      lastActive = now; options.post("realtimeVoice.active", []);
+    },
     updateContext: context => options.post("realtimeVoice.updateContext", [context]),
     updateInstructions(instructions) {
       if (typeof instructions !== "string" || !instructions.trim() || instructions.length > 12_000) throw new Error("Voice instructions must contain 1–12,000 characters.");

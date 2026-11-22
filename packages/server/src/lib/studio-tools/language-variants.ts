@@ -5,6 +5,7 @@ import { worldPendingEdits, worlds } from "../../db/schema.js";
 import type { ToolCall, ToolDefinition } from "../llm/types.js";
 import { resolveWorkingSchema } from "../pending-edit.js";
 import { parseToolArgs } from "./parse-tool-args.js";
+import { canEdit, getWorldAccess } from "../world-collaborators.js";
 
 /**
  * A card's other language versions, for the assistant working on one of them.
@@ -53,15 +54,19 @@ export function withVariantParam(tools: ToolDefinition[]): ToolDefinition[] {
   });
 }
 
-/** The current world's language and its same-creator siblings. Empty when the
- *  world is not the user's or belongs to no group. */
+/** The current world's language and its siblings: the same group's worlds by
+ *  the same creator as this one. Empty when the user may not edit the world
+ *  (creator or editor collaborator — a grant covers the whole group) or it
+ *  belongs to no group. */
 export async function listLanguageVariants(worldId: string, userId: string): Promise<LanguageVariants> {
+  const access = await getWorldAccess(userId, worldId);
+  if (!canEdit(access)) return { language: null, siblings: [] };
   const [self] = await db.select({ language: worlds.language, group: worlds.languageGroupId })
-    .from(worlds).where(and(eq(worlds.id, worldId), eq(worlds.creatorId, userId))).limit(1);
+    .from(worlds).where(and(eq(worlds.id, worldId), eq(worlds.creatorId, access.creatorId))).limit(1);
   if (!self?.group) return { language: self?.language ?? null, siblings: [] };
   const rows = await db.select({ id: worlds.id, language: worlds.language, name: worlds.name, variantLabel: worlds.variantLabel, status: worlds.status })
     .from(worlds)
-    .where(and(eq(worlds.languageGroupId, self.group), eq(worlds.creatorId, userId), ne(worlds.id, worldId)))
+    .where(and(eq(worlds.languageGroupId, self.group), eq(worlds.creatorId, access.creatorId), ne(worlds.id, worldId)))
     .orderBy(asc(worlds.language), asc(worlds.createdAt));
   const heldIds = rows.length === 0 ? new Set<string>() : new Set((await db.select({ worldId: worldPendingEdits.worldId })
     .from(worldPendingEdits).where(inArray(worldPendingEdits.worldId, rows.map((r) => r.id)))).map((r) => r.worldId));
@@ -119,12 +124,14 @@ export interface VariantWorld {
 }
 
 /** A sibling's working copy — the held edit of a published variant, else its
- *  schema — exactly as the Studio would load it. Ownership is checked again. */
+ *  schema — exactly as the Studio would load it. Edit access is checked again. */
 export async function loadVariantWorld(siblingId: string, userId: string): Promise<VariantWorld> {
+  const access = await getWorldAccess(userId, siblingId);
+  if (!canEdit(access)) throw new Error("That language version is no longer available.");
   const [row] = await db.select({ schema: worlds.schema, status: worlds.status, updatedAt: worlds.updatedAt })
-    .from(worlds).where(and(eq(worlds.id, siblingId), eq(worlds.creatorId, userId))).limit(1);
+    .from(worlds).where(and(eq(worlds.id, siblingId), eq(worlds.creatorId, access.creatorId))).limit(1);
   if (!row) throw new Error("That language version is no longer available.");
-  const raw = await resolveWorkingSchema(siblingId, row.status, (row.schema ?? {}) as Record<string, unknown>);
+  const raw = await resolveWorkingSchema(siblingId, row.status, (row.schema ?? {}) as Record<string, unknown>, userId);
   return { world: migrateWorldDefinition(raw as unknown as WorldDefinition), raw, updatedAt: row.updatedAt?.getTime() ?? null };
 }
 

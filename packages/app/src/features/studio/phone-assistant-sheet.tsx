@@ -62,7 +62,11 @@ export function PhoneAssistantSheet({ state, onState, hidden, children }: {
    *  phone will not raise the keyboard for it. */
   const openToType = useCallback(() => {
     flushSync(() => onState("open"));
-    sheetRef.current?.querySelector<HTMLTextAreaElement>("textarea")?.focus();
+    // preventScroll: the drawer is still the 60px bar here, so a plain
+    // focus() made Android scroll the clipped drawer to reach the box and the
+    // keyboard came up over an input it had pushed out of sight (velace,
+    // Android Chrome, 2026-11-19: tap after tap, nothing could be typed).
+    sheetRef.current?.querySelector<HTMLTextAreaElement>("textarea")?.focus({ preventScroll: true });
   }, [onState]);
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
@@ -87,7 +91,10 @@ export function PhoneAssistantSheet({ state, onState, hidden, children }: {
   }, [onState, state]);
 
   const collapsed = state === "peek" && dragH === null;
-  const height = dragH ?? (state === "open" ? `${openH()}px` : `calc(${SHEET_PEEK_H}px + env(safe-area-inset-bottom))`);
+  // Open = the whole frame, as a percentage so it follows the frame when the
+  // keyboard shrinks it. A pixel height read on opening stayed full-screen
+  // tall under the keyboard and left the box below what the phone showed.
+  const height = dragH ?? (state === "open" ? "100%" : `calc(${SHEET_PEEK_H}px + env(safe-area-inset-bottom))`);
 
   return (
     <div
@@ -95,7 +102,8 @@ export function PhoneAssistantSheet({ state, onState, hidden, children }: {
       data-assistant-sheet={collapsed ? "peek" : "open"}
       data-onboarding="assistant"
       className={cn(
-        "absolute inset-x-0 bottom-0 z-20 flex flex-col overflow-hidden rounded-t-2xl border-t border-white/10 bg-background shadow-[0_-12px_40px_rgba(0,0,0,0.45)]",
+        // Board entry pages use z-30 in this same phone workspace.
+        "absolute inset-x-0 bottom-0 z-40 flex flex-col overflow-clip rounded-t-2xl border-t border-white/10 bg-background shadow-[0_-12px_40px_rgba(0,0,0,0.45)]",
         dragH === null && "transition-[height] duration-200 ease-out",
         hidden && "invisible",
       )}

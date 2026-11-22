@@ -1,3 +1,8 @@
+---
+title: "How It Works"
+description: "What happens on every turn of a Yumina world: the engine builds the prompt from your lore and variables, the AI writes, and the engine applies the numbers. Then the parts of a card."
+---
+
 # How It Works
 
 Every time a player sends a message, Yumina goes through the steps below.
@@ -106,7 +111,7 @@ The bandit's blade catches your arm.
 [location: set "dark forest"]
 ```
 
-The player only sees the story. The engine quietly takes the bracketed directives away. All you have to do is say in plain words what the variable is and how it should change, like "drops 10-30 on physical damage, never more than 30 in a single turn", and the engine teaches the AI how to write the directives by itself ( •̀ ω •́ )✧
+The player only sees the story. The engine quietly takes the bracketed directives away. All you have to do is say in plain words what the variable is and how it should change, like "drops 10-30 on physical damage, never more than 30 in a single turn", and the engine teaches the AI how to write the directives by itself
 
 Every variable takes up a line of the AI's attention every turn, so don't add ones you won't use.
 
@@ -169,9 +174,9 @@ It builds the lore, the variables with their Behavior Rules, and the behavior th
 
 ### Your own AI
 
-If you'd rather use Claude, ChatGPT, Cursor or Claude Code, **Connect your AI** in the top bar lets it sign in to your Yumina directly, read your card and edit it. Its changes show up live on the canvas you have open.
+If you'd rather use Claude, ChatGPT, Cursor or Claude Code, **Connect your AI** in the ⋮ menu at the top right lets it sign in to your Yumina directly, read your card and edit it. Its changes show up live on the canvas you have open.
 
-→ [The Creation assistant and your own AI](/creator/studio-ai)
+→ [The Creation assistant](/creator/studio-ai) · [Connect your AI](/creator/connect-your-ai)
 
 ---
 

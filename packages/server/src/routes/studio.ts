@@ -4,7 +4,7 @@ import { eq, and, desc, asc, inArray } from "drizzle-orm";
 import { diffWorldSchemas } from "@yumina/engine";
 import type { WorldDefinition } from "@yumina/engine";
 import { db, readOwn } from "../db/index.js";
-import { worlds, studioConversations, worldSnapshots, playSessions } from "../db/schema.js";
+import { worlds, studioConversations, worldSnapshots, playSessions, user } from "../db/schema.js";
 import { summarizeSnapshotTimeline } from "../lib/studio-tools/snapshot-summary.js";
 import { authMiddleware } from "../middleware/auth.js";
 import type { AppEnv } from "../lib/types.js";
@@ -17,10 +17,12 @@ import {
   loadStudioConversationForDisplay,
   updateStudioConversationForWorld,
 } from "../lib/studio-conversations.js";
-import { restoreStudioSnapshot } from "../lib/world-versioning.js";
+import { planSelectiveRevert, restoreStudioSnapshot } from "../lib/world-versioning.js";
 import { SourceLimitError, addSource, listSources, removeSource, sourceIncomingPrefix } from "../lib/studio-sources.js";
 import { BIBLE_SUFFIX, readDigestStatus, stopDigests } from "../lib/studio-source-digest.js";
 import { loadRunCosts } from "../lib/studio-run-costs.js";
+import { redactSchemaFor } from "../lib/sealed-entries.js";
+import { canEdit, getWorldAccess } from "../lib/world-collaborators.js";
 
 const studioRoutes = new Hono<AppEnv>();
 
@@ -221,12 +223,9 @@ studioRoutes.post("/:worldId/conversations", async (c) => {
   const worldId = c.req.param("worldId");
   const body = await c.req.json<{ title?: string }>().catch(() => ({}));
 
-  // Verify ownership — a conversation may only be opened on the caller's own world.
-  const worldRows = await db
-    .select({ id: worlds.id })
-    .from(worlds)
-    .where(and(eq(worlds.id, worldId), eq(worlds.creatorId, currentUser.id)));
-  if (worldRows.length === 0) return c.json({ error: "World not found" }, 404);
+  // A conversation may only be opened by someone who may edit the world (its
+  // creator or an editor collaborator). The conversation is the caller's own.
+  if (!(await worldAccessAllows(currentUser.id, worldId, "edit"))) return c.json({ error: "World not found" }, 404);
 
   const [row] = await db
     .insert(studioConversations)
@@ -318,14 +317,15 @@ studioRoutes.delete("/:worldId/conversations/:convId", async (c) => {
 
 const MAX_SOURCE_BYTES = 40 * 1024 * 1024;
 
-async function ownsWorld(userId: string, worldId: string): Promise<boolean> {
-  const rd = await readOwn(userId);
-  const [row] = await rd
-    .select({ id: worlds.id })
-    .from(worlds)
-    .where(and(eq(worlds.id, worldId), eq(worlds.creatorId, userId)))
-    .limit(1);
-  return Boolean(row);
+/**
+ * "open": creator, editors and viewers. "edit": creator and editors. Reads the
+ * primary (getWorldAccess defaults to it) — this is an authorization check.
+ * Sources stay stored per person (studio-sources keys by the uploader), so a
+ * collaborator manages their own and the assistant they run reads those.
+ */
+async function worldAccessAllows(userId: string, worldId: string, need: "open" | "edit"): Promise<boolean> {
+  const access = await getWorldAccess(userId, worldId);
+  return need === "open" ? access !== null : canEdit(access);
 }
 
 const publicSource = (s: { id: string; name: string; chars: number; chapters: unknown[]; createdAt: string }) =>
@@ -335,7 +335,7 @@ const publicSource = (s: { id: string; name: string; chars: number; chapters: un
 studioRoutes.get("/:worldId/sources", async (c) => {
   const userId = c.get("user").id;
   const worldId = c.req.param("worldId");
-  if (!(await ownsWorld(userId, worldId))) return c.json({ error: "World not found" }, 404);
+  if (!(await worldAccessAllows(userId, worldId, "edit"))) return c.json({ error: "World not found" }, 404);
   const sources = await listSources(userId, worldId);
   // A digest in progress rides along, so the chip shows it after a reload too.
   // One that has not moved for 10 minutes died with its server; it is not shown.
@@ -353,7 +353,7 @@ studioRoutes.get("/:worldId/sources", async (c) => {
 studioRoutes.post("/:worldId/sources/upload-url", async (c) => {
   const userId = c.get("user").id;
   const worldId = c.req.param("worldId");
-  if (!(await ownsWorld(userId, worldId))) return c.json({ error: "World not found" }, 404);
+  if (!(await worldAccessAllows(userId, worldId, "edit"))) return c.json({ error: "World not found" }, 404);
   const body = await c.req.json<{ size?: number }>().catch(() => ({} as { size?: number }));
   if (Number(body.size) > MAX_SOURCE_BYTES) return c.json({ error: "File too large (40 MB at most)." }, 413);
   const key = `${sourceIncomingPrefix(userId, worldId)}${crypto.randomUUID()}.txt`;
@@ -364,7 +364,7 @@ studioRoutes.post("/:worldId/sources/upload-url", async (c) => {
 studioRoutes.post("/:worldId/sources", async (c) => {
   const userId = c.get("user").id;
   const worldId = c.req.param("worldId");
-  if (!(await ownsWorld(userId, worldId))) return c.json({ error: "World not found" }, 404);
+  if (!(await worldAccessAllows(userId, worldId, "edit"))) return c.json({ error: "World not found" }, 404);
   const body = await c.req.json<{ key?: string; name?: string }>().catch(() => ({} as { key?: string; name?: string }));
   if (typeof body.key !== "string" || !body.key.startsWith(sourceIncomingPrefix(userId, worldId))) {
     return c.json({ error: "Invalid upload key" }, 403);
@@ -391,7 +391,7 @@ studioRoutes.post("/:worldId/sources", async (c) => {
 studioRoutes.delete("/:worldId/sources/:sourceId", async (c) => {
   const userId = c.get("user").id;
   const worldId = c.req.param("worldId");
-  if (!(await ownsWorld(userId, worldId))) return c.json({ error: "World not found" }, 404);
+  if (!(await worldAccessAllows(userId, worldId, "edit"))) return c.json({ error: "World not found" }, 404);
   stopDigests({ userId, worldId, sourceId: c.req.param("sourceId") });
   const removed = await removeSource(userId, worldId, c.req.param("sourceId"));
   return removed ? c.json({ ok: true }) : c.json({ error: "Source not found" }, 404);
@@ -404,12 +404,8 @@ studioRoutes.get("/:worldId/snapshots", async (c) => {
   const currentUser = c.get("user");
   const worldId = c.req.param("worldId");
 
-  // Verify ownership
-  const worldRows = await db
-    .select({ id: worlds.id })
-    .from(worlds)
-    .where(and(eq(worlds.id, worldId), eq(worlds.creatorId, currentUser.id)));
-  if (worldRows.length === 0) return c.json({ error: "World not found" }, 404);
+  // Everyone on the card may read its restore points (viewers included).
+  if (!(await worldAccessAllows(currentUser.id, worldId, "open"))) return c.json({ error: "World not found" }, 404);
 
   // Optional filter: ?agentRunId=xxx returns the earliest snapshot for that run (for undo)
   const filterRunId = c.req.query("agentRunId");
@@ -423,9 +419,13 @@ studioRoutes.get("/:worldId/snapshots", async (c) => {
       label: worldSnapshots.label,
       agentRunId: worldSnapshots.agentRunId,
       createdAt: worldSnapshots.createdAt,
+      // Whose restore point it is (the person whose assistant / rollback made it).
+      actorId: worldSnapshots.userId,
+      actorName: user.name,
       ...(includeSchema ? { schemaData: worldSnapshots.schemaData } : {}),
     })
     .from(worldSnapshots)
+    .leftJoin(user, eq(user.id, worldSnapshots.userId))
     .where(and(...conditions))
     .orderBy(filterRunId ? worldSnapshots.createdAt : desc(worldSnapshots.createdAt))
     .limit(filterRunId ? 1 : 20);
@@ -440,15 +440,19 @@ studioRoutes.get("/:worldId/snapshots", async (c) => {
       .where(and(eq(worldSnapshots.worldId, worldId), inArray(worldSnapshots.id, ids)))
       .orderBy(asc(worldSnapshots.createdAt), asc(worldSnapshots.id)); // oldest -> newest, id tiebreak
     const cur = await db.select({ schema: worlds.schema }).from(worlds).where(eq(worlds.id, worldId));
+    // Entries someone else kept on this copy are summarized blank.
+    const blank = <T,>(schema: T) => redactSchemaFor({ id: worldId, creatorId: currentUser.id, schema }, schema, currentUser.id, "edit");
     const summaries = summarizeSnapshotTimeline(
-      withSchema.map((s) => ({ id: s.id, schemaData: s.schemaData })),
-      cur[0]?.schema ?? {},
+      withSchema.map((s) => ({ id: s.id, schemaData: blank(s.schemaData) })),
+      blank(cur[0]?.schema ?? {}),
     );
     const byId = new Map(summaries.map((s) => [s.id, s.summary]));
     return c.json({ data: snapshots.map((s) => ({ ...s, summary: byId.get(s.id) ?? [] })) });
   }
 
-  return c.json({ data: snapshots });
+  return c.json({ data: snapshots.map((s) => ("schemaData" in s
+    ? { ...s, schemaData: redactSchemaFor({ id: worldId, creatorId: currentUser.id, schema: s.schemaData }, s.schemaData, currentUser.id, "edit") }
+    : s)) });
 });
 
 // POST /api/studio/:worldId/rollback/:snapshotId — restore a snapshot
@@ -457,13 +461,15 @@ studioRoutes.post("/:worldId/rollback/:snapshotId", async (c) => {
   const worldId = c.req.param("worldId");
   const snapshotId = c.req.param("snapshotId");
 
-  // Verify ownership
-  const result = await restoreStudioSnapshot({ worldId, creatorId: currentUser.id, snapshotId });
+  // Creator or editor collaborator (checked inside, under the world lock).
+  const result = await restoreStudioSnapshot({ worldId, userId: currentUser.id, snapshotId });
   if (result.kind === "worldNotFound") return c.json({ error: "World not found" }, 404);
   if (result.kind === "snapshotNotFound") return c.json({ error: "Snapshot not found" }, 404);
-  const { held, reasons } = result;
+  const { held, reasons, mode, kept } = result;
 
-  return c.json({ ok: true, restoredSnapshotId: snapshotId, held, reasons });
+  // `kept`: places someone changed again after the undone steps; their
+  // version stayed. The editor says how many.
+  return c.json({ ok: true, restoredSnapshotId: snapshotId, held, reasons, mode, kept });
 });
 
 // GET /api/studio/:worldId/snapshots/:snapshotId/diff?against=auto|current
@@ -473,19 +479,32 @@ studioRoutes.get("/:worldId/snapshots/:snapshotId/diff", async (c) => {
   const snapshotId = c.req.param("snapshotId");
   const against = c.req.query("against") === "current" ? "current" : "auto";
 
+  if (!(await worldAccessAllows(currentUser.id, worldId, "open"))) return c.json({ error: "World not found" }, 404);
   const worldRows = await db
     .select({ id: worlds.id, schema: worlds.schema })
     .from(worlds)
-    .where(and(eq(worlds.id, worldId), eq(worlds.creatorId, currentUser.id)));
+    .where(eq(worlds.id, worldId));
   if (worldRows.length === 0) return c.json({ error: "World not found" }, 404);
 
   const snap = await db
-    .select({ id: worldSnapshots.id, schemaData: worldSnapshots.schemaData, createdAt: worldSnapshots.createdAt })
+    .select({ id: worldSnapshots.id, schemaData: worldSnapshots.schemaData, createdAt: worldSnapshots.createdAt, edits: worldSnapshots.edits, userId: worldSnapshots.userId })
     .from(worldSnapshots)
     .where(and(eq(worldSnapshots.id, snapshotId), eq(worldSnapshots.worldId, worldId)));
   if (snap.length === 0) return c.json({ error: "Snapshot not found" }, 404);
 
-  const prev = snap[0]!.schemaData as unknown as WorldDefinition;
+  // Entries someone else kept on this copy are compared blank on both sides.
+  const blanked = (schema: unknown) => redactSchemaFor({ id: worldId, creatorId: currentUser.id, schema }, schema, currentUser.id, "edit") as unknown as WorldDefinition;
+
+  // A rollback undoes only the recorded steps; preview exactly that.
+  if (against === "current") {
+    const current = (worldRows[0]!.schema ?? {}) as Record<string, unknown>;
+    const plan = await planSelectiveRevert(db, worldId, snap[0]!, current);
+    if (plan) {
+      return c.json({ data: { ...diffWorldSchemas(blanked(plan.schema), blanked(current), { detail: true }), selective: true, kept: plan.kept.length } });
+    }
+  }
+
+  const prev = blanked(snap[0]!.schemaData);
   let next: WorldDefinition;
   if (against === "current") {
     next = (worldRows[0]!.schema ?? {}) as unknown as WorldDefinition;
@@ -504,22 +523,32 @@ studioRoutes.get("/:worldId/snapshots/:snapshotId/diff", async (c) => {
     next = (nextState ?? {}) as unknown as WorldDefinition;
   }
 
-  return c.json({ data: diffWorldSchemas(prev, next, { detail: true }) });
+  return c.json({ data: diffWorldSchemas(prev, blanked(next), { detail: true }) });
 });
 
-// DELETE /api/studio/:worldId/snapshots/:snapshotId — delete one restore point
+// DELETE /api/studio/:worldId/snapshots/:snapshotId — delete one restore point.
+// The creator may delete any; an editor collaborator only their own (a restore
+// point is how someone undoes their assistant's work, so nobody else's goes).
 studioRoutes.delete("/:worldId/snapshots/:snapshotId", async (c) => {
   const currentUser = c.get("user");
   const worldId = c.req.param("worldId");
   const snapshotId = c.req.param("snapshotId");
-  const owned = await db.select({ id: worlds.id }).from(worlds)
-    .where(and(eq(worlds.id, worldId), eq(worlds.creatorId, currentUser.id)));
-  if (owned.length === 0) return c.json({ error: "World not found" }, 404);
-  await db.delete(worldSnapshots).where(and(eq(worldSnapshots.id, snapshotId), eq(worldSnapshots.worldId, worldId)));
+  const access = await getWorldAccess(currentUser.id, worldId);
+  if (!canEdit(access)) return c.json({ error: "World not found" }, 404);
+  const deleted = await db.delete(worldSnapshots).where(and(
+    eq(worldSnapshots.id, snapshotId), eq(worldSnapshots.worldId, worldId),
+    ...(access.role === "owner" ? [] : [eq(worldSnapshots.userId, currentUser.id)]),
+  )).returning();
+  if (deleted.length === 0 && access.role !== "owner") {
+    const [theirs] = await db.select({ id: worldSnapshots.id }).from(worldSnapshots)
+      .where(and(eq(worldSnapshots.id, snapshotId), eq(worldSnapshots.worldId, worldId))).limit(1);
+    if (theirs) return c.json({ error: "Only the card's creator can delete someone else's restore point", code: "NOT_YOURS" }, 403);
+  }
   return c.json({ ok: true });
 });
 
-// DELETE /api/studio/:worldId/snapshots — clear all restore points for this world
+// DELETE /api/studio/:worldId/snapshots — clear all restore points for this world.
+// Owner-only: wiping the whole history is not a collaborator's call.
 studioRoutes.delete("/:worldId/snapshots", async (c) => {
   const currentUser = c.get("user");
   const worldId = c.req.param("worldId");

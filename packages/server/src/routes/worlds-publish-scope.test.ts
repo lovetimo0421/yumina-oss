@@ -47,7 +47,8 @@ for (const trusted of [false, true]) {
     const response = await f.submit(selected.id);
     assert.equal(response.status, 200, await response.clone().text());
     const { data } = await response.json() as { data: { status: string } };
-    assert.equal(data.status, trusted ? "published" : "pending_review");
+    // skip_review no longer skips review (11/07): both go to the queue.
+    assert.equal(data.status, "pending_review");
     const ids = siblings.map(s => s.id);
     const after = await db.select().from(worlds).where(inArray(worlds.id, ids));
     for (const sibling of siblings) assert.deepEqual(after.find(row => row.id === sibling.id), sibling, "unselected versions stay byte-for-byte unchanged");
@@ -60,7 +61,7 @@ for (const trusted of [false, true]) {
 for (const [patch, code, missing] of [
   [{ thumbnailUrl: null }, "COVER_REQUIRED", ["portraitImage"]],
   [{ schema: { coverCrop: crop } }, "COVER_ART_REQUIRED", ["landscapeImage"]],
-  [{ schema: { coverCrop: crop, landscapeCover: "wide.webp" } }, "COVER_ART_REQUIRED", ["landscapeCrop"]],
+  [{ schema: { coverCrop: crop, landscapeCover: "wide.webp", landscapeCoverCrop: { ...crop, fit: "contain" } } }, "COVER_ART_REQUIRED", ["landscapeCrop"]],
 ] as const) {
   test(`invalid selected artwork reports ${missing[0]} without submitting any sibling`, async t => {
     const f = await fixture(t);

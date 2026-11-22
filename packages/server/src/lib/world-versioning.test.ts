@@ -35,9 +35,9 @@ before(async () => {
   for (const ddl of [
     WORLDS_TABLE_SQL,
     `CREATE TABLE world_versions (id text PRIMARY KEY, world_id text NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
-      created_by text NOT NULL, name text NOT NULL, note text, schema jsonb NOT NULL, created_at timestamp NOT NULL DEFAULT now())`,
+      created_by text NOT NULL, actor_id text, name text NOT NULL, note text, schema jsonb NOT NULL, created_at timestamp NOT NULL DEFAULT now())`,
     `CREATE TABLE world_snapshots (id text PRIMARY KEY, world_id text NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
-      user_id text NOT NULL, agent_run_id text, schema_data jsonb NOT NULL, label text NOT NULL DEFAULT 'Auto-save', created_at timestamp DEFAULT now())`,
+      user_id text NOT NULL, agent_run_id text, schema_data jsonb NOT NULL, edits jsonb, label text NOT NULL DEFAULT 'Auto-save', created_at timestamp DEFAULT now())`,
     `CREATE TABLE world_pending_edits (id text PRIMARY KEY, world_id text NOT NULL UNIQUE REFERENCES worlds(id) ON DELETE CASCADE,
       created_by text NOT NULL, group_key text NOT NULL, schema jsonb NOT NULL, thumbnail_url text, age_rating text, is_nsfw boolean,
       reasons jsonb NOT NULL DEFAULT '[]', update_title text, update_content text, update_is_major boolean NOT NULL DEFAULT false,
@@ -47,7 +47,7 @@ before(async () => {
       group_key text NOT NULL, submitted_by text NOT NULL, submitted_at timestamp NOT NULL DEFAULT now(), decision text NOT NULL DEFAULT 'pending',
       decided_by text, decided_at timestamp, rejection_reason text, rejection_detail text, ignored_at timestamp, ignored_by text,
       submission_type text NOT NULL DEFAULT 'initial', snapshot_age_rating text, snapshot_is_nsfw boolean, snapshot_target_audience text,
-      snapshot_visibility text, snapshot_allow_edit boolean, snapshot_allow_reviews boolean, version_id text, base_version_id text)`,
+      snapshot_visibility text, snapshot_allow_edit boolean, snapshot_allow_reviews boolean, version_id text, base_version_id text, ai_review jsonb)`,
   ].flatMap(ddl => ddl.split(";").map(part => part.trim()).filter(Boolean))) await db.execute(sql.raw(ddl));
   for (const statement of WORLD_VERSION_SCHEMA_SQL.split(";").filter(s => s.trim())) await db.execute(sql.raw(statement));
   await ensureWorldsSchemaDerived();
@@ -98,13 +98,13 @@ test("a current published working copy can save; a changed pending copy is rejec
 test("AI snapshot restore backs up the working copy even when held, and its backup can itself be restored", async () => {
   await setWorkingCopy("MY UNSUBMITTED WORK");
   const [target] = await db.insert(worldSnapshots).values({ worldId, userId: creatorId, schemaData: schema("AI TARGET") }).returning();
-  const result = await restoreStudioSnapshot({ worldId, creatorId, snapshotId: target!.id });
+  const result = await restoreStudioSnapshot({ worldId, userId: creatorId, snapshotId: target!.id });
   assert.equal(result.kind === "ok" && result.held, true);
   assert.deepEqual((await readLive()).schema, schema("LIVE"));
   const backups = await db.select().from(worldSnapshots).where(eq(worldSnapshots.label, BEFORE_ROLLBACK_LABEL));
   assert.equal(backups.length, 1);
   assert.deepEqual(backups[0]!.schemaData, schema("MY UNSUBMITTED WORK"));
-  await restoreStudioSnapshot({ worldId, creatorId, snapshotId: backups[0]!.id });
+  await restoreStudioSnapshot({ worldId, userId: creatorId, snapshotId: backups[0]!.id });
   assert.deepEqual((await getPendingEdit(worldId))!.schema, schema("MY UNSUBMITTED WORK"));
   const newBackups = await db.select().from(worldSnapshots).where(eq(worldSnapshots.label, BEFORE_ROLLBACK_LABEL));
   assert.equal(newBackups.length, 1);
@@ -118,7 +118,7 @@ test("failed AI snapshot restore preserves the earlier backup and the working co
   const beforeSnapshots = await db.select().from(worldSnapshots);
   await db.execute(sql`ALTER TABLE worlds ADD CONSTRAINT reject_test_write CHECK (updated_at = '2026-01-01T00:00:00'::timestamp)`);
   try {
-    await assert.rejects(restoreStudioSnapshot({ worldId, creatorId, snapshotId: target!.id }));
+    await assert.rejects(restoreStudioSnapshot({ worldId, userId: creatorId, snapshotId: target!.id }));
     assert.deepEqual(await db.select().from(worldSnapshots), beforeSnapshots);
     assert.deepEqual((await getPendingEdit(worldId))!.schema, schema("DRAFT"));
   } finally {
@@ -286,7 +286,7 @@ test("a landscape cover replacement keeps the live portrait and held story intac
 
 
 test("replacing portrait artwork preserves the dedicated landscape and its crop", async () => {
-  const wideCrop = { x: 12, y: 4, zoom: .8, fit: "cover" };
+  const wideCrop = { x: 12, y: 4, zoom: .8, fit: "cover", desktop: { x: -20, y: 15, zoom: .4, fit: "cover" } };
   await db.update(worlds).set({ status: "draft", schema: { ...schema("STORY"), landscapeCover: "wide.jpg", landscapeCoverCrop: wideCrop,
     coverCrop: { x: 1, y: 2, zoom: .6 }, galleryCoverCrop: { x: 0, y: 20, zoom: .7 } } }).where(eq(worlds.id, worldId));
   // Production gates the per-image crop reset behind Discover preview access; a plain
@@ -299,4 +299,95 @@ test("replacing portrait artwork preserves the dedicated landscape and its crop"
   assert.deepEqual(row!.landscapeCoverCrop, wideCrop);
   assert.equal(row!.coverCrop, null);
   assert.equal(row!.galleryCoverCrop, null);
+});
+
+test("rolling back an assistant step undoes only that step, keeping edits made around it", async () => {
+  const { diffWorld, migrateWorldDefinition } = await import("@yumina/engine");
+  const two = (a: string, b: string) => ({
+    ...schema(a),
+    entries: [
+      { id: "a", name: "A", content: a, role: "system", position: "before_char", enabled: true, constant: true },
+      { id: "b", name: "B", content: b, role: "system", position: "before_char", enabled: true, constant: true },
+    ],
+  });
+  const m = (w: object) => migrateWorldDefinition(w as never);
+  const before = two("a0", "b0");
+  const afterStep = two("assistant", "b0");
+  // Since then a collaborator rewrote the other entry.
+  await db.execute(sql`UPDATE worlds SET status = 'draft', schema = ${JSON.stringify(two("assistant", "collaborator"))}::jsonb WHERE id = ${worldId}`);
+  const [point] = await db.insert(worldSnapshots).values({
+    worldId, userId: creatorId, schemaData: before, label: "Before: update_entry", edits: diffWorld(m(before), m(afterStep)),
+  }).returning();
+
+  const result = await restoreStudioSnapshot({ worldId, userId: creatorId, snapshotId: point!.id });
+  assert.equal(result.kind === "ok" && result.mode, "selective");
+  const entries = ((await readLive()).schema as { entries: Array<{ id: string; content: string }> }).entries;
+  assert.deepEqual(entries.map((e) => [e.id, e.content]), [["a", "a0"], ["b", "collaborator"]]);
+});
+
+async function recordedSteps(contents: string[], userIds: string[]) {
+  const { diffWorld, migrateWorldDefinition } = await import("@yumina/engine");
+  const m = (w: object) => migrateWorldDefinition(w as never);
+  const ids: string[] = [];
+  for (let i = 1; i < contents.length; i++) {
+    const [point] = await db.insert(worldSnapshots).values({
+      worldId, userId: userIds[i - 1]!, schemaData: schema(contents[i - 1]!), label: "Before: update_entry",
+      edits: diffWorld(m(schema(contents[i - 1]!)), m(schema(contents[i]!))), createdAt: new Date(Date.UTC(2026, 9, 1, 0, i)),
+    }).returning();
+    ids.push(point!.id);
+  }
+  await db.execute(sql`UPDATE worlds SET status = 'draft', schema = ${JSON.stringify(schema(contents.at(-1)!))}::jsonb WHERE id = ${worldId}`);
+  return ids;
+}
+const liveContent = async () => ((await readLive()).schema as { entries: Array<{ content: string }> }).entries[0]!.content;
+
+test("rolling back past an earlier rollback undoes the steps in between too", async () => {
+  const [step1, step2] = await recordedSteps(["a", "c", "d"], [creatorId, creatorId]);
+  await restoreStudioSnapshot({ worldId, userId: creatorId, snapshotId: step2! });
+  assert.equal(await liveContent(), "c");
+  const result = await restoreStudioSnapshot({ worldId, userId: creatorId, snapshotId: step1! });
+  assert.equal(result.kind === "ok" && result.mode, "selective");
+  assert.deepEqual(result.kind === "ok" && result.kept, []);
+  assert.equal(await liveContent(), "a");
+});
+
+test("going back to before a rollback redoes what it undid", async () => {
+  const [, step2] = await recordedSteps(["a", "c", "d"], [creatorId, creatorId]);
+  await restoreStudioSnapshot({ worldId, userId: creatorId, snapshotId: step2! });
+  const [backup] = await db.select().from(worldSnapshots).where(eq(worldSnapshots.label, BEFORE_ROLLBACK_LABEL));
+  const result = await restoreStudioSnapshot({ worldId, userId: creatorId, snapshotId: backup!.id });
+  assert.equal(result.kind === "ok" && result.mode, "selective");
+  assert.equal(await liveContent(), "d");
+});
+
+test("rolling back my assistant leaves a collaborator's assistant steps alone", async () => {
+  const { diffWorld, migrateWorldDefinition } = await import("@yumina/engine");
+  const m = (w: object) => migrateWorldDefinition(w as never);
+  const two = (a: string, b: string) => ({
+    ...schema(a),
+    entries: [
+      { id: "a", name: "A", content: a, role: "system", position: "before_char", enabled: true, constant: true },
+      { id: "b", name: "B", content: b, role: "system", position: "before_char", enabled: true, constant: true },
+    ],
+  });
+  const [mine] = await db.insert(worldSnapshots).values({
+    worldId, userId: creatorId, schemaData: two("a0", "b0"), label: "Before: update_entry",
+    edits: diffWorld(m(two("a0", "b0")), m(two("mine", "b0"))), createdAt: new Date(Date.UTC(2026, 9, 1, 0, 1)),
+  }).returning();
+  await db.insert(worldSnapshots).values({
+    worldId, userId: "collaborator", schemaData: two("mine", "b0"), label: "Before: update_entry",
+    edits: diffWorld(m(two("mine", "b0")), m(two("mine", "theirs"))), createdAt: new Date(Date.UTC(2026, 9, 1, 0, 2)),
+  });
+  await db.execute(sql`UPDATE worlds SET status = 'draft', schema = ${JSON.stringify(two("mine", "theirs"))}::jsonb WHERE id = ${worldId}`);
+  await restoreStudioSnapshot({ worldId, userId: creatorId, snapshotId: mine!.id });
+  const entries = ((await readLive()).schema as { entries: Array<{ id: string; content: string }> }).entries;
+  assert.deepEqual(entries.map((e) => [e.id, e.content]), [["a", "a0"], ["b", "theirs"]]);
+});
+
+test("restore points that never recorded their steps still restore the whole card", async () => {
+  await db.execute(sql`UPDATE worlds SET status = 'draft', schema = ${JSON.stringify(schema("NOW"))}::jsonb WHERE id = ${worldId}`);
+  const [point] = await db.insert(worldSnapshots).values({ worldId, userId: creatorId, schemaData: schema("OLD") }).returning();
+  const result = await restoreStudioSnapshot({ worldId, userId: creatorId, snapshotId: point!.id });
+  assert.equal(result.kind === "ok" && result.mode, "whole");
+  assert.deepEqual((await readLive()).schema, schema("OLD"));
 });

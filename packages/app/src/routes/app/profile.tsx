@@ -1,10 +1,9 @@
-import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
-import { getSessionSafe } from "@/lib/auth-client";
+import { createFileRoute, Outlet } from "@tanstack/react-router";
+import { requireSession } from "@/lib/require-session";
 
 export const Route = createFileRoute("/app/profile")({
-  beforeLoad: async () => {
-    const session = await getSessionSafe();
-    if (!session.data) throw redirect({ to: "/login" });
+  beforeLoad: async ({ location }) => {
+    await requireSession(location);
   },
   component: () => <Outlet />,
 });

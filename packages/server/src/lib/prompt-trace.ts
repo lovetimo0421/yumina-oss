@@ -40,9 +40,16 @@ type Msg = { content: string; sourceMessageId?: string };
  *  is what lets the trace be measured on the final list. */
 export function createPromptTracer() {
   const kinds = new Map<object, PromptSegmentKind>();
+  const tails = new Map<object, { kind: PromptSegmentKind; chars: number }>();
   return {
     tag(msg: object, kind: PromptSegmentKind) {
       kinds.set(msg, kind);
+    },
+    /** The last `chars` characters of `msg` belong to `kind` — a block folded
+     *  into another message (the state block in the player's final message,
+     *  lib/state-block-placement.ts) still shows as its own segment. */
+    tail(msg: object, kind: PromptSegmentKind, chars: number) {
+      tails.set(msg, { kind, chars });
     },
     take(list: readonly object[], kind: PromptSegmentKind) {
       for (const m of list) if (!kinds.has(m)) kinds.set(m, kind);
@@ -59,12 +66,21 @@ export function createPromptTracer() {
         // Anything added after the last take (compaction blocks, the output
         // contract) is platform plumbing unless it was tagged on the way in.
         const kind = kinds.get(m) ?? "platform";
-        const chars = typeof m.content === "string" ? m.content.length : 0;
+        const length = typeof m.content === "string" ? m.content.length : 0;
+        const tail = tails.get(m);
+        const tailChars = tail ? Math.min(tail.chars, length) : 0;
+        const chars = length - tailChars;
         const s = sums.get(kind) ?? { chars: 0, messages: 0 };
         s.chars += chars;
         s.messages += 1;
         sums.set(kind, s);
-        total += chars;
+        if (tail) {
+          const t = sums.get(tail.kind) ?? { chars: 0, messages: 0 };
+          t.chars += tailChars;
+          t.messages += 1;
+          sums.set(tail.kind, t);
+        }
+        total += length;
         if (kind === "history") historyMessages += 1;
       }
       return {

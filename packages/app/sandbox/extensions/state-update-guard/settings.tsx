@@ -8,6 +8,9 @@ const copy = {
   "zh-Hant": ["在此聊天中啟用", "啟用", "停用", "修正模型", "與劇情模型相同", "僅在回覆需要修正時使用，不會更改劇情模型。使用目前的 AI 供應商連線。", "變更從下一則回覆開始生效。停用後恢復卡片原有更新方式，不再檢查或修正格式，不會解除安裝擴充功能。", "正在載入設定…", "正在儲存…", "已儲存", "無法載入設定。", "無法確認儲存結果。重試可重新載入目前設定；模型選擇失敗時請檢查供應商連線和模型權限。", "重試", "無法載入模型，仍可停用守衛。", "預覽或重播中無法使用。"],
   ja: ["このチャットで有効", "オン", "オフ", "修正モデル", "物語と同じモデル", "修正が必要な返信にのみ使用します。物語モデルは変わりません。現在のAIプロバイダー接続を使用します。", "変更は次の返信から有効です。オフでは形式確認・修正なしで通常のカード更新を行います。拡張機能は削除されません。", "設定を読み込み中…", "保存中…", "保存しました", "設定を読み込めませんでした。", "保存結果を確認できません。再試行で現在の設定を読み直します。モデル選択の失敗時は接続と権限を確認してください。", "再試行", "モデルを読み込めませんでした。ガードはオフにできます。", "プレビュー・リプレイでは使用できません。"],
   es: ["Activado para este chat", "Activado", "Desactivado", "Modelo de corrección", "Mismo modelo que la historia", "Solo se usa si una respuesta necesita corrección; no cambia el modelo narrativo. Usa tu conexión actual de proveedor de IA.", "Los cambios se aplican a la siguiente respuesta. Al desactivarlo, la tarjeta se actualiza sin comprobar ni corregir el formato. No desinstala la extensión.", "Cargando ajustes…", "Guardando…", "Guardado", "No se pudieron cargar los ajustes.", "No se pudo confirmar el guardado. Reintentar recarga los ajustes; revisa la conexión y el acceso al modelo si falló la selección.", "Reintentar", "No se pudieron cargar modelos. Aún puedes desactivar la protección.", "No disponible en vista previa o repetición."],
+  ko: ["이 채팅에서 사용", "켜짐", "꺼짐", "수정 모델", "스토리 모델과 같음", "답변을 수정해야 할 때만 사용해요. 스토리 모델은 바뀌지 않아요. 현재 AI 제공업체 연결을 사용해요.", "변경 사항은 다음 답변부터 적용돼요. 끄면 형식 확인이나 수정 없이 평소처럼 카드가 업데이트돼요. 확장 프로그램이 삭제되지는 않아요.", "설정 불러오는 중…", "저장 중…", "저장됨", "설정을 불러오지 못했어요.", "저장을 확인하지 못했어요. 다시 시도하면 현재 설정을 다시 불러와요. 선택에 실패했다면 제공업체와 모델 접근 권한을 확인해 주세요.", "다시 시도", "모델을 불러오지 못했어요. 가드는 그래도 끌 수 있어요.", "미리보기나 리플레이에서는 사용할 수 없어요."],
+  id: ["Aktif untuk chat ini", "Nyala", "Mati", "Model perbaikan", "Sama dengan model cerita", "Hanya dipakai saat balasan perlu diperbaiki; model ceritamu tidak berubah. Memakai koneksi Penyedia AI kamu saat ini.", "Perubahan berlaku mulai balasan berikutnya. Kalau dimatikan, kartu kembali diperbarui seperti biasa tanpa pengecekan atau perbaikan format. Ekstensi tidak ikut terhapus.", "Memuat pengaturan…", "Menyimpan…", "Tersimpan", "Gagal memuat pengaturan.", "Tidak bisa memastikan penyimpanan. Coba lagi untuk memuat ulang pengaturan saat ini; kalau pemilihan gagal, cek penyedia dan akses modelmu.", "Coba lagi", "Gagal memuat model. Kamu tetap bisa mematikan penjaga.", "Tidak tersedia di pratinjau atau tayangan ulang."],
+  ru: ["Включено в этом чате","Вкл.","Выкл.","Модель для исправлений","Та же, что и модель сюжета","Используется только когда ответ нужно исправить; модель сюжета не меняется. Работает через твоё текущее подключение AI-провайдера.","Изменения применятся со следующего ответа. При выключении карточка снова обновляется как обычно, без проверки и исправления формата. Расширение при этом не удаляется.","Загружаем настройки…","Сохраняем…","Сохранено","Не удалось загрузить настройки.","Не удалось подтвердить сохранение. Повтор заново загрузит текущие настройки; если выбор не сработал, проверь подключение провайдера и доступ к модели.","Повторить","Не удалось загрузить модели. Защиту всё равно можно выключить.","Недоступно в предпросмотре и повторе."],
 } as const;
 const compactCopy = {
   en: ["This extension is off.", "Only corrects invalid state updates. Changes apply to the next reply."],
@@ -15,14 +18,20 @@ const compactCopy = {
   "zh-Hant": ["此擴充功能已停用。", "僅修正無效的狀態更新。變更從下一則回覆開始生效。"],
   ja: ["この拡張機能はオフです。", "無効な状態更新のみ修正します。変更は次の返信から有効です。"],
   es: ["Esta extensión está desactivada.", "Solo corrige actualizaciones de estado inválidas. Los cambios se aplican a la siguiente respuesta."],
+  ko: ["이 확장 프로그램이 꺼져 있어요.", "잘못된 상태 업데이트만 수정해요. 변경 사항은 다음 답변부터 적용돼요."],
+  id: ["Ekstensi ini sedang mati.", "Hanya memperbaiki pembaruan status yang tidak valid. Perubahan berlaku mulai balasan berikutnya."],
+  ru: ["Это расширение выключено.","Исправляет только недопустимые обновления состояния. Изменения применятся со следующего ответа."],
 } as const;
-const defaultModelLabels = { en: "Default model", zh: "默认模型", "zh-Hant": "預設模型", ja: "既定のモデル", es: "Modelo predeterminado" };
+const defaultModelLabels = { en: "Default model", zh: "默认模型", "zh-Hant": "預設模型", ja: "既定のモデル", es: "Modelo predeterminado", ko: "기본 모델", id: "Model default", ru: "Модель по умолчанию" };
 const billingCopy = {
   en: ["Paid per correction", "Use free model", "Free updates", "Your API provider may charge; no Yumina mushies.", "Only saved corrections are charged. Format checks are free."],
   zh: ["按次修正计费", "使用免费模型", "免费更新", "自备 API 由服务商计费，不扣除 Yumina 蘑菇。", "仅保存成功的修正收费，格式检查免费。"],
   "zh-Hant": ["按次修正計費", "使用免費模型", "免費更新", "自備 API 由服務商計費，不扣除 Yumina 蘑菇。", "僅儲存成功的修正收費，格式檢查免費。"],
   ja: ["修正ごとに課金", "無料モデルを使う", "無料の更新", "自分のAPIはプロバイダーが課金します。Yuminaのマッシュは不要です。", "保存された修正のみ課金されます。形式チェックは無料です。"],
   es: ["Pago por corrección", "Usar modelo gratuito", "Actualizaciones gratuitas", "Tu proveedor de API puede cobrar; no se cobran mushies de Yumina.", "Solo se cobran las correcciones guardadas. Comprobar el formato es gratis."],
+  ko: ["수정할 때마다 결제", "무료 모델 사용", "무료 업데이트", "API 제공업체가 요금을 부과할 수 있어요. Yumina 버섯코인은 차감되지 않아요.", "저장된 수정에만 요금이 부과돼요. 형식 확인은 무료예요."],
+  id: ["Bayar per perbaikan", "Pakai model gratis", "Pembaruan gratis", "Penyedia API-mu mungkin mengenakan biaya; tidak memakai mushies Yumina.", "Hanya perbaikan yang disimpan yang dikenai biaya. Pengecekan format gratis."],
+  ru: ["Оплата за каждую правку","Использовать бесплатную модель","Бесплатные обновления","Твой API-провайдер может взимать плату; mushies Yumina не списываются.","Платные только сохранённые правки. Проверка формата бесплатна."],
 } as const;
 const legacyBillingCopy = {
   en: "Yumina models: paid per correction. BYOK: provider charges only.",
@@ -30,6 +39,9 @@ const legacyBillingCopy = {
   "zh-Hant": "Yumina 模型按次修正計費；自備 API 僅由服務商收費。",
   ja: "Yuminaモデルは修正ごとに課金。自分のAPIはプロバイダーの料金のみ。",
   es: "Modelos de Yumina: pago por corrección. BYOK: solo cobra tu proveedor.",
+  ko: "Yumina 모델: 수정할 때마다 결제. BYOK: 제공업체 요금만 부과.",
+  id: "Model Yumina: bayar per perbaikan. BYOK: hanya biaya dari penyedia.",
+  ru: "Модели Yumina: оплата за каждую правку. BYOK: платишь только провайдеру.",
 };
 export function guardSettingsLabels(language?: string) {
   return copy[languageKey(language)];

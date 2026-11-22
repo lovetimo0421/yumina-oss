@@ -85,7 +85,7 @@ export function ModuleContextSummary({ book }: { book: Worldbook }) {
         <span className={LABEL}>
           {view.narrates ? t("blueprint.ctx.title") : t("blueprint.ctx.titleContent")}
         </span>
-        <span className="shrink-0 text-[10px] font-bold tabular-nums text-amber-400/80">
+        <span className="shrink-0 text-[10px] font-bold tabular-nums text-muted-foreground">
           {t("blueprint.ctx.perTurn", {
             // A module that narrates is billed for the whole turn it assembles;
             // one that only contributes is billed for what it contributes.
@@ -97,7 +97,7 @@ export function ModuleContextSummary({ book }: { book: Worldbook }) {
       </div>
 
       <div className="space-y-1.5">
-        <GroupRow icon={Boxes} name={t("blueprint.ctx.own")} group={view.own} tint="text-amber-400" />
+        <GroupRow icon={Boxes} name={t("blueprint.ctx.own")} group={view.own} tint="text-muted-foreground" />
         {/* Everything else in the turn is listed only for a module that has a
             turn. A content module contributes its own shelf and nothing else —
             listing the card's core under "what this module hands over" would
@@ -178,7 +178,7 @@ export function ModuleContextWires({
         {view.narrates && (
           <div className="text-[10px] leading-relaxed text-muted-foreground">
             {t("blueprint.ctx.ownRun")}
-            {" — "}
+            {" · "}
             {t(view.onClose === "keep" ? "blueprint.ctx.ownRunKeep" : "blueprint.ctx.ownRunArchive")}
           </div>
         )}

@@ -178,7 +178,7 @@ export function PageBar({
                   <span className="flex min-w-0 items-center gap-1.5 text-[11px] text-foreground">
                     <span className="truncate">{nameOf(i)}</span>
                     {entry && (
-                      <span title={t("studio.element.isEntry")} className="inline-flex shrink-0 items-center gap-0.5 rounded bg-primary/20 px-1 py-px text-[9px] font-semibold text-primary">
+                      <span title={t("studio.element.isEntry")} className="inline-flex shrink-0 items-center gap-0.5 rounded bg-accent px-1 py-px text-[9px] font-semibold text-muted-foreground">
                         <Home className="h-2.5 w-2.5" />{t("studio.element.entryPage")}
                       </span>
                     )}
@@ -458,7 +458,6 @@ export function ElementPanel({
       <div className="flex h-full min-h-0 flex-col overflow-y-auto">
         {pageBar}
         {addPageId && <PageVariables doc={doc} pageId={addPageId} variables={variables} onEdit={edit} />}
-        <p className="px-3 pt-3 text-[11px] leading-relaxed text-muted-foreground">{t("studio.element.emptyHint")}</p>
         {addPageId && <PageBackground doc={doc} pageId={addPageId} worldId={worldId} onEdit={edit} />}
         {addMenu}
         {layers(addPageId)}
@@ -583,8 +582,10 @@ export function ElementPanel({
         />
       )}
       {!multi && linkedName && (
-        <p className="-mt-1 border-b border-border/50 px-3 pb-2 text-[10.5px] text-muted-foreground" data-name-linked="">
-          {t("studio.element.nameLinked", { name: linkedName })}
+        <p className="-mt-1 flex items-center gap-1 border-b border-border/50 px-3 pb-2 text-[10.5px] text-muted-foreground" data-name-linked=""
+          title={t("studio.element.nameLinked", { name: linkedName })}>
+          <Link2 className="h-3 w-3 shrink-0" aria-hidden />
+          <span className="truncate">{linkedName}</span>
         </p>
       )}
 
@@ -796,7 +797,7 @@ export function ElementPanel({
             the two part ways, and nothing on screen said so. */}
         <div data-layout-link={lead.desktop === undefined ? "shared" : lead.desktop === null ? "off" : "own"}
           className="mt-2 flex items-center gap-1.5 text-[10.5px] leading-snug text-muted-foreground">
-          {lead.desktop === undefined ? <Link2 className="h-3 w-3 shrink-0" /> : <Unlink2 className="h-3 w-3 shrink-0 text-amber-400" />}
+          {lead.desktop === undefined ? <Link2 className="h-3 w-3 shrink-0" /> : <Unlink2 className="h-3 w-3 shrink-0" />}
           <span className="min-w-0 flex-1">
             {t(lead.desktop === undefined ? "studio.element.layoutShared"
               : lead.desktop === null ? (canvas === "desktop" ? "studio.element.layoutOffHere" : "studio.element.layoutOffDesktop")
@@ -809,7 +810,7 @@ export function ElementPanel({
                 const { desktop: _own, ...rest } = el;
                 return rest as UiElement;
               })}
-              className="shrink-0 rounded px-1.5 py-0.5 text-[10.5px] font-medium text-primary hover:bg-primary/10">
+              className="shrink-0 rounded px-1.5 py-0.5 text-[10.5px] font-medium text-foreground hover:bg-accent">
               {t("studio.element.layoutFollowPhone")}
             </button>
           )}

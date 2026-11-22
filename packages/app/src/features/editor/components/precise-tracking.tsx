@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { X } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { CONTINUITY_MAX_OPTIONS, suggestedContinuityDelta } from "@yumina/engine";
 import type { Variable } from "@yumina/engine";
 import { NumberInput } from "@/components/ui/number-input";
@@ -108,12 +107,12 @@ export function PreciseTrackingEditor({
   }
 
   return (
-    <div className="space-y-4 rounded-xl border border-border bg-card p-4">
+    <div className="space-y-4 rounded-xl border border-border bg-card p-4" title={status && !status.warn ? status.text : undefined}>
       <StyledCheckbox
         checked={on}
         onChange={toggle}
         label={t("variables.preciseLabel")}
-        hint={variable.type === "string" ? t("variables.preciseStringHint") : t("variables.preciseHint")}
+        title={variable.type === "string" ? t("variables.preciseStringHint") : t("variables.preciseHint")}
       />
       {on && variable.type === "number" && (
         <div className="grid grid-cols-2 gap-4">
@@ -135,8 +134,10 @@ export function PreciseTrackingEditor({
           </div>
         </div>
       )}
-      {status && (
-        <p className={cn("text-sm", status.warn ? "text-destructive" : "text-muted-foreground")}>{status.text}</p>
+      {/* Only what needs fixing is said; the in-range summary just repeated
+          the two numbers above, so it rides on the box as a tooltip. */}
+      {status?.warn && (
+        <p className="text-sm text-destructive">{status.text}</p>
       )}
     </div>
   );

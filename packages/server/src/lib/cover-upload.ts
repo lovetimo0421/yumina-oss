@@ -39,7 +39,7 @@ async function runEncoder(source: string, directory: string, mime: string): Prom
   const systemKeys = new Set(["path", "systemroot", "windir", "comspec", "pathext", "temp", "tmp", "home", "userprofile", "appdata", "localappdata"]);
   const childEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => systemKeys.has(key.toLowerCase())));
   // glibc otherwise reserves large per-thread arenas that can exhaust the
-  // decoder's address-space ceiling even when its actual memory use is small.
+  // decoder's memory ceiling even when its actual memory use is small.
   childEnv.MALLOC_ARENA_MAX = "2";
   await new Promise<void>((done, reject) => {
     const child = spawn(process.env.COVER_UPLOAD_PYTHON || (process.platform === "win32" ? "python" : "python3"),
@@ -85,7 +85,7 @@ const ERRORS: Record<string, string> = {
 export async function prepareMotionCover(input: Buffer, mime: string): Promise<PreparedCover> {
   validateCoverUploadSize(input.length);
   if (!(COVER_UPLOAD_TYPES as readonly string[]).includes(mime)) return imageUploadError(ERRORS.COVER_FORMAT!);
-  // Python and FFmpeg each have 512 MiB address-space ceilings. Reserve room
+  // Python and FFmpeg each have 512 MiB memory ceilings (RLIMIT_DATA). Reserve room
   // for both plus buffers and the HTTP server, including cgroup headroom.
   if (active || process.availableMemory() < 1280 * 1024 * 1024) return imageUploadError("Image processing is busy. Please try again shortly.", 503);
   active = true;

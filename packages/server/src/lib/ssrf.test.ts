@@ -73,3 +73,32 @@ test("ssrf: normalizes hostname case", () => {
   assert.throws(() => validateCustomEndpointUrl("http://METADATA.GOOGLE.INTERNAL/foo"));
   assert.throws(() => validateCustomEndpointUrl("http://LOCALHOST:8080/v1"));
 });
+
+// ─── Address-level guard ────────────────────────────────────────────
+import { assertPublicEndpoint, isPrivateAddress } from "./ssrf.js";
+
+test("private, loopback, link-local, CGNAT and ULA addresses are private", () => {
+  for (const ip of ["127.0.0.1", "10.1.2.3", "172.20.0.1", "192.168.1.1", "169.254.169.254", "100.64.0.1", "0.0.0.0",
+    "::1", "::", "fc00::1", "fd12:3456::1", "fe80::1", "::ffff:127.0.0.1", "::ffff:7f00:1", "[::1]", "not-an-ip"]) {
+    assert.equal(isPrivateAddress(ip), true, ip);
+  }
+  for (const ip of ["8.8.8.8", "1.1.1.1", "172.32.0.1", "100.128.0.1", "2606:4700:4700::1111", "::ffff:8.8.8.8"]) {
+    assert.equal(isPrivateAddress(ip), false, ip);
+  }
+});
+
+test("a public name that resolves to a private address is refused", async () => {
+  await assert.rejects(assertPublicEndpoint("https://127.0.0.1.nip.io/v1", async () => ["127.0.0.1"]), /private network/);
+  await assert.rejects(assertPublicEndpoint("https://mixed.example/v1", async () => ["8.8.8.8", "fd00::1"]), /private network/);
+  await assert.rejects(assertPublicEndpoint("http://[fd12::1]:8080/v1"), /private network/);
+  await assert.doesNotReject(assertPublicEndpoint("https://api.example.com/v1", async () => ["93.184.216.34"]));
+  await assert.rejects(assertPublicEndpoint("https://unresolvable.example/v1", async () => { throw new Error("ENOTFOUND"); }), /could not be resolved/);
+});
+
+test("the connection itself is refused when the name points inside", async () => {
+  const { fetchUserEndpoint } = await import("./ssrf.js");
+  // localhost resolves to loopback on every machine; no network is needed.
+  await assert.rejects(fetchUserEndpoint("http://localhost:8765/x"), /private network/);
+  await assert.rejects(fetchUserEndpoint("http://127.0.0.1:8765/x"), /private network/);
+  await assert.rejects(fetchUserEndpoint("http://[::1]:8765/x"), /private network/);
+});

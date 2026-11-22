@@ -8,6 +8,7 @@ import {
   bigserial,
   bigint,
   real,
+  doublePrecision,
   numeric,
   jsonb,
   unique,
@@ -118,8 +119,9 @@ export const user = pgTable("user", {
   isMuted: boolean("is_muted").notNull().default(false),
   mutedUntil: timestamp("muted_until"),
   // Trusted creator: an admin can flip this so this user's card first-publishes
-  // and edits auto-approve instead of entering the human review queue. Bundles
-  // and content-safety/structural gates are NOT bypassed; ban always wins.
+  // and edits auto-approve instead of entering the human review queue. Bundle
+  // publishes auto-approve too (routes/bundles.ts); content-safety/structural
+  // gates are NOT bypassed; ban always wins.
   // Future-only — flipping never bulk-publishes a backlog already in the queue.
   // PROD/DEV must be db:push-ed (self-heal is PGlite-only) BEFORE code reads it.
   skipReview: boolean("skip_review").notNull().default(false),
@@ -141,6 +143,7 @@ export const user = pgTable("user", {
   stripeCustomerId: text("stripe_customer_id"),
   stripeSubscriptionId: text("stripe_subscription_id"),
   inviteCodeId: text("invite_code_id"),
+  limitedContentOnly: boolean("limited_content_only").notNull().default(false),
   lifetimePlaytimeSeconds: integer("lifetime_playtime_seconds").notNull().default(0),
   /** Latest play or AI request; see lib/last-active.ts. Null until the account does either. */
   lastActiveAt: timestamp("last_active_at"),
@@ -406,6 +409,13 @@ export const worlds = pgTable("worlds", {
   // non-creators are forced onto official keys so the hidden lorebook can't leak
   // via a player's BYOK provider logs. See messages.ts / completions.ts gates.
   allowCustomApi: boolean("allow_custom_api").notNull().default(true),
+  // What the author keeps to themselves on a card others may remix: entry and
+  // folder ids, chosen in the publish dialog (lib/sealed-entries.ts).
+  retained: jsonb("retained").$type<{ entryIds: string[]; folderIds: string[] } | null>(),
+  // This row is a copy holding text its owner may not read (entries with a
+  // `sealed` mark naming someone else). Forces official keys for everyone,
+  // the owner included. Set when the copy is made and never cleared.
+  sealedContent: boolean("sealed_content").notNull().default(false),
   allowReviews: boolean("allow_reviews").notNull().default(true),
   // When false, players cannot share their playthroughs of this world to its
   // hub page (mirrors allowReviews — author opt-out for a per-card UGC type).
@@ -613,6 +623,9 @@ export const playSessions = pgTable("play_sessions", {
   sessionMemoryPinned: text("session_memory_pinned"),
   /** User-assigned session name (null = unnamed) */
   name: text("name"),
+  /** Pinned to the top of the save picker (null = not pinned). Setting it
+   *  never touches updatedAt, which orders "recently played". */
+  pinnedAt: timestamp("pinned_at"),
   // ── Playtime tracking (lease-based active tab tracking) ──
   playtimeSeconds: integer("playtime_seconds").notNull().default(0),
   playtimeLeaseId: text("playtime_lease_id"),
@@ -676,12 +689,44 @@ export const userLibrary = pgTable(
       .references(() => worlds.id, { onDelete: "cascade" }),
     lastPlayedAt: timestamp("last_played_at"),
     lastSeenUpdateAt: timestamp("last_seen_update_at"),
+    /** "hidden" = kept out of the library list (saves stay). Set on every
+     *  language sibling at once. Older rows may still hold "finished" /
+     *  "dropped" from the status buttons this replaced; they read as null. */
+    shelf: text("shelf"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (t) => [
     unique().on(t.userId, t.worldId),
     index("user_library_user_id_idx").on(t.userId),
   ]
+);
+
+/** A player's own named group of library games (Steam-style collections).
+ *  DDL: scripts/2026-11-18-library-collections.sql (explicit SQL first). */
+export const libraryCollections = pgTable(
+  "library_collections",
+  {
+    id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => [index("library_collections_user_idx").on(t.userId)],
+);
+
+/** A game in a collection. Every language sibling the player has is written. */
+export const libraryCollectionWorlds = pgTable(
+  "library_collection_worlds",
+  {
+    collectionId: text("collection_id").notNull().references(() => libraryCollections.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+    worldId: text("world_id").notNull().references(() => worlds.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.collectionId, t.worldId] }),
+    index("library_collection_worlds_user_idx").on(t.userId),
+  ],
 );
 
 /** Values a player keeps across playthroughs of one card (variables marked
@@ -741,6 +786,8 @@ export const messages = pgTable("messages", {
          *  (lib/llm/refusal-detector.ts). The reply is kept and billed as-is;
          *  the flag only lets the client offer a "switch model / unrestrict" bar. */
         refusal?: boolean;
+        /** Stopped before the model finished: the length limit, or the provider's content filter. */
+        cut?: "length" | "filter";
       }>
     >()
     .default([]),
@@ -758,6 +805,9 @@ export const messages = pgTable("messages", {
     summaryceptionCompacted: boolean("summaryception_compacted").notNull().default(false),
     stateSnapshot: jsonb("state_snapshot").$type<Record<string, unknown>>(),
   attachments: jsonb("attachments").$type<Array<{ type: string; mimeType: string; name: string; url: string }>>(),
+  /** 给 AI 的话: the player's one-turn direction (lib/player-note.ts). Never
+   *  story text — history, recap and memory read `content` only. */
+  playerNote: text("player_note"),
   // Maintained by a DB trigger (messages_content_metrics, see
   // scripts/add-message-content-metrics.sql) = character count and CJK-range
   // character count of `content`. Never set from app code. Lets the memory
@@ -767,6 +817,8 @@ export const messages = pgTable("messages", {
   // readers COALESCE to an on-the-fly computation so they stay correct meanwhile.
   contentLen: integer("content_len"),
   contentCjkLen: integer("content_cjk_len"),
+  /** Who said what on a merged story-room turn (lib/story-rooms.ts). Null on solo turns. */
+  contributions: jsonb("contributions").$type<Array<{ userId: string; name: string; text: string; roleId?: string; roleName?: string }>>(),
   createdAt: timestamp("created_at").defaultNow(),
 }, (t) => [
   index("messages_session_id_idx").on(t.sessionId),
@@ -1263,10 +1315,22 @@ export const worldFolderBindings = pgTable("world_folder_bindings", {
 // refunded on failure. Successful results land in user_assets (assetId).
 export const generationProviderSpend = pgTable("generation_provider_spend", {
   jobId: text("job_id").primaryKey(),
+  // Whose job reserved it: one creator's share of the daily budget sums this, never their (deletable) jobs.
+  userId: text("user_id"),
   reservedUsd: real("reserved_usd").notNull(),
   actualUsd: real("actual_usd"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-}, t => [index("generation_provider_spend_created_idx").on(t.createdAt)]);
+}, t => [index("generation_provider_spend_created_idx").on(t.createdAt),
+  index("generation_provider_spend_user_created_idx").on(t.userId, t.createdAt)]);
+
+/** The fal tool lane's provider spend, one row per job, written when the job is admitted. Append-only and no
+ *  job foreign key: deleting or hiding history never lowers the daily budget's count. */
+export const generationToolSpend = pgTable("generation_tool_spend", {
+  jobId: text("job_id").primaryKey(),
+  userId: text("user_id").notNull(),
+  usd: real("usd").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, t => [index("generation_tool_spend_created_idx").on(t.createdAt), index("generation_tool_spend_user_created_idx").on(t.userId, t.createdAt)]);
 
 export const turnImageTasks = pgTable("turn_image_tasks", {
   id: text("id").primaryKey(),
@@ -1278,6 +1342,34 @@ export const turnImageTasks = pgTable("turn_image_tasks", {
   expiresAt: timestamp("expires_at").notNull().default(sql`now() + interval '10 minutes'`),
 }, (t) => [index("turn_image_tasks_pending_idx").on(t.expiresAt).where(sql`${t.status} = 'running'`)]);
 
+/**
+ * AI scenes for the blockout builder: a 3D Gaussian-splat place made by
+ * Viggle's JST-2 from a prompt, kept in storage (scene.spz + panorama.jpg
+ * under spzKey/panoramaKey) for the builder to load under its mannequins.
+ * Charged on submit, refunded if the scene never lands.
+ */
+export const blockoutScenes = pgTable("blockout_scenes", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  prompt: text("prompt").notNull(),
+  status: text("status", { enum: ["queued", "processing", "ready", "failed"] }).notNull().default("queued"),
+  errorCode: text("error_code"),
+  /** Viggle's session: holds the scene and its image batches on their side. */
+  providerSessionId: text("provider_session_id"),
+  spzKey: text("spz_key"),
+  panoramaKey: text("panorama_key"),
+  /** Floor height under the panorama camera, in the splat's units (negative). */
+  floorY: real("floor_y"),
+  sizeBytes: integer("size_bytes"),
+  costMushies: real("cost_mushies").notNull().default(0),
+  addonDebited: real("addon_debited"),
+  providerCostUsd: real("provider_cost_usd"),
+  refunded: boolean("refunded").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+}, (t) => [
+  index("blockout_scenes_user_idx").on(t.userId, t.createdAt),
+]);
 export const generationJobs = pgTable("generation_jobs", {
   id: text("id")
     .primaryKey()
@@ -1285,7 +1377,10 @@ export const generationJobs = pgTable("generation_jobs", {
   userId: text("user_id")
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
-  kind: text("kind", { enum: ["image", "video"] }).notNull(),
+  // "tool" = a workbench tool run on fal (templateId = the tool id; lib/generation/media-tools.ts); "lora" = a
+  // creator's LoRA training or its pictures (lib/lora-train/jobs.ts). The DB
+  // column has no CHECK constraint: this enum is TypeScript only.
+  kind: text("kind", { enum: ["image", "video", "rig", "tool", "lora"] }).notNull(),
   templateId: text("template_id").notNull(),
   params: jsonb("params").$type<Record<string, unknown>>().notNull(),
   status: text("status", {
@@ -1394,6 +1489,245 @@ export const imageBatchRetryRequests = pgTable("image_batch_retry_requests", {
 
 // ─── User generation models (advanced mode) ─────────────────────────
 // A creator-owned LoRA or checkpoint, imported from their asset library or
+// Image gallery (生图广场): a player's own generated picture, published with
+// the recipe that made it. Every post waits for review; only approved ones are
+// public. Deleting the picture (asset) deletes the post. DDL: db/index.ts.
+export const imagePosts = pgTable("image_posts", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  // "generation" (the image page: assetId) or "story" (a chat illustration: imageKey).
+  source: text("source", { enum: ["generation", "story"] }).notNull().default("generation"),
+  // Informational: the job may be cleaned up later; the asset is what matters.
+  jobId: text("job_id"),
+  assetId: text("asset_id").references(() => userAssets.id, { onDelete: "cascade" }),
+  // A story illustration's storage key (users/<id>/turn-images/…). Never
+  // deleted with the chat, so the post can point at it directly.
+  imageKey: text("image_key"),
+  // The card the illustration was drawn in, linked only while it is public.
+  worldId: text("world_id").references(() => worlds.id, { onDelete: "set null" }),
+  aiReview: jsonb("ai_review").$type<import("@yumina/shared").ImagePostAiReview>(),
+  reportCount: integer("report_count").notNull().default(0),
+  title: text("title").notNull().default(""),
+  recipe: jsonb("recipe").$type<import("@yumina/shared").ImagePostRecipe>().notNull(),
+  width: integer("width"),
+  height: integer("height"),
+  status: text("status", { enum: ["pending", "approved", "rejected"] }).notNull().default("pending"),
+  isSensitive: boolean("is_sensitive").notNull().default(false),
+  rejectReason: text("reject_reason"),
+  reviewedBy: text("reviewed_by"),
+  reviewedAt: timestamp("reviewed_at"),
+  likeCount: integer("like_count").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  approvedAt: timestamp("approved_at"),
+  // Workbench works (作品): a post may be a video, a sound or a live character, not only a picture.
+  mediaKind: text("media_kind", { enum: ["image", "video", "audio", "live"] }).notNull().default("image"),
+  // A live character's root job id (lib/rig).
+  rigId: text("rig_id"),
+  // The picture shown for a video, a sound or a live character.
+  coverAssetId: text("cover_asset_id").references(() => userAssets.id, { onDelete: "set null" }),
+  /** What its maker says about it, and up to five words to find it by (分享作品). */
+  description: text("description").notNull().default(""),
+  tags: jsonb("tags").$type<string[]>(),
+  /** Its maker keeps how it was made: others see the work, not its prompt, and cannot 做同款. */
+  hidePrompt: boolean("hide_prompt").notNull().default(false),
+  // What "做同款" loads (WorkbenchRecipe), scrubbed of the author's files.
+  workRecipe: jsonb("work_recipe").$type<import("@yumina/shared").WorkbenchRecipe>(),
+  // The elements the work's prompt @mentioned (ids; only public ones are handed out on remix).
+  elementIds: jsonb("element_ids").$type<string[]>(),
+}, (t) => [
+  uniqueIndex("image_posts_asset_uidx").on(t.assetId),
+  uniqueIndex("image_posts_image_key_uidx").on(t.imageKey),
+  index("image_posts_public_idx").on(t.status, t.approvedAt),
+  index("image_posts_user_idx").on(t.userId, t.createdAt),
+  index("image_posts_kind_public_idx").on(t.mediaKind, t.status, t.approvedAt),
+]);
+
+/** What a story illustration was drawn from, saved when it is drawn, so it
+ *  can be posted to the gallery with its recipe. */
+export const turnImages = pgTable("turn_images", {
+  imageKey: text("image_key").primaryKey(),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  sessionId: text("session_id"),
+  prompt: text("prompt").notNull().default(""),
+  negative: text("negative").notNull().default(""),
+  nsfw: boolean("nsfw").notNull().default(false),
+  style: text("style"),
+  // Which reply it was drawn for (a redraw shares it), what drew it ("anima@deployment"),
+  // and whether it came from the automatic switch: redraw rates by style and route.
+  // DDL: scripts/2026-11-14-turn-images-route.sql.
+  messageId: text("message_id"),
+  route: text("route"),
+  /** The LoRAs (generation_models ids) it was drawn with, for their square page. */
+  loraIds: jsonb("lora_ids").$type<string[]>(),
+  auto: boolean("auto"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [index("turn_images_user_idx").on(t.userId, t.createdAt)]);
+
+// ─── Workbench library (Seko-style): elements, skills ───────────────
+// DDL: scripts/add-workbench.sql (applied by hand first) + db/index.ts self-heal.
+
+/** 主体库: a character, scene, prop, voice or style a creator @mentions in prompts. */
+export const workbenchElements = pgTable("workbench_elements", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  kind: text("kind", { enum: ["character", "scene", "prop", "voice", "style"] }).notNull(),
+  name: text("name").notNull(),
+  description: text("description").notNull().default(""),
+  coverAssetId: text("cover_asset_id").references(() => userAssets.id, { onDelete: "set null" }),
+  assetIds: jsonb("asset_ids").$type<string[]>().notNull().default([]),
+  voice: jsonb("voice").$type<import("@yumina/shared").WorkbenchVoice>(),
+  rigId: text("rig_id"),
+  // What was made for her and kept as hers: { outfits: [assetId], expressions: [assetId] }. Owner only.
+  archive: jsonb("archive").$type<import("@yumina/shared").WorkbenchElementArchive>().notNull().default({}),
+  visibility: text("visibility", { enum: ["private", "public"] }).notNull().default("private"),
+  // A public element is reviewed (AI look, then a person) before others see it. "approved" also stands for
+  // a private element, which nobody else sees.
+  status: text("status", { enum: ["pending", "approved", "rejected"] }).notNull().default("approved"),
+  isSensitive: boolean("is_sensitive").notNull().default(false),
+  // What others see and @mention: the content of the last approved review. Edits wait for their own review.
+  approvedSnapshot: jsonb("approved_snapshot").$type<{ name: string; description: string; coverAssetId: string | null }>(),
+  aiReview: jsonb("ai_review").$type<import("@yumina/shared").ImagePostAiReview>(),
+  rejectReason: text("reject_reason"),
+  reviewedBy: text("reviewed_by"),
+  reviewedAt: timestamp("reviewed_at"),
+  useCount: integer("use_count").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("workbench_elements_review_idx").on(t.status, t.createdAt),
+  uniqueIndex("workbench_elements_user_name_uidx").on(t.userId, sql`lower(${t.name})`),
+  index("workbench_elements_public_idx").on(t.visibility, t.useCount),
+  check("workbench_elements_kind_check", sql`${t.kind} IN ('character','scene','prop','voice','style')`),
+  check("workbench_elements_visibility_check", sql`${t.visibility} IN ('private','public')`),
+]);
+
+/** A public element someone else has taken into their workbench: their @name reaches it. */
+export const workbenchElementUses = pgTable("workbench_element_uses", {
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  elementId: text("element_id").notNull().references(() => workbenchElements.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [primaryKey({ columns: [t.userId, t.elementId] })]);
+
+/** 做法: a reusable recipe with slots; public ones go through review like gallery posts. */
+export const workbenchSkills = pgTable("workbench_skills", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  description: text("description").notNull().default(""),
+  coverAssetId: text("cover_asset_id").references(() => userAssets.id, { onDelete: "set null" }),
+  mode: text("mode", { enum: ["image", "video", "audio", "live", "tool", "chain"] }).notNull(),
+  recipe: jsonb("recipe").$type<import("@yumina/shared").WorkbenchRecipe>().notNull(),
+  slots: jsonb("slots").$type<import("@yumina/shared").WorkbenchSkillSlot[]>().notNull().default([]),
+  visibility: text("visibility", { enum: ["private", "public"] }).notNull().default("private"),
+  status: text("status", { enum: ["pending", "approved", "rejected"] }).notNull().default("pending"),
+  aiReview: jsonb("ai_review").$type<import("@yumina/shared").ImagePostAiReview>(),
+  rejectReason: text("reject_reason"),
+  reviewedBy: text("reviewed_by"),
+  reviewedAt: timestamp("reviewed_at"),
+  // The job it was published from, informational.
+  sourceJobId: text("source_job_id"),
+  isOfficial: boolean("is_official").notNull().default(false),
+  // The author keeps how it is made to themselves: others get what it is for and its blanks, and the server runs it
+  // (lib/workbench/sealed.ts). False: the recipe is shown in full.
+  recipeHidden: boolean("recipe_hidden").notNull().default(false),
+  useCount: integer("use_count").notNull().default(0),
+  likeCount: integer("like_count").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("workbench_skills_public_idx").on(t.visibility, t.status, t.createdAt),
+  index("workbench_skills_user_idx").on(t.userId, t.createdAt),
+  check("workbench_skills_mode_check", sql`${t.mode} IN ('image','video','audio','live','tool','chain')`),
+  check("workbench_skills_visibility_check", sql`${t.visibility} IN ('private','public')`),
+  check("workbench_skills_status_check", sql`${t.status} IN ('pending','approved','rejected')`),
+]);
+
+export const workbenchSkillLikes = pgTable("workbench_skill_likes", {
+  skillId: text("skill_id").notNull().references(() => workbenchSkills.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [primaryKey({ columns: [t.skillId, t.userId] })]);
+
+/** 分享季: the grade the judges gave one entry (a public pack, a shared sound, a public voice), and what it paid. */
+export const shareSeasonAwards = pgTable("share_season_awards", {
+  track: text("track").notNull(),
+  itemId: text("item_id").notNull(),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  grade: text("grade").notNull(),
+  mushies: integer("mushies").notNull().default(0),
+  decidedBy: text("decided_by"),
+  decidedAt: timestamp("decided_at").defaultNow().notNull(),
+}, (t) => [primaryKey({ columns: [t.track, t.itemId] }), index("share_season_awards_user_idx").on(t.userId)]);
+
+/** What a 做法 is to one person: kept (收藏), and when they last used it (最近用过). One row per person and 做法. */
+export const workbenchSkillMarks = pgTable("workbench_skill_marks", {
+  skillId: text("skill_id").notNull().references(() => workbenchSkills.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  saved: boolean("saved").notNull().default(false),
+  usedAt: timestamp("used_at"),
+}, (t) => [primaryKey({ columns: [t.skillId, t.userId] }), index("workbench_skill_marks_user_idx").on(t.userId, t.usedAt)]);
+
+/**
+ * 评论 under anything shared on the 广场 (a work, a voice, a 做法): what anyone signed in says about it, its maker
+ * included, with replies one level deep. A comment may carry stars (once per person and thing, never from its
+ * maker): the stars are the thing's rating.
+ */
+export const plazaComments = pgTable("plaza_comments", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  targetType: text("target_type", { enum: ["work", "voice", "skill"] }).notNull(),
+  targetId: text("target_id").notNull(),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  /** The top-level comment this one answers; null for a top-level comment. */
+  parentId: text("parent_id"),
+  rating: integer("rating"),
+  content: text("content").notNull().default(""),
+  likeCount: integer("like_count").notNull().default(0),
+  /** Out of sight: by the maker of the thing it is under, by enough reports, or by an admin. Its writer still sees it. */
+  hiddenAt: timestamp("hidden_at"),
+  hiddenBy: text("hidden_by", { enum: ["maker", "reports", "admin"] }),
+  reportCount: integer("report_count").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [index("plaza_comments_target_idx").on(t.targetType, t.targetId, t.createdAt), index("plaza_comments_parent_idx").on(t.parentId)]);
+
+export const plazaCommentLikes = pgTable("plaza_comment_likes", {
+  commentId: text("comment_id").notNull().references(() => plazaComments.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+}, (t) => [primaryKey({ columns: [t.commentId, t.userId] })]);
+
+/** 评价 what is shared on the 广场 (a work, a voice): stars and a few words. One per person and thing; writing again replaces it. */
+export const plazaReviews = pgTable("plaza_reviews", {
+  targetType: text("target_type", { enum: ["work", "voice"] }).notNull(),
+  targetId: text("target_id").notNull(),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  rating: integer("rating").notNull(),
+  content: text("content").notNull().default(""),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [primaryKey({ columns: [t.targetType, t.targetId, t.userId] }), index("plaza_reviews_target_idx").on(t.targetType, t.targetId, t.updatedAt)]);
+
+/** 评价 a 做法: stars and a few words from someone who used it. One per person and 做法; writing again replaces it. */
+export const workbenchSkillReviews = pgTable("workbench_skill_reviews", {
+  skillId: text("skill_id").notNull().references(() => workbenchSkills.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  rating: integer("rating").notNull(),
+  content: text("content").notNull().default(""),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [primaryKey({ columns: [t.skillId, t.userId] }), index("workbench_skill_reviews_skill_idx").on(t.skillId, t.updatedAt)]);
+
+/** 使用 on a shared sound (广场 › 音乐 / 音效): who took whose track. One row per taker and track. */
+export const imagePostTakes = pgTable("image_post_takes", {
+  postId: text("post_id").notNull().references(() => imagePosts.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [primaryKey({ columns: [t.postId, t.userId] }), index("image_post_takes_user_idx").on(t.userId)]);
+
+export const imagePostLikes = pgTable("image_post_likes", {
+  postId: text("post_id").notNull().references(() => imagePosts.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [primaryKey({ columns: [t.postId, t.userId] })]);
+
 // Civitai, distributed to every region's model volume by the sync sweeper.
 // userId null = platform-curated model visible to everyone.
 export const generationModels = pgTable("generation_models", {
@@ -1438,9 +1772,18 @@ export const generationModels = pgTable("generation_models", {
   previewAssetId: text("preview_asset_id"),
   /** Set when an admin pulls a shared model after a report. */
   takedownReason: text("takedown_reason"),
+  /** Pictures drawn with it (workbench jobs, story illustrations). DDL: scripts/2026-11-14-lora-square.sql. */
+  useCount: integer("use_count").notNull().default(0),
+  /** Last drawn with: a Comfy library file unused past TURN_IMAGE_LORA_EVICT_DAYS is evicted. */
+  lastUsedAt: timestamp("last_used_at"),
+  /** The square's sample pictures (user_assets ids of the author's), cover first. */
+  /** Limitless on the 广场: an explicit name or trigger (2026-11-18; it used to be refused). */
+  isSensitive: boolean("is_sensitive").notNull().default(false),
+  sampleAssetIds: jsonb("sample_asset_ids").$type<string[]>().notNull().default([]),
   createdAt: timestamp("created_at").defaultNow(),
 }, (t) => [
   index("generation_models_user_idx").on(t.userId),
+  index("generation_models_last_used_idx").on(t.lastUsedAt),
   index("generation_models_status_idx").on(t.status),
   index("generation_models_public_idx").on(t.isPublic, t.publishedAt),
 ]);
@@ -1503,6 +1846,53 @@ export const bundles = pgTable("bundles", {
   galleryImages: jsonb("gallery_images").$type<string[]>().default([]),
   downloadCount: integer("download_count").notNull().default(0),
   likeCount: integer("like_count").notNull().default(0),
+  // 'module' = a piece installed into an existing card; 'template' = a
+  // whole-card skeleton used to start a new card.
+  kind: text("kind").notNull().default("module"),
+  // A published card of the bundle's own author that shows the bundle in
+  // action (示范卡). Validated on write (owner + publicly published) and
+  // re-checked on read, so a later unpublish just hides it.
+  demoWorldId: text("demo_world_id").references(() => worlds.id, { onDelete: "set null" }),
+  // The author's card the pack was last saved from: "update from card" on the
+  // pack's page reads it. Set by the client on create/update, owner-checked.
+  // DDL: scripts/2026-11-18-bundle-source-world.sql.
+  sourceWorldId: text("source_world_id").references(() => worlds.id, { onDelete: "set null" }),
+  // Human review, same standard as cards: an untrusted author's publish (or a
+  // content change on a public bundle) waits as 'pending_review'; the public
+  // hub / GET only show is_public AND review_status = 'approved'. Rows that
+  // predate review are grandfathered as 'approved'. Private bundles also sit at
+  // 'approved' (nothing outstanding). DDL: scripts/2026-10-28-bundle-review.sql.
+  reviewStatus: text("review_status").notNull().default("approved"),
+  reviewNote: text("review_note"),
+  reviewedAt: timestamp("reviewed_at"),
+  reviewedBy: text("reviewed_by").references(() => user.id, { onDelete: "set null" }),
+  // Held edit (mirrors world_pending_edits): an untrusted author's change to a
+  // material surface (content, cover) of a LIVE approved bundle waits here
+  // while the live columns keep serving everyone. Both columns hold the full
+  // proposed value (a null cover = proposal removes the cover). pending_status
+  // null = no held edit; 'pending' = in the queue; 'rejected' = turned down,
+  // kept with pending_note so the author can revise and resubmit.
+  pendingContent: jsonb("pending_content").$type<Record<string, unknown>>(),
+  pendingCoverImage: text("pending_cover_image"),
+  pendingStatus: text("pending_status"),
+  pendingNote: text("pending_note"),
+  pendingSubmittedAt: timestamp("pending_submitted_at"),
+  pendingReviewedAt: timestamp("pending_reviewed_at"),
+  pendingReviewedBy: text("pending_reviewed_by").references(() => user.id, { onDelete: "set null" }),
+  // The author's "what's new" for the held edit (or the waiting first publish);
+  // becomes the note of the version recorded when it is approved.
+  pendingUpdateNote: text("pending_update_note"),
+  // The AI first look at the cover and text waiting in review (a publish or a
+  // held edit). See lib/bundle-ai-review.ts.
+  aiReview: jsonb("ai_review").$type<import("../lib/world-ai-review-core.js").StoredAiReview>(),
+  // Number of the LIVE content's version (bundle_versions.version). A new
+  // version is recorded only when the live content actually changes.
+  // DDL: scripts/2026-10-29-bundle-step2.sql.
+  version: integer("version").notNull().default(1),
+  // Set by an admin to feature an interface pack at the top of the market
+  // (精选界面); null = not featured. Newest first. DDL:
+  // scripts/2026-11-01-bundle-featured.sql.
+  featuredAt: timestamp("featured_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (t) => [
@@ -1511,7 +1901,60 @@ export const bundles = pgTable("bundles", {
   // the only guards against unbounded tag lists from the free-text editor.
   check("bundles_tags_max", sql`jsonb_array_length(${t.tags}) <= 50`),
   index("bundles_user_id_idx").on(t.userId),
+  // Admin review queue: only the handful of rows waiting on a decision.
+  index("bundles_review_pending_idx").on(t.updatedAt).where(sql`${t.reviewStatus} = 'pending_review'`),
+  index("bundles_pending_edit_idx").on(t.pendingSubmittedAt).where(sql`${t.pendingStatus} = 'pending'`),
 ]);
+
+// Snapshots of a bundle's LIVE content, one per change that went live
+// (approved first publish, approved held edit, trusted direct edit). The
+// newest row's version is bundles.version. DDL: scripts/2026-10-29-bundle-step2.sql.
+export const bundleVersions = pgTable("bundle_versions", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  bundleId: text("bundle_id")
+    .notNull()
+    .references(() => bundles.id, { onDelete: "cascade" }),
+  version: integer("version").notNull(),
+  content: jsonb("content").notNull().$type<Record<string, unknown>>(),
+  coverImage: text("cover_image"),
+  note: text("note"),
+  createdAt: timestamp("created_at").defaultNow(),
+  createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
+}, (t) => [
+  unique("bundle_versions_bundle_version_uq").on(t.bundleId, t.version),
+]);
+
+// Which worlds carry which hub bundle, mirrored from each world's LIVE
+// schema.installedBundles[] (records with a sourceBundleId) by the
+// bundle_installs_sync_trg trigger on worlds — every writer of worlds.schema
+// keeps it current. Powers "used in N live cards".
+export const bundleInstalls = pgTable("bundle_installs", {
+  worldId: text("world_id")
+    .notNull()
+    .references(() => worlds.id, { onDelete: "cascade" }),
+  installId: text("install_id").notNull(),
+  bundleId: text("bundle_id")
+    .notNull()
+    .references(() => bundles.id, { onDelete: "cascade" }),
+  version: integer("version"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  primaryKey({ columns: [t.worldId, t.installId] }),
+  index("bundle_installs_bundle_idx").on(t.bundleId),
+]);
+
+/**
+ * Someone pressed install on someone else's pack: one row per person and pack, the first time only, written
+ * by POST /bundles/:id/download. bundle_installs cannot answer "who used it, and when": it is rewritten whole
+ * on every schema save and follows forks, imports and restores.
+ */
+export const bundleTakes = pgTable("bundle_takes", {
+  bundleId: text("bundle_id").notNull().references(() => bundles.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [primaryKey({ columns: [t.bundleId, t.userId] })]);
 
 export const bundleLikes = pgTable("bundle_likes", {
   userId: text("user_id")
@@ -1637,12 +2080,32 @@ export const reviews = pgTable("reviews", {
   userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
   worldId: text("world_id").notNull().references(() => worlds.id, { onDelete: "cascade" }),
   rating: integer("rating"),
+  // Why a 1–2★ rating posted with this comment was low (LOW_RATING_REASONS).
+  reason: text("reason"),
   content: text("content"),
+  title: text("title"),
+  reviewUpdates: jsonb("review_updates").$type<Array<{ id: string; content: string | null; createdAt: string; ratingBefore: number; ratingAfter: number; reasonBefore?: string | null; reasonAfter?: string | null }>>().notNull().default([]),
   replyCount: integer("reply_count").notNull().default(0),
+  kind: text("kind").$type<"review" | "discussion">().notNull(),
+  legacyFeedback: boolean("legacy_feedback").notNull().default(false),
+  linkedReviewId: text("linked_review_id").references((): AnyPgColumn => reviews.id, { onDelete: "set null" }),
+  deletedAt: timestamp("deleted_at"),
+  archivedRating: integer("archived_rating"),
+  // Earlier duplicate reviews remain stored, but never count or reappear.
+  supersededByReviewId: text("superseded_by_review_id"),
+  playtimeAtReviewSeconds: integer("playtime_at_review_seconds"),
+  ratingRequested: boolean("rating_requested").notNull().default(false),
+  movedAt: timestamp("moved_at"),
+  movedFrom: text("moved_from"),
+  moveReason: text("move_reason"),
   hiddenByCreatorAt: timestamp("hidden_by_creator_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
+    check("reviews_kind_rating_check", sql`(${table.kind} = 'review' AND ((${table.rating} IS NOT NULL AND ${table.rating} BETWEEN 1 AND 5) OR (${table.legacyFeedback} AND ${table.rating} IS NULL))) OR (${table.kind} = 'discussion' AND ${table.rating} IS NULL)`),
+  uniqueIndex("reviews_linked_review_unique").on(table.linkedReviewId),
+    uniqueIndex("reviews_one_active_per_world_user").on(table.worldId, table.userId).where(sql`${table.kind} = 'review' AND NOT ${table.legacyFeedback} AND ${table.deletedAt} IS NULL AND ${table.supersededByReviewId} IS NULL`),
+  index("reviews_world_kind_created_idx").on(table.worldId, table.kind, table.createdAt),
   index("reviews_world_id_idx").on(table.worldId),
   index("reviews_user_id_idx").on(table.userId),
 ]);
@@ -1655,6 +2118,8 @@ export const worldRatings = pgTable("world_ratings", {
   userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
   worldId: text("world_id").notNull().references(() => worlds.id, { onDelete: "cascade" }),
   rating: integer("rating").notNull(),
+  // Required reason while the rating is 1–2★ (LOW_RATING_REASONS); null above.
+  lowReason: text("low_reason"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
@@ -1669,6 +2134,7 @@ export const reviewReplies = pgTable("review_replies", {
   userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
   replyToReplyId: text("reply_to_reply_id").references((): any => reviewReplies.id, { onDelete: "set null" }),
   content: text("content").notNull(),
+  deletedAt: timestamp("deleted_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
@@ -1781,8 +2247,9 @@ export const worldAccessTokens = pgTable("world_access_tokens", {
   userId: text("user_id")
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
+  // Null: an account token, for an AI that cannot sign in (DeepSeek); it
+  // works like a signed-in AI, on all the creator's cards.
   worldId: text("world_id")
-    .notNull()
     .references(() => worlds.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   tokenHash: text("token_hash").notNull().unique(),
@@ -1902,6 +2369,10 @@ export const worldSnapshots = pgTable("world_snapshots", {
     .references(() => agentRuns.id, { onDelete: "set null" }),
   /** Full world schema at the time of snapshot */
   schemaData: jsonb("schema_data").$type<Record<string, unknown>>().notNull(),
+  /** What the steps after this restore point changed themselves (engine
+   *  WorldEdit change sets, in order). Rolling back undoes only these, so
+   *  other people's edits made meanwhile stay. Null on older restore points. */
+  edits: jsonb("edits").$type<unknown[]>(),
   label: text("label").notNull().default("Auto-save"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (t) => [
@@ -2021,6 +2492,10 @@ export const worldVersions = pgTable("world_versions", {
   createdBy: text("created_by")
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
+  /** Who actually made it, when that was a collaborator rather than the
+   *  creator. createdBy stays the creator: a collaborator deleting their
+   *  account must not take the card's history with it. */
+  actorId: text("actor_id").references(() => user.id, { onDelete: "set null" }),
   name: text("name").notNull(),
   note: text("note"),
   schema: jsonb("schema").notNull().$type<Record<string, unknown>>(),
@@ -2337,6 +2812,9 @@ export const creatorEarnings = pgTable("creator_earnings", {
   platformFee: integer("platform_fee").notNull(),
   stripeFee: integer("stripe_fee"),
   netAmount: integer("net_amount"),
+  /** Cents of netAmount the creator already spent on mushies in the shop;
+   *  only the rest is ever transferred out. A fully spent row is "spent". */
+  spentAmount: integer("spent_amount").notNull().default(0),
   currency: text("currency").default("usd"),
   stripePaymentIntentId: text("stripe_payment_intent_id"),
   stripeTransferId: text("stripe_transfer_id"),
@@ -2599,6 +3077,7 @@ export const inviteCodes = pgTable("invite_codes", {
   isActive: boolean("is_active").notNull().default(true),
   note: text("note"),
   defaultModel: text("default_model"), // model ID to set as user's default on redemption
+  allowLimitless: boolean("allow_limitless").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -2728,6 +3207,32 @@ export const userWorldPersonas = pgTable(
   ]
 );
 
+// Per-world prompt switches: a prompt the player switched on or off while
+// playing a world keeps that state in that world. No row = follow the prompt's
+// own (account-wide) switch. Deleting the prompt or the world cascades the row
+// away, which is the same fallback.
+export const userWorldPrompts = pgTable(
+  "user_world_prompts",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    worldId: text("world_id")
+      .notNull()
+      .references(() => worlds.id, { onDelete: "cascade" }),
+    promptId: text("prompt_id")
+      .notNull()
+      .references(() => userPrompts.id, { onDelete: "cascade" }),
+    enabled: boolean("enabled").notNull(),
+    updatedAt: timestamp("updated_at").defaultNow(),
+  },
+  (t) => [
+    unique("user_world_prompts_uniq").on(t.userId, t.worldId, t.promptId),
+    index("user_world_prompts_prompt_idx").on(t.promptId),
+    index("user_world_prompts_world_idx").on(t.worldId),
+  ]
+);
+
 // ─── Direct Messages ────────────────────────────────────────────────
 
 export const directConversations = pgTable("direct_conversations", {
@@ -2851,6 +3356,145 @@ export const friendInvites = pgTable(
   (t) => [
     index("friend_invites_to_idx").on(t.toUserId, t.status),
     index("friend_invites_from_idx").on(t.fromUserId, t.createdAt),
+  ],
+);
+
+/**
+ * Story rooms: one play session shared by 2-12 friends. The host owns the
+ * session and pays for every turn; members post actions that the host merges
+ * into one user message (lib/story-rooms.ts, routes/story-rooms.ts). DDL in
+ * scripts/story-rooms.sql (applied by hand) and db/story-rooms.ts (self-heal).
+ */
+export const storyRooms = pgTable("story_rooms", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  code: text("code").notNull().unique(),
+  sessionId: text("session_id").notNull().unique().references(() => playSessions.id, { onDelete: "cascade" }),
+  worldId: text("world_id").notNull(),
+  hostUserId: text("host_user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  turnMode: text("turn_mode").$type<"free" | "host">().notNull().default("free"),
+  maxSeats: integer("max_seats").notNull().default(12),
+  minSeats: integer("min_seats").notNull().default(2),
+  mergeWindowMs: integer("merge_window_ms").notNull().default(8000),
+  status: text("status").$type<"open" | "closed">().notNull().default("open"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  closedAt: timestamp("closed_at"),
+  /** The host's model + generation settings the server sends rounds with (PUT /:code/profile). */
+  sendProfile: jsonb("send_profile").$type<Record<string, unknown>>(),
+  /** The host's friends may join from the card page without a link. */
+  openToFriends: boolean("open_to_friends").notNull().default(false),
+  /** Most the room's rounds may cost the host in any 24 hours, in mushies; null = no limit. */
+  spendCap: integer("spend_cap").default(5000),
+  /** Who pays for the rounds: the host alone, or split among each round's players. */
+  costMode: text("cost_mode").$type<"host" | "split">().notNull().default("host"),
+  /** Listed on the card page for anyone to join (公开房). */
+  isPublic: boolean("is_public").notNull().default(false),
+});
+
+export const storyRoomMembers = pgTable("story_room_members", {
+  roomId: text("room_id").notNull().references(() => storyRooms.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  role: text("role").$type<"host" | "player">().notNull().default("player"),
+  joinedAt: timestamp("joined_at").notNull().defaultNow(),
+  leftAt: timestamp("left_at"),
+  kickedAt: timestamp("kicked_at"),
+  mutedUntil: timestamp("muted_until"),
+  /** The card role (settings.multiplayer.roles) this member plays, or null. */
+  roleId: text("role_id"),
+  roleName: text("role_name"),
+  /** Agreed to pay a share of the rounds they act in (a split room). */
+  splitOk: boolean("split_ok").notNull().default(false),
+}, (t) => [
+  primaryKey({ columns: [t.roomId, t.userId] }),
+  index("story_room_members_user_idx").on(t.userId),
+]);
+
+export const storyRoomActions = pgTable("story_room_actions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  roomId: text("room_id").notNull().references(() => storyRooms.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  text: text("text").notNull(),
+  turnId: text("turn_id"),
+  messageId: text("message_id"),
+  /** The [Players: ...] line that led this action's turn, when the turn carried one. */
+  roster: text("roster"),
+  /** "action" joins a round; "talk" is table talk the AI never sees. */
+  kind: text("kind").$type<"action" | "talk">().notNull().default("action"),
+  /** 「AI 先别接」: joins the round without starting its countdown. */
+  hold: boolean("hold").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("story_room_actions_open_idx").on(t.roomId).where(sql`${t.messageId} IS NULL`),
+  index("story_room_actions_turn_idx").on(t.turnId).where(sql`${t.turnId} IS NOT NULL`),
+]);
+
+/**
+ * Friends a creator lets play a world before it is published (lib/world-testers.ts).
+ * A removed tester keeps the row with `removedAt` set, so re-inviting the same
+ * person is free and the daily count of NEW people stays honest.
+ */
+export const worldTesters = pgTable(
+  "world_testers",
+  {
+    worldId: text("world_id").notNull().references(() => worlds.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+    invitedBy: text("invited_by").notNull().references(() => user.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    removedAt: timestamp("removed_at"),
+  },
+  (t) => [
+    primaryKey({ columns: [t.worldId, t.userId] }),
+    index("world_testers_user_idx").on(t.userId),
+  ],
+);
+
+/**
+ * People a world's creator invited to work on it with them in Studio. One row
+ * per (world, person). A grant covers the world's language variants too (same
+ * creator, same languageGroupId). The creator manages every row; a person can
+ * only accept, decline or leave their own. Billing never follows the grant:
+ * whoever runs something pays for it.
+ */
+export const worldCollaborators = pgTable(
+  "world_collaborators",
+  {
+    id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    worldId: text("world_id").notNull().references(() => worlds.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+    /** "editor" | "viewer" */
+    role: text("role").notNull().default("editor"),
+    /** Editors only: may also submit updates of a published card for review. */
+    canPublish: boolean("can_publish").notNull().default(false),
+    /** "pending" until the invited person accepts. */
+    status: text("status").notNull().default("pending"),
+    invitedBy: text("invited_by").references(() => user.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    acceptedAt: timestamp("accepted_at"),
+  },
+  (t) => [
+    uniqueIndex("world_collaborators_world_user_uniq").on(t.worldId, t.userId),
+    index("world_collaborators_user_idx").on(t.userId, t.status),
+  ],
+);
+
+/**
+ * A card's invite link, Figma style: anyone signed in who opens it joins the
+ * card as `role`. One live link per card; resetting revokes it for a new one.
+ */
+export const worldInviteLinks = pgTable(
+  "world_invite_links",
+  {
+    id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    worldId: text("world_id").notNull().references(() => worlds.id, { onDelete: "cascade" }),
+    token: text("token").notNull(),
+    /** "editor" | "viewer" */
+    role: text("role").notNull().default("viewer"),
+    createdBy: text("created_by").notNull().references(() => user.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    revokedAt: timestamp("revoked_at"),
+  },
+  (t) => [
+    uniqueIndex("world_invite_links_token_uniq").on(t.token),
+    uniqueIndex("world_invite_links_live_uniq").on(t.worldId).where(sql`${t.revokedAt} IS NULL`),
   ],
 );
 
@@ -3891,6 +4535,10 @@ export const worldReviewSubmissions = pgTable(
     // base means nothing of this world had been live — a genuinely new card.
     versionId: text("version_id"),
     baseVersionId: text("base_version_id"),
+    // The AI first look (lib/world-ai-review-run.ts): its verdict, the reasons
+    // a person has to look, what it would set, and each model's answer.
+    // {running:<iso>} while a check is in flight. Null: not checked (older rows).
+    aiReview: jsonb("ai_review").$type<import("../lib/world-ai-review-core.js").StoredAiReview>(),
   },
   (t) => [
     index("world_review_submissions_decision_idx").on(t.decision, t.submittedAt),
@@ -4221,6 +4869,8 @@ export const voiceLiveCalls = pgTable("voice_live_calls", {
   state: text("state").notNull().default("connecting"),
   startedAt: timestamp("started_at", { withTimezone: true }),
   lastHeartbeatAt: timestamp("last_heartbeat_at", { withTimezone: true }),
+  /** Last player activity (speech, input, transcript); idle calls end. */
+  lastActiveAt: timestamp("last_active_at", { withTimezone: true }),
   paidMinutes: integer("paid_minutes").notNull().default(0),
   creditsPerMinute: integer("credits_per_minute").notNull(),
   maxMinutes: integer("max_minutes").notNull().default(15),
@@ -4339,4 +4989,26 @@ export const voiceUsageEvents = pgTable("voice_usage_events", {
   uniqueIndex("voice_usage_sequence").on(t.callId, t.finalSeq).where(sql.raw("final_seq IS NOT NULL")),
   uniqueIndex("voice_usage_log_link").on(t.usageLogId).where(sql.raw("usage_log_id IS NOT NULL")),
   uniqueIndex("voice_debit_link").on(t.creditTransactionId).where(sql.raw("credit_transaction_id IS NOT NULL")),
+]);
+
+/** A card's own high-score boards (Steam-style): the card names a board and
+ * submits scores; the platform keeps each player's best and ranks them. Keyed
+ * by the card's language group, so every language version shares one board. */
+export const cardLeaderboards = pgTable("card_leaderboards", {
+  cardKey: text("card_key").notNull(),
+  board: text("board").notNull(),
+  ascending: boolean("ascending").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [primaryKey({ columns: [t.cardKey, t.board] })]);
+
+export const cardLeaderboardEntries = pgTable("card_leaderboard_entries", {
+  cardKey: text("card_key").notNull(),
+  board: text("board").notNull(),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  score: doublePrecision("score").notNull(),
+  details: jsonb("details"),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  primaryKey({ columns: [t.cardKey, t.board, t.userId] }),
+  index("card_leaderboard_entries_score_idx").on(t.cardKey, t.board, t.score),
 ]);

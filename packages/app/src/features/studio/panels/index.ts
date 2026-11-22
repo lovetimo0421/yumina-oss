@@ -6,7 +6,6 @@ export { VariablesPanel } from "./variables-panel";
 export { AudioPanel } from "./audio-panel";
 export { SceneImagesPanel } from "./scene-images-panel";
 export { BackgroundsPanel } from "./backgrounds-panel";
-export { MechanicPacksPanel } from "./mechanic-packs-panel";
 export { OverviewPanel, OverviewCoverPanel } from "./overview-panel";
 export { CodeViewPanel } from "./code-view-panel";
 export { PlaytestPanel } from "./playtest-panel";

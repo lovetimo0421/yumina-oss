@@ -5,9 +5,11 @@
  *   1. Japanese kana (hiragana/katakana) present → "ja"
  *      Kana is Japanese-only, so even a small ratio is a hard signal.
  *      Must come before "zh" so kanji-heavy Japanese isn't misread as Chinese.
- *   2. CJK character ratio > 30% (without kana) → "zh"
- *   3. Spanish markers (ñ, ¿, ¡, or accented vowels + common function words) → "es"
- *   4. fallback → "en"
+ *   2. Hangul → "ko"; Cyrillic → "ru" (each its own script, judged by ratio)
+ *   3. CJK character ratio > 30% (without kana) → "zh"
+ *   4. Spanish markers (ñ, ¿, ¡, or accented vowels + common function words) → "es"
+ *   5. Indonesian function words outnumbering English ones → "id"
+ *   6. fallback → "en"
  *
  * Spanish detection is conservative on purpose: a stray "á" in an English
  * post should not flip the lang. We require either a Spanish-only character
@@ -27,7 +29,19 @@ function stripNoise(text: string): string {
     .replace(/https?:\/\/\S+/g, "");
 }
 
-export function detectLang(text: string): "zh" | "en" | "es" | "ja" {
+export type DetectedLang = "zh" | "en" | "es" | "ja" | "ko" | "id" | "ru";
+
+/**
+ * Lowercase only: a capitalised "Ada" or "Dan" is a name, not 'there is'/'and'.
+ * Words English shares (in, me, to, a) are left out; this list has to be
+ * Indonesian and nothing else.
+ */
+const INDONESIAN_WORDS =
+  /(?<![\p{L}])(?:yang|dan|tidak|nggak|enggak|gak|ngga|saya|aku|kamu|anda|kita|kami|mereka|ini|itu|untuk|dengan|dari|sudah|udah|belum|bisa|akan|juga|karena|tapi|tetapi|kalau|kalo|apa|bagaimana|gimana|kenapa|banget|sangat|lebih|seperti|atau|pada|oleh|ada|sih|dong|deh|aja|saja|lagi|harus|mau|ingin|tolong|terima|kasih|bagus|keren|semua|sama|baru|cerita|karakter|sekali|jadi|punya|dia)(?![\p{L}])/gu;
+const ENGLISH_WORDS =
+  /\b(?:the|an?|is|are|was|were|be|been|it|its|i|i'm|you|your|we|they|this|that|these|those|and|or|but|to|of|in|on|for|with|my|me|our|has|have|had|can|could|do|does|did|not|no|so|if|what|how|who|why|when|which|there|here|just|also|too|very|please|anyone|someone|thanks)\b/gi;
+
+export function detectLang(text: string): DetectedLang {
   const stripped = stripNoise(text);
   const total = stripped.replace(/\s/g, "").length || 1;
 
@@ -36,6 +50,16 @@ export function detectLang(text: string): "zh" | "en" | "es" | "ja" {
   // don't appear in Chinese. Lower bound prevents false positives on a stray
   // katakana mark in mostly-Chinese text.
   if (kana >= 2 && kana / total > 0.02) return "ja";
+
+  // Hangul and Cyrillic are each one language's script here, checked before han so a
+  // Korean post with a hanja word is not read as Chinese. The bar is the
+  // same 30% han uses, judged on letters only so quoted model names and
+  // numbers do not dilute a short Korean or Russian comment below it.
+  const letters = stripped.match(/\p{L}/gu)?.length || 1;
+  const hangul = stripped.match(/\p{Script=Hangul}/gu)?.length ?? 0;
+  if (hangul / letters > 0.3) return "ko";
+  const cyrillic = stripped.match(/\p{Script=Cyrillic}/gu)?.length ?? 0;
+  if (cyrillic / letters > 0.3) return "ru";
 
   const cjk = stripped.match(/[一-鿿㐀-䶿]/g)?.length ?? 0;
   if (cjk / total > 0.3) return "zh";
@@ -70,6 +94,12 @@ export function detectLang(text: string): "zh" | "en" | "es" | "ja" {
       stripped,
     );
   if (hasSpanishOnlyChar || (hasAccentedVowel && hasSpanishWord)) return "es";
+
+  // Indonesian shares the Latin script with English, so it is told by its
+  // function words: two or more, and more of them than English ones.
+  const idWords = stripped.match(INDONESIAN_WORDS)?.length ?? 0;
+  const enWords = stripped.match(ENGLISH_WORDS)?.length ?? 0;
+  if (idWords >= 2 && idWords > enWords) return "id";
 
   return "en";
 }

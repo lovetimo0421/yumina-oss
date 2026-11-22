@@ -14,7 +14,10 @@ export function hasPublishableCover(thumbnailUrl: string | null | undefined): bo
 
 export type DiscoverCoverArtIssue = "portraitImage" | "portraitCrop" | "landscapeImage" | "landscapeCrop";
 
-/** Only failed requirements are returned; an absent image takes priority over its crop. */
+/** Only failed requirements are returned; an absent image takes priority over its crop.
+ * A crop that was never set is fine: Discover draws it centred and full-frame, which is
+ * exactly what confirming the untouched crop editor saves, so asking for that click only
+ * cost creators time (Jason, 11/10). A crop that is set but unusable still has to be fixed. */
 export function getDiscoverCoverArtIssues(world: {
   thumbnailUrl?: string | null;
   landscapeCoverUrl?: string | null;
@@ -22,7 +25,8 @@ export function getDiscoverCoverArtIssues(world: {
   landscapeCoverCrop?: unknown;
 }): DiscoverCoverArtIssue[] {
   const confirmed = (value: unknown) => {
-    if (!value || typeof value !== "object") return false;
+    if (value === null || value === undefined) return true;
+    if (typeof value !== "object") return false;
     const crop = value as { x?: unknown; y?: unknown; zoom?: unknown; fit?: unknown };
     return crop.fit !== "contain" && [crop.x, crop.y, crop.zoom].every(v => typeof v === "number" && Number.isFinite(v))
       && typeof crop.zoom === "number" && crop.zoom >= .25 && crop.zoom <= 1;

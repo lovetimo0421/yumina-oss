@@ -5,6 +5,7 @@ import { MAX_AUTO_VERSIONS_PER_WORLD } from "@yumina/shared";
 import type { db } from "../db/index.js";
 import { user, worlds, worldPendingEdits, worldReviewSubmissions, worldVersions } from "../db/schema.js";
 import { estimateWorldCopyTokens } from "./world-copy-material.js";
+import { canEdit, getWorldAccess, mayWithdrawSubmission, notifySubmissionWithdrawn, type WorldAccess } from "./world-collaborators.js";
 import { versionAssetRefs } from "./world-version-asset-refs.js";
 
 export type VersionExecutor = Pick<typeof db, "select" | "insert" | "update" | "delete" | "execute">;
@@ -15,10 +16,24 @@ type Pending = typeof worldPendingEdits.$inferSelect;
 // helper's copy sent back over DM) are applied onto the card — see world-changes.ts.
 type AutomaticSource = "publish" | "live" | "backup" | "incoming";
 
+/** Locks the world only when `creatorId` is its creator (owner-only actions). */
 export async function lockVersionWorld(tx: VersionExecutor, worldId: string, creatorId: string) {
   const [world] = await tx.select().from(worlds)
     .where(and(eq(worlds.id, worldId), eq(worlds.creatorId, creatorId))).for("update").limit(1);
   return world ?? null;
+}
+
+/**
+ * Locks the world when `userId` may edit it: its creator or an editor
+ * collaborator. Authorizes first so a stranger never takes the row lock.
+ * Records written under it still belong to `world.creatorId`.
+ */
+export async function lockEditableVersionWorld(tx: VersionExecutor, worldId: string, userId: string)
+  : Promise<{ world: VersionWorld; access: WorldAccess } | null> {
+  const access = await getWorldAccess(userId, worldId, tx);
+  if (!canEdit(access)) return null;
+  const world = await lockVersionWorld(tx, worldId, access.creatorId);
+  return world ? { world, access } : null;
 }
 
 export async function lockVersionDraft(tx: VersionExecutor, worldId: string) {
@@ -69,7 +84,7 @@ export async function captureAutomaticVersion(
   source: AutomaticSource,
   material: VersionMaterial,
   protectIds: string[] = [],
-  opts: { note?: string | null } = {},
+  opts: { note?: string | null; actorId?: string | null } = {},
 ) {
   // Reuse saved content across Update, submission and approval. Only an actual
   // publication can promote it to live; matching named saves remain independent.
@@ -90,6 +105,7 @@ export async function captureAutomaticVersion(
   const schema = { ...material.schema, name: world.name };
   const [inserted] = await tx.insert(worldVersions).values({
     worldId: world.id, createdBy: world.creatorId,
+    actorId: opts.actorId && opts.actorId !== world.creatorId ? opts.actorId : null,
     name: `${labels[source]} · ${now.toISOString().slice(0, 16).replace("T", " ")} UTC`,
     note: opts.note ?? null,
     source, publishedAt: source === "live" ? now : null, schema, ...versionAssetRefs(schema),
@@ -153,6 +169,8 @@ export async function captureEditCheckpoint(
   world: Pick<VersionWorld, "id" | "creatorId" | "name">,
   material: VersionMaterial,
   now = new Date(),
+  /** Whose save replaced it (a collaborator's, or the creator's). createdBy stays the creator. */
+  actorId: string | null = null,
 ): Promise<string | null> {
   const [recent] = await tx.select({ id: worldVersions.id }).from(worldVersions)
     .where(and(eq(worldVersions.worldId, world.id), gt(worldVersions.createdAt, new Date(now.getTime() - EDIT_CHECKPOINT_INTERVAL_MS))))
@@ -167,7 +185,7 @@ export async function captureEditCheckpoint(
   )).limit(1);
   if (same) return null;
   const [inserted] = await tx.insert(worldVersions).values({
-    worldId: world.id, createdBy: world.creatorId,
+    worldId: world.id, createdBy: world.creatorId, actorId,
     name: `Saved version · ${now.toISOString().slice(0, 16).replace("T", " ")} UTC`,
     source: EDIT_CHECKPOINT_SOURCE, schema, ...versionAssetRefs(schema),
     thumbnailUrl: material.thumbnailUrl, ageRating: material.ageRating ?? "all", createdAt: now,
@@ -213,17 +231,26 @@ async function ownedVersion(tx: VersionExecutor, worldId: string, versionId: str
   return version;
 }
 
+/** Any editor of the card (creator or editor collaborator) may restore into the working copy. */
 export async function restoreVersionDraft(tx: VersionExecutor, args: {
-  worldId: string; creatorId: string; versionId: string; skipSafetySnapshot?: boolean;
+  worldId: string; userId: string; versionId: string; skipSafetySnapshot?: boolean;
 }) {
-  const world = await lockVersionWorld(tx, args.worldId, args.creatorId);
-  if (!world) throw new VersionActionError("NOT_FOUND", "World not found", 404);
+  const locked = await lockEditableVersionWorld(tx, args.worldId, args.userId);
+  if (!locked) throw new VersionActionError("NOT_FOUND", "World not found", 404);
+  const { world, access } = locked;
   const target = await ownedVersion(tx, world.id, args.versionId);
   const draft = await lockVersionDraft(tx, world.id);
+  // Restoring replaces the working copy, which on a submitted update would
+  // pull it out of review: only someone who may withdraw it can do that.
+  if (world.status === "published" && draft?.status === "pending" && !mayWithdrawSubmission(access)) {
+    throw new VersionActionError("UPDATE_IN_REVIEW", "The owner's update to this card is in review. You can restore a version once it is approved or withdrawn.", 409);
+  }
   const working = world.status === "published" ? draft ?? world : world;
   if (!args.skipSafetySnapshot) {
-    await captureAutomaticVersion(tx, world, "backup", working, [target.id]);
+    await captureAutomaticVersion(tx, world, "backup", working, [target.id], { actorId: args.userId });
   }
+  // Strictly after the token it replaces: open editors order saves by it.
+  const updatedAt = new Date(Math.max(Date.now(), (world.updatedAt?.getTime() ?? 0) + 1));
   const material = {
     schema: { ...target.schema, name: world.name },
     thumbnailUrl: target.ageRating === null ? working.thumbnailUrl : target.thumbnailUrl,
@@ -232,20 +259,26 @@ export async function restoreVersionDraft(tx: VersionExecutor, args: {
   if (world.status === "published") {
     // Restoring a draft is never a public write, even for a formerly-live version.
     if (draft?.status === "pending") {
-      await tx.update(worldReviewSubmissions).set({ decision: "withdrawn", decidedBy: args.creatorId, decidedAt: new Date() })
+      await tx.update(worldReviewSubmissions).set({ decision: "withdrawn", decidedBy: args.userId, decidedAt: new Date() })
         .where(and(eq(worldReviewSubmissions.worldId, world.id), eq(worldReviewSubmissions.decision, "pending"), eq(worldReviewSubmissions.submissionType, "edit")));
+      notifySubmissionWithdrawn({ worldId: world.id, creatorId: world.creatorId, actorId: args.userId });
     }
     const values = versionDraftValues(world, material, draft);
     await tx.insert(worldPendingEdits).values(values).onConflictDoUpdate({ target: worldPendingEdits.worldId, set: values });
-    await tx.update(worlds).set({ updatedAt: new Date() }).where(eq(worlds.id, world.id));
+    await tx.update(worlds).set({ updatedAt }).where(eq(worlds.id, world.id));
   } else {
-    await tx.update(worlds).set({ ...material, isNsfw: material.ageRating !== "all", totalTokens: estimateWorldCopyTokens(material.schema), updatedAt: new Date() })
+    await tx.update(worlds).set({ ...material, isNsfw: material.ageRating !== "all", totalTokens: estimateWorldCopyTokens(material.schema), updatedAt })
       .where(eq(worlds.id, world.id));
   }
-  return { restored: true };
+  // What the caller announces once this commits (open editors pull the
+  // restored copy; fields being typed in take the restored text).
+  return { restored: true, live: { updatedAt, previousUpdatedAt: world.updatedAt ?? null, before: working.schema as Record<string, unknown>, after: material.schema } };
 }
 
-/** Only server-recorded, actually-live material can be switched without another review. */
+/**
+ * Only server-recorded, actually-live material can be switched without another
+ * review. Owner-only: this is a public write, so collaborators never reach it.
+ */
 export async function makeVersionLive(tx: VersionExecutor, args: {
   worldId: string; creatorId: string; versionId: string;
 }) {

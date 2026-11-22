@@ -18,7 +18,8 @@ import { Hono } from "hono";
 import { createHash } from "node:crypto";
 import { eq, and } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { playSessions, messages, worlds } from "../db/schema.js";
+import { playSessions, messages, worlds, userAssets, user } from "../db/schema.js";
+import { WORKBENCH_OFFICIAL_USERNAME } from "@yumina/shared";
 import { authMiddleware } from "../middleware/auth.js";
 import {
   checkSideCallRateLimit,
@@ -30,10 +31,12 @@ import {
 import { recordUsageLog } from "../lib/usage-log.js";
 import { resolveOfficialOpenRouterKeyForUser, resolveOpenRouterKeyForUser, type ApiKeyTier } from "../lib/resolve-provider.js";
 import { sideCallTier, type PlayerSideKey } from "../lib/side-call-key.js";
-import { checkBalance, deductCredits } from "../lib/credit-service.js";
+import { checkBalance, deductCredits, ensureWallet } from "../lib/credit-service.js";
+import { resolveEffectivePlanWithEventEntitlements } from "../lib/event-plan-entitlements.js";
+import { getUserStorageUsed } from "../lib/generation/models.js";
 import { providerCostUsdToCredits } from "../lib/provider-cost.js";
 import { PLANS } from "../lib/plan-config.js";
-import { isS3Configured, headObject, putObject } from "../lib/s3.js";
+import { isS3Configured, headObject, putObject, copyObject, deleteObject } from "../lib/s3.js";
 import { captureServerError } from "../lib/posthog.js";
 import { synthesizeSpeech, schedulePricingDriftCheck, TtsProviderError } from "../lib/tts/openrouter-tts.js";
 import { prepareTtsText, stripMarkupForTts, truncateAtBoundary } from "../lib/tts/text-prep.js";
@@ -43,6 +46,8 @@ import { playerTtsPrefs, ttsOptedIn, TTS_OFF_BODY } from "../lib/tts/opt-in.js";
 import {
   TTS_MODEL,
   TTS_PRICE_USD_PER_UTF8_BYTE,
+  STUDIO_TTS_MODEL,
+  ttsPricePerByte,
   TTS_MARKUP,
   TTS_MAX_TEXT_CHARS,
   isValidTtsVoice,
@@ -63,9 +68,9 @@ ttsRoutes.use("/tts/*", authMiddleware);
 /** Raw-text synthesis cap for card SDK calls (pre-cleanup). */
 const MAX_RAW_TEXT_CHARS = 6000;
 
-function cacheHash(voice: string | undefined, text: string, emotion: boolean): string {
+function cacheHash(voice: string | undefined, text: string, emotion: boolean, model: string = TTS_MODEL): string {
   return createHash("sha256")
-    .update(`v1|${TTS_MODEL}|${voice ?? "default"}|${text}${emotion ? "|emo1" : ""}`)
+    .update(`v1|${model}|${voice ?? "default"}|${text}${emotion ? "|emo1" : ""}`)
     .digest("hex");
 }
 
@@ -154,8 +159,10 @@ async function synthesizeAndBill(opts: {
   /** Already-resolved key for this request (the session endpoint resolves it
    *  once for casting and every segment). */
   key?: TtsKey | null;
+  /** The voice model; readouts use TTS_MODEL, the audio studio STUDIO_TTS_MODEL. */
+  model?: string;
 }): Promise<
-  | { ok: true; body: { url: string; cached: boolean; credits: number; voiceFallback?: boolean } }
+  | { ok: true; body: { url: string; cached: boolean; credits: number; voiceFallback?: boolean; hash: string } }
   | { ok: false; status: 400 | 402 | 429 | 502 | 503 | 504; error: string; code?: string; retryAfter?: number }
 > {
   const { userId, sessionId, text, voice } = opts;
@@ -165,13 +172,15 @@ async function synthesizeAndBill(opts: {
     return { ok: false, status: 503, error: "Audio storage not configured" };
   }
 
+  const model = opts.model ?? TTS_MODEL;
+  const pricePerByte = ttsPricePerByte(model);
   const emotionOn = opts.spoken === undefined && Boolean(opts.emotion) && emotionTaggingEnabled();
-  const hash = opts.spoken !== undefined ? cacheHash(voice, opts.spoken, false) : cacheHash(voice, text, emotionOn);
+  const hash = opts.spoken !== undefined ? cacheHash(voice, opts.spoken, false, model) : cacheHash(voice, text, emotionOn, model);
   const url = `/cdn/tts/${hash}`;
 
   // ── Cache hit: replay is free ──
   if (await cacheHit(hash)) {
-    return { ok: true, body: { url, cached: true, credits: 0, ...fallbackMark } };
+    return { ok: true, body: { url, cached: true, credits: 0, hash, ...fallbackMark } };
   }
 
   // ── Resolve key (BYOK users pay their provider directly) ──
@@ -182,7 +191,7 @@ async function synthesizeAndBill(opts: {
 
   // ── Cost preflight ──
   const utf8Bytes = Buffer.byteLength(text, "utf8");
-  const costUsd = utf8Bytes * TTS_PRICE_USD_PER_UTF8_BYTE;
+  const costUsd = utf8Bytes * pricePerByte;
 
   // ── Byte budget (per user, per minute) ──
   // Card code can call api.tts.speak with arbitrary text; the call-count
@@ -241,7 +250,7 @@ async function synthesizeAndBill(opts: {
   let mimeType: string;
   try {
     ({ audio, mimeType } = await synthesizeSpeech(resolved.apiKey, {
-      model: TTS_MODEL,
+      model,
       input: spoken,
       voice,
     }));
@@ -294,7 +303,7 @@ async function synthesizeAndBill(opts: {
     id: usageLogId,
     userId,
     sessionId,
-    model: TTS_MODEL,
+    model,
     // Meter unit is UTF-8 bytes (the provider's own billing unit).
     promptTokens: utf8Bytes,
     completionTokens: 0,
@@ -304,7 +313,7 @@ async function synthesizeAndBill(opts: {
     generationTimeMs: Date.now() - startTime,
     // Exact provider cost (cue bytes included): the byte meter above can't
     // be priced through model_prices (no row for the voice model, by design).
-    providerCostUsd: (Buffer.byteLength(spoken, "utf8") * TTS_PRICE_USD_PER_UTF8_BYTE).toFixed(12),
+    providerCostUsd: (Buffer.byteLength(spoken, "utf8") * pricePerByte).toFixed(12),
   });
 
   let charged = 0;
@@ -343,7 +352,7 @@ async function synthesizeAndBill(opts: {
     }
   }
 
-  return { ok: true, body: { url, cached: false, credits: charged, ...fallbackMark } };
+  return { ok: true, body: { url, cached: false, credits: charged, hash, ...fallbackMark } };
 }
 
 /** The card's characters, narrator voice and language, for casting. */
@@ -377,6 +386,7 @@ async function planCached(args: Parameters<typeof planReadout>[0], worldKey: str
       .update(JSON.stringify([
         worldKey, args.text, args.context ?? "", args.allDialogue, args.playerVoice ?? "", args.playerPool ?? [],
         Object.entries(cast).filter(([name]) => scene.includes(name)).sort(), args.emotion,
+        Object.entries(args.picks ?? {}).sort(),
       ]))
       .digest("hex");
   const hit = planCache.get(keyFor(args.cast));
@@ -414,6 +424,8 @@ ttsRoutes.post("/sessions/:sessionId/tts", async (c) => {
     playerVoice?: string;
     /** Voices this session has already given to speakers (name → voice id). */
     cast?: Record<string, unknown>;
+    /** Voices the player picked for speakers in this chat (name → voice id). */
+    picks?: Record<string, unknown>;
   };
   try {
     body = await c.req.json();
@@ -495,6 +507,10 @@ ttsRoutes.post("/sessions/:sessionId/tts", async (c) => {
       if (body.cast && typeof body.cast === "object") {
         for (const [k, v] of Object.entries(body.cast).slice(0, 64)) if (typeof v === "string" && k.length <= 32) cast[k] = v;
       }
+      const picks: Record<string, string> = {};
+      if (body.picks && typeof body.picks === "object") {
+        for (const [k, v] of Object.entries(body.picks).slice(0, 64)) if (typeof v === "string" && k.length <= 32) picks[k] = v;
+      }
       const playerVoice = parseVoice(body.playerVoice) ?? fallbackVoice;
       const world = await loadCastWorld(session.worldId);
       // Casting runs on the player's own OpenRouter key when the readout will.
@@ -507,6 +523,7 @@ ttsRoutes.post("/sessions/:sessionId/tts", async (c) => {
         playerVoice,
         playerPool: playerPrefs.pool,
         cast,
+        picks,
         emotion: emotionTaggingEnabled(),
         playerKey: playerSideKey(currentUser.id, key),
       }, `${session.worldId}|${world.stamp}`);
@@ -623,5 +640,102 @@ ttsRoutes.post("/tts/preview", async (c) => {
     await releaseConcurrency(concurrencyKey);
   }
 });
+
+// ── POST /tts/say — a line in a chosen voice: the audio studio's 配音 and 我的声音's 试一句 ──
+//
+// Read by STUDIO_TTS_MODEL (Fish Drama 3: bracketed cues are acted, not read). `keep: true` is 配音: the line is
+// also saved as the creator's own audio asset (users/<id>/audio/voice/…), listed with their music and tools'
+// runs, and usable in a card. A kept line is billed like any other line; keeping it costs nothing more.
+
+/** Longest line 试一句 reads; 配音 (kept) takes more. */
+const SAY_MAX_CHARS = 300;
+const KEEP_MAX_CHARS = 1000;
+/** A kept line, at most: 1,000 characters read aloud is about a minute of mp3. */
+const KEEP_EXPECTED_BYTES = 1024 * 1024;
+
+ttsRoutes.post("/tts/say", async (c) => {
+  const currentUser = c.get("user");
+  let body: { voice?: unknown; text?: unknown; keep?: unknown; name?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const keep = body.keep === true;
+  const max = keep ? KEEP_MAX_CHARS : SAY_MAX_CHARS;
+  const voice = parseVoice(body.voice);
+  const text = typeof body.text === "string" ? body.text.replace(/[ \t]+/g, " ").replace(/\s*\n\s*/g, "\n").trim() : "";
+  if (!voice) return c.json({ error: "Pick a voice", code: "INVALID_VOICE" }, 400);
+  if (!text || text.length > max) return c.json({ error: `Write a line (up to ${max} characters)`, code: "INVALID_TEXT" }, 400);
+
+  const rateLimit = await checkSideCallRateLimit(currentUser.id);
+  if (rateLimit) {
+    c.header("Retry-After", String(rateLimit.retryAfter));
+    return c.json({ error: rateLimit.error, code: rateLimit.code, retryAfter: rateLimit.retryAfter }, 429);
+  }
+  // A kept line is the creator's file and counts toward their storage like an upload. Checked before anything is
+  // spent: a repeated line is a free cache hit, so without this a loop could copy files past the plan's cap.
+  let storageCap = 0;
+  if (keep) {
+    const wallet = await ensureWallet(currentUser.id);
+    const plan = await resolveEffectivePlanWithEventEntitlements(currentUser.id, wallet.plan);
+    storageCap = (PLANS[plan] ?? PLANS.free).storageCap;
+    if ((await getUserStorageUsed(currentUser.id)) + KEEP_EXPECTED_BYTES > storageCap) {
+      return c.json({ error: "Storage quota exceeded", code: "STORAGE_QUOTA" }, 400);
+    }
+  }
+  const concurrencyKey = `side:${currentUser.id}`;
+  if (!(await acquireConcurrency(concurrencyKey, SIDE_CALL_MAX_CONCURRENT))) {
+    c.header("Retry-After", "5");
+    return c.json({ error: "Too many voice requests in flight. Please wait.", code: "CONCURRENT_LIMIT", retryAfter: 5 }, 429);
+  }
+  try {
+    // The creator writes their own cues for Drama 3; nothing is added to the line.
+    const result = await synthesizeAndBill({ userId: currentUser.id, sessionId: null, text, voice, model: STUDIO_TTS_MODEL });
+    if (!result.ok) {
+      if (result.retryAfter !== undefined) c.header("Retry-After", String(result.retryAfter));
+      return c.json(errorBody(result), result.status);
+    }
+    if (!keep) return c.json(result.body);
+    // ── 配音: the line becomes the creator's asset ──
+    const id = crypto.randomUUID();
+    // Named by its first line, without the acting cues.
+    const label = (typeof body.name === "string" && body.name.trim() ? body.name.trim() : text.replace(/\[[^\]]*\]/g, "").trim().split("\n")[0]!)
+      .replace(/[^a-zA-Z0-9._一-鿿぀-ヿ-]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40) || "voice";
+    const filename = `${label}.mp3`;
+    const key = `users/${currentUser.id}/audio/voice/${id}-${filename}`;
+    let size = 0;
+    try {
+      await copyObject(cacheKey(result.body.hash), key);
+      size = (await headObject(key))?.contentLength ?? 0;
+    } catch (err) {
+      console.error("[TTS] keeping a line failed:", err instanceof Error ? err.message : err);
+      return c.json({ error: "Failed to keep this line", code: "STORE_FAILED" }, 502);
+    }
+    // Checked again with the real size (another request may have filled the space meanwhile).
+    if ((await getUserStorageUsed(currentUser.id)) + size > storageCap) {
+      await deleteObject(key).catch(() => {});
+      return c.json({ error: "Storage quota exceeded", code: "STORAGE_QUOTA" }, 400);
+    }
+    await db.insert(userAssets).values({ id, userId: currentUser.id, type: "audio", filename, url: key, sizeBytes: size, mimeType: "audio/mpeg" });
+    return c.json({ ...result.body, assetId: id, filename });
+  } finally {
+    await releaseConcurrency(concurrencyKey);
+  }
+});
+
+/**
+ * A voice that just went public gets its 广场 samples made once, in every preview language, so nobody who listens
+ * waits for a synthesis or pays for one (a cached line replays free). Paid by the reviewer who approved it.
+ */
+export async function warmVoiceSamples(voiceId: string, reviewerId: string | null): Promise<void> {
+  // No reviewer (the AI look passed it): the official account pays. Without one, the samples wait for a listener.
+  const payerId = reviewerId ?? (await db.select({ id: user.id }).from(user).where(eq(user.username, WORKBENCH_OFFICIAL_USERNAME)).limit(1))[0]?.id ?? null;
+  if (!payerId) return;
+  for (const lang of ["zh", "ja", "en", "es"]) {
+    await synthesizeAndBill({ userId: payerId, sessionId: null, text: PREVIEW_LINES[lang]!, voice: voiceId })
+      .catch((err) => console.warn(`[TTS] sample ${lang} for ${voiceId} not made:`, err instanceof Error ? err.message : err));
+  }
+}
 
 export { ttsRoutes };

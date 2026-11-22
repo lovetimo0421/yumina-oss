@@ -5,6 +5,7 @@ import { TTS_VOICES, readTtsCustomVoices, resolveTtsVoiceAlias, ttsCustomVoiceLa
 import { useUserProfileStore } from "@/stores/user-profile";
 import { cn } from "@/lib/utils";
 import { VoicePickerPopover } from "./voice-picker-popover";
+import { InfoTip } from "@/components/ui/info-tip";
 
 /**
  * The voice a character (or the card's narrator) is read in when the player
@@ -71,7 +72,7 @@ export function VoiceField({
 
   return (
     <div className="space-y-2">
-      <label className="text-sm font-bold text-foreground">{label}</label>
+      <label className="flex items-center gap-1 text-sm font-bold text-foreground">{label}{hint && <InfoTip text={hint} />}</label>
       <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
@@ -94,7 +95,6 @@ export function VoiceField({
           </button>
         )}
       </div>
-      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
       {picker}
     </div>
   );

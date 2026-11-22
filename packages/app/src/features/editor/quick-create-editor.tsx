@@ -1,4 +1,5 @@
 import i18n from "@/lib/i18n";
+import { noteHeldForReview } from "@/features/collab/held-for-review";
 import { useStoryNavigation } from "@/hooks/use-story-navigation";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -37,6 +38,7 @@ import {
   FileCode,
   Lock,
   AlertCircle,
+  Zap,
 } from "lucide-react";
 import { feedback } from "@/lib/feedback";
 import { FieldError } from "@/components/ui/field-error";
@@ -66,6 +68,7 @@ import {
 import { BundleCreator, BundleImporter, BundlesSection, ImportBundleModal, WorldPublishModal } from "@/edition/slots";
 import { getEditionInfo, useEdition } from "@/edition/edition";
 import { ExportCardMenu } from "./export-card-menu";
+import { CollabBar } from "@/features/collab/collab-bar";
 import { UpdateNotifyDialog } from "./update-notify-dialog";
 import { SaveStatus } from "./save-status";
 import { ReviewStateControl } from "./review-state-control";
@@ -77,6 +80,7 @@ import { prepareStudioEntry } from "./editor-entry";
 import { AssetPicker } from "./asset-picker";
 import { EntryPortraitField } from "./components/entry-portrait-field";
 import { VoiceField } from "./components/voice-field";
+import { IllustrationLoraField } from "@/edition/slots";
 import { resolveAssetUrl } from "@/lib/asset-url";
 import { useTemplateContentPlaceholder } from "./template-placeholders";
 import {
@@ -114,6 +118,7 @@ const apiBase = import.meta.env.VITE_API_URL || "";
 // keep working; the implementation lives in lib/editor-mode.ts, where it can
 // be tested without loading this 2800-line component.
 import { getEditorMode, getGlobalEditorMode, rememberEditorChoice, saveEditorMode, saveGlobalEditorMode } from "./lib/editor-mode";
+import { setCardEditorMode } from "./lib/card-editor-mode";
 import { VisualSurfaceSwitch } from "./visual-surface-switch";
 import { useBlueprintAccess } from "@/lib/blueprint-access";
 import { saveEditorSurface } from "@/lib/editor-surface";
@@ -285,7 +290,16 @@ export function QuickCreateEditor({
   // draft variant must have a review path. (Was gated by tab position, which hid
   // the publish button for every non-first variant.)
   const { features } = useEdition();
-  const canPublishHere = features.publishing;
+  // On a card someone shared, the same gates as the other editors: publishing
+  // needs the creator's leave (and a live card), taking a copy stays theirs,
+  // and a viewer has nothing to save.
+  const cardAccess = useEditorStore((s) => s.access);
+  const cardStatus = useEditorStore((s) => s.worldStatus);
+  const readOnlyInspect = useEditorStore((s) => s.readOnlyInspect);
+  const canPublishCard = !cardAccess || cardAccess.role === "owner" || (cardAccess.canPublish && cardStatus === "published");
+  const ownsCard = !cardAccess || cardAccess.role === "owner";
+  const canPublishHere = features.publishing && !readOnlyInspect && canPublishCard;
+  const canExportHere = !features.publishing && !readOnlyInspect && ownsCard;
   const bundlesEnabled = features.bundles;
 
   // Archetype: heuristic from entries. The selector returns a string, so an
@@ -370,7 +384,7 @@ export function QuickCreateEditor({
       const id = await prepareStudioEntry(useEditorStore.getState);
       if (!id) { feedback.error(t("shell.failedEnterStudio")); return; }
       rememberEditorChoice(id, "visual");
-      useEditorStore.getState().setField("editorMode", "advanced");
+      setCardEditorMode("advanced");
       await router.navigate({ to: "/app/studio/$worldId", params: { worldId: id } });
     } catch (err) {
       console.error(err);
@@ -382,7 +396,7 @@ export function QuickCreateEditor({
     if (guestMode) { requireAuth("create worlds"); return; }
     // Commit the field being typed in first, or the save misses its last pause.
     flushPendingEditorFields();
-    setField("editorMode", "simple");
+    setCardEditorMode("simple");
     const success = await saveDraft();
     if (success) {
       const id = useEditorStore.getState().serverWorldId;
@@ -446,7 +460,7 @@ export function QuickCreateEditor({
   const handleSwitchToAdvanced = () => {
     flushPendingEditorFields();
     const store = useEditorStore.getState();
-    store.setField("editorMode", "advanced");
+    setCardEditorMode("advanced");
     const id = store.serverWorldId;
     if (id) saveEditorMode(id, "advanced");
     saveGlobalEditorMode("advanced");
@@ -487,7 +501,7 @@ export function QuickCreateEditor({
         flushPendingEditorFields();
         const state = useEditorStore.getState();
         if (!state.saving) {
-          state.setField("editorMode", "simple");
+          setCardEditorMode("simple");
           state.saveDraft().then((ok) => {
             if (ok) {
               const wid = useEditorStore.getState().serverWorldId;
@@ -543,9 +557,10 @@ export function QuickCreateEditor({
                 guestMode && "cursor-not-allowed opacity-60",
               )}
             />
-            <SaveStatus onSave={handleSave} data-tour="qc-save" className="h-9" />
+            {!readOnlyInspect && <SaveStatus onSave={handleSave} data-tour="qc-save" className="h-9" />}
           </div>
           <div className="mt-2 flex items-center justify-end gap-2">
+            <CollabBar compact className="mr-auto" />
             {canPublishHere && (
               <span data-tour="publish-control" className="inline-flex shrink-0">
                 <ReviewStateControl
@@ -556,7 +571,7 @@ export function QuickCreateEditor({
                 />
               </span>
             )}
-            {!canPublishHere && (
+            {canExportHere && (
               <ExportCardMenu worldId={serverWorldId} worldName={worldName} size="sm" disabled={saving} />
             )}
             <DropdownMenu>
@@ -588,10 +603,12 @@ export function QuickCreateEditor({
                       <Download className="mr-2 h-4 w-4" />
                       {t("shell.importBundle")}
                     </DropdownMenuItem>
-                    <DropdownMenuItem onClick={handleOpenBundleCreator}>
-                      <Upload className="mr-2 h-4 w-4" />
-                      {t("shell.exportBundle")}
-                    </DropdownMenuItem>
+                    {ownsCard && (
+                      <DropdownMenuItem onClick={handleOpenBundleCreator}>
+                        <Upload className="mr-2 h-4 w-4" />
+                        {t("shell.exportBundle")}
+                      </DropdownMenuItem>
+                    )}
                   </>
                 )}
                 <DropdownMenuItem onClick={() => window.open(DOCS_URLS.welcome, "_blank", "noopener,noreferrer")}>
@@ -679,6 +696,7 @@ export function QuickCreateEditor({
             )}
           />
           <div className="flex items-center gap-2">
+            <CollabBar />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className="hover-surface rounded-lg p-1.5 text-muted-foreground" title={t("shell.moreActions")}>
@@ -708,10 +726,12 @@ export function QuickCreateEditor({
                       <Download className="mr-2 h-4 w-4" />
                       {t("shell.importBundle")}
                     </DropdownMenuItem>
-                    <DropdownMenuItem onClick={handleOpenBundleCreator}>
-                      <Upload className="mr-2 h-4 w-4" />
-                      {t("shell.exportBundle")}
-                    </DropdownMenuItem>
+                    {ownsCard && (
+                      <DropdownMenuItem onClick={handleOpenBundleCreator}>
+                        <Upload className="mr-2 h-4 w-4" />
+                        {t("shell.exportBundle")}
+                      </DropdownMenuItem>
+                    )}
                     <DropdownMenuSeparator />
                   </>
                 )}
@@ -726,13 +746,13 @@ export function QuickCreateEditor({
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-            <SaveStatus onSave={handleSave} data-tour="qc-save" size="md" />
+            {!readOnlyInspect && <SaveStatus onSave={handleSave} data-tour="qc-save" size="md" />}
             {canPublishHere && (
               <span data-tour="publish-control" className="inline-flex">
                 <ReviewStateControl onPublish={handlePublishClick} size="md" disabled={saving} />
               </span>
             )}
-            {!canPublishHere && (
+            {canExportHere && (
               <ExportCardMenu worldId={serverWorldId} worldName={worldName} size="md" disabled={saving} />
             )}
           </div>
@@ -1183,6 +1203,14 @@ function CharacterForm({
         value={entry.voice}
         onChange={(voice) => updateEntry(entryId, { voice })}
       />
+      <IllustrationLoraField
+        variant="compact"
+        kind="character"
+        name={entry.name}
+        value={entry.imageLora}
+        portrait={entry.portrait}
+        onChange={(imageLora) => updateEntry(entryId, { imageLora })}
+      />
 
       <div>
         <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
@@ -1626,7 +1654,7 @@ function GreetingSection({ archetype }: { archetype: "chat" | "world" }) {
           <code className="rounded bg-accent px-1.5 py-0.5 font-mono text-foreground">{"{{char}}"}</code>
           {t("simple.greeting.macroChar")}
         </span>
-        <span className="ml-auto rounded-md bg-emerald-500/10 px-2 py-0.5 text-emerald-300">
+        <span className="ml-auto rounded-md bg-accent px-2 py-0.5 text-muted-foreground">
           {t("simple.greeting.lengthHint")}
         </span>
       </div>
@@ -1672,8 +1700,6 @@ function GreetingSection({ archetype }: { archetype: "chat" | "world" }) {
       {multi && (
         <p className="mt-3 rounded-lg border border-dashed border-border bg-card/30 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
           {t("simple.greeting.multiHint")}
-          <br />
-          {t("simple.greeting.advancedHint")}
         </p>
       )}
     </Card>
@@ -1748,7 +1774,7 @@ function AdvancedPromoCard({ onOpenFullEditor }: { onOpenFullEditor: () => void 
 
   const bullets = [
     { icon: Layers, text: t("simple.advancedPromo.bulletVariables") },
-    { icon: Sparkles, text: t("simple.advancedPromo.bulletBehaviors") },
+    { icon: Zap, text: t("simple.advancedPromo.bulletBehaviors") },
     { icon: BookOpen, text: t("simple.advancedPromo.bulletLorebooks") },
     { icon: FileCode, text: t("simple.advancedPromo.bulletCustomUi") },
   ];
@@ -1774,11 +1800,10 @@ function AdvancedPromoCard({ onOpenFullEditor }: { onOpenFullEditor: () => void 
   };
 
   return (
-    <div data-tour="qc-advanced-promo" className="relative overflow-hidden rounded-2xl border border-primary/25 bg-gradient-to-br from-primary/[0.08] via-card/60 to-card/60 backdrop-blur-sm">
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-primary/[0.12] to-transparent" />
+    <div data-tour="qc-advanced-promo" className="relative overflow-hidden rounded-2xl border border-border bg-card/60 backdrop-blur-sm">
       <div className="relative p-5 md:p-6">
         <div className="mb-1 flex items-center gap-2.5">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent text-muted-foreground">
             <Wand2 className="h-4 w-4" />
           </div>
           <h2 className="text-base font-bold text-foreground">{t("simple.advancedPromo.title")}</h2>
@@ -1786,33 +1811,32 @@ function AdvancedPromoCard({ onOpenFullEditor }: { onOpenFullEditor: () => void 
         <ul className="mb-5 grid gap-2 sm:grid-cols-2">
           {bullets.map(({ icon: Icon, text }) => (
             <li key={text} className="flex items-start gap-2 rounded-lg bg-card/40 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
-              <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary/70" />
+              <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               {text}
             </li>
           ))}
         </ul>
         {/* Studio leads: for most simple-mode creators "describe it, AI builds
             it" converts far better than hand-editing in advanced mode. */}
-        <div className="mb-4 rounded-xl border border-primary/20 bg-primary/[0.06] p-3.5">
+        <div className="mb-4 rounded-xl border border-border bg-card/40 p-3.5">
           <p className="mb-2.5 text-xs leading-relaxed text-foreground/90">
-            <Sparkles className="mr-1 inline h-3.5 w-3.5 align-[-2px] text-primary" />
             {t("simple.advancedPromo.studioHint")}
           </p>
           <button
             onClick={handleStudio}
             className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-xs font-bold text-primary-foreground transition-all hover:brightness-110"
           >
-            <Sparkles className="h-3.5 w-3.5" />
+            <Wand2 className="h-3.5 w-3.5" />
             {t("simple.advancedPromo.studioButton")}
           </button>
           <FieldError id="simple-studio-error" message={studioError} />
           <p className="mt-2.5 text-[11px] leading-relaxed text-muted-foreground/70">
-            💰 {t("simple.advancedPromo.reimburseNote")}
+            {t("simple.advancedPromo.reimburseNote")}
           </p>
         </div>
         <button
           onClick={handleSwitch}
-          className="flex items-center gap-1.5 rounded-lg border border-primary/30 px-4 py-2 text-xs font-semibold text-primary transition-colors hover:bg-primary/10"
+          className="flex items-center gap-1.5 rounded-lg border border-border px-4 py-2 text-xs font-semibold text-foreground transition-colors hover:bg-accent"
         >
           {t("simple.advancedPromo.switchButton")}
           <ChevronRight className="h-3.5 w-3.5" />
@@ -1861,13 +1885,14 @@ function MoreDisclosure({ onOpenFullEditor }: { onOpenFullEditor: () => void }) 
     try {
       const id = await ensureWorldId();
       if (!id) return;
-      const data = await uploadAssetWithPresignedUrl<{ url: string; galleryImages: string[] }>({
+      const data = await uploadAssetWithPresignedUrl<{ url: string; galleryImages: string[]; heldForReview?: boolean }>({
         file,
         preferredType: "image",
         prepareUrl: `${apiBase}/api/worlds/${id}/gallery/upload-url`,
         registerUrl: `${apiBase}/api/worlds/${id}/gallery/confirm`,
         registerBody: ({ key }) => ({ key }),
       });
+      noteHeldForReview(data);
       // The new tile appears in the grid below — nothing to announce.
       // The store, not this render's copy: two uploads in flight each append.
       setGalleryImages([...useEditorStore.getState().galleryImages, data.url]);
@@ -1892,6 +1917,7 @@ function MoreDisclosure({ onOpenFullEditor }: { onOpenFullEditor: () => void }) 
         setGalleryError(t("simple.removeFailed"));
         return;
       }
+      noteHeldForReview((await res.json().catch(() => ({}))).data);
       // The tile leaves the grid — that is the confirmation.
       setGalleryImages(useEditorStore.getState().galleryImages.filter((url) => url !== removedUrl));
     } catch {
@@ -1939,8 +1965,7 @@ function MoreDisclosure({ onOpenFullEditor }: { onOpenFullEditor: () => void }) 
         <div className="rounded-xl border border-border bg-card/40 p-4">
           <div className="mb-3 flex items-center gap-2">
             <ImageIcon className="h-4 w-4 text-muted-foreground" />
-            <h4 className="text-sm font-semibold">{t("simple.more.gallery.title")}</h4>
-            <span className="text-[11px] text-muted-foreground/60">{t("simple.more.gallery.hint")}</span>
+            <h4 className="text-sm font-semibold" title={t("simple.more.gallery.hint")}>{t("simple.more.gallery.title")}</h4>
           </div>
           <MediaGuidelinesNote className="mb-3" />
           <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
@@ -1982,12 +2007,11 @@ function MoreDisclosure({ onOpenFullEditor }: { onOpenFullEditor: () => void }) 
 
         {/* Language */}
         <div className="flex items-center gap-3 rounded-xl border border-border bg-card/40 p-4">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
-            <Globe className="h-4 w-4 text-primary" />
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent">
+            <Globe className="h-4 w-4 text-muted-foreground" />
           </div>
           <div className="flex-1">
-            <h4 className="text-sm font-semibold">{t("simple.more.language.title")}</h4>
-            <p className="mt-0.5 text-[11px] text-muted-foreground/60">{t("simple.more.language.hint")}</p>
+            <h4 className="text-sm font-semibold" title={t("simple.more.language.hint")}>{t("simple.more.language.title")}</h4>
           </div>
           <select
             value={language ?? ""}
@@ -2097,7 +2121,7 @@ function SettingEntryCard({
             />
           </div>
           {keywordTriggered && (
-            <p className="rounded-lg border border-amber-500/20 bg-amber-500/[0.04] px-3 py-2 text-[11px] text-amber-200/70">
+            <p className="text-[11px] text-muted-foreground">
               {t("simple.settings.keywordHint", { keywords: entry.keywords?.join(" / ") ?? "" })}
             </p>
           )}
@@ -2208,10 +2232,7 @@ function VisualLayerSection() {
           <Layers className="h-4 w-4" />
         </div>
         <div className="min-w-0 flex-1">
-          <h4 className="text-sm font-semibold text-foreground">{t("simple.more.visual.title")}</h4>
-          <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground/70">
-            {t("simple.more.visual.hint")}
-          </p>
+          <h4 className="text-sm font-semibold text-foreground" title={t("simple.more.visual.hint")}>{t("simple.more.visual.title")}</h4>
         </div>
         <span className="shrink-0 rounded-md bg-muted/30 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
           {totalFiles}
@@ -2658,10 +2679,7 @@ function SimpleBgmCard() {
           <Music className="h-4 w-4" />
         </div>
         <div className="min-w-0 flex-1">
-          <h4 className="text-sm font-semibold text-foreground">{t("simple.more.bgm.title")}</h4>
-          <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground/70">
-            {t("simple.more.bgm.hint")}
-          </p>
+          <h4 className="text-sm font-semibold text-foreground" title={t("simple.more.bgm.hint")}>{t("simple.more.bgm.title")}</h4>
         </div>
       </div>
 

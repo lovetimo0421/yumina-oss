@@ -9,6 +9,17 @@ import { Button } from "@/components/ui/button";
 import { usePersonasStore, type Persona } from "@/stores/personas";
 import { useUserAssetStore } from "@/stores/user-assets";
 import { resolveImageUrl } from "@/lib/asset-url";
+import type { ImageLoraBinding } from "@yumina/engine";
+import { useUserProfileStore } from "@/stores/user-profile";
+import { IllustrationLoraField } from "@/edition/slots";
+
+const apiBase = import.meta.env.VITE_API_URL || "";
+
+/** preferences.personaImageLoras: persona id → the LoRA story illustrations draw them with. */
+function personaLoras(preferences: Record<string, unknown> | undefined): Record<string, ImageLoraBinding> {
+  const map = preferences?.personaImageLoras;
+  return map && typeof map === "object" && !Array.isArray(map) ? map as Record<string, ImageLoraBinding> : {};
+}
 
 interface PersonaEditModalProps {
   isOpen: boolean;
@@ -33,6 +44,9 @@ export function PersonaEditModal({ isOpen, onClose, persona }: PersonaEditModalP
   const [backstory, setBackstory] = useState("");
   const [note, setNote] = useState("");
   const [entries, setEntries] = useState<(PersonaEntry & { key: string })[]>([]);
+  const preferences = useUserProfileStore((s) => s.profile?.preferences);
+  const acceptProfile = useUserProfileStore((s) => s.acceptProfile);
+  const [lora, setLora] = useState<ImageLoraBinding | undefined>(undefined);
 
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
@@ -45,6 +59,7 @@ export function PersonaEditModal({ isOpen, onClose, persona }: PersonaEditModalP
       setBackstory(persona?.backstory ?? "");
       setNote(persona?.note ?? "");
       setEntries((persona?.entries ?? []).map(entry => ({ ...entry, key: crypto.randomUUID() })));
+      setLora(persona ? personaLoras(useUserProfileStore.getState().profile?.preferences)[persona.id] : undefined);
       setIsSaving(false);
       setUploadingAvatar(false);
       setAvatarError(null);
@@ -98,6 +113,22 @@ export function PersonaEditModal({ isOpen, onClose, persona }: PersonaEditModalP
         : await createPersona(input);
 
       if (result) {
+        // The persona's illustration LoRA lives in the account's preferences, by persona id.
+        const saved = personaLoras(preferences);
+        if (JSON.stringify(saved[result.id]) !== JSON.stringify(lora)) {
+          const next = { ...saved };
+          if (lora) next[result.id] = lora;
+          else delete next[result.id];
+          const res = await fetch(`${apiBase}/api/users/me`, {
+            method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ preferences: { personaImageLoras: next } }),
+          }).catch(() => null);
+          if (!res?.ok) {
+            setFormError(t("persona.modal.updateFailed"));
+            return;
+          }
+          acceptProfile({ preferences: { ...preferences, personaImageLoras: next } });
+        }
         // No pill: the modal closes onto the persona list, which now holds it.
         onClose();
       } else {
@@ -279,6 +310,7 @@ export function PersonaEditModal({ isOpen, onClose, persona }: PersonaEditModalP
                       placeholder={t("persona.modal.appearancePlaceholder")}
                       className="min-h-[120px] w-full resize-none rounded-xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm leading-relaxed text-white shadow-sm placeholder:text-sub/50 transition-all focus-visible:border-gold/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gold/50"
                     />
+                    <IllustrationLoraField variant="compact" kind="persona" name={name.trim()} value={lora} onChange={setLora} />
                   </div>
 
                   {/* Personality */}

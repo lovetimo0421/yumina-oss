@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 150" width="720" height="150" font-family="Inter, system-ui, sans-serif">
+  <title>Temperature: how adventurous the writing is</title>
+  <defs>
+    <linearGradient id="t" x1="0" x2="1">
+      <stop offset="0" stop-color="#5b6b8a"/>
+      <stop offset="0.5" stop-color="#C9A25E"/>
+      <stop offset="1" stop-color="#b54a4a"/>
+    </linearGradient>
+  </defs>
+  <rect x="60" y="62" width="600" height="14" rx="7" fill="url(#t)" opacity="0.9"/>
+  <!-- zone markers -->
+  <g stroke="#9a9a9a" stroke-width="1" opacity="0.7">
+    <line x1="60" y1="52" x2="60" y2="86"/>
+    <line x1="180" y1="52" x2="180" y2="86"/>
+    <line x1="240" y1="52" x2="240" y2="86"/>
+    <line x1="480" y1="52" x2="480" y2="86"/>
+    <line x1="540" y1="52" x2="540" y2="86"/>
+    <line x1="660" y1="52" x2="660" y2="86"/>
+  </g>
+  <g fill="#bdbdbd" font-size="13" text-anchor="middle">
+    <text x="60" y="104">0.5</text>
+    <text x="180" y="104">0.7</text>
+    <text x="240" y="104">0.8</text>
+    <text x="360" y="104">1.0</text>
+    <text x="480" y="104">1.2</text>
+    <text x="540" y="104">1.3</text>
+    <text x="660" y="104">1.5</text>
+  </g>
+  <!-- default marker -->
+  <circle cx="360" cy="69" r="10" fill="#1a1a1a" stroke="#f0f0f0" stroke-width="2.5"/>
+  <text x="360" y="40" fill="#f0f0f0" font-size="14" font-weight="600" text-anchor="middle">default 1.0</text>
+  <!-- zone labels -->
+  <g font-size="14" text-anchor="middle">
+    <text x="120" y="134" fill="#8fa3c7">mechanical, repeats itself</text>
+    <text x="360" y="134" fill="#C9A25E" font-weight="600">where almost everyone plays</text>
+    <text x="600" y="134" fill="#d98a8a">wild, starts to fall apart</text>
+  </g>
+</svg>

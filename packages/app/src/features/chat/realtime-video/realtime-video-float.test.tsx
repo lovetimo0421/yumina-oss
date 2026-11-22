@@ -41,7 +41,7 @@ async function harness(url = "http://localhost", mobile = false, touch = false) 
       clearError: noop, stopGeneration: noop, setSession: noop, setMessages: noop, setGameState: noop,
       clearPendingChoices: noop, loadSession: noop },
     config: { selectedModel: "fixture", modelPool: [], setConfig: noop },
-    ui: { theaterMode: false, playZoomPercent: 100, openSceneGallery: noop },
+    ui: { theaterMode: false, openSceneGallery: noop },
     // A player who turned scene video on (it stays hidden until they do).
     userProfile: { profile: { filmOffered: true, preferences: { autoFullscreenOnPlay: false, experimentalFilm: true } } },
     extensions: { installState: { "session-memory": "installed", "state-update-guard": "installed" } },
@@ -52,7 +52,8 @@ async function harness(url = "http://localhost", mobile = false, touch = false) 
   };
   dom.window.scrollTo = noop;
   const globals = { window: dom.window, document: dom.window.document, localStorage: dom.window.localStorage,
-    navigator: dom.window.navigator, HTMLElement: dom.window.HTMLElement, Element: dom.window.Element,
+    navigator: dom.window.navigator, location: dom.window.location,
+    HTMLElement: dom.window.HTMLElement, Element: dom.window.Element,
     HTMLInputElement: dom.window.HTMLInputElement,
     Node: dom.window.Node, Event: dom.window.Event, CustomEvent: dom.window.CustomEvent,
     MouseEvent: dom.window.MouseEvent, PointerEvent: dom.window.MouseEvent, MutationObserver: dom.window.MutationObserver,
@@ -92,6 +93,9 @@ async function harness(url = "http://localhost", mobile = false, touch = false) 
       ]) if (path.endsWith(`/src/${file}`)) return `export const ${name} = Object.assign((selector) => selector(globalThis.__videoFloatFixture.${key}), { getState: () => globalThis.__videoFloatFixture.${key} });`;
       if (path.endsWith("/src/edition/slots.state.ts")) return `export const useCreditStore = (selector) => selector(globalThis.__videoFloatFixture.credit); export const fetchCreditsForChat = () => {};`;
       if (path.endsWith("/src/edition/edition.ts")) return `export const useFeature = () => false;`;
+      // The app's i18next instance (reached through feedback toasts) wires the
+      // real react-i18next plugin, which the fixture above replaces.
+      if (path.endsWith("/src/lib/i18n.ts")) return `export default { t: (key) => globalThis.__videoFloatFixture.translate(String(key).replace(/^[a-z]+:/i, "")), language: "en", resolvedLanguage: "en", on() {}, off() {}, changeLanguage: async () => {} };`;
       if (path.endsWith("/src/lib/utils.ts")) return `export const safeParseWorldDef = (schema) => schema; export const cn = (...items) => items.filter(Boolean).join(" ");`;
       if (path.endsWith("/src/hooks/use-fullscreen.ts")) return `export const useImmersiveMode = () => ({ toggle: () => {} });`;
       if (path.endsWith("/src/features/chat/scene-gallery.tsx")) return `export const SceneGalleryDialog = () => null; export const useSceneGallery = () => ({ images: [{ id: "one" }], revealed: new Set(["one"]) });`;
@@ -104,7 +108,7 @@ async function harness(url = "http://localhost", mobile = false, touch = false) 
         ["features/chat/share-playthrough-modal.tsx", ["SharePlaythroughModal"]], ["features/chat/model-browser.tsx", ["ModelBrowser"]],
         ["features/chat/use-playtime-tracker.ts", ["usePlaytimeTracker"]],
         ["lib/tts-stop-signal.ts", ["haltTts"]], ["lib/voice-input.ts", ["cancelVoiceRecording"]],
-        ["edition/slots.tsx", ["TipModal"]],
+        ["edition/slots.tsx", ["TipModal", "StoryPublishHost", "openStoryPublish"]],
       ] as const) if (path.endsWith(`/src/${file}`)) return names.map((name) => `export const ${name} = () => null;`).join("\n");
     } }],
   });
@@ -198,6 +202,20 @@ test("legacy callers keep their launcher and explicit opening is retained", asyn
     await h.render(createElement(h.RealtimeVideoFloat, { key: "explicit", sessionId: "explicit", defaultOpen: true, suppressIdleLauncher: true }));
     assert.ok(button("Close window (the film keeps going)"));
     assert.equal(h.controller("explicit").calls.start, 0);
+  } finally { await h.close(); }
+});
+
+test("a card filming on its own stage keeps the host window away, except to ask first", async () => {
+  const h = await harness();
+  try {
+    h.controller("stage").setState({ status: "live", engine: "shorts", cardStage: true });
+    await h.render(createElement(h.RealtimeVideoFloat, { sessionId: "stage", defaultOpen: true, openRequest: { sessionId: "stage", nonce: 1 } }));
+    assert.equal(document.getElementById("root")!.childElementCount, 0, "no launcher or window over the card's stage");
+    await act(async () => h.controller("stage").setState({ cardStage: false }));
+    assert.ok(button((en.film as Record<string, string>).launcherTitle), "without a stage the host's launcher is back, not its window");
+    await act(async () => h.controller("stage").setState({ cardStage: true }));
+    await act(async () => h.controller("stage").setState({ status: "idle", consent: true }));
+    assert.match(document.getElementById("root")!.textContent!, new RegExp(String((en.film as Record<string, string>).consentTitle).slice(0, 12)));
   } finally { await h.close(); }
 });
 

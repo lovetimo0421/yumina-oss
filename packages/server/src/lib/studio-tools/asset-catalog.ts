@@ -1,6 +1,7 @@
-import { and, asc, count, eq, ilike, inArray } from "drizzle-orm";
+import { and, asc, count, eq, ilike, inArray, or } from "drizzle-orm";
 import { db } from "../../db/index.js";
-import { assetFolders, userAssets, worldFolderBindings, worlds } from "../../db/schema.js";
+import { assetFolders, userAssets, worldFolderBindings } from "../../db/schema.js";
+import { canEdit, getWorldAccess } from "../world-collaborators.js";
 import { z } from "zod";
 const querySchema = z.object({
     scope: z.enum(["bound", "all"]).optional(),
@@ -25,23 +26,38 @@ export function descendantFolderIds(folders: Array<{
     }
     return [...ids];
 }
+/**
+ * The assets the user can reference while working on this world. The creator
+ * sees their whole library. An editor collaborator sees their own library plus
+ * the card's bound folders (which belong to the creator) — never the rest of
+ * the creator's library.
+ */
 export async function loadAssetCatalog(userId: string, worldId: string, input: unknown = {}) {
     const options = querySchema.parse(input);
-    const [owned] = await db.select({ id: worlds.id }).from(worlds)
-        .where(and(eq(worlds.id, worldId), eq(worlds.creatorId, userId)));
-    if (!owned)
+    const access = await getWorldAccess(userId, worldId);
+    if (!canEdit(access))
         throw new Error("World not found or not authorized");
-    const [folders, bindings] = await Promise.all([
-        db.select({ id: assetFolders.id, name: assetFolders.name, parentFolderId: assetFolders.parentFolderId })
-            .from(assetFolders).where(eq(assetFolders.userId, userId)).orderBy(asc(assetFolders.name), asc(assetFolders.id)),
+    const creatorId = access.creatorId;
+    const owners = creatorId === userId ? [userId] : [userId, creatorId];
+    const [allFolders, bindings] = await Promise.all([
+        db.select({ id: assetFolders.id, name: assetFolders.name, parentFolderId: assetFolders.parentFolderId, userId: assetFolders.userId })
+            .from(assetFolders).where(inArray(assetFolders.userId, owners)).orderBy(asc(assetFolders.name), asc(assetFolders.id)),
         db.select({ folderId: worldFolderBindings.folderId }).from(worldFolderBindings).where(eq(worldFolderBindings.worldId, worldId)),
     ]);
-    const boundIds = descendantFolderIds(folders, bindings.map(b => b.folderId));
+    const boundIds = descendantFolderIds(allFolders, bindings.map(b => b.folderId));
+    // The creator's folders are visible to a collaborator only when bound to this card.
+    const folders = allFolders.filter(f => f.userId === userId || boundIds.includes(f.id))
+        .map(({ userId: _owner, ...f }) => f);
     if (options.folderId && !folders.some(f => f.id === options.folderId))
         throw new Error("Folder not found or not authorized");
     const scope = options.scope ?? (boundIds.length ? "bound" : "all");
     const selected = options.folderId ? descendantFolderIds(folders, [options.folderId]) : scope === "bound" ? boundIds : undefined;
-    const filter = and(eq(userAssets.userId, userId), selected ? inArray(userAssets.folderId, selected) : undefined, options.query ? ilike(userAssets.filename, `%${options.query.replace(/[\\%_]/g, "\\$&")}%`) : undefined);
+    // Every selected folder is visible, so its assets are; a collaborator's
+    // unfiltered "all" is their own library plus the card's bound folders.
+    const ownerFilter = creatorId === userId || selected
+        ? inArray(userAssets.userId, owners)
+        : or(eq(userAssets.userId, userId), boundIds.length ? and(eq(userAssets.userId, creatorId), inArray(userAssets.folderId, boundIds)) : undefined);
+    const filter = and(ownerFilter, selected ? inArray(userAssets.folderId, selected) : undefined, options.query ? ilike(userAssets.filename, `%${options.query.replace(/[\\%_]/g, "\\$&")}%`) : undefined);
     const [rows, totals] = await Promise.all([
         db.select({ id: userAssets.id, filename: userAssets.filename, type: userAssets.type, folderId: userAssets.folderId })
             .from(userAssets).where(filter).orderBy(asc(userAssets.filename), asc(userAssets.id)).offset(options.offset).limit(options.limit),

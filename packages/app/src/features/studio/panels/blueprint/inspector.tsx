@@ -5,6 +5,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, Bot, Check as CheckIcon, ChevronRight, Copy, FolderOpen, History, Images, Maximize2, MoreHorizontal, Trash2, Upload, X } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { GenerateActions, assetOf } from "./generate-actions";
 import { Check, Field, Group, More, NumberInput, OpenToolButton, Row, Segmented, Stepper, Switch, inputClass, labelClass, rowControl } from "./controls";
 import { parseEditedValue } from "./variable-value";
 import { CardContextForm, CardNarratorForm, HistoryWindowControl } from "./context-forms";
@@ -44,15 +45,19 @@ import type { PlaceAiRow } from "./place-ais";
 import { AiCustomForm } from "./ai-custom-form";
 import { ReplyRulesForm } from "./reply-rules-form";
 import { LiveCanonGroup, useLiveCanonAllowed } from "./live-canon";
+import { MultiplayerGroup } from "./multiplayer-group";
 import type { AiType } from "./add-ai";
 import { ModuleActivationEditor } from "@/features/editor/components/module-activation-editor";
 import { ModuleContents } from "@/features/editor/components/module-contents";
 import { ShareModuleButton } from "@/edition/slots";
 import { EntryPortraitField } from "@/features/editor/components/entry-portrait-field";
 import { EntryPortraitVideoField } from "@/features/editor/components/entry-portrait-video-field";
+import { EntryLiveCharacterField } from "@/features/editor/components/entry-live-character-field";
 import { VoiceField } from "@/features/editor/components/voice-field";
-import { VariantTabBar } from "@/features/editor/variant-tab-bar";
+import { IllustrationLoraField } from "@/edition/slots";
 import { OverviewSection } from "@/features/editor/sections/overview";
+import { ReadOnlyForm } from "./read-only-form";
+import { textFieldKey } from "@yumina/engine";
 
 /** Emit-chain edges are derived from an upstream behavior's emit effect plus
  *  the downstream WHEN pattern — they carry no payload of their own and are
@@ -88,6 +93,12 @@ const SECTION_OPTIONS = [
  *  are 12px because they are labels with values; prose is not, and this is the
  *  same size and leading the board's own editor sets it in. */
 const proseClass = "flex-1 resize-none text-[15px] leading-[26px] placeholder:whitespace-pre-line";
+/** The entry's own text: a page being written on. Focused it keeps its
+ *  colour and only its edge brightens; lit gold like a small control, the
+ *  light jumped from the row to the box as the row opened (owner, 11/15). */
+const proseInputClass = "studio-control w-full rounded-lg border px-2.5 py-1.5 text-foreground placeholder:text-foreground/30 focus:border-white/[0.18] focus:outline-none";
+/** How tall an entry's text grows before it scrolls inside itself. */
+const ENTRY_TEXT_MAX = 560;
 
 // ── Per-kind forms ──────────────────────────────────────────────────
 
@@ -115,6 +126,14 @@ export function AudioTrackForm({ trackId, onDrill }: { trackId: string; onDrill:
   const kinds = (["bgm", "ambient", "sfx"] as const).map((kind) => ({ value: kind, label: t(`audio.trackTypes.${kind}` as never) as string }));
   return (
     <div className="space-y-1">
+      <GenerateActions
+        target={{ kind: "audio", trackId, type: track.type }}
+        context={{ title: track.name, text: track.aiNote }}
+        value={track.url}
+        media="audio"
+        onPut={(url) => updateAudioTrack(trackId, { url })}
+        className="pb-2"
+      />
       <Group title="">
         <Row label={t("audio.trackType")} hint={t("blueprint.tips.audioType")} wide>
           <Segmented value={track.type} options={kinds} label={t("audio.trackType")} onChange={(type) => updateAudioTrack(trackId, { type })} />
@@ -133,7 +152,7 @@ export function AudioTrackForm({ trackId, onDrill }: { trackId: string; onDrill:
           placeholder={t(isSfx ? "audio.aiNoteSfxPlaceholder" : "audio.aiNotePlaceholder")}
           className={inputClass}
         />
-        <p className={cn("pt-1 text-[11px]", hasCue ? "text-[#f0c674]/80" : "text-foreground/46")}>{t(hasCue ? "audio.aiPickOn" : "audio.aiPickOff")}</p>
+        <p className={cn("pt-1 text-[11px]", hasCue ? "text-foreground/70" : "text-foreground/46")}>{t(hasCue ? "audio.aiPickOn" : "audio.aiPickOff")}</p>
       </Group>
       <div className="pt-4"><OpenToolButton labelKey="studio.panels.audio" onOpen={() => onDrill("audio")} /></div>
     </div>
@@ -217,6 +236,13 @@ export function SceneImageForm({ sceneImageId, onDrill }: { sceneImageId: string
           {t("sceneImages.browseAssets")}
         </button>
       </div>
+      <GenerateActions
+        target={{ kind: "scene-image", sceneImageId }}
+        context={{ title: image.name, text: image.scene }}
+        value={image.url}
+        media="image"
+        onPut={(url) => commit({ url })}
+      />
       <input
         ref={fileRef}
         type="file"
@@ -256,10 +282,10 @@ export function SceneImageForm({ sceneImageId, onDrill }: { sceneImageId: string
           placeholder={t("sceneImages.scenePlaceholder")}
           className={cn(inputClass, "min-h-20 resize-y")}
         />
-        <p className={cn("pt-1 text-[11px] leading-relaxed", auto ? "text-[#f0c674]/80" : "text-foreground/46")}>
+        <p className={cn("pt-1 text-[11px] leading-relaxed", auto ? "text-foreground/70" : "text-foreground/46")}>
           {held ? t("sceneImages.autoHeld") : auto ? t("sceneImages.autoOn") : image.scene.trim() ? t("sceneImages.autoNoPicture") : t("sceneImages.autoOff")}
           {held && (
-            <button type="button" onClick={() => commit({ allowAiControl: undefined })} className="ml-1.5 font-medium text-[#f5d48a] hover:underline">
+            <button type="button" onClick={() => commit({ allowAiControl: undefined })} className="ml-1.5 font-medium text-foreground underline-offset-2 hover:underline">
               {t("sceneImages.autoReenable")}
             </button>
           )}
@@ -323,7 +349,7 @@ export function SceneImageForm({ sceneImageId, onDrill }: { sceneImageId: string
             }}
             className={cn(pickButton, "shrink-0")}
           >
-            {copied ? <CheckIcon className="h-3.5 w-3.5 text-[#f5d48a]" /> : <Copy className="h-3.5 w-3.5" />}
+            {copied ? <CheckIcon className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
             {t("sceneImages.copyCode")}
           </button>
         </div>
@@ -370,7 +396,7 @@ export function GreetingForm({ entryId, onDrill }: { entryId: string; onDrill: (
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-white/[0.06] bg-white/[0.035] px-2.5 py-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
           <span className="text-[11px] text-foreground/55">{t("firstMessage.initialVarsTitle")}</span>
           {seeded === 0
-            ? <span className="text-[11px] text-foreground/40">{t("firstMessage.noInitialVars")}</span>
+            ? <span className="text-[11px] text-foreground/40" title={t("firstMessage.noInitialVars")}>{t("blueprint.insp.noSeeded")}</span>
             : <dl className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
                 {Object.entries(entry.initialVariables ?? {}).map(([variableId, value]) => {
                   const variable = variables.find((v) => v.id === variableId) ?? variables.find((v) => v.name === variableId);
@@ -406,9 +432,11 @@ export function GreetingForm({ entryId, onDrill }: { entryId: string; onDrill: (
           value={entry.content}
           onCommit={(content) => updateEntry(entryId, { content })}
           syncKey={entryId}
+          sharedKey={textFieldKey({ kind: "row", key: "entries", id: entryId, field: "content" })}
           placeholder={guidance || t("blueprint.insp.openingPlaceholder")}
+          autoGrow={{ max: ENTRY_TEXT_MAX }}
           {...imageInsert.dropProps}
-          className={cn(inputClass, proseClass, "min-h-40", imageInsert.dragOver && "border-amber-400/70 ring-2 ring-amber-400/40")}
+          className={cn(proseInputClass, proseClass, "min-h-40 flex-none", imageInsert.dragOver && "border-amber-400/70 ring-2 ring-amber-400/40")}
         />
         {imageInsert.overlays}
       </div>
@@ -416,68 +444,35 @@ export function GreetingForm({ entryId, onDrill }: { entryId: string; onDrill: (
   );
 }
 
-function EntryDeliverySummary({ entry }: { entry: WorldEntry }) {
+/** When the entry reaches the AI, in the few words its row on the board
+ *  uses: the line that opens the settings deciding it. The scope notes are
+ *  for inside, under it. */
+function useEntryDelivery(entry: WorldEntry | undefined): { label: string; notes: string[] } {
   const { t } = useTranslation("editor");
   const worldbooks = useEditorStore((s) => s.worldDraft.worldbooks);
   const loreUiBindings = useEditorStore((s) => s.worldDraft.loreUiBindings);
+  if (!entry) return { label: "", notes: [] };
   const delivery = getEntryDeliverySummary(entry, { worldbooks, loreUiBindings });
-  const hasScope = delivery.moduleScoped || delivery.frontendScoped;
-  // Inside an AI's frame an entry is what that one AI knows: say whose it
-  // is, not "the story AI" and "while its situation is on".
+  const keywordList = (entry.keywords ?? []).join(", ");
   const owner = entry.worldbookId ? (worldbooks ?? []).find((b) => b.id === entry.worldbookId) : undefined;
   const aiName = owner?.station ? owner.station.name?.trim() || owner.name : null;
-  let summary: string;
-  switch (delivery.mode) {
-    case "unplaced":
-      summary = t("blueprint.entry.deliveryUnplaced");
-      break;
-    case "disabled":
-      summary = t("blueprint.entry.deliveryDisabled", { defaultValue: "已停用，不会自动提供给故事 AI。" });
-      break;
-    case "always":
-      summary = aiName
-        ? t("blueprint.entry.deliveryAiAlways", { name: aiName })
-        : hasScope
-        ? t("blueprint.entry.deliveryAlwaysScoped", { defaultValue: "在下方范围内，每次回复都会提供给故事 AI。" })
-        : t("blueprint.entry.deliveryAlways", { defaultValue: "每次回复都会提供给故事 AI。" });
-      break;
-    case "keywords":
-      summary = t("blueprint.entry.deliveryKeywords", { defaultValue: "匹配到关键词时，提供给故事 AI。" });
-      break;
-    case "conditions":
-      summary = delivery.conditionLogic === "any"
-        ? t("blueprint.entry.deliveryConditionsAny", { count: delivery.conditionCount, defaultValue: "{{count}} 个变量条件中，任意一个满足时提供给故事 AI。" })
-        : t("blueprint.entry.deliveryConditionsAll", { count: delivery.conditionCount, defaultValue: "{{count}} 个变量条件全部满足时，提供给故事 AI。" });
-      break;
-    case "keywords-and-conditions":
-      summary = delivery.conditionLogic === "any"
-        ? t("blueprint.entry.deliveryKeywordsConditionsAny", { count: delivery.conditionCount, defaultValue: "关键词匹配，且 {{count}} 个变量条件中任意一个满足时，提供给故事 AI。" })
-        : t("blueprint.entry.deliveryKeywordsConditionsAll", { count: delivery.conditionCount, defaultValue: "关键词匹配，且 {{count}} 个变量条件全部满足时，提供给故事 AI。" });
-      break;
-    case "frontend":
-      summary = t("blueprint.entry.deliveryFrontend", { defaultValue: "由前端中对应的元素控制是否提供给故事 AI。" });
-      break;
-    default:
-      summary = t("blueprint.entry.deliveryUnconfigured", { defaultValue: "尚未设置自动发送方式。可开启始终发送，或设置关键词、变量条件或前端连接。" });
+  const label = delivery.mode === "disabled" || entry.enabled === false ? t("blueprint.writing.deliveryOff")
+    : delivery.mode === "unplaced" ? t("blueprint.writing.deliveryUnplaced")
+    : (delivery.mode === "keywords" || delivery.mode === "keywords-and-conditions") && keywordList
+      ? t("blueprint.writing.deliveryKeywords", { keywords: keywordList })
+    : delivery.mode === "conditions" ? t("blueprint.writing.deliveryConditions", { count: delivery.conditionCount })
+    : delivery.mode === "frontend" ? t("blueprint.writing.deliveryFrontend")
+    : delivery.mode === "always" ? t("blueprint.writing.deliveryAlways")
+    : t("blueprint.writing.deliveryUnset");
+  const notes: string[] = [];
+  if (delivery.mode !== "disabled" && delivery.moduleScoped) {
+    notes.push(aiName ? t("blueprint.entry.deliveryAiOnly", { name: aiName }) : t("blueprint.entry.deliveryModuleScope"));
   }
-  return (
-    <div className="space-y-1 rounded-lg border border-white/[0.06] bg-white/[0.035] px-2.5 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]" aria-live="polite">
-      <p className="text-xs leading-relaxed text-foreground/85">{summary}</p>
-      {delivery.mode !== "disabled" && delivery.moduleScoped && (
-        <p className="text-[11px] leading-relaxed text-foreground/45">{aiName
-          ? t("blueprint.entry.deliveryAiOnly", { name: aiName })
-          : t("blueprint.entry.deliveryModuleScope", { defaultValue: "仅在所属模块生效期间发送。" })}</p>
-      )}
-      {delivery.mode !== "disabled" && delivery.frontendScoped && (
-        <p className="text-[11px] leading-relaxed text-foreground/45">{delivery.frontendConditions
-          ? t("blueprint.entry.deliveryFrontendConditions", { defaultValue: "还需对应前端元素激活，并满足连接上的条件。" })
-          : t("blueprint.entry.deliveryFrontendScope", { defaultValue: "仅在对应前端元素激活期间发送。" })}</p>
-      )}
-      {delivery.secondaryKeywords && (
-        <p className="text-[11px] leading-relaxed text-foreground/45">{t("blueprint.entry.deliverySecondary", { defaultValue: "同时遵循辅助关键词与匹配设置。" })}</p>
-      )}
-    </div>
-  );
+  if (delivery.mode !== "disabled" && delivery.frontendScoped) {
+    notes.push(delivery.frontendConditions ? t("blueprint.entry.deliveryFrontendConditions") : t("blueprint.entry.deliveryFrontendScope"));
+  }
+  if (delivery.secondaryKeywords) notes.push(t("blueprint.entry.deliverySecondary"));
+  return { label, notes };
 }
 
 export function EntryForm({ entryId }: { entryId: string }) {
@@ -487,6 +482,7 @@ export function EntryForm({ entryId }: { entryId: string }) {
   // The same per-entry guidance the board and the classic editor show.
   const guidance = useTemplateContentPlaceholder(entry ?? { tags: undefined });
   const liveCanonOn = useLiveCanonAllowed(useEditorStore((s) => s.serverWorldId));
+  const delivery = useEntryDelivery(entry);
   if (!entry) return null;
   // Only once the card lets players edit their run (or this setting already
   // says it may be edited): on every other card it was a switch on every
@@ -495,41 +491,31 @@ export function EntryForm({ entryId }: { entryId: string }) {
     && (liveCanonOn || entry.sessionEditPolicy === "content");
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
-      {/* What governs this text, above the text.
+      {/* The text first, as tall as it is: the one thing every entry is for.
+          No label over it, it is the entry. */}
+      <DebouncedTextarea
+        id={`studio-entry-content-${entryId}`}
+        aria-label={t("entries.content")}
+        value={entry.content}
+        onCommit={(content) => updateEntry(entryId, { content })}
+        syncKey={entryId}
+        sharedKey={textFieldKey({ kind: "row", key: "entries", id: entryId, field: "content" })}
+        placeholder={guidance || t("blueprint.rowEdit.bodyPlaceholder")}
+        autoGrow={{ max: ENTRY_TEXT_MAX }}
+        className={cn(proseInputClass, proseClass, "min-h-[52px] flex-none")}
+      />
 
-          It all used to sit underneath: a read-only line saying when the
-          entry reaches the AI, and the controls that decide it folded away
-          below that. A setting a creator has to scroll past the thing it
-          governs to reach, and then expand, reads as something the board
-          would rather they did not touch — and "when does this reach the
-          AI" is the one question every entry has to answer. */}
-      <div className="space-y-2">
-        <EntryDeliverySummary entry={entry} />
-          {/* Shut for the common case (every turn, nothing to explain) and open
-            the moment the answer is anything else: an entry gated on keywords
-            or conditions is exactly the one whose creator needs to see the
-            gate without hunting for it. */}
-        <div data-learn="entry-delivery"><More
+      {/* When it reaches the AI: one line, in the words its row uses, that
+          opens onto the settings deciding it. Shut for the common case and
+          open when the answer is anything else, so a gated entry shows its
+          gate. */}
+      <div data-learn="entry-delivery" className="-mt-2"><More
           key={entryId}
-          label={t("blueprint.entry.adjustDelivery", { defaultValue: "调整生效方式" })}
+          label={delivery.label}
           defaultOpen={!isAlwaysSendEntry(entry) || entry.enabled === false}
         >
-          <Group title={t("blueprint.insp.reachesPrompt")} hint={t("blueprint.tips.reaches")}>
-            <Row label={t("blueprint.rowEdit.sectionLabel")} hint={t("blueprint.tips.section")}>
-              <select
-                aria-label={t("blueprint.rowEdit.sectionLabel")}
-                value={entry.section ?? "system-presets"}
-                onChange={(e) => {
-                  const section = e.target.value as WorldEntry["section"];
-                  updateEntry(entryId, { section, ...deriveSectionDefaultsForEntry(entry, section) });
-                }}
-                className={rowControl}
-              >
-                {SECTION_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>{t(o.labelKey as never)}</option>
-                ))}
-              </select>
-            </Row>
+          {delivery.notes.map((note) => <p key={note} className="text-[11px] leading-relaxed text-foreground/45">{note}</p>)}
+          <Group title="">
             {/* Variable conditions gate the entry whatever this flag says (a
                 wire from a variable only adds a condition and leaves the flag
                 alone, so pulling the wire gives the entry back as it was). A
@@ -558,7 +544,7 @@ export function EntryForm({ entryId }: { entryId: string }) {
               />
             </Field>
             {(entry.conditions?.length ?? 0) > 0 && (
-              <Row label={t("blueprint.insp.conditionsWired", { count: entry.conditions.length })} wide>
+              <Row label={t("blueprint.insp.conditionsWired", { count: entry.conditions.length })} hint={t("blueprint.insp.conditionsWiredHint")} wide>
                 {entry.conditions.length > 1 && (
                   <Segmented<"all" | "any">
                     label={t("blueprint.insp.conditionsWired", { count: entry.conditions.length })}
@@ -572,6 +558,21 @@ export function EntryForm({ entryId }: { entryId: string }) {
           </Group>
 
           <More>
+            <Row label={t("blueprint.rowEdit.sectionLabel")} hint={t("blueprint.tips.section")}>
+              <select
+                aria-label={t("blueprint.rowEdit.sectionLabel")}
+                value={entry.section ?? "system-presets"}
+                onChange={(e) => {
+                  const section = e.target.value as WorldEntry["section"];
+                  updateEntry(entryId, { section, ...deriveSectionDefaultsForEntry(entry, section) });
+                }}
+                className={rowControl}
+              >
+                {SECTION_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{t(o.labelKey as never)}</option>
+                ))}
+              </select>
+            </Row>
             <Field label={t("entries.secondaryKeywords")} hint={t("blueprint.tips.secondary")}>
               <DebouncedInput
                 value={(entry.secondaryKeywords ?? []).join(", ")}
@@ -629,21 +630,6 @@ export function EntryForm({ entryId }: { entryId: string }) {
             </Row>
           </More>
           </More></div>
-      </div>
-
-      {/* Open in its row on the board, the row is as tall as the text needs
-          (openEntryEditorHeight), so the box gives up its floor there. */}
-      <div className="flex min-h-[240px] flex-1 flex-col gap-1.5 [[data-canvas-writing-editor]_&]:min-h-0">
-        <label htmlFor={`studio-entry-content-${entryId}`} className={labelClass}>{t("entries.content")}</label>
-        <DebouncedTextarea
-          id={`studio-entry-content-${entryId}`}
-          value={entry.content}
-          onCommit={(content) => updateEntry(entryId, { content })}
-          syncKey={entryId}
-          placeholder={guidance || t("blueprint.rowEdit.bodyPlaceholder")}
-          className={cn(inputClass, proseClass, "min-h-32 [[data-canvas-writing-editor]_&]:min-h-[52px]")}
-        />
-      </div>
 
       {/* A character's portrait, moving portrait and voice: the one place on
           the board to set them (the simple and full editors mount the same
@@ -655,12 +641,36 @@ export function EntryForm({ entryId }: { entryId: string }) {
           variant="row"
           value={entry.portrait}
           onChange={(portrait) => updateEntry(entryId, { portrait })}
+          extra={<GenerateActions
+            target={{ kind: "portrait", entryId }}
+            context={{ title: entry.name, text: entry.content }}
+            value={entry.portrait}
+            media="image"
+            onPut={(portrait) => updateEntry(entryId, { portrait })}
+          />}
         />
       )}
       {entry.role === "character" && (
         <EntryPortraitVideoField
           value={entry.portraitVideo}
           onChange={(portraitVideo) => updateEntry(entryId, { portraitVideo })}
+          // A clip is made from the portrait (its first frame): without one
+          // there is nothing to generate from yet, only clips to refine.
+          clipExtra={(clip) => <GenerateActions
+            target={{ kind: "portrait-video", entryId, slot: clip }}
+            context={{ title: entry.name, text: entry.content }}
+            value={entry.portraitVideo?.[clip]}
+            generate={!!assetOf(entry.portrait)}
+            source={entry.portrait}
+            media="video"
+            onPut={(ref) => updateEntry(entryId, { portraitVideo: { ...useEditorStore.getState().worldDraft.entries.find((e) => e.id === entryId)?.portraitVideo, [clip]: ref } })}
+          />}
+        />
+      )}
+      {entry.role === "character" && (
+        <EntryLiveCharacterField
+          value={entry.portraitLive}
+          onChange={(portraitLive) => updateEntry(entryId, { portraitLive })}
         />
       )}
       {entry.role === "character" && (
@@ -669,6 +679,15 @@ export function EntryForm({ entryId }: { entryId: string }) {
           title={t("blueprint.voice.character", { name: entry.name })}
           value={entry.voice}
           onChange={(voice) => updateEntry(entryId, { voice })}
+        />
+      )}
+      {entry.role === "character" && (
+        <IllustrationLoraField
+          kind="character"
+          name={entry.name}
+          value={entry.imageLora}
+          portrait={entry.portrait}
+          onChange={(imageLora) => updateEntry(entryId, { imageLora })}
         />
       )}
 
@@ -766,8 +785,8 @@ export function VariableForm({ variableId }: { variableId: string }) {
   return (
     <div className="space-y-1">
       {side && (
-        <p data-testid="game-variable-note" className="rounded-lg border border-primary/30 bg-primary/10 px-2.5 py-2 text-[11.5px] leading-relaxed text-foreground/80">
-          {t(side === "in" ? "blueprint.game.inNote" : "blueprint.game.outNote", { game: gameNameOf(game!, t as Translate) })}
+        <p data-testid="game-variable-note" title={t(side === "in" ? "blueprint.game.inNote" : "blueprint.game.outNote", { game: gameNameOf(game!, t as Translate) })} className="rounded-lg border border-white/[0.08] bg-white/[0.035] px-2.5 py-2 text-[11.5px] leading-relaxed text-foreground/80">
+          {t(side === "in" ? "blueprint.game.inNoteShort" : "blueprint.game.outNoteShort", { game: gameNameOf(game!, t as Translate) })}
         </p>
       )}
       {/* On a card that declares its game: which side of it this value is on. */}
@@ -817,7 +836,6 @@ export function VariableForm({ variableId }: { variableId: string }) {
             <span className={cn("absolute top-[2px] h-[14px] w-[14px] rounded-full bg-foreground transition-[left]", isVariableOnScreen(worldDraft.uiDoc, variable.id) ? "left-[14px]" : "left-[2px]")} />
           </span>
         </button>
-        <p className="mt-1 text-[11px] text-muted-foreground">{t("blueprint.insp.displayOnly")}</p>
       </Group></div>
 
       {/* The variable's own description — when it changes and how. The one
@@ -828,6 +846,7 @@ export function VariableForm({ variableId }: { variableId: string }) {
           value={variable.behaviorRules ?? variable.updateHints ?? ""}
           onCommit={(behaviorRules) => commit({ behaviorRules: behaviorRules.trim() ? behaviorRules : undefined })}
           syncKey={variableId}
+          sharedKey={variable.updateHints === undefined || variable.behaviorRules !== undefined ? textFieldKey({ kind: "row", key: "variables", id: variableId, field: "behaviorRules" }) : undefined}
           rows={3}
           placeholder={t("blueprint.insp.rulesPlaceholder", { defaultValue: "When it goes up and when it goes down, in one sentence" })}
           className={cn(inputClass, "resize-y text-[13px] leading-relaxed")}
@@ -887,7 +906,6 @@ export function VariableForm({ variableId }: { variableId: string }) {
       )}
       {variable.type === "json" && (
         <More key={`fields:${variableId}`} label={t("blueprint.insp.varFields")} defaultOpen={!!variable.fields?.length}>
-          <p className="text-[11px] leading-relaxed text-foreground/50">{t("blueprint.insp.varFieldsHint")}</p>
           <VariableFieldsEditor fields={variable.fields ?? []} onChange={(fields) => commit({ fields: fields.length ? fields : undefined })} />
         </More>
       )}
@@ -1009,7 +1027,7 @@ export function BehaviorForm({ reactionId }: { reactionId: string }) {
         <ConditionSentences
           conditions={reaction.conditions}
           variables={variables}
-          empty={t("blueprint.editing.noExtraConditions", { defaultValue: "No extra conditions. This behavior can run whenever its trigger matches." })}
+          empty={t("blueprint.editing.noExtraConditions")}
           onCreateVariable={createVariable}
           onJumpToVariable={jumpToVariable}
           onChange={(conditions) => updateReaction(reactionId, { conditions })}
@@ -1098,9 +1116,6 @@ function WorldForm({ onDrill }: { onDrill: (panel: string) => void }) {
   const secondary = useEditorStore((s) => s.variants.find((v) => v.id === s.serverWorldId)?.isPrimaryVariant === false);
   return (
     <div className="space-y-3">
-      <div data-learn="card-variants" className="-mx-1 overflow-hidden rounded-lg border border-border/60">
-        <VariantTabBar compact destination="/app/studio/$worldId" />
-      </div>
       {secondary
         ? <p className="text-[13px] leading-relaxed text-muted-foreground">{t("studio.workspace.primaryMetadata")}</p>
         : <OverviewSection embedded />}
@@ -1134,11 +1149,23 @@ function WorldForm({ onDrill }: { onDrill: (panel: string) => void }) {
           sampling: the player's, or this card's. */}
       <StoryAiSettings showAll />
 
+      {/* 帮我写 in the player's input box: on unless the player's own words are the game. */}
+      <Group title={t("blueprint.insp.playerInputTitle")}>
+        <Check
+          label={t("blueprint.insp.composeAssist")}
+          hint={t("blueprint.insp.composeAssistHint")}
+          checked={settings.composeAssist !== false}
+          onChange={(on) => setSettings("composeAssist", on ? undefined : false)}
+        />
+      </Group>
+
       <ReplyRulesForm />
 
       <GameInterfaceGroup />
 
       <LiveCanonGroup />
+
+      <MultiplayerGroup />
     </div>
   );
 }
@@ -1527,13 +1554,10 @@ function EdgeForm({ edgeId, world, readOnly, onPatch, describe }: {
 
   return (
     <div className="space-y-3">
-      <p className="rounded-lg border border-white/[0.06] bg-white/[0.035] px-2.5 py-2 text-[11px] leading-relaxed text-foreground/70 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">{describe}</p>
-      {chain && (
-        <p className="text-[11px] leading-relaxed text-foreground/45">{t("blueprint.insp.chainHint")}</p>
-      )}
-      {derived && !chain && (
-        <p className="text-[11px] leading-relaxed text-foreground/45">{t("blueprint.insp.ownedHint")}</p>
-      )}
+      <p
+        title={chain ? t("blueprint.insp.chainHint") : derived ? t("blueprint.insp.ownedHint") : undefined}
+        className="rounded-lg border border-white/[0.06] bg-white/[0.035] px-2.5 py-2 text-[11px] leading-relaxed text-foreground/70 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]"
+      >{describe}</p>
       {editable && payload.kind === "condition" && (
         <Field label={t("blueprint.inspector.operator")}>
           <select
@@ -1585,7 +1609,7 @@ function EdgeForm({ edgeId, world, readOnly, onPatch, describe }: {
 
 // ── Drawer shell ────────────────────────────────────────────────────
 
-function ModuleMemoryForm({ worldbookId, onOpenModule }: { worldbookId: string; onOpenModule?: () => void }) {
+export function ModuleMemoryForm({ worldbookId, onOpenModule }: { worldbookId: string; onOpenModule?: () => void }) {
   const { t } = useTranslation("editor");
   const allBooks = useEditorStore(s => s.worldDraft.worldbooks) ?? [];
   const updateWorldbook = useEditorStore(s => s.updateWorldbook);
@@ -1721,6 +1745,11 @@ export function BlueprintInspector({ target, world, readOnly, onPatch, onDrill, 
   /** Set for the kinds whose name is theirs to change, so the title bar can be
    *  the name field instead of duplicating it. */
   let rename: ((next: string) => void) | null = null;
+  /** What the name field holds: the stored name itself, never the title's
+   *  stand-in. Titles fall back to the id when the name is empty, and binding
+   *  that to the field put the id back (caret at 0) the moment the box was
+   *  cleared, so whatever was typed next landed in front of it. */
+  let renameValue: string | null = null;
   /** The destructive act, in the header's ⋯ menu rather than as a red bar
    *  standing at the bottom of every form. */
   let remove: { confirm: string; run: () => void } | null = null;
@@ -1763,6 +1792,7 @@ export function BlueprintInspector({ target, world, readOnly, onPatch, onDrill, 
       const store = useEditorStore.getState;
       if (g.kind === "greeting" || (g.kind === "entry" && !g.id.startsWith("module-entries:") && g.id !== "core-entries")) {
         rename = (name) => store().updateEntry(id, { name });
+        renameValue = world.entries.find((e) => e.id === id)?.name ?? "";
       } else if (g.kind === "variable") {
         if (store().worldDraft.variables.some((v) => v.id === id)) rename = (name) => {
           const i = store().worldDraft.variables.findIndex((v) => v.id === id);
@@ -1770,10 +1800,12 @@ export function BlueprintInspector({ target, world, readOnly, onPatch, onDrill, 
         };
       } else if (g.kind === "rule" && g.id.startsWith("reaction:")) {
         rename = (name) => store().updateReaction(id, { name });
+        renameValue = (world.reactions ?? []).find((r) => r.id === id)?.name ?? "";
       } else if (g.kind === "module" && !aiBook?.station) {
         rename = (name) => store().updateWorldbook(id, { name });
       } else if (g.kind === "image") {
         rename = (name) => store().updateSceneImage(id, { name });
+        renameValue = (world.sceneImages ?? []).find((img) => img.id === id)?.name ?? "";
       }
       const draft = store().worldDraft;
       const named = (name: string | undefined) => name || heading;
@@ -1794,9 +1826,7 @@ export function BlueprintInspector({ target, world, readOnly, onPatch, onDrill, 
         remove = { confirm: t("blueprint.insp.deleteConfirm", { name: heading }), run: () => store().removeWorldbook(id) };
       }
     }
-    if (readOnly) {
-      body = <p className="text-xs text-foreground/55">{t("blueprint.insp.readOnly")}</p>;
-    } else if (cardMemoryTarget) {
+    if (cardMemoryTarget) {
       body = <CardContextForm />;
     } else if (cardAiTarget) {
       body = <CardNarratorForm />;
@@ -1819,13 +1849,13 @@ export function BlueprintInspector({ target, world, readOnly, onPatch, onDrill, 
     } else if (g.id === "core-entries") {
       body = (
         <div className="space-y-3">
-          <p className="text-xs leading-relaxed text-foreground/55">{t("blueprint.insp.coreEntriesHint")}</p>
+          <p className="text-xs leading-relaxed text-foreground/55" title={t("blueprint.insp.coreEntriesHint")}>{t("blueprint.nodes.coreEntriesHintShort")}</p>
         </div>
       );
     } else if (g.id.startsWith("module-entries:")) {
       body = (
         <div className="space-y-3">
-          <p className="text-xs leading-relaxed text-foreground/55">{t("blueprint.insp.moduleEntriesHint")}</p>
+          <p className="text-xs leading-relaxed text-foreground/55" title={t("blueprint.insp.moduleEntriesHint")}>{t("blueprint.nodes.moduleEntriesHintShort")}</p>
         </div>
       );
     } else if (g.kind === "component") {
@@ -1833,14 +1863,9 @@ export function BlueprintInspector({ target, world, readOnly, onPatch, onDrill, 
       const dynamicReads = typeof g.data.dynamicReads === "number" ? g.data.dynamicReads : 0;
       body = (
         <div className="space-y-3">
-          <p className="text-xs leading-relaxed text-foreground/55">
+          <p className="text-xs leading-relaxed text-foreground/55" title={dynamicReads > 0 ? t("blueprint.insp.frontendDynamicReads", { count: dynamicReads }) : undefined}>
             {t("blueprint.insp.frontendReads", { count: readCount })}
           </p>
-          {dynamicReads > 0 && (
-            <p className="rounded-lg border border-white/[0.06] bg-white/[0.035] px-2.5 py-2 text-[11px] leading-relaxed text-foreground/70 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
-              {t("blueprint.insp.frontendDynamicReads", { count: dynamicReads })}
-            </p>
-          )}
           {Array.isArray(g.data.files) && (g.data.files as FrontendFileFacts[]).length > 0 && (() => {
             const files = g.data.files as FrontendFileFacts[];
             const uses = Array.isArray(g.data.uses) ? (g.data.uses as string[]).filter((u) => u !== "ai") : [];
@@ -1916,6 +1941,10 @@ export function BlueprintInspector({ target, world, readOnly, onPatch, onDrill, 
     }
   }
 
+  // Read only (a pack in the market, an admin's look): the same form, locked,
+  // so the object can still be read in full. An edge's form locks itself.
+  if (readOnly && body && target.type !== "edge") body = <ReadOnlyForm note={t("blueprint.insp.readOnly")}>{body}</ReadOnlyForm>;
+
   // An AI is a module with a mind: its header wears the AI's colour, the
   // same pink as its frame on the board.
   const aiNode = target.type === "node" && target.node.kind === "module" && Boolean(target.node.data.station);
@@ -1950,7 +1979,9 @@ export function BlueprintInspector({ target, world, readOnly, onPatch, onDrill, 
               key={targetKey}
               id={nameFieldId}
               aria-label={isVariable ? t("blueprint.insp.variableName") : t("entries.name")}
-              value={heading}
+              value={renameValue ?? heading}
+              placeholder={heading}
+              spellCheck={false}
               onCommit={rename}
               syncKey={targetKey}
               flushOnSave
@@ -1994,7 +2025,7 @@ export function BlueprintInspector({ target, world, readOnly, onPatch, onDrill, 
           </button>
         </div>
       </div>
-      <div className="relative flex min-h-0 flex-1 flex-col overflow-y-auto px-3.5 py-3.5">
+      <div className="relative flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-3.5 pt-3.5 pb-[calc(2.5rem+env(safe-area-inset-bottom,0px))]">
         {/* Where it is shared and what refers to it are the wires' business
             (视图 → 全部连线), not two lines above every form. */}
         {body}

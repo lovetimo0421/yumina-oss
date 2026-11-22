@@ -127,6 +127,15 @@ function VoicePanel({ onClose }: { onClose: () => void }) {
   const togglePool = (id: string) =>
     api.tts.setPrefs({ voicePool: pool.includes(id) ? pool.filter((v) => v !== id) : [...pool, id] });
 
+  // The player's own voices (designed, cloned, taken from the 声音广场) come first.
+  const customVoices = (tts.customVoices ?? []).filter((v) => !TTS_VOICES.some((c) => c.id === v.id));
+  const voiceLabel = (id: string) => {
+    const mine = customVoices.find((v) => v.id === id);
+    if (mine) return mine.label;
+    const known = TTS_VOICES.find((v) => v.id === id);
+    return known ? `${t(`voice_${known.labelKey}` as `voice_${VoiceLabelKey}`)} · ${known.lang}` : id.slice(0, 8);
+  };
+
   const [previewPending, setPreviewPending] = useState<string | null>(null);
   const playbackKey = tts.playback?.key ?? null;
   const isSamplePlaying = (id: string) =>
@@ -240,6 +249,20 @@ function VoicePanel({ onClose }: { onClose: () => void }) {
                 onPreview={() => handlePreview("")}
                 previewTitle={t("voicePreview")}
               />
+              {customVoices.map((v) => (
+                <VoiceRow
+                  key={v.id}
+                  label={v.label}
+                  langTag={null}
+                  selected={pool.includes(v.id)}
+                  samplePlaying={isSamplePlaying(v.id)}
+                  previewPending={previewPending === v.id}
+                  previewDisabled={previewPending !== null && previewPending !== v.id && !isSamplePlaying(v.id)}
+                  onSelect={() => togglePool(v.id)}
+                  onPreview={() => handlePreview(v.id)}
+                  previewTitle={t("voicePreview")}
+                />
+              ))}
               {voices.map((v) => (
                 <VoiceRow
                   key={v.id}
@@ -256,6 +279,44 @@ function VoicePanel({ onClose }: { onClose: () => void }) {
               ))}
             </div>
           </div>
+
+          {/* Character voices: the player's own pick per speaker, this chat only */}
+          {tts.speakers && tts.speakers.length > 0 && (
+            <div className="border-t border-border/60 px-3.5 py-2.5">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+                {t("voiceCast")}
+              </div>
+              <div className="mb-1.5 mt-0.5 text-[10.5px] leading-snug text-muted-foreground/60">{t("voiceCastHint")}</div>
+              <div className="max-h-44 space-y-1 overflow-y-auto pr-0.5">
+                {tts.speakers.map((speaker) => {
+                  const own = speaker.source === "player" ? speaker.voice ?? "" : "";
+                  const fallback = speaker.source === "player"
+                    ? t(speaker.voice ? "voiceCastCard" : "voiceCastAuto")
+                    : speaker.source === "card" ? t("voiceCastCard") : t("voiceCastAuto");
+                  const current = speaker.source !== "player" && speaker.voice ? ` · ${voiceLabel(speaker.voice)}` : "";
+                  const label = speaker.name === "narrator" ? t("voiceCastNarrator") : speaker.name;
+                  return (
+                    <label key={speaker.name} className="grid grid-cols-[minmax(0,5.5rem)_minmax(0,1fr)] items-center gap-2">
+                      <span className="truncate text-[11.5px] text-foreground/85" title={label}>{label}</span>
+                      <select
+                        value={own}
+                        onChange={(e) => api.tts.setSpeakerVoice(speaker.name, e.target.value || null)}
+                        className="min-w-0 rounded-md border border-border/60 bg-background/60 px-1.5 py-1 text-[11px] text-foreground/85"
+                      >
+                        <option value="">{fallback}{current}</option>
+                        {customVoices.map((v) => (
+                          <option key={v.id} value={v.id}>{v.label}</option>
+                        ))}
+                        {voices.map((v) => (
+                          <option key={v.id} value={v.id}>{voiceLabel(v.id)}</option>
+                        ))}
+                      </select>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Volume */}
           <div className="border-t border-border/60 px-3.5 py-2.5">

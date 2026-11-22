@@ -10,11 +10,11 @@
 // so every player pays it in mushies at provider cost times FILM_MARKUP, BYOK and unlimited
 // plans included (owner decision 2026-10-06).
 
-import { eq } from "drizzle-orm";
-import { readOwn } from "../../db/index.js";
-import { user } from "../../db/schema.js";
+import { and, eq } from "drizzle-orm";
+import { db, readOwn } from "../../db/index.js";
+import { creditTransactions, creditWallets, user } from "../../db/schema.js";
 import { env } from "../env.js";
-import { checkBalance, deductCredits } from "../credit-service.js";
+import { checkBalance, deductCredits, refundCredits } from "../credit-service.js";
 import { providerCostUsdToCredits } from "../provider-cost.js";
 
 /** Same markup as chat models. */
@@ -54,6 +54,28 @@ export async function canAffordFilm(userId: string, credits: number): Promise<bo
 }
 
 export type FilmEndpoint = "film-clip" | "film-director" | "film-stream";
+
+/**
+ * Give back what a film took when it ended without a film (the director refused, every shot
+ * failed, the reply changed, its server died): the player pays for films they get, never for
+ * one they don't (2026-11-01, a player paid 14 mushies for three refusals and got nothing).
+ * Once per `referenceId`, under the wallet lock, so two pollers of a dead film refund it once.
+ */
+export async function refundFilm(userId: string, credits: number, referenceId: string): Promise<void> {
+  if (!(credits > 0)) return;
+  try {
+    await db.transaction(async (tx) => {
+      const [wallet] = await tx.select({ id: creditWallets.id }).from(creditWallets).where(eq(creditWallets.userId, userId)).for("update");
+      if (!wallet) return;
+      const [done] = await tx.select({ id: creditTransactions.id }).from(creditTransactions)
+        .where(and(eq(creditTransactions.walletId, wallet.id), eq(creditTransactions.referenceId, referenceId), eq(creditTransactions.type, "refund"))).limit(1);
+      if (done) return;
+      await refundCredits(userId, Math.round(credits * 10) / 10, referenceId, "Scene video — not filmed, refunded", tx);
+    });
+  } catch (e) {
+    console.error("[Film] refund failed:", referenceId, e instanceof Error ? e.message : e);
+  }
+}
 
 /**
  * Take a film spend's mushies (the caller has logged its usage). The spend already happened,

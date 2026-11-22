@@ -3,7 +3,6 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import test from "node:test";
 import React, { act, useEffect, useSyncExternalStore } from "react";
-import { createRoot } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import ts from "typescript";
 
@@ -33,14 +32,15 @@ test("the real stage keeps one mounted canvas and assistant across docked tools,
   const emit = () => listeners.forEach(listener => listener());
   const learning = { step: null as string | null, setInspecting: (_inspecting: boolean) => {} };
   const editor = { serverWorldId: "card", worldDraft: { id: "card" }, variants: [], readOnlyInspect: false, guestMode: false, activeSection: "entries", pendingFocus: null, setActiveSection: (section:string) => { editor.activeSection = section; emit(); } };
-  const studio = { mode: "edit", setMode: (mode:string) => { studio.mode = mode; emit(); }, stagePage: "blueprint", setStagePage: (page:string) => { studio.stagePage = page; emit(); }, setStageAssistant: () => {} };
+  const studio = { mode: "edit", setMode: (mode:string) => { studio.mode = mode; emit(); }, stagePage: "blueprint", setStagePage: (page:string) => { studio.stagePage = page; emit(); },
+    stageAssistant: null as { open: boolean; toggle: () => void } | null, setStageAssistant: (value: { open: boolean; toggle: () => void } | null) => { studio.stageAssistant = value; } };
   function store<S extends object>(state: S) {
     return Object.assign((selector: (value: S) => unknown) => useSyncExternalStore(
       listener => { listeners.add(listener); return () => { listeners.delete(listener); }; }, () => selector(state)),
     { getState: () => state, subscribe: () => () => {} });
   }
   let canvasMounts = 0, aiMounts = 0, playtestMounts = 0;
-  let canvasProps!: { onDrillPanel: (id: string) => void; active: boolean };
+  let canvasProps!: { onDrillPanel: (id: string, how?: { focus?: boolean }) => void; active: boolean };
   function Canvas(props: typeof canvasProps) {
     canvasProps = props;
     useEffect(() => { canvasMounts++; }, []);
@@ -63,6 +63,7 @@ test("the real stage keeps one mounted canvas and assistant across docked tools,
       return learning;
     } },
     "@/stores/editor": { useEditorStore: store(editor) }, "@/stores/studio": { useStudioStore: store(studio) },
+    "@/hooks/use-auth-guard": { useAuthGuard: () => ({ isAuthenticated: true, requireAuth: () => true }) },
     "react-i18next": { useTranslation: () => ({ t: (key: string) => key }) },
     "lucide-react": new Proxy({}, { get: () => () => null }),
     "@/lib/utils": { cn: (...values: unknown[]) => values.filter(Boolean).join(" ") },
@@ -96,6 +97,7 @@ test("the real stage keeps one mounted canvas and assistant across docked tools,
   const compiled = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true } }).outputText;
   const module = { exports: {} as { BlueprintStage: React.ComponentType<{ renderReviewPanel: () => { title: string; node: React.ReactNode } }> } };
   new Function("require", "module", "exports", compiled)((id: string) => mocks[id] ?? require(id), module, module.exports);
+  const { createRoot } = await import("react-dom/client");
   const root = createRoot(dom.window.document.getElementById("root")!);
   const resize = async (width: number) => { workspaceWidth = width; await act(async () => observers.forEach(observer => observer())); };
   const companion = () => dom.window.document.querySelector<HTMLElement>("[data-studio-companion]")!;
@@ -104,7 +106,13 @@ test("the real stage keeps one mounted canvas and assistant across docked tools,
   // playtest's alone. What is clicked on the board opens on the board.
   const dockTabs = () => [...dom.window.document.querySelectorAll(".dv-tab")].map(tab => tab.textContent?.trim());
   const parked = (el: Element | null) => !!el?.closest("[data-dock-parking]");
+  // The toolbar button is there only while the assistant is away; open, it
+  // is closed from its own heading (the toggle the stage hands the store).
   const aiToggle = () => dom.window.document.querySelector('button[aria-pressed][title="studio.panels.aiAssistant"]')!;
+  const closeAi = async () => {
+    assert.equal(dom.window.document.querySelector('button[aria-pressed][title="studio.panels.aiAssistant"]'), null, "no toolbar button beside an open assistant");
+    await act(async () => studio.stageAssistant!.toggle());
+  };
   try {
     await act(async () => root.render(<module.exports.BlueprintStage renderReviewPanel={() => ({ title: "Review", node: null })} />));
     const canvas = dom.window.document.querySelector("[data-canvas-sentinel]");
@@ -114,13 +122,41 @@ test("the real stage keeps one mounted canvas and assistant across docked tools,
     assert.equal(parked(ai), false);
 
     assert.equal(companion().dataset.studioCompanionLayout, "closed");
-    await click(aiToggle());
+    await closeAi();
     assert.equal(dockTabs().includes("studio.panels.aiAssistant"), false, "closing the assistant closes its tab");
     assert.equal(dom.window.document.querySelector("[data-ai-composer]"), ai, "and keeps it mounted, draft and all");
     assert.equal(parked(ai), true);
 
     await click(aiToggle());
     assert.ok(dockTabs().includes("studio.panels.aiAssistant"), "its button brings it back");
+    // The entry must stay in the canvas's stacking context, with AI usable.
+    await act(async () => canvasProps.onDrillPanel("modules", { focus: true }));
+    const entryPage = dom.window.document.querySelector<HTMLElement>("[data-stage-focus-page]")!;
+    assert.ok(entryPage.closest("[data-canvas-workspace]"), "the entry never portals over the assistant or shell");
+    assert.ok(!entryPage.classList.contains("fixed"));
+    assert.ok(!ai?.closest("[data-canvas-workspace]"), "AI remains outside the canvas overlay");
+    assert.equal(canvasProps.active, false, "covered canvas keyboard actions are disabled");
+    await closeAi();
+    let clearedSelection = 0;
+    const clear = () => { clearedSelection++; };
+    window.addEventListener("yumina:studio-canvas-clear-selection", clear);
+    for (const eventName of ["yumina:studio-ask", "yumina:studio-ai-send", "yumina:studio-attach-block"]) {
+      await act(async () => window.dispatchEvent(new CustomEvent(eventName, { detail: {} })));
+    }
+    window.removeEventListener("yumina:studio-canvas-clear-selection", clear);
+    assert.equal(clearedSelection, 0, "asking AI preserves the entry selection");
+    assert.equal(dom.window.document.querySelector("[data-stage-focus-page]"), entryPage);
+    assert.equal(parked(ai), false, "AI can be reopened from the entry");
+    (ai as HTMLTextAreaElement).focus();
+    await act(async () => ai!.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+    assert.equal(dom.window.document.querySelector("[data-stage-focus-page]"), entryPage, "Escape in AI does not dismiss the entry");
+    let entryBackHandled = false;
+    await act(async () => { entryBackHandled = !window.dispatchEvent(new Event("yumina:studio-back", { cancelable: true })); });
+    assert.equal(entryBackHandled, true, "the shell Back closes the entry before leaving Studio");
+    assert.equal(dom.window.document.querySelector("[data-stage-focus-page]"), null);
+    assert.equal(canvasProps.active, true);
+    assert.equal(canvasMounts, 1);
+    assert.equal(aiMounts, 1);
     // The page switch lives in the shell's top bar now; it writes the store.
     await act(async () => studio.setStagePage("frontend"));
     assert.ok(dom.window.document.querySelector("[data-frontend-page]"));

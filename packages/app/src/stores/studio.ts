@@ -1,11 +1,16 @@
 import { create } from "zustand";
 import { useEditorStore } from "./editor";
 import { useConfigStore } from "./config";
+import { useUserProfileStore } from "./user-profile";
 import { useCreditStore } from "@/edition/slots.state";
 import { serializeStudioChatMessages } from "@/features/studio/lib/types";
-import type { StudioImageProposal, StudioImageBatchProposal } from "@/features/studio/lib/types";
+import type { StudioImageProposal, StudioImageBatchProposal, StudioPlanStep } from "@/features/studio/lib/types";
 import { matchingImageBatch, proposalWithImageBatch } from "@/features/studio/lib/image-batch-state";
-import { SMART_IMAGE_MODEL, getPlatformStyle, platformStylePrice, isStudioBuildProposal, type StudioBuildProposal } from "@yumina/shared";
+import {
+  parkedMediaTool, withMediaToolAnswer, withMediaToolProgress, withMediaToolProposal, withMediaToolResult,
+  type MediaToolProgressEvent, type MediaToolProposalEvent, type MediaToolResultEvent,
+} from "./studio-media-tool";
+import { SMART_IMAGE_MODEL, SMART_IMAGE_MODEL_IDS, canonicalSmartImageModelId, getPlatformStyle, mediaTool, platformStylePrice, isStudioBuildProposal, type StudioBuildProposal } from "@yumina/shared";
 import type {
   StudioChatMessage,
   ToolCall,
@@ -147,6 +152,15 @@ const STREAM_PROBE_TIMEOUT_MS = 5_000;
 // Only applied while a fallback attempt remains — never on the final attempt.
 // Reached only when the probe has no fresh reading (see decideBase).
 const STREAM_CONNECT_TIMEOUT_MS = 10_000;
+// A live agent stream carries a byte at least every ~13s (the server's
+// heartbeat). A phone that backgrounds the tab can come back to a connection
+// that died without an error: the read just waits forever and the panel says
+// "working" long after the run finished. This much silence means the stream
+// is gone, so the reader is cancelled and recovery reads the run's status.
+const STREAM_SILENCE_MS = 25_000;
+// After the page returns from the background, how long a live stream gets to
+// deliver what queued up before its silence is judged.
+const RETURN_GRACE_MS = 5_000;
 
 // Module-level guard to prevent concurrent undo/regenerate operations
 let _isUndoing = false;
@@ -303,11 +317,25 @@ interface StudioState {
   /** The assistant playing the card: its session, what it is checking, and
    *  how far it is. The playtest panel follows this session while it plays. */
   aiPlaytest: { runId: string; sessionId: string; purpose: string; turn: number; total: number; done?: boolean; error?: string } | null;
+  /** The checklist the running assistant keeps (update_plan); cleared when the run ends. */
+  agentPlan: { runId: string; plan: StudioPlanStep[] } | null;
+  /** Messages the creator added while the assistant worked, not yet taken by
+   *  the run. Whatever is left when the run ends goes back to the input. */
+  pendingSteers: Array<{ id: string; runId: string; text: string; messageId: string; worldId: string; conversationId: string | null }>;
+  /** Text of messages a run ended without taking, for that conversation's
+   *  input. Kept here so it survives the chat panel being closed meanwhile. */
+  returnedSteers: { worldId: string; conversationId: string | null; text: string } | null;
   /** The assistant reading a whole source text into a reference (digest_source). */
   aiDigest: { runId: string; source: string; phase: "read" | "merge" | "check" | "save"; done: number; total: number; label: string; finished?: boolean; error?: string } | null;
+  /** A live character being made from a picture (make_live_character). */
+  aiRig: { runId: string; stage: "start" | "draw" | "finish" | "turn" | "fit"; done: number; total: number } | null;
   /** "advise" talks the idea through (and saves a creative brief); "build" makes the card. */
   assistantMode: "build" | "advise";
   setAssistantMode: (mode: "build" | "advise") => void;
+  /** 联网: the assistant may search the web and read pages. On unless the
+   *  creator switched it off (remembered in this browser). */
+  assistantWeb: boolean;
+  setAssistantWeb: (on: boolean) => void;
   /** The run that last saved the creative brief: its reply offers "build from the brief". */
   briefSavedRunId: string | null;
   /** SSE stream was interrupted and tryRecoverAgentRun is polling for server-side
@@ -330,7 +358,7 @@ interface StudioState {
     runId: string;
     toolCalls: ToolCall[];
   } | null;
-  /** A generate_image card waiting for the creator's answer */
+  /** A card the run waits on for the creator's answer: generate_image, or run_media_tool. */
   _pendingImage: { runId: string; toolCallId: string } | null;
   _pendingImageBatch: { runId: string; toolCallId: string } | null;
 
@@ -355,11 +383,18 @@ interface StudioState {
   /** Same button, but while the recovery banner is still up and a poller is
    *  already attached: poll now and reset the give-up budget. */
   nudgeRecovery: () => void;
+  /** Add a message to the running request; false when there is no run to take it. */
+  steerAgent: (text: string) => Promise<boolean>;
+  /** The text a run handed back for this conversation's input, once. */
+  takeReturnedSteers: (worldId: string | null, conversationId: string | null) => string;
   stopAgent: () => void;
   approveProposal: () => void;
   rejectProposal: () => void;
   confirmImageProposal: (edits: { prompt: string; aspectRatio: string; batchSize: number }) => void;
   declineImageProposal: () => void;
+  /** Answer the run_media_tool card (it waits in the same slot as a picture card, _pendingImage). */
+  runMediaToolProposal: (inputs: Record<string, unknown>) => void;
+  declineMediaToolProposal: () => void;
   updateImageBatchProposal: (worldId: string, conversationId: string | null, proposal: StudioImageBatchProposal) => void;
   setSelectedElement: (id: string | null, type?: string | null) => void;
   setMode: (mode: "edit" | "playtest") => void;
@@ -400,11 +435,18 @@ interface AgentStreamCallbacks {
   onImageBatchProposal?: (data: Omit<StudioImageBatchProposal, "status"> & { textContent: string; status?: StudioImageBatchProposal["status"] }) => void;
   /** A big job proposed; the run waits for the creator's Start. */
   onJobProposal?: (data: StudioJobProposal) => void;
+  /** The assistant took a look at the player's screen: the same picture, for the creator. */
+  onScreenshot?: (data: { runId: string; toolCallId: string; key: string; url: string; device: "desktop" | "mobile" }) => void;
   onPlaytestProgress?: (data: { runId: string; sessionId: string; purpose: string; turn: number; total: number; done?: boolean; error?: string }) => void;
   onDigestProgress?: (data: { runId: string; source: string; phase: "read" | "merge" | "check" | "save"; done: number; total: number; label: string; finished?: boolean; error?: string }) => void;
+  onRigProgress?: (data: { runId: string; stage: "start" | "draw" | "finish" | "turn" | "fit"; done: number; total: number; finished?: boolean; error?: string }) => void;
   onBriefSaved?: (data: { runId: string; chars: number }) => void;
   onImageProgress?: (data: { runId: string; toolCallId: string; jobId: string; status: string; elapsed: number }) => void;
   onImageResult?: (data: { runId: string; toolCallId: string; jobId: string; status: "done" | "failed" | "pending"; assetIds?: string[]; costMushies?: number; errorCode?: string }) => void;
+  /** The assistant proposed a workbench tool run (run_media_tool). Terminal like an image proposal. */
+  onMediaToolProposal?: (data: MediaToolProposalEvent) => void;
+  onMediaToolProgress?: (data: MediaToolProgressEvent) => void;
+  onMediaToolResult?: (data: MediaToolResultEvent) => void;
   /** Server has committed one assistant text turn as a persistent chat bubble.
    *  The ONLY code path that appends an assistant message to chatMessages during a run —
    *  replaces the old split where onReadToolsExecuted and onDone both tried to commit. */
@@ -431,6 +473,10 @@ interface AgentStreamCallbacks {
    *  retry streams fresh; whatever the dropped attempt showed must not be
    *  prepended to it. */
   onStepRestarted?: (data: { runId: string; iteration: number; reason: string }) => void;
+  /** The assistant's checklist changed (update_plan): the whole list. */
+  onPlan?: (data: { runId: string; plan: StudioPlanStep[] }) => void;
+  /** The run took messages the creator added mid-run. */
+  onSteerApplied?: (data: { runId: string; ids: string[] }) => void;
   /** `displayable`: `error` is our own request-validation copy (HTTP 4xx), safe to show as-is. */
   onError: (error: string, code?: string, displayable?: boolean) => void;
 }
@@ -586,6 +632,10 @@ async function tryRecoverAgentRun(
 
         const recoveredRunId = effectiveRunId ?? data.id ?? runId ?? "";
         callbacks.onRunStarted?.(recoveredRunId);
+        // What the stream would have said while it was down: the run took these
+        // messages (so they are not handed back), and its checklist now reads so.
+        if (Array.isArray(data.steerIds) && data.steerIds.length > 0) callbacks.onSteerApplied?.({ runId: recoveredRunId, ids: data.steerIds });
+        if (Array.isArray(data.plan)) callbacks.onPlan?.({ runId: recoveredRunId, plan: data.plan });
 
         if (data.status === "awaiting_credits" || data.creditPause?.resumable === true || data.status === "error") {
           emitTurns(data.committedTurns, recoveredRunId);
@@ -619,11 +669,15 @@ async function tryRecoverAgentRun(
           const call = data.pendingToolCalls[0];
           let args: Record<string, unknown> = {};
           try { args = JSON.parse(call.function.arguments || "{}"); } catch { /* unusable args: still show the card */ }
+          // The parked call names the model Generate will use (the server stores
+          // the normalized proposal): show and price that one, not the default.
+          const named = typeof args.model === "string" ? canonicalSmartImageModelId(args.model) : undefined;
+          const smartModel = named && (SMART_IMAGE_MODEL_IDS as readonly string[]).includes(named) ? named : SMART_IMAGE_MODEL;
           let unitMushies = 0;
           try {
             const res = await fetch(`${apiBase}/api/generation/templates`, { credentials: "include" });
             const body = await res.json();
-            unitMushies = Number(body?.smartEstimates?.[SMART_IMAGE_MODEL] ?? 0) || 0;
+            unitMushies = Number(body?.smartEstimates?.[smartModel] ?? body?.smartEstimates?.[SMART_IMAGE_MODEL] ?? 0) || 0;
           } catch { /* estimate unknown after a reload; the card says so */ }
           const batchSize = Math.min(4, Math.max(1, Math.round(Number(args.batchSize ?? 1)) || 1));
           // The server parks the normalized proposal, so a custom card comes back
@@ -644,7 +698,26 @@ async function tryRecoverAgentRun(
             runId: recoveredRunId, toolCallId: call.id, textContent: data.textContent ?? "",
             prompt: typeof args.prompt === "string" ? args.prompt : "", purpose: typeof args.purpose === "string" ? args.purpose : undefined,
             aspectRatio: typeof args.aspectRatio === "string" ? args.aspectRatio : "1:1", batchSize,
-            model: SMART_IMAGE_MODEL, unitMushies, estimatedMushies: Math.ceil(unitMushies * batchSize * 10) / 10,
+            ...(typeof args.modelReason === "string" ? { modelReason: args.modelReason } : {}),
+            model: smartModel, unitMushies, estimatedMushies: Math.ceil(unitMushies * batchSize * 10) / 10,
+          });
+          return true;
+        }
+        const parkedTool = data.status === "awaiting_approval" && data.pendingToolCalls?.length === 1 ? parkedMediaTool(data.pendingToolCalls[0]) : null;
+        const parkedSpec = parkedTool ? mediaTool(parkedTool.tool) : undefined;
+        if (parkedTool && parkedSpec && data.pendingToolCalls?.[0]) {
+          // The price is not parked with the call: ask for it again, from the files themselves.
+          let estimatedMushies: number | null = null;
+          try {
+            const res = await fetch(`${apiBase}/api/generation/tools/${encodeURIComponent(parkedSpec.id)}/estimate`, {
+              method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ inputs: parkedTool.inputs }),
+            });
+            const quote = res.ok ? await res.json() as { mushies?: unknown } : null;
+            if (typeof quote?.mushies === "number") estimatedMushies = quote.mushies;
+          } catch { /* the card says the price is unknown */ }
+          callbacks.onMediaToolProposal?.({
+            runId: recoveredRunId, toolCallId: data.pendingToolCalls[0].id, textContent: data.textContent ?? "",
+            tool: parkedSpec.id, inputs: parkedTool.inputs, output: parkedSpec.output, seconds: parkedSpec.seconds, estimatedMushies,
           });
           return true;
         }
@@ -730,6 +803,11 @@ const AGENT_RECOVERY_NUDGE = "yumina:agent-recovery-nudge";
 // So record the unambiguous fact instead: THIS browser watched the run, lost the
 // stream, polled until it gave up, and showed an error. A turn the user deleted
 // was never abandoned, so it can never be revived through this path.
+const ASSISTANT_WEB_KEY = "yumina.studio.assistantWeb";
+function readAssistantWeb(): boolean {
+  try { return localStorage.getItem(ASSISTANT_WEB_KEY) !== "off"; } catch { return true; }
+}
+
 const ABANDONED_RUNS_KEY = "yumina:studio-abandoned-runs";
 const ABANDONED_TTL_MS = 24 * 60 * 60_000;
 const ABANDONED_MAX = 20;
@@ -942,6 +1020,12 @@ function connectAgentSSE(
       if (!response.ok) {
         const err = await response.json().catch(() => ({ error: "Request failed" }));
         captureFailure(`http_${response.status}`, String(err.error ?? response.status));
+        // Someone else on a shared card has their assistant at work: say whose.
+        const busyWith = err.code === "ACTIVE_RUN" ? otherPersonsRun(err.activeRun) : null;
+        if (busyWith) {
+          callbacks.onError((i18n.t as (k: string, o?: Record<string, unknown>) => string)("editor:collab.othersAssistantBusy", { name: busyWith, defaultValue: "{{name}}'s assistant is still working on this card" }), undefined, true);
+          return;
+        }
         callbacks.onError(err.error || `HTTP ${response.status}`, typeof err.code === "string" ? err.code : undefined,
           response.status < 500 && typeof err.error === "string");
         return;
@@ -967,6 +1051,48 @@ function connectAgentSSE(
       let receivedTerminalEvent = false;
       let currentEvent = "";
 
+      // Silence check: every few seconds while the page is visible, and once
+      // shortly after it returns from the background. A return gets a grace
+      // first, so a live stream can deliver what queued up while the page was
+      // paused; a tick that fires long overdue is such a return too, since it
+      // may run before the visibility event. A cancel ends the read as `done`
+      // without a terminal event, which runs the recovery below.
+      // The clock starts at the first byte: before it the server is still
+      // loading the run and its heartbeat has not begun, so a slow database
+      // must not read as a dead connection.
+      const page = document;
+      let lastByteAt: number | null = null;
+      let graceUntil = 0;
+      let lastTickAt = Date.now();
+      let returnCheck: ReturnType<typeof setTimeout> | undefined;
+      const stopSilenceCheck = () => {
+        clearInterval(silenceTimer);
+        clearTimeout(returnCheck);
+        page.removeEventListener("visibilitychange", onReturn);
+      };
+      const dropIfSilent = () => {
+        // A stopped or replaced run is nobody's to recover.
+        if (controller.signal.aborted || (callbacks.isActive && !callbacks.isActive())) return stopSilenceCheck();
+        if (lastByteAt !== null && page.visibilityState === "visible" && Date.now() - lastByteAt > STREAM_SILENCE_MS) {
+          void reader.cancel().catch(() => {});
+        }
+      };
+      const silenceTimer = setInterval(() => {
+        const now = Date.now();
+        if (now - lastTickAt > 15_000) graceUntil = now + RETURN_GRACE_MS;
+        lastTickAt = now;
+        if (now >= graceUntil) dropIfSilent();
+      }, 5_000);
+      const onReturn = () => {
+        if (page.visibilityState !== "visible") return;
+        graceUntil = Date.now() + RETURN_GRACE_MS;
+        clearTimeout(returnCheck);
+        returnCheck = setTimeout(dropIfSilent, RETURN_GRACE_MS);
+      };
+      page.addEventListener("visibilitychange", onReturn);
+      controller.signal.addEventListener("abort", stopSilenceCheck, { once: true });
+      void reader.closed.catch(() => {}).finally(stopSilenceCheck);
+
       while (true) {
         if (controller.signal.aborted || (callbacks.isActive && !callbacks.isActive())) return;
         let done: boolean;
@@ -990,6 +1116,7 @@ function connectAgentSSE(
           return;
         }
         if (done) break;
+        lastByteAt = Date.now();
 
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split("\n");
@@ -1038,8 +1165,14 @@ function connectAgentSSE(
                 case "playtest_progress":
                   callbacks.onPlaytestProgress?.(parsed);
                   break;
+                case "screenshot":
+                  callbacks.onScreenshot?.(parsed);
+                  break;
                 case "digest_progress":
                   callbacks.onDigestProgress?.(parsed);
+                  break;
+                case "rig_progress":
+                  callbacks.onRigProgress?.(parsed);
                   break;
                 case "brief_saved":
                   callbacks.onBriefSaved?.(parsed);
@@ -1049,6 +1182,16 @@ function connectAgentSSE(
                   break;
                 case "image_result":
                   callbacks.onImageResult?.(parsed);
+                  break;
+                case "media_tool_proposal":
+                  receivedTerminalEvent = true; // the run waits for the creator's answer
+                  callbacks.onMediaToolProposal?.(parsed);
+                  break;
+                case "media_tool_progress":
+                  callbacks.onMediaToolProgress?.(parsed);
+                  break;
+                case "media_tool_result":
+                  callbacks.onMediaToolResult?.(parsed);
                   break;
                 case "done":
                   receivedTerminalEvent = true;
@@ -1074,6 +1217,12 @@ function connectAgentSSE(
                   break;
                 case "step_restarted":
                   callbacks.onStepRestarted?.(parsed);
+                  break;
+                case "plan":
+                  if (Array.isArray(parsed.plan)) callbacks.onPlan?.(parsed);
+                  break;
+                case "steer_applied":
+                  if (Array.isArray(parsed.ids)) callbacks.onSteerApplied?.(parsed);
                   break;
                 case "error":
                   receivedTerminalEvent = true;
@@ -1268,6 +1417,14 @@ function creditPauseReasonError(pause: StudioCreditPause): string | null {
   return creditPauseFailure(pause.reason);
 }
 
+/** The name on an ACTIVE_RUN 409's `activeRun`, when the run is someone else's. */
+function otherPersonsRun(activeRun: unknown): string | null {
+  if (!activeRun || typeof activeRun !== "object") return null;
+  const { userId, name } = activeRun as { userId?: unknown; name?: unknown };
+  if (typeof name !== "string" || !name || typeof userId !== "string") return null;
+  return userId !== useUserProfileStore.getState().profile?.id ? name : null;
+}
+
 /** Failures after which the same request can simply carry on. */
 const CONTINUABLE_ERRORS = new Set(["SERVER_RESTART", "AGENT_STALLED", "PROVIDER_ERROR", "BYOK_RATE", "BYOK_UNREACHABLE"]);
 
@@ -1315,7 +1472,23 @@ function studioAgentCallbacks(scope: StudioAgentScope, initialRunId: string | nu
     onRunStarted: runId => {
       if (!active() || (initialRunId && runId !== initialRunId)) return;
       streamRunId = runId;
-      set({ _currentRunId: runId, creditPause: null, creditPauseError: null, isResumingCredits: false });
+      set(s => ({ _currentRunId: runId, creditPause: null, creditPauseError: null, isResumingCredits: false,
+        agentPlan: s.agentPlan?.runId === runId ? s.agentPlan : null }));
+    },
+    onPlan: data => {
+      if (activeRun() && data.runId === streamRunId) set({ agentPlan: { runId: data.runId, plan: data.plan } });
+    },
+    onSteerApplied: data => {
+      if (!active()) return;
+      const taken = new Set(data.ids);
+      set(s => {
+        const messageIds = new Set(s.pendingSteers.filter(p => taken.has(p.id)).map(p => p.messageId));
+        if (messageIds.size === 0) return {};
+        return {
+          pendingSteers: s.pendingSteers.filter(p => !taken.has(p.id)),
+          chatMessages: s.chatMessages.map(m => messageIds.has(m.id) ? { ...m, steer: "taken" as const } : m),
+        };
+      });
     },
     onReasoning: content => { if (activeRun()) bufferStreamReasoning(content); },
     onText: text => { if (activeRun()) bufferStreamText(text); },
@@ -1422,9 +1595,28 @@ function studioAgentCallbacks(scope: StudioAgentScope, initialRunId: string | nu
       if (!activeRun()) return;
       set({ aiPlaytest: data, mode: "playtest" });
     },
+    onScreenshot: data => {
+      if (!activeRun()) return;
+      flushStreamNow();
+      // On this run's reply, as a picture the creator can open; the reply may not have started yet.
+      const shot = { url: data.url, key: data.key, mimeType: "image/png", name: data.device === "mobile" ? "screenshot-mobile.png" : "screenshot.png" };
+      set(s => {
+        const at = [...s.chatMessages].reverse().findIndex(message => message.role === "assistant" && message.agentRunId === data.runId);
+        const index = at >= 0 ? s.chatMessages.length - 1 - at : -1;
+        return {
+          chatMessages: index >= 0
+            ? s.chatMessages.map((message, i) => i === index ? { ...message, attachments: [...(message.attachments ?? []), shot] } : message)
+            : [...s.chatMessages, { id: nextMsgId(), role: "assistant" as const, content: "", agentRunId: data.runId, attachments: [shot] }],
+        };
+      });
+    },
     onBriefSaved: data => {
       if (!activeRun()) return;
       set({ briefSavedRunId: data.runId });
+    },
+    onRigProgress: data => {
+      if (!activeRun()) return;
+      set({ aiRig: data.finished ? null : { runId: data.runId, stage: data.stage, done: data.done, total: data.total } });
     },
     onDigestProgress: data => {
       if (!activeRun()) return;
@@ -1459,6 +1651,24 @@ function studioAgentCallbacks(scope: StudioAgentScope, initialRunId: string | nu
           status: data.status === "done" ? "done" as const : data.status === "failed" ? "failed" as const : "stillGenerating" as const,
           assetIds: data.assetIds, costMushies: data.costMushies, error: data.errorCode } } : m) }));
       if (data.status === "done") void useCreditStore.getState().forceFetchCredits().catch(() => {});
+    },
+    onMediaToolProposal: data => {
+      if (!activeRun()) return;
+      flushStreamNow();
+      set(s => ({ ...ended, chatMessages: withMediaToolProposal(s.chatMessages, data, nextMsgId), creditPause: null, creditPauseError: null,
+        _pendingImage: { runId: data.runId, toolCallId: data.toolCallId }, _currentRunId: data.runId }));
+      flushRefresh(scope.worldId);
+      persistStudioResult(scope);
+      notifyStudioResultWhenAway(scope, "needsAction");
+    },
+    onMediaToolProgress: data => {
+      if (!activeRun()) return;
+      set(s => ({ chatMessages: withMediaToolProgress(s.chatMessages, data) }));
+    },
+    onMediaToolResult: data => {
+      if (!activeRun()) return;
+      set(s => ({ chatMessages: withMediaToolResult(s.chatMessages, data) }));
+      void useCreditStore.getState().forceFetchCredits().catch(() => {});
     },
     onDone: () => {
       if (!activeRun()) return;
@@ -1561,11 +1771,20 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   toolGenChars: 0,
   toolGenName: null,
   agentToolCall: null,
+  agentPlan: null,
+  pendingSteers: [],
+  returnedSteers: null,
   aiPlaytest: null,
   aiDigest: null,
+  aiRig: null,
   assistantMode: "advise",
   setAssistantMode: (mode) => {
     set({ assistantMode: mode });
+  },
+  assistantWeb: readAssistantWeb(),
+  setAssistantWeb: (on) => {
+    set({ assistantWeb: on });
+    try { localStorage.setItem(ASSISTANT_WEB_KEY, on ? "on" : "off"); } catch { /* private mode: this session only */ }
   },
   briefSavedRunId: null,
   isRecovering: false,
@@ -1746,6 +1965,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
           ...(options?.jobApproved && { jobApproved: true }),
           mode: options?.jobApproved ? "build" : options?.mode ?? get().assistantMode,
           ...(options?.buildProposal && { buildProposal: options.buildProposal }),
+          ...(!get().assistantWeb && { web: false }),
         },
         attachments: attachments ?? [],
       },
@@ -1963,6 +2183,47 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     }
   },
 
+  steerAgent: async (text) => {
+    const { _currentRunId: runId, isAgentWorking } = get();
+    const worldId = get().chatWorldId ?? useEditorStore.getState().serverWorldId;
+    const trimmed = text.trim();
+    if (!runId || !isAgentWorking || !worldId || !trimmed) return false;
+    const id = crypto.randomUUID();
+    const messageId = nextMsgId();
+    // The bubble shows at once, marked as waiting for the assistant's next step.
+    set(s => ({
+      chatMessages: [...s.chatMessages, { id: messageId, role: "user" as const, content: trimmed, steer: "waiting" as const }],
+      pendingSteers: [...s.pendingSteers, { id, runId, text: trimmed, messageId, worldId, conversationId: s.chatConversationId }],
+    }));
+    const failure = await fetch(`${apiBase}/api/studio/${worldId}/agent/steer`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ runId, id, message: trimmed }),
+    }).then(async res => res.ok ? null
+      : String(((await res.json().catch(() => null)) as { code?: unknown } | null)?.code ?? "FAILED"))
+      .catch(() => "FAILED");
+    if (failure) {
+      // Not queued: the caller keeps the text. A run that just ended needs no
+      // word (the text is simply the next message); anything else says why.
+      set(s => ({
+        chatMessages: s.chatMessages.filter(m => m.id !== messageId),
+        pendingSteers: s.pendingSteers.filter(p => p.id !== id),
+      }));
+      if (failure === "TOO_LONG") feedback.error(tr("editor:studio.aiChat.steer.tooLong", "Too long to add mid-task (4000 characters at most). Shorten it or send it after the task."));
+      else if (failure === "TOO_MANY") feedback.error(tr("editor:studio.aiChat.steer.tooMany", "The assistant has not read your last messages yet. Wait for its next step, then send this."));
+      else if (failure !== "NOT_RUNNING") feedback.error(tr("editor:studio.aiChat.steer.failed", "Could not add this to the task. It is back in the box; try again."));
+    }
+    return !failure;
+  },
+
+  takeReturnedSteers: (worldId, conversationId) => {
+    const returned = get().returnedSteers;
+    if (!returned || returned.worldId !== worldId || returned.conversationId !== conversationId) return "";
+    set({ returnedSteers: null });
+    return returned.text;
+  },
+
   stopAgent: () => {
     studioAgentEpoch++;
     creditRefreshEpoch++;
@@ -2157,6 +2418,53 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     else controller.abort();
   },
 
+  runMediaToolProposal: (inputs) => {
+    const { _pendingImage } = get();
+    if (!_pendingImage) return;
+    const worldId = useEditorStore.getState().serverWorldId;
+    if (!worldId) return;
+    const requestedScope = { worldId, conversationId: get().chatConversationId };
+    const streamRunId = _pendingImage.runId;
+    if (!isActiveStudioRunScope(requestedScope, streamRunId)) return;
+    studioAgentEpoch++;
+    creditRefreshEpoch++;
+    // The card runs what it shows: the creator's edits are sent and merged over the parked inputs.
+    set(s => ({
+      chatMessages: withMediaToolAnswer(s.chatMessages, _pendingImage.toolCallId, { approved: true, inputs }),
+      isChatStreaming: true, isAgentWorking: true, chatStreamContent: "", _pendingImage: null,
+    }));
+    const controller = connectAgentSSE(
+      `/api/studio/${worldId}/agent/run-media-tool`,
+      { runId: streamRunId, approved: true, inputs },
+      studioAgentCallbacks(requestedScope, streamRunId),
+    );
+    if (isActiveStudioRunScope(requestedScope, streamRunId)) set({ _agentAbortController: controller });
+    else controller.abort();
+  },
+
+  declineMediaToolProposal: () => {
+    const { _pendingImage } = get();
+    if (!_pendingImage) return;
+    const worldId = useEditorStore.getState().serverWorldId;
+    if (!worldId) return;
+    const requestedScope = { worldId, conversationId: get().chatConversationId };
+    const streamRunId = _pendingImage.runId;
+    if (!isActiveStudioRunScope(requestedScope, streamRunId)) return;
+    studioAgentEpoch++;
+    creditRefreshEpoch++;
+    set(s => ({
+      chatMessages: withMediaToolAnswer(s.chatMessages, _pendingImage.toolCallId, { approved: false }),
+      isChatStreaming: true, isAgentWorking: true, chatStreamContent: "", _pendingImage: null,
+    }));
+    const controller = connectAgentSSE(
+      `/api/studio/${worldId}/agent/run-media-tool`,
+      { runId: streamRunId, approved: false },
+      studioAgentCallbacks(requestedScope, streamRunId, true),
+    );
+    if (isActiveStudioRunScope(requestedScope, streamRunId)) set({ _agentAbortController: controller });
+    else controller.abort();
+  },
+
   updateImageBatchProposal: (worldId, conversationId, proposal) => {
     if (!isActiveStudioChatScope({ worldId, conversationId })) return;
     let refreshed = false;
@@ -2328,6 +2636,36 @@ useStudioStore.subscribe((state, previous) => {
   _textBuf = ""; _reasoningBuf = ""; _reasoningCharsBuf = 0;
   useStudioStore.setState({ creditPause: null, creditPauseError: null, isResumingCredits: false,
     isRefreshingCreditPause: false, _agentAbortController: null, _currentRunId: null, _pendingImageBatch: null });
+});
+
+// The assistant's playtest and book digest report their end over the stream.
+// A run that ended without that report (stopped, dropped, failed, paused)
+// left the playtest panel locked as "playing" until a page refresh, and the
+// digest line spinning: whatever way the run ends, end them with it.
+useStudioStore.subscribe((state, previous) => {
+  if (state.isAgentWorking || !previous.isAgentWorking) return;
+  // The run ended before taking what the creator added: drop the waiting
+  // bubbles and keep the text for its own conversation's input (never lost,
+  // never applied twice, never shown on another card).
+  const [first] = state.pendingSteers;
+  if (first) {
+    const messageIds = new Set(state.pendingSteers.map(p => p.messageId));
+    const text = state.pendingSteers.map(p => p.text).join("\n\n");
+    const kept = state.returnedSteers;
+    const earlier = kept && kept.worldId === first.worldId && kept.conversationId === first.conversationId ? `${kept.text}\n\n` : "";
+    useStudioStore.setState({
+      pendingSteers: [],
+      chatMessages: state.chatMessages.filter(m => !messageIds.has(m.id)),
+      returnedSteers: { worldId: first.worldId, conversationId: first.conversationId, text: earlier + text },
+    });
+  }
+  if ((state.aiPlaytest && !state.aiPlaytest.done) || state.aiDigest || state.aiRig) {
+    useStudioStore.setState({
+      ...(state.aiPlaytest && !state.aiPlaytest.done ? { aiPlaytest: { ...state.aiPlaytest, done: true } } : {}),
+      ...(state.aiDigest ? { aiDigest: null } : {}),
+      ...(state.aiRig ? { aiRig: null } : {}),
+    });
+  }
 });
 
 useEditorStore.subscribe((state, previous) => {

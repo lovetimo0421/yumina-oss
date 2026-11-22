@@ -8,7 +8,8 @@ test("Studio folds same-price versions into one row and keeps every model reacha
   const listed = STUDIO_MODELS.filter(m => m.id !== STUDIO_RECOMMENDED_MODEL);
   const groups = groupPlayModels(listed);
   const versions = (lead: string) => groups.find(g => g.variants[0]!.model.id === lead)?.variants.map(v => v.label);
-  assert.deepEqual(versions("openai/gpt-6.1-sol"), ["6.1", "5.6"]);
+  // GPT-5.6 Sol costs twice what 6.1 does upstream, so it keeps a row of its own.
+  assert.deepEqual(versions("openai/gpt-5.6-sol"), ["GPT-5.6 Sol"]);
   assert.deepEqual(versions("x-ai/grok-4.3"), ["4.3", "4.20"]);
   assert.deepEqual(groups.flatMap(g => g.variants.map(v => v.model.id)).sort(), listed.map(m => m.id).sort());
   assert.ok(groups.length < listed.length);

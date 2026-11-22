@@ -38,6 +38,7 @@ function renderSidebar(pathname: string) {
     "@/edition/edition": { useEdition: () => ({ features: { hub: true, community: true, socialProfiles: true, admin: true } }), useIsLocalEdition: () => false },
     "@/stores/library-search": { useLibrarySearchStore: useStore({ requestDefaultView: noop }) },
     "@/lib/plan-theme": { MushroomIcon: () => null },
+    "@/components/halloween-decor": { LogoWitchHat: () => null, SidebarPumpkinPatch: () => null },
     "@/lib/format-mushies": { floorMushies: (value: number) => value },
     "@/hooks/use-touch-device": { isIOS: () => false },
     "@/lib/feedback": { feedback: {} },

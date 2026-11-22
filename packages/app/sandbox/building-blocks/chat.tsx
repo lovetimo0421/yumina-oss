@@ -1,9 +1,12 @@
+import { ReadingAppearanceContext } from "../chat/reading-appearance";
 import React, { useMemo, useRef } from "react";
 import { useYumina } from "../sandbox-context";
 import { ChatBackground } from "../chat/chat-background";
 import { MessageList } from "../chat/message-list";
 import { MessageInput } from "../chat/message-input";
 import { renderMessage } from "../chat/markdown";
+import { makeChatT } from "../chat/i18n";
+import { ChatLiveStage } from "../chat/live-stage";
 import type { MessageDesign } from "../chat/designed-message";
 
 /**
@@ -37,6 +40,8 @@ export interface BubbleProps {
 }
 
 export interface ChatProps {
+  /** Reader palettes for stock chat; creator layouts keep their own colours. */
+  appearance?: "reader" | "creator";
   /**
    * Custom renderer for each message bubble.
    * If not provided, uses default markdown rendering.
@@ -46,6 +51,10 @@ export interface ChatProps {
   className?: string;
   /** Content to render above the message list */
   children?: React.ReactNode;
+  /** Content between the message list and the input box (a status bar,
+   *  quick buttons). Placed after <Chat /> instead, it lands below the input
+   *  and off screen; positioned over the chat, it covers the transcript. */
+  aboveInput?: React.ReactNode;
   /** A message style + 特殊写法 rules (from the visual editor). Used only when
    *  there is no `renderBubble` — see MessageList. */
   design?: MessageDesign | null;
@@ -74,9 +83,16 @@ export interface ChatProps {
  * <Chat renderBubble={(msg) => <StyledBubble {...msg} />}>
  *   <div className="p-2 border-b">Custom header content</div>
  * </Chat>
+ *
+ * @example
+ * // A folding status bar between the story and the input box
+ * <Chat aboveInput={<StatusBar />} />
  */
-export function Chat({ renderBubble, className, children, design, fontMap }: ChatProps) {
+export function Chat({ renderBubble, className, children, aboveInput, design, fontMap, appearance }: ChatProps) {
   const api = useYumina();
+  const readerAppearance = appearance === "reader" || (appearance !== "creator" && !renderBubble && !design && !className && !children && !aboveInput);
+  const readingMode = readerAppearance ? api.playColorMode : null;
+  const t = useMemo(() => makeChatT(api.language), [api.language]);
 
   // Bridge the creator's `renderBubble` into the component format MessageList
   // expects. CRITICAL: this bridge component must keep a STABLE identity across
@@ -145,34 +161,44 @@ export function Chat({ renderBubble, className, children, design, fontMap }: Cha
     // inline-closure re-creation — so MessageList never remounts mid-stream.
   }, [hasRenderBubble]);
 
+  const conversation = (
+    <>
+      <div className={`flex min-h-0 min-w-0 flex-1 flex-col ${!renderBubble && !design ? "play-default-chat" : ""}`}>
+        <MessageList rendererComponent={rendererComponent} rendererEpoch={rendererEpochRef.current} design={design} fontMap={fontMap} />
+      </div>
+      {aboveInput != null && <div className="relative min-w-0 shrink-0">{aboveInput}</div>}
+      {(!api.readOnly || api.storyRoom) && <MessageInput />}
+      {api.readOnly && !api.storyRoom &&
+        (api.messages as unknown[])?.length > 0 && (
+          <div className="shrink-0 border-t border-border px-4 py-3 text-center text-xs text-muted-foreground/60">
+            {t("readOnlySession")}
+          </div>
+        )}
+    </>
+  );
+
   return (
+    <ReadingAppearanceContext.Provider value={readingMode}>
     <div
+      data-play-color-mode={readingMode ?? undefined}
       // Keep the complete chat above preceding positioned creator backgrounds.
       // Without a stacking context, a z-index:0 background can cover the plain
       // textarea while positioned toolbar buttons remain visible above it.
-      className={`relative z-0 flex h-full w-full min-w-0 flex-1 flex-col overflow-hidden ${className ?? ""}`}
+      className={`relative z-0 flex h-full w-full min-w-0 flex-1 flex-col overflow-hidden ${readerAppearance ? "play-reader-surface play-reader-chat" : ""} ${className ?? ""}`}
     >
       {/* The card's background, painted as a sibling of the transcript rather
           than a backdrop-filter over it — see ChatBackground. A card with no
           background renders nothing here. */}
-      <ChatBackground background={api.background ?? null} />
+      <ChatBackground background={api.background ?? null} readingMode={readingMode} />
 
       {/* Optional creator header content */}
       {children}
 
       {/* Message list with optional custom renderer */}
       <div className="relative z-[1] flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        <div className={`flex min-h-0 min-w-0 flex-1 flex-col ${!renderBubble && !design ? "play-default-chat" : ""}`}>
-          <MessageList rendererComponent={rendererComponent} rendererEpoch={rendererEpochRef.current} design={design} fontMap={fontMap} />
-        </div>
-        {!api.readOnly && <MessageInput />}
-        {api.readOnly &&
-          (api.messages as unknown[])?.length > 0 && (
-            <div className="shrink-0 border-t border-border px-4 py-3 text-center text-xs text-muted-foreground/60">
-              Read-only session
-            </div>
-          )}
+        {readerAppearance ? <ChatLiveStage>{conversation}</ChatLiveStage> : conversation}
       </div>
     </div>
+    </ReadingAppearanceContext.Provider>
   );
 }

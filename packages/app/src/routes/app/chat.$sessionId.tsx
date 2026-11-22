@@ -1,5 +1,5 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
-import { getSessionSafe } from "@/lib/auth-client";
+import { createFileRoute } from "@tanstack/react-router";
+import { requireSession } from "@/lib/require-session";
 import { useChatStore } from "@/stores/chat";
 import { parseSafeInternalReturnUrl, parseStoryReturnKey } from "@/lib/story-return-url";
 
@@ -15,9 +15,8 @@ export const Route = createFileRoute("/app/chat/$sessionId")({
     returnTo: parseSafeInternalReturnUrl(search.returnTo),
     returnKey: parseStoryReturnKey(search.returnKey),
   }),
-  beforeLoad: async () => {
-    const session = await getSessionSafe();
-    if (!session.data) throw redirect({ to: "/login" });
+  beforeLoad: async ({ location }) => {
+    await requireSession(location);
   },
   loader: async ({ params }) => {
     const store = useChatStore.getState();

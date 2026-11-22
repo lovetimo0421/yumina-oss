@@ -142,14 +142,14 @@ export function getTagColor(
  *
  *  Indigo is intentionally excluded — it's reserved for official preset entries. */
 export const BUNDLE_COLOR_PALETTE = [
-  { key: "rose",    dot: "bg-rose-400",    border: "border-l-rose-400",    text: "text-rose-400",    soft: "bg-rose-400/10" },
-  { key: "amber",   dot: "bg-amber-400",   border: "border-l-amber-400",   text: "text-amber-400",   soft: "bg-amber-400/10" },
-  { key: "emerald", dot: "bg-emerald-400", border: "border-l-emerald-400", text: "text-emerald-400", soft: "bg-emerald-400/10" },
-  { key: "cyan",    dot: "bg-cyan-400",    border: "border-l-cyan-400",    text: "text-cyan-400",    soft: "bg-cyan-400/10" },
-  { key: "sky",     dot: "bg-sky-400",     border: "border-l-sky-400",     text: "text-sky-400",     soft: "bg-sky-400/10" },
-  { key: "violet",  dot: "bg-violet-400",  border: "border-l-violet-400",  text: "text-violet-400",  soft: "bg-violet-400/10" },
-  { key: "fuchsia", dot: "bg-fuchsia-400", border: "border-l-fuchsia-400", text: "text-fuchsia-400", soft: "bg-fuchsia-400/10" },
-  { key: "pink",    dot: "bg-pink-400",    border: "border-l-pink-400",    text: "text-pink-400",    soft: "bg-pink-400/10" },
+  { key: "rose",    dot: "bg-rose-400",    border: "border-l-rose-400",    text: "text-rose-400",    soft: "bg-rose-400/10", hex: "#fb7185" },
+  { key: "amber",   dot: "bg-amber-400",   border: "border-l-amber-400",   text: "text-amber-400",   soft: "bg-amber-400/10", hex: "#fbbf24" },
+  { key: "emerald", dot: "bg-emerald-400", border: "border-l-emerald-400", text: "text-emerald-400", soft: "bg-emerald-400/10", hex: "#34d399" },
+  { key: "cyan",    dot: "bg-cyan-400",    border: "border-l-cyan-400",    text: "text-cyan-400",    soft: "bg-cyan-400/10", hex: "#22d3ee" },
+  { key: "sky",     dot: "bg-sky-400",     border: "border-l-sky-400",     text: "text-sky-400",     soft: "bg-sky-400/10", hex: "#38bdf8" },
+  { key: "violet",  dot: "bg-violet-400",  border: "border-l-violet-400",  text: "text-violet-400",  soft: "bg-violet-400/10", hex: "#a78bfa" },
+  { key: "fuchsia", dot: "bg-fuchsia-400", border: "border-l-fuchsia-400", text: "text-fuchsia-400", soft: "bg-fuchsia-400/10", hex: "#e879f9" },
+  { key: "pink",    dot: "bg-pink-400",    border: "border-l-pink-400",    text: "text-pink-400",    soft: "bg-pink-400/10", hex: "#f472b6" },
 ] as const;
 
 export type BundleColor = (typeof BUNDLE_COLOR_PALETTE)[number];

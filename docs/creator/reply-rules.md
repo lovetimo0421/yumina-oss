@@ -1,3 +1,8 @@
+---
+title: "Reply processing"
+description: "Reply processing pulls a status block out of the AI's reply, writes it into variables, and hides it from the player, with no code. Plus one bubble per speaker."
+---
+
 # Reply Processing
 
 Lots of cards have the AI add a status line at the end of each reply, like this:

@@ -9,6 +9,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
+    },
+    "./card-code": {
+      "types": "./dist/card-code.d.ts",
+      "import": "./dist/card-code.js",
+      "require": "./dist/card-code.cjs"
     }
   },
   "main": "./dist/index.cjs",
@@ -24,7 +29,8 @@
     "test": "tsup && node --test test/*.test.mjs"
   },
   "dependencies": {
-    "zod": "^3.24"
+    "zod": "^3.24",
+    "sucrase": "^3.35.1"
   },
   "devDependencies": {
     "tsup": "^8",

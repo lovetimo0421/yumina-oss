@@ -193,3 +193,17 @@ test("unchanged refresh preserves session switch, rewind, restore and newer stat
     assert.equal(reconcileSessionStateConfirmation("room", before, competing, requested, confirmed), null);
   }
 });
+test("a refreshed window reports how many rows precede it when the server counts them", async () => {
+  const counted = async (before?: { id: string }) => {
+    const beforeIndex = before ? rows.findIndex((row) => row.id === before.id) : rows.length;
+    const start = Math.max(0, beforeIndex - 200);
+    return { data: rows.slice(start, beforeIndex), meta: { hasMore: start > 0, earlier: start } };
+  };
+  // 450 loaded (m0200…): the last page starts at m0050, of which m0050–m0199 fall outside the window.
+  const result = await refreshMessageWindow(rows.slice(200), counted);
+  assert.equal(result?.messages[0]?.id, "m0200");
+  assert.equal(result?.earlierMessageCount, 200);
+  // A server that does not count leaves the client's own figure alone.
+  const uncounted = await refreshMessageWindow(rows.slice(200), loader(rows).load);
+  assert.equal(uncounted?.earlierMessageCount, undefined);
+});

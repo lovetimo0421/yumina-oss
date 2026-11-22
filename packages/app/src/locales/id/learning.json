@@ -1,0 +1,382 @@
+{
+  "help": "Panduan",
+  "title": "Panduan",
+  "intro": "Mulai dengan tiga pelajaran: pesan pembuka, karakter dan dunia, serta layar pemain. Setelah itu, semua pelajaran lain terbuka.",
+  "next": "Lanjut",
+  "finishTour": "Selesai",
+  "back": "Langkah sebelumnya",
+  "pause": "Jeda panduan",
+  "expand": "Tampilkan petunjuk",
+  "collapse": "Sembunyikan petunjuk",
+  "locate": "Tunjukkan lagi",
+  "beatDone": "Berhasil ✧ Coba bagian yang baru terbuka. Kalau sudah siap, tekan Lanjut dan aku antar kamu kembali ke kanvas.",
+  "eyebrowRequired": "Tutorial · Pelajaran {{number}} dari {{total}}",
+  "eyebrowMore": "Tutorial · {{title}}",
+  "stripLocked": "Selesaikan 3 pelajaran ini, lalu pelajaran lainnya terbuka",
+  "nextUp": "Berikutnya: ",
+  "allLessons": "Semua pelajaran",
+  "progressCount": "{{done}} dari {{total}} selesai",
+  "tagNext": "Lanjut",
+  "nextLesson": "Pelajaran berikutnya: {{title}}",
+  "notNow": "Kembali ke kartuku",
+  "end": {
+    "required": {
+      "title": "3 pelajaran pertama selesai ╰(*°▽°*)╯",
+      "body": "Tekan Mainkan di bagian atas untuk coba satu ronde. Kembali lagi kapan saja untuk pelajaran lainnya."
+    },
+    "lesson": {
+      "title": "{{title}}: selesai"
+    },
+    "all": {
+      "title": "Semua sudah selesai",
+      "body": "Ada yang terlewat? Buka ⋮ di kanan atas lalu tekan Panduan."
+    }
+  },
+  "parts": {
+    "required": {
+      "name": "Mulai dari 3 ini",
+      "blurb": "Pesan pembuka, karakter dan dunia, layar pemain."
+    },
+    "more": {
+      "name": "Pelajaran lainnya",
+      "blurb": "Terbuka setelah tiga pelajaran pertama. Pilih urutan sesukamu."
+    }
+  },
+  "lessons": {
+    "opening": {
+      "title": "Pesan pembuka",
+      "goal": "Hal pertama yang dibaca pemain.",
+      "body": "Ini hal pertama yang dibaca pemain saat membuka kartumu — cerita dimulai dari sini. Klik barisnya dan tulis versimu sendiri.",
+      "bodyMobile": "Ini hal pertama yang dibaca pemain saat membuka kartumu. Tulis versimu sendiri di kotak teks.",
+      "bodyOwn": "Ini hal pertama yang dibaca pemain saat membuka kartumu — cerita dimulai dari sini. Klik barisnya untuk mengubah.",
+      "bodyOwnMobile": "Ini hal pertama yang dibaca pemain saat membuka kartumu. Ubah di kotak teks.",
+      "beats": {
+        "add": {
+          "title": "Tambah pesan pembuka lain",
+          "body": "Klik ＋ di pojok ini untuk menambah pesan pembuka lain. Pemain bisa mulai dari adegan berbeda, alur cerita berbeda, bahkan kondisi awal (variabel) yang berbeda.",
+          "after": {
+            "added": {
+              "title": "Pesan pembuka barumu",
+              "body": "Pesan pembuka baru sudah terbuka — tulis saja di kotak Konten. Boleh dimulai dari tempat yang sama sekali berbeda."
+            }
+          }
+        }
+      }
+    },
+    "interface": {
+      "title": "Layar pemain",
+      "goal": "Apa yang benar-benar dilihat pemain.",
+      "body": "Ini yang dilihat pemain saat bermain, dan tampilannya mengikuti pesan pembukamu saat kamu edit. Ponsel / Desktop di bawah untuk beralih antara keduanya; untuk mengubah tata letak dan warna, klik Edit antarmuka lalu pilih template.",
+      "bodyMobile": "Halaman Layar pemain menampilkan apa yang dilihat pemain saat bermain. Kamu bisa beralih antara ponsel dan desktop di sana; pilih template untuk mengubah tata letak dan warna.",
+      "beats": {
+        "pages": {
+          "title": "Beri kartumu sebuah layar",
+          "body": "Mau kartumu punya layar sendiri? Tekan ikon pensil (Edit antarmuka) di pojok kanan atas antarmuka pemain, lalu tekan Baru di sebelah kiri — di sana ada banyak template siap pakai: pilih pesan pembuka, isi nama, inventaris, peta, pesan ponsel… Pilih satu dan langsung bisa dimainkan, tanpa kode.",
+          "after": {
+            "strip": {
+              "title": "Semua halaman kartumu",
+              "body": "Kolom di kiri ini berisi semua halaman di kartumu, seperti slide: klik satu untuk mengedit, seret untuk mengubah urutan, klik kanan untuk menyalin atau menghapus. Belum pilih template? Tenang — Baru ada tepat di bawah kapan pun kamu butuh."
+            },
+            "stage": {
+              "title": "Edit langsung di layar",
+              "body": "Klik apa saja di layar untuk memilihnya, lalu seret untuk memindahkan. Pengaturannya terbuka di kanan: teks, warna, dan ukuran semuanya ada di sana, dan perubahannya langsung terlihat."
+            },
+            "look": {
+              "title": "Ganti gaya seluruh kartu",
+              "body": "Klik Warna untuk memilih skema, dan seluruh kartu langsung berubah. Template ikut berubah, jadi tidak perlu mengubah gaya halaman satu per satu."
+            },
+            "exit": {
+              "title": "Sudah selesai? Kembali yuk",
+              "body": "Klik ← di kiri atas untuk kembali ke kanvas. Atau tekan Lanjut saja dan aku antar kamu kembali (ง •̀_•́)ง"
+            }
+          }
+        }
+      }
+    },
+    "setting": {
+      "title": "Karakter dan dunia",
+      "goal": "Ditulis untuk AI: siapa yang diperankan, dunia seperti apa.",
+      "body": "Pesan pembuka untuk pemain; blok ini untuk AI — siapa yang diperankan, seperti apa dunianya, apa saja aturannya. Aku sudah beri contoh; tinggal tulis ulang sebagai karaktermu.",
+      "bodyMobile": "Pesan pembuka untuk pemain; pengaturan ini untuk AI — siapa yang diperankan, seperti apa dunianya, aturannya. Tulis ulang contohku sebagai karaktermu. \"Narasi default\" sudah disediakan platform; biarkan saja.",
+      "beats": {
+        "add": {
+          "title": "Tambah pengaturan",
+          "body": "Tekan ＋ ini untuk menambah satu lagi. Satu entri per karakter dan satu per tempat membuat AI tidak tertukar.",
+          "after": {
+            "added": {
+              "title": "Sudah ditambahkan!",
+              "body": "Entri baru ada di bagian bawah daftar ini dan sudah terbuka — beri nama lalu tulis isinya."
+            }
+          }
+        }
+      }
+    },
+    "state": {
+      "title": "Variabel",
+      "goal": "Apa yang diingat cerita.",
+      "body": "Variabel adalah hal-hal yang diingat cerita: kedekatan, nyawa, koin emas. AI mengubahnya seiring cerita berjalan, dan layarmu bisa menampilkannya. Aku sudah menambahkan Kedekatan, pengaturannya terbuka tepat di bawahnya. Yuk kita lihat satu per satu ↓",
+      "bodyMobile": "Variabel adalah hal-hal yang diingat cerita: kedekatan, nyawa, koin emas. AI mengubahnya seiring cerita berjalan, dan layarmu bisa menampilkannya. Aku sudah menambahkan Kedekatan: mulai dari 30, rentangnya 0 sampai 100, dan berubah paling banyak 10 per giliran. Buka di halaman Variabel.",
+      "beats": {
+        "add": {
+          "title": "Tambah variabel",
+          "body": "Klik ＋ ini untuk menambah variabel baru, misalnya emas, nyawa, atau kepercayaan.",
+          "after": {
+            "added": {
+              "title": "Sudah ditambahkan",
+              "body": "Variabel baru sudah ada di kanvas, dengan pengaturannya di bawah namanya. Ganti namanya di header baris, lalu atur nilai awal dan rentangnya. Agar pemain bisa melihatnya, klik \"Tampilkan di layar pemain\". Klik lagi untuk menghapus tampilannya; variabel dan datanya tetap tersimpan."
+            }
+          }
+        },
+        "range": {
+          "title": "Mulai dari mana, sampai mana",
+          "body": "Kedekatan mulai dari 30 dan berkisar dari 0 sampai 100. 30 untuk orang yang baru kenal; kalau kamu baik ke Yumina, nilainya naik. Setelah mencapai 100, nilainya berhenti naik."
+        },
+        "precise": {
+          "title": "Seberapa besar perubahannya per giliran",
+          "body": "Hitung dengan cermat sedang aktif: paling banyak +10 atau −10 per giliran, dan AI memilih angka di antaranya sesuai cerita. Pujian +3, hadiah +8, membentaknya −10, jadi kedekatan tidak melonjak liar."
+        },
+        "rules": {
+          "title": "Arti tiap tingkat",
+          "body": "Di sini kamu menulis kapan nilainya naik, kapan turun, dan apa arti angka-angkanya. Aku sudah mengisinya: 0–30 dingin, 30–60 teman, 60–80 dekat dan percaya, 80+ dia suka kamu. AI memainkan sikap Yumina berdasarkan ini."
+        }
+      }
+    },
+    "behavior": {
+      "title": "Perilaku",
+      "goal": "Kalau begini, maka begitu.",
+      "body": "Perilaku itu berbentuk \"jika… maka…\". Aku sudah menambahkan satu: kedekatan mencapai 80 → aktifkan entri \"Perasaan Yumina\". Entri itu nonaktif sampai saat itu, jadi AI tidak bisa melihatnya; begitu aktif, Yumina mulai diam-diam peduli padamu. Selain mengaktifkan entri, perilaku juga bisa mengubah variabel, memutar lagu, atau memberi tahu pemain.",
+      "bodyMobile": "Perilaku itu berbentuk \"jika… maka…\". Aku sudah menambahkan satu: kedekatan mencapai 80 → aktifkan \"Perasaan Yumina\", dan dia mulai diam-diam peduli padamu. Ubah di halaman Perilaku.",
+      "beats": {
+        "add": {
+          "title": "Tambah perilaku",
+          "body": "Tekan ＋ ini untuk menambahkan satu. Pilih syaratnya dulu, lalu apa yang terjadi.",
+          "after": {
+            "added": {
+              "title": "Satu perilaku dalam satu kalimat",
+              "body": "Perilaku baru sudah ada di kanvas. Ganti namanya di header baris, lalu isi pengaturan di bawahnya: kapan dicek, angka mana yang mencapai berapa, dan apa yang terjadi. Perilaku bisa memberi tahu AI sesuatu, mengubah angka, atau menampilkan catatan untuk pemain."
+            }
+          }
+        }
+      }
+    },
+    "atmosphere": {
+      "title": "Musik dan gambar adegan",
+      "goal": "Suara dan gambar untuk ceritamu.",
+      "body": "Dua fitur ini menambahkan suara dan gambar ke ceritamu. Keduanya tidak wajib, tambahkan kalau kamu mau. Di Audio, upload lagu dan tulis satu kalimat kapan lagu itu diputar, misalnya \"saat pertarungan dimulai\", lalu cerita akan beralih ke lagu itu di saat tersebut. Di kanvas, buka trek dengan panah untuk mengganti nama dan mengedit pengaturannya langsung di tempat.",
+      "bodyMobile": "Di Audio, upload lagu dan tulis satu kalimat kapan lagu itu diputar. Di Gambar adegan, upload gambar dan tulis satu kalimat kapan gambar itu muncul. Keduanya tidak wajib.",
+      "beats": {
+        "image": {
+          "title": "Gambar adegan: gambar di saat yang tepat",
+          "body": "Aku sudah menambahkan Yumina yang bahagia dengan syarat \"saat pemain memuji Yumina\". Puji dia, dan gambar ini akan muncul di chat (｡•̀ᴗ-)✧ Ganti dengan gambarmu sendiri dan tulis satu kalimat kapan gambar itu muncul."
+        }
+      }
+    },
+    "assistant": {
+      "title": "Asisten",
+      "goal": "Bisa melakukan semua hal di atas.",
+      "body": "Percakapan baru dimulai di Rencana: diskusikan ide tanpa mengubah kartu. Kalau rencananya sudah siap, tinjau cakupannya lalu pilih Mulai membangun untuk beralih dan menjalankannya, atau Lanjut brainstorming untuk meneruskan diskusi. Kamu bisa membuka lagi rencananya nanti atau mengganti mode di bawah kolom input. Pilih dulu blok di kanvas untuk memfokuskan permintaan (Ctrl untuk memilih beberapa). Kamu boleh pergi saat asisten bekerja dan kembali setelah ada notifikasi. Pesan memakai kredit; tidak perlu kirim pesan sekarang.",
+      "bodyMobile": "Percakapan baru dimulai di Rencana tanpa mengubah kartu. Kalau rencananya sudah siap, tinjau cakupannya lalu pilih Mulai membangun, atau Lanjut brainstorming dan kembali ke rencana nanti. Kamu juga bisa mengganti mode di bawah kolom input. Kamu boleh pergi saat asisten bekerja dan kembali setelah ada notifikasi. Pesan memakai kredit; tidak perlu kirim pesan sekarang."
+    },
+    "card": {
+      "title": "Sampul, deskripsi, dan varian",
+      "goal": "Yang dilihat pemain di Jelajahi, serta versi lain dari kartumu.",
+      "body": "Blok ini yang pertama dilihat pemain di Jelajahi: sampul, nama, dan deskripsi. Kamu bisa mengedit nama dan deskripsi langsung di blok ini. Blok Latar di sebelahnya berada di belakang chat; kamu bisa memakai sampul saja.",
+      "bodyMobile": "Upload gambar potret untuk kartu 2:3 dan gambar lanskap untuk tampilan galeri, atau pakai ulang gambar potretnya. Di Tampilan galeri, atur Banner desktop (21:9) dan Kartu seluler & galeri (16:9) secara terpisah. Simpan potongan akan menyimpan kedua pilihan.",
+      "beats": {
+        "cover": {
+          "title": "Klik sampulnya",
+          "body": "Klik sampulnya, lalu semua tentang kartumu terbuka di sebelah kanan.",
+          "after": {
+            "cover": {
+              "title": "Sampul",
+              "body": "Upload gambar potret untuk kartu 2:3 dan gambar lanskap untuk tampilan galeri, atau pakai ulang gambar potretnya. Di Tampilan galeri, atur Banner desktop (21:9) dan Kartu seluler & galeri (16:9) secara terpisah. Simpan potongan akan menyimpan kedua pilihan."
+            },
+            "gallery": {
+              "title": "Galeri",
+              "body": "Hingga 8 gambar di halaman detail kartumu, supaya pemain bisa melihat duniamu sebelum mulai."
+            },
+            "language": {
+              "title": "Bahasa",
+              "body": "Bahasa yang dipakai untuk menulis kartumu. Jelajahi memfilter berdasarkan bahasa ini, dan versi terjemahan juga ditautkan lewat bahasa ini."
+            }
+          }
+        }
+      }
+    },
+    "knowledge": {
+      "title": "Kapan pengaturan dikirim ke AI",
+      "goal": "Selalu, kata kunci, kondisi, siaga.",
+      "body": "Entri memang untuk AI, tapi tidak harus dikirim setiap giliran: kirim hanya saat dibutuhkan, jadi lebih hemat kata dan AI tetap fokus.",
+      "bodyMobile": "Ada empat cara: selalu, lewat kata kunci, lewat kondisi, atau siaga sampai sebuah perilaku mengaktifkannya. Ubah di bawah teks pengaturan.",
+      "beats": {
+        "delivery": {
+          "title": "Cara pengirimannya",
+          "body": "Setiap entri punya baris ini di bawahnya. Buka saja.",
+          "after": {
+            "modes": {
+              "title": "Empat cara",
+              "body": "Selalu: dikirim setiap giliran. Kata kunci: dikirim saat sebuah kata muncul di chat. Kondisi: dikirim saat variabel cocok. Siaga: tidak pernah dikirim sendiri, menunggu perilaku yang mengaktifkannya, seperti \"Perasaan Yumina\" di pelajaran Perilaku."
+            }
+          }
+        }
+      }
+    },
+    "looks": {
+      "title": "Cara lain mengubah tampilan",
+      "goal": "Halaman baru, tampilan tiap bagian, atau kodemu sendiri.",
+      "body": "Selain template, ini cara lain untuk mengubah layar pemain.",
+      "bodyMobile": "Halaman Layar pemain memungkinkanmu menambah halaman dan mengubah tampilan tiap bagian. Kode frontend berisi kode sumbernya kalau kamu mau membuatnya sendiri.",
+      "beats": {
+        "new": {
+          "title": "Baru",
+          "body": "Cara tercepat: tekan Edit antarmuka, lalu pilih template siap pakai di bawah Baru di sebelah kiri. Semuanya bisa langsung dimainkan."
+        },
+        "code": {
+          "title": "Tulis kodemu sendiri",
+          "body": "Mau membuat semuanya sendiri? Buka Kode Front End dari Panel: kode sumber layarnya ada di sana, bisa kamu tulis sendiri atau minta Asisten kreasi untuk mengubahnya."
+        }
+      }
+    },
+    "modules": {
+      "title": "Skenario",
+      "goal": "Konten yang hanya dipakai di skenario tertentu.",
+      "body": "Kalau kartumu sudah besar, tambahkan skenario: seperti kartu di dalam kartu, dengan entri, variabel, dan perilakunya sendiri. Seret sesuatu ke dalamnya, dan itu hanya berlaku di skenario tersebut.",
+      "bodyMobile": "Halaman Skenario membagi konten per bab atau adegan, masing-masing dengan pengaturan, variabel, dan perilakunya sendiri. Fitur seret butuh komputer.",
+      "beats": {
+        "add": {
+          "title": "Tambah",
+          "body": "Klik di sini untuk menambah skenario.",
+          "after": {
+            "module": {
+              "title": "Skenario dan hal di luarnya",
+              "body": "Klik di sini untuk menambah skenario. Lalu klik judulnya dan pilih di bawah \"Kapan dipakai\" bagaimana pemain masuk: selalu aktif, sebuah kata, sebuah kondisi… Dengan \"Saat sesuatu diucapkan\" kamu juga bisa menentukan kata yang membuat pemain keluar lagi. Tidak jadi? Klik area kosong untuk menutup menu."
+            }
+          }
+        }
+      }
+    },
+    "ais": {
+      "title": "AI",
+      "goal": "Setiap AI adalah satu panggilan tambahan ke model, yang ada di kartu atau di dalam skenario.",
+      "body": "Kartu dan setiap skenario berakhir dengan blok 「AI」: satu baris per AI, berisi nama dan tipenya. Kartu dimulai dengan satu AI bernama AI, berbasis giliran: menjawab setiap kali pemain bicara. Setiap AI yang kamu tambahkan berarti satu panggilan tambahan ke model. AI berbasis giliran berjalan di giliran pemain; AI berbasis UI menunggu tombol di antarmuka pemain untuk memanggilnya; AI berbasis kode berjalan sendiri saat suatu nilai memenuhi kondisi atau skenario berakhir. Apa yang diketahui sebuah AI tergantung di mana ia berada: di kartu, ia memakai pengaturan kartu; di skenario, ia memakai pengaturan skenario itu. Di sebelahnya, 「Context」 adalah percakapan yang tersimpan di sana, dan AI mana saja yang membacanya. Judul sebuah situasi juga menyebut siapa yang berbicara di situ; klik nama-nama itu untuk melihat semua AI yang dijalankan kartu, termasuk yang berjalan di latar belakang dari platform.",
+      "bodyMobile": "Di ponsel, Studio terbuka di kanvas. Ketuk blok AI untuk menambah atau mengedit AI; Kembali akan membawamu ke papan.",
+      "beats": {
+        "add": {
+          "title": "Tambah",
+          "body": "Klik di sini dan pilih \"Sebuah AI\".",
+          "after": {
+            "ai": {
+              "title": "Sebuah AI",
+              "body": "Klik: baris baru akan muncul di blok 「AI」 pada skenario yang sedang kamu buka (atau kartu), langsung terbuka untuk diatur — pilih tipenya dulu. Kalau tidak jadi, klik area kosong untuk menutup menu."
+            }
+          }
+        }
+      }
+    },
+    "canvas": {
+      "title": "Cara bergerak di kanvas",
+      "goal": "Geser, zoom, cari sesuatu.",
+      "body": "Kanvas adalah seluruh kartumu; setiap blok berisi satu jenis konten. Klik satu baris untuk memilihnya, lalu klik lagi atau pakai panahnya untuk membuka pengaturan di bawahnya. Ganti namanya di header. Audio dan Konteks juga terbuka di sini. Klik dua kali baris konten untuk membuka editor lengkapnya; tahan Ctrl lalu klik atau seret kotak untuk memilih beberapa sekaligus.",
+      "bodyMobile": "Di ponsel, papannya sama: geser dengan satu jari, cubit untuk zoom. Ketuk blok mana pun untuk membuka halamannya; tombol kembali membawamu ke posisi yang sama. Pojok kiri atas untuk menambah sesuatu dan mencari skenariomu.",
+      "beats": {
+        "fit": {
+          "title": "Lihat semuanya",
+          "body": "Tersesat? Klik ini untuk melihat seluruh kartu. Roda mouse untuk menggulir, Ctrl + roda untuk zoom; seret di area kanvas kosong untuk menggeser papan, tahan Ctrl lalu seret kotak untuk memilih beberapa sekaligus."
+        },
+        "search": {
+          "title": "Cari",
+          "body": "Ingat nama atau satu kalimat dari teksnya? Cari saja. Tekan Enter untuk lompat ke hasil pertama."
+        },
+        "surface": {
+          "title": "Tidak suka kanvas?",
+          "body": "Matikan tombol Kanvas di kiri atas, dan kartu yang sama akan terbuka di editor per halaman — isinya sama, tampilannya beda. Nyalakan lagi untuk kembali. Ganti kapan saja; tidak ada yang hilang."
+        }
+      }
+    },
+    "ship": {
+      "title": "Simpan, uji, terbitkan",
+      "goal": "Simpan menyimpan versi; penerbitan perlu ditinjau dulu.",
+      "body": "Terakhir: menyimpan, uji coba, dan menerbitkan.",
+      "bodyMobile": "Simpan menyimpan satu versi; Uji memulai ronde sungguhan dan memakai kredit. Untuk menerbitkan, sampul perlu gambar potret 2:3 dan lanskap 16:9.",
+      "beats": {
+        "save": {
+          "title": "Simpan otomatis",
+          "body": "Perubahan tersimpan otomatis, dan satu versi disimpan setiap 15 menit selama kamu mengedit. Temukan di riwayat versi."
+        },
+        "playtest": {
+          "title": "Uji coba",
+          "body": "Ini uji coba: ronde sungguhan dengan model pilihanmu; memakai kredit. Kamu bisa melihat variabel berubah dan perilaku mana yang berjalan."
+        },
+        "publish": {
+          "title": "Terbitkan",
+          "body": "Pilih siapa yang bisa memainkan setelah ditinjau: semua orang, siapa pun yang punya tautan, atau pengikutmu. Bagikan kartu khusus tautan dari notifikasi persetujuan."
+        }
+      }
+    }
+  },
+  "hello": "Halo, Yumina!",
+  "sample": {
+    "entryName": "Yumina",
+    "entryContent": "Kamu berperan sebagai Yumina, jamur kecil yang bisa bicara, banyak tersenyum dan sedikit bicara. Jawab pemain dalam satu atau dua kalimat pendek, dan jangan pernah mengambil keputusan untuk mereka.",
+    "variableName": "Kedekatan",
+    "behaviorName": "Kedekatan 80: perasaan",
+    "variableRules": "Naik saat pemain peduli pada Yumina, memujinya, atau membantunya; turun saat mereka membentaknya, berbohong, atau mengabaikannya. 0–30 dingin, sedikit bicara; 30–60 teman, menjawab dengan senyum; 60–80 dekat dan percaya, mulai mengajak ngobrol; 80+ suka padamu tapi tidak mau mengaku.",
+    "heartName": "Perasaan Yumina",
+    "heartContent": "Yumina jatuh hati pada pemain: dia mulai mengajak ngobrol, memperhatikan semua yang pemain lakukan, dan salah tingkah saat dipuji, tapi tidak akan pernah mengakuinya.",
+    "imageName": "Yumina yang senang",
+    "imageScene": "Saat pemain memuji Yumina"
+  },
+  "recovery": {
+    "model": {
+      "title": "Pilih model untuk mencoba ceritamu",
+      "body": "Pilih model, lalu kirim pesanmu dari chat. Drafmu tetap ada di sini."
+    },
+    "provider": {
+      "title": "Tidak ada model yang tersedia dari penyedia ini",
+      "body": "Periksa penyedia AI atau kunci API di Pengaturan, atau pilih model yang tersedia. Lalu kembali ke sini untuk mengirim pesanmu."
+    },
+    "credits": {
+      "title": "Pesan ini butuh kredit",
+      "body": "Lihat kreditmu, atau pilih model lain yang tersedia. Draf dan pesanmu masih ada; kirim lagi kalau sudah siap."
+    },
+    "promptCost": {
+      "title": "Saldomu tidak cukup untuk permintaan ini",
+      "body": "Cerita ini mungkin butuh lebih banyak konteks daripada yang bisa ditanggung saldomu. Coba model yang lebih murah atau lihat kreditmu, lalu kirim lagi."
+    },
+    "modelAccess": {
+      "title": "Model ini tidak tersedia untuk akunmu",
+      "body": "Pilih model yang bisa dipakai akunmu, lalu kirim pesanmu lagi."
+    },
+    "busy": {
+      "title": "Model sedang sibuk",
+      "body": "Tunggu sebentar. Cek dulu percakapan untuk melihat ada balasan atau tidak sebelum mengirim lagi, atau pilih model lain."
+    },
+    "tooLong": {
+      "title": "Pesan ini terlalu panjang",
+      "body": "Persingkat pesanmu di chat, lalu kirim lagi. Draf ceritamu tidak berubah."
+    },
+    "access": {
+      "title": "Percakapan ini tidak tersedia",
+      "body": "Cek pesan akses akun atau cerita. Kamu bisa memeriksa akunmu di Pengaturan; drafmu tetap ada di sini."
+    },
+    "connection": {
+      "title": "Balasan mungkin masih dalam perjalanan",
+      "body": "Koneksi terputus sebelum kami bisa memastikan hasilnya. Cek percakapan dulu agar tidak mengirim permintaan berbayar yang kedua."
+    },
+    "request": {
+      "title": "Balasan tidak bisa diselesaikan",
+      "body": "Cek apakah balasan sudah masuk. Kalau belum, pilih model lain atau kirim lagi kalau sudah siap."
+    },
+    "chooseModel": "Pilih model",
+    "viewCredits": "Lihat kredit",
+    "settings": "Buka Pengaturan",
+    "checkConversation": "Cek percakapan",
+    "checking": "Memeriksa…",
+    "checked": "Percakapan sudah dimuat ulang. Kalau balasan belum muncul, tunggu sebentar sebelum memutuskan untuk mengirim lagi.",
+    "checkFailed": "Percakapan tidak bisa diperiksa. Coba periksa lagi sebelum mengirim pesan berikutnya."
+  },
+  "activity": {
+    "error": "Gagal memuat. Tekan Muat ulang untuk mencoba lagi.",
+    "source": "Playtest terakhir · {{at}}. Akan dihapus setelah playtest ditutup."
+  }
+}

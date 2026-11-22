@@ -106,8 +106,9 @@ export function ArrangeBar({ doc, pageId, ids, canvas, onEdit }: {
         ))}
       </div>
       {elsewhere > 0 && (
-        <p className="mt-1.5 text-[10px] leading-relaxed text-muted-foreground/80" data-testid="off-canvas-rule">
-          {t("studio.canvasEdit.offCanvasRule", { count: elsewhere })}
+        <p className="mt-1.5 cursor-help text-[10px] leading-relaxed text-muted-foreground/80" data-testid="off-canvas-rule"
+          title={t("studio.canvasEdit.offCanvasRule", { count: elsewhere })}>
+          {t("studio.canvasEdit.offCanvas", { count: elsewhere })}
         </p>
       )}
     </div>

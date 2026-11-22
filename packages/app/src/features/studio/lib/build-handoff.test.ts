@@ -23,3 +23,17 @@ test("a seen plan stays quiet in the same conversation, with storage unavailable
   assert.equal(hasSeenBuildOffer(handoffKey("world", "other", proposal.revision)), false);
   assert.equal(hasSeenBuildOffer(handoffKey("world", "conversation", "b".repeat(64))), false);
 });
+test("a conversation reopens in the mode it was last working in", async () => {
+  const { conversationMode } = await import("./build-handoff");
+  const ask: StudioChatMessage = { id: "u", role: "user", content: "Make a port" };
+  const talk: StudioChatMessage = { id: "a", role: "assistant", content: "Who is the player?" };
+  const wrote = { id: "w", role: "assistant", content: "", toolCalls: [{ id: "t", name: "write_entry", arguments: "{}" }], proposalStatus: "approved" } as unknown as StudioChatMessage;
+  const refused = { ...wrote, id: "r", proposalStatus: "rejected" } as unknown as StudioChatMessage;
+  const brief: StudioChatMessage = { id: "b", role: "assistant", content: "", buildProposal: proposal };
+  assert.equal(conversationMode([]), "advise");
+  assert.equal(conversationMode([ask, talk]), "advise");
+  assert.equal(conversationMode([ask, talk, ask, wrote, { ...talk, id: "done" }, ask]), "build");
+  assert.equal(conversationMode([ask, wrote, ask, brief, talk]), "advise");
+  assert.equal(conversationMode([ask, brief, ask, wrote]), "build");
+  assert.equal(conversationMode([ask, talk, ask, refused]), "advise");
+});

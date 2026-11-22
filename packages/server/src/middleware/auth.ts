@@ -6,6 +6,8 @@ import { redis } from "../lib/redis.js";
 import { db } from "../db/index.js";
 import { user as userTable } from "../db/schema.js";
 import { readCachedSessionUser, writeCachedSessionUser } from "../lib/session-user-cache.js";
+import { enforceInviteContentAccess } from "./invite-content-access.js";
+import { takeInternalActor } from "../lib/internal-actor.js";
 
 const SESSION_CACHE_TTL = 300; // 5 minutes
 
@@ -128,6 +130,7 @@ async function loadUserFresh(userId: string): Promise<SessionUser | null> {
       isBanned: userTable.isBanned,
       tier: userTable.tier,
       skipReview: userTable.skipReview,
+      limitedContentOnly: userTable.limitedContentOnly,
     })
     .from(userTable)
     .where(eq(userTable.id, userId))
@@ -192,7 +195,17 @@ export async function authenticateHeaders(headers: Headers): Promise<Pick<AppEnv
 export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
   // Multiple routers may authenticate the same HTTP request; reuse only its
   // already established context, never a separate upgrade's supplied fields.
-  if (c.get("user") && c.get("session")) return next();
+  if (c.get("user") && c.get("session")) return (await enforceInviteContentAccess(c)) ?? next();
+  // A request this process built for a user (a story room round sent as its
+  // host). Same fresh user row as a cookie session; no cookie involved.
+  const actor = takeInternalActor(c.req.raw);
+  if (actor) {
+    const actorUser = await loadUserFresh(actor.userId);
+    if (!actorUser) return c.json({ error: "Unauthorized" }, 401);
+    c.set("user", actorUser);
+    c.set("session", { id: `internal:${actor.purpose}`, userId: actorUser.id, expiresAt: new Date(Date.now() + 60 * 60_000), token: "" } as AppEnv["Variables"]["session"]);
+    return next();
+  }
   const result = await authenticateHeaders(c.req.raw.headers);
   if (!result) {
     console.warn(`[auth] 401 on ${c.req.method} ${c.req.path} — cookie=${getSessionToken(c.req.raw.headers) ? "present" : "missing"}`);
@@ -200,6 +213,8 @@ export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
   }
   c.set("user", result.user);
   c.set("session", result.session);
+  const denied = await enforceInviteContentAccess(c);
+  if (denied) return denied;
   await next();
 });
 
@@ -222,6 +237,8 @@ export const optionalAuthMiddleware = createMiddleware<AppEnv>(async (c, next) =
             expiresAt: new Date(cached.sessionExpiresAtMs),
             token,
           });
+          const denied = await enforceInviteContentAccess(c);
+          if (denied) return denied;
           return next();
         }
       }
@@ -252,5 +269,7 @@ export const optionalAuthMiddleware = createMiddleware<AppEnv>(async (c, next) =
   } catch {
     // Guest user — no session, continue without auth context
   }
+  const denied = await enforceInviteContentAccess(c);
+  if (denied) return denied;
   await next();
 });

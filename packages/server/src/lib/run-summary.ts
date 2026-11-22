@@ -5,7 +5,11 @@ import { resolveStation, type Worldbook } from "@yumina/engine";
 import type { ChatMessage } from "./llm/types.js";
 import { applyModelRedirect } from "./llm/model-redirects.js";
 import { DEFAULT_STORY_SUMMARY_MODEL, generateStorySummaryText } from "./session-compaction.js";
+import { estimateCallCredits, gateBackgroundCharge } from "./background-consent.js";
+import { resolveProviderForModel } from "./resolve-provider.js";
+import { planAllowedModel } from "./plan-model-gate.js";
 import {
+  estimateMessagesTokens,
   formatMessagesForStoryCompaction,
   splitMessagesIntoCompactionChunks,
   type StoryMessageRow,
@@ -133,6 +137,25 @@ async function summarizeRunNow(args: {
   // splitter's own token accounting.
   const chunks = splitMessagesIntoCompactionChunks(rows, undefined, model);
   const transcript = chunks.map((chunk) => formatMessagesForStoryCompaction(chunk)).join("\n");
+
+  // Asks before it charges (background-consent.ts); there is no free stand-in.
+  // Unanswered or declined: no summary, so the fold keeps the run's own
+  // messages in the prompt, as after any failed summary. Nothing is lost.
+  const allowed = await planAllowedModel(args.userId, model, DEFAULT_STORY_SUMMARY_MODEL);
+  const resolved = await resolveProviderForModel(args.userId, allowed, { allowOfficialFallback: false }).catch(() => null);
+  if (resolved) {
+    const gate = await gateBackgroundCharge({
+      userId: args.userId,
+      feature: "runSummary",
+      model: allowed,
+      isByok: resolved.isByok,
+      estimate: () => estimateCallCredits(allowed, estimateMessagesTokens(rows, allowed) + 600, MAX_RUN_SUMMARY_TOKENS),
+    });
+    if (!gate.run) {
+      await persistRunSummary(args.sessionId, args.record, null);
+      return;
+    }
+  }
 
   const summary = await generateStorySummaryText({
     userId: args.userId,

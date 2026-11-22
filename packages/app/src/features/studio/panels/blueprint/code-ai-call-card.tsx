@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
-import { Code2, FileCode2 } from "lucide-react";
+import { FileCode2 } from "lucide-react";
 import type { FrontendAiCall, Worldbook } from "@yumina/engine";
 
 /** What the scan read off a call, as label/value lines: the same facts on
@@ -57,10 +57,6 @@ export function CodeAiCallCard({ call, books, onOpenFile }: {
 
   return (
     <div className="space-y-2 text-[11.5px]" data-code-ai-call={`${call.file}:${call.line}`}>
-      <p className="flex items-start gap-1.5 leading-relaxed text-foreground/70">
-        <Code2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-violet-300" />
-        <span>{t("blueprint.codeCall.intro")}</span>
-      </p>
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
         {rows.map(([k, v]) => (
           <div key={k} className="contents">

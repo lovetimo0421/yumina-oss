@@ -1,5 +1,5 @@
 import { readChatImages, pastedImageFiles, chatImageCopy } from "../../src/lib/chat-image-input";
-import { PLAY_MODELS, type ChatImageInput } from "@yumina/shared";
+import { formatModelId, PLAY_MODELS, type ChatImageInput } from "@yumina/shared";
 import { useState, useRef, useCallback, useEffect, useMemo, type ReactNode } from "react";
 import {
   Send,
@@ -11,6 +11,7 @@ import {
   FastForward,
   User,
   Share2,
+  Users,
   GitBranch,
   ArrowUp,
   ListTree,
@@ -18,31 +19,57 @@ import {
   Check,
   Image as ImageIcon,
   ScrollText,
+  Brain,
+  Search,
   Clapperboard,
+  Palette,
+  Sparkles,
+  Undo2,
+  RefreshCw,
+  ChevronDown,
+  MessageSquareDashed,
 } from "lucide-react";
 import {
   currentVideoState,
   useYumina,
   COMPOSER_DRAFT_EVENT,
+  OPEN_MEMORY_PANEL_EVENT,
+  OPEN_CHAT_SEARCH_EVENT,
   type BranchContext,
   type BranchNode,
 } from "../sandbox-context";
 import { ModelTrigger } from "./model-picker-modal";
+import { ThinkingControl } from "./thinking-control";
 import { VoicePanelButton } from "./voice-panel";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { useReadingAppearance } from "./reading-appearance";
 import { ComposerPopover } from "./composer-popover";
 import { useComposerGuard } from "./composer-guard";
 import { MicButton, VoiceRecordingOverlay, useHoldToTalkKey, useVoiceInput } from "./voice-input";
 import { makeChatT } from "./i18n";
+import { restoreTurnNote, settleTurnNote, useNoteDraft } from "./player-note-draft";
 import { useTurnImageSettings } from "./turn-images";
 import { SlotOutlet, useToolMenuCount } from "../extensions/registry";
 import { ComposerToolMenu, useIsNarrow } from "./composer-tool-menu";
 import { PromptsQuickSheet, openPromptsPanel, usePromptsAvailable, usePromptsStatus } from "./player-prompts";
 import { postToParentWindow, wrapMessage } from "../protocol";
+import { RoomMemberComposer, RoomModeChips, RoundStrip, ROOM_MODE_OFF, TalkFeed, postToRoom, signalRoomTyping, useRoomComposerPresence, type RoomMode } from "./story-room";
 import {
   clampComposerMessage,
   getComposerMessageLimitState,
   MAX_USER_MESSAGE_CHARS,
 } from "../../src/lib/composer-message-limit";
+
+const buttonColorLabels = {
+  default: "buttonColorDefault",
+  lighter: "buttonColorLighter",
+  darker: "buttonColorDarker",
+} as const;
 
 // How long to sit on keystrokes before mirroring the draft to the host. Long
 // enough that a fast typist doesn't generate a postMessage per character, short
@@ -51,6 +78,8 @@ const COMPOSER_DRAFT_SYNC_MS = 400;
 
 export function MessageInput() {
   const api = useYumina();
+  useRoomComposerPresence();
+  const appearance = useReadingAppearance();
   const {
     isStreaming,
     pendingChoices,
@@ -72,10 +101,22 @@ export function MessageInput() {
   const openModelPicker = () => openSharedModelPicker();
   const t = useMemo(() => makeChatT(api.language), [api.language]);
   const generationBlocked = isStreaming || !!api.modelFallback;
+  // In a story room: how the next line joins it (players-only talk / keep the AI waiting).
+  const [roomMode, setRoomMode] = useState<RoomMode>(ROOM_MODE_OFF);
   const canSendMessage = api.capabilities?.canSendMessage !== false
     && api.mode !== "guest-preview";
 
   const [content, setContent] = useState("");
+  // 给 AI 的话: null = closed; rides on the next turn as a one-turn direction.
+  // Shared with the sandbox API (player-note-draft.ts), which attaches it to
+  // whatever sends that turn: this box, a choice, voice, continue, regenerate.
+  const [note, setNote] = useNoteDraft();
+  const noteInputRef = useRef<HTMLInputElement>(null);
+  const noteText = note?.trim() ?? "";
+  // 帮我写: the box text before the AI wrote, so 撤销 can put it back.
+  const [assist, setAssist] = useState<{ original: string; writing: boolean } | null>(null);
+  const assistRunRef = useRef(0);
+  const assistAllowed = api.composeAssistAllowed;
   const [images, setImages] = useState<ChatImageInput[]>([]);
   const imagesRef = useRef(images);
   imagesRef.current = images;
@@ -123,7 +164,7 @@ export function MessageInput() {
   const messageLimitState = getComposerMessageLimitState(content);
   const [confirmRestart, setConfirmRestart] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
-  const { settings: turnImages, setAuto: setAutoTurnImages, refresh: refreshTurnImages } = useTurnImageSettings(api);
+  const { settings: turnImages, setAuto: setAutoTurnImages, setStyle: setTurnImageStyle, refresh: refreshTurnImages } = useTurnImageSettings(api);
   useEffect(() => { if (actionsOpen) refreshTurnImages(); }, [actionsOpen]); // eslint-disable-line react-hooks/exhaustive-deps
   // Scene video (experimental): offered here once the player turned it on in Settings.
   const [filmOn, setFilmOn] = useState(() => { const s = currentVideoState(); return !!(s?.offered && s.optedIn); });
@@ -139,6 +180,7 @@ export function MessageInput() {
   // shared composer-submit hook, so the guard is inlined here.)
   const composingRef = useRef(false);
   const actionsRef = useRef<HTMLDivElement>(null);
+  const colorMenuRef = useRef<HTMLDivElement>(null);
   const actionsMenuRef = useRef<HTMLDivElement>(null);
   const branchRef = useRef<HTMLDivElement>(null);
   // On a narrow toolbar (mobile / split desktop) collapse the model pill and
@@ -172,7 +214,7 @@ export function MessageInput() {
     if (!actionsOpen) return;
     const handler = (e: MouseEvent) => {
       const target = e.target as Node;
-      if (actionsRef.current && !actionsRef.current.contains(target) && !actionsMenuRef.current?.contains(target)) {
+      if (!actionsRef.current?.contains(target) && !actionsMenuRef.current?.contains(target) && !colorMenuRef.current?.contains(target)) {
         setActionsOpen(false);
       }
     };
@@ -220,9 +262,28 @@ export function MessageInput() {
 
   const handleSend = useCallback(() => {
     const trimmed = content.trim();
-    if (!trimmed && !images.length) return;
+    if (!trimmed && !images.length && !noteText) return;
+    // A story room: the line joins the round (or the players' talk); the
+    // server sends rounds, so writing ahead while the AI answers is fine.
+    if (api.storyRoom) {
+      if (!trimmed || assist?.writing) return;
+      lastSentRef.current = null;
+      setAssist(null);
+      postToRoom(trimmed, roomMode);
+      setContent("");
+      return;
+    }
     if (readingImages || incompatibleImages) return;
-    if (generationBlocked) return;
+    if (generationBlocked || assist?.writing) return;
+    setAssist(null);
+    // The open note goes along on its own (sandbox API, player-note-draft.ts);
+    // an empty one closes with the send, as it always did.
+    if (!noteText) setNote(null);
+    if (!trimmed && !images.length) {
+      // A note with no message: the AI goes on, following it.
+      continueLastMessage();
+      return;
+    }
     lastSentRef.current = trimmed;
     lastImagesRef.current = images;
     sendMessage(trimmed, images);
@@ -230,7 +291,44 @@ export function MessageInput() {
     setContent("");
     // Height resets itself: the CSS auto-grow wrapper shrinks to one line once
     // `content` is empty (no manual style write, so no forced reflow).
-  }, [content, images, readingImages, incompatibleImages, generationBlocked, sendMessage]);
+  }, [content, images, noteText, assist, readingImages, incompatibleImages, generationBlocked, sendMessage, continueLastMessage, api.storyRoom, roomMode]);
+
+  // ── 帮我写 ─────────────────────────────────────────────────────────
+  // Streams into the box; nothing is sent. 重写 starts again from the same
+  // original, 撤销 (or stopping mid-way) puts the original back.
+  const runAssist = useCallback(async () => {
+    if (!assistAllowed || assist?.writing || isStreaming) return;
+    const original = assist ? assist.original : content;
+    const run = ++assistRunRef.current;
+    setAssist({ original, writing: true });
+    try {
+      const text = await api.composeAssist({
+        text: original.trim() || undefined,
+        onDelta: (soFar) => { if (assistRunRef.current === run) setContent(clampComposerMessage(soFar)); },
+      });
+      if (assistRunRef.current !== run) return;
+      if (!text.trim()) throw new Error("empty");
+      setContent(clampComposerMessage(text));
+      setAssist({ original, writing: false });
+    } catch {
+      if (assistRunRef.current !== run) return;
+      setContent(original);
+      setAssist(null);
+      api.showToast(t("assistFailed"), "error");
+    }
+  }, [assistAllowed, assist, isStreaming, content, api, t]);
+
+  const undoAssist = useCallback(() => {
+    if (!assist) return;
+    assistRunRef.current++;
+    setContent(assist.original);
+    setAssist(null);
+  }, [assist]);
+
+  const composeModelName = useMemo(() => {
+    const id = api.composeModel;
+    return PLAY_MODELS.find((m) => m.id === id)?.name ?? (id ? formatModelId(id) : "");
+  }, [api.composeModel]);
 
   // ── Voice input (hold-to-talk) ─────────────────────────────────────
   const voiceInput = api.voiceInputState;
@@ -262,7 +360,7 @@ export function MessageInput() {
   }, [voiceInput.mode, generationBlocked, sendMessage]);
   const voice = useVoiceInput(handleTranscript);
   useHoldToTalkKey(voiceInput.key, voiceReady && !isStreaming, voice);
-  const showMic = voiceReady && !content.trim() && !images.length;
+  const showMic = voiceReady && !content.trim() && !images.length && !noteText;
 
   const handleChoiceClick = useCallback(
     (choice: string) => {
@@ -321,6 +419,13 @@ export function MessageInput() {
     setActionsOpen(false);
     sharePlaythrough?.();
   }, [sharePlaythrough]);
+
+  // Story room (host side): the parent opens the room panel over the chat.
+  // A platform action, not part of the card API, so it is posted directly.
+  const handlePlayWithFriends = useCallback(() => {
+    setActionsOpen(false);
+    postToParentWindow(wrapMessage({ type: "api-call" as const, callId: `fire-room-${Date.now()}`, method: "openStoryRoom", args: [] }));
+  }, []);
 
   // ── Branch handlers ────────────────────────────────────────────────
   const canBranchFromLatest = !isStreaming && (messages?.length ?? 0) > 0;
@@ -445,6 +550,7 @@ export function MessageInput() {
   useEffect(() => {
     const prev = prevErrorRef.current;
     prevErrorRef.current = api.error;
+    if (api.error && api.error !== prev) restoreTurnNote();
     if (api.error && api.error !== prev && lastSentRef.current !== null) {
       const failed = lastSentRef.current;
       const failedImages = lastImagesRef.current;
@@ -464,6 +570,7 @@ export function MessageInput() {
   useEffect(() => {
     if (api.sendFailureNonce === lastHandledNonceRef.current) return;
     lastHandledNonceRef.current = api.sendFailureNonce;
+    restoreTurnNote();
     if (lastSentRef.current !== null) {
       const failed = lastSentRef.current;
       const failedImages = lastImagesRef.current;
@@ -482,16 +589,25 @@ export function MessageInput() {
   // failure signal and ate the stash before the restore effects could run.
   useEffect(() => {
     if (isStreaming || api.error) return;
-    const t = window.setTimeout(() => { lastSentRef.current = null; lastImagesRef.current = []; }, 2000);
+    const t = window.setTimeout(() => { lastSentRef.current = null; lastImagesRef.current = []; settleTurnNote(); }, 2000);
     return () => window.clearTimeout(t);
   }, [isStreaming, api.error]);
 
+  // A story room member reads the host's chat; their composer posts to the round.
+  if (readOnly && api.storyRoom && !api.storyRoom.isHost) return <RoomMemberComposer room={api.storyRoom} />;
   if (readOnly || !canSendMessage) return null;
 
   return (
     <div className="play-composer-shell shrink-0">
       <PromptsQuickSheet />
       <div className="play-composer-inner w-full min-w-0">
+        {api.storyRoom && (
+          <>
+            <TalkFeed room={api.storyRoom} />
+            <RoundStrip room={api.storyRoom} />
+            <RoomModeChips mode={roomMode} onChange={setRoomMode} />
+          </>
+        )}
         {/* Choice buttons */}
         {pendingChoices.length > 0 && !isStreaming && (
           <div className="play-choice-row mb-2 flex flex-wrap items-center gap-1.5">
@@ -551,6 +667,76 @@ export function MessageInput() {
                 className="absolute -right-1 -top-1 flex h-6 w-6 items-center justify-center rounded-full bg-popover text-foreground shadow"><X className="h-3 w-3" /></button>
             </div>)}
           </div>}
+          {/* 给 AI 的话 */}
+          {note !== null && (
+            <div data-player-note-field="" className="play-composer-note mx-3 mt-2.5 flex items-center gap-2 rounded-xl border border-primary/25 bg-primary/[0.07] py-1.5 pl-3 pr-1.5">
+              <MessageSquareDashed className="h-4 w-4 shrink-0 text-primary/80" aria-hidden="true" />
+              <input
+                ref={noteInputRef}
+                value={note}
+                maxLength={500}
+                aria-label={t("note")}
+                placeholder={t("notePlaceholder")}
+                onChange={(e) => setNote(e.target.value)}
+                onCompositionStart={() => { composingRef.current = true; }}
+                onCompositionEnd={() => { composingRef.current = false; }}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape" && !noteText) { e.preventDefault(); setNote(null); return; }
+                  if (e.key !== "Enter" || composingRef.current || e.nativeEvent.isComposing || e.keyCode === 229) return;
+                  e.preventDefault();
+                  textareaRef.current?.focus({ preventScroll: true });
+                }}
+                className="min-w-0 flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => setNote(null)}
+                aria-label={t("noteRemove")}
+                title={t("noteRemove")}
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
+          {/* 帮我写: which model wrote it, and the way back. */}
+          {assist && (
+            <div data-compose-assist-strip="" className="play-composer-assist flex items-center gap-1 px-3 pt-2 text-xs text-muted-foreground">
+              <Sparkles className={`h-3.5 w-3.5 shrink-0 text-primary ${assist.writing ? "animate-pulse" : ""}`} aria-hidden="true" />
+              <span className="shrink-0 pl-0.5 text-foreground/70">{assist.writing ? t("assistWriting") : t("assist")}</span>
+              <span aria-hidden="true" className="text-muted-foreground/40">·</span>
+              <button
+                type="button"
+                onClick={() => api.openComposeModelPicker()}
+                aria-label={t("assistModel")}
+                title={t("assistModel")}
+                className="flex min-w-0 items-center gap-0.5 rounded-md px-1.5 py-0.5 transition-colors hover:bg-accent hover:text-foreground"
+              >
+                <span className="truncate">{composeModelName}</span>
+                <ChevronDown className="h-3 w-3 shrink-0 opacity-60" />
+              </button>
+              <span className="flex-1" />
+              <button
+                type="button"
+                onClick={undoAssist}
+                className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 transition-colors hover:bg-accent hover:text-foreground"
+              >
+                <Undo2 className="h-3.5 w-3.5" />
+                {t("assistUndo")}
+              </button>
+              {!assist.writing && (
+                <button
+                  type="button"
+                  onClick={() => void runAssist()}
+                  disabled={isStreaming}
+                  className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  {t("assistRetry")}
+                </button>
+              )}
+            </div>
+          )}
           {(imageError || incompatibleImages) && <div role="status" className="px-4 pt-2 text-xs text-muted-foreground">
             {imageText(imageError ?? "unsupported")}
             {incompatibleImages && <button type="button" onClick={openModelPicker} className="ml-2 text-primary underline">{imageText("choose")}</button>}
@@ -566,7 +752,14 @@ export function MessageInput() {
               id="yumina-composer-input"
               value={content}
               maxLength={MAX_USER_MESSAGE_CHARS}
-              onChange={(e) => setContent(clampComposerMessage(e.target.value))}
+              readOnly={!!assist?.writing}
+              onChange={(e) => {
+                const next = clampComposerMessage(e.target.value);
+                setContent(next);
+                // Cleared the box: nothing left to undo to.
+                if (!next.trim() && assist && !assist.writing) setAssist(null);
+                if (api.storyRoom && next.trim()) signalRoomTyping(roomMode);
+              }}
               onKeyDown={handleKeyDown}
               onPaste={e => {
                 const files = pastedImageFiles(e.clipboardData.items);
@@ -585,7 +778,8 @@ export function MessageInput() {
               onCompositionStart={() => { composingRef.current = true; }}
               onCompositionEnd={() => { composingRef.current = false; }}
               placeholder={
-                api.modelFallback ? modelFallbackText(api.language, "waiting") : isStreaming
+                api.storyRoom && roomMode.talk ? t("roomTalkPlaceholder")
+                  : api.modelFallback ? modelFallbackText(api.language, "waiting") : isStreaming
                   ? t("generating")
                   : pendingChoices.length > 0
                     ? t("choiceHint")
@@ -660,6 +854,100 @@ export function MessageInput() {
                         {promptBound && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" aria-hidden="true" />}
                       </button>
                     )}
+                    {/* 帮我写: empty box writes the player's next move; text gets expanded. */}
+                    {assistAllowed && (
+                      <button
+                        data-compose-assist=""
+                        onClick={() => {
+                          setActionsOpen(false);
+                          void runAssist();
+                        }}
+                        disabled={isStreaming || !!assist?.writing}
+                        className="flex w-full items-center gap-3 rounded-md px-3.5 py-[0.65em] text-base text-foreground/80 transition-colors hover:bg-accent disabled:opacity-40"
+                      >
+                        <Sparkles className={`h-[1.15em] w-[1.15em] ${assist ? "text-primary" : ""}`} />
+                        {t("assist")}
+                      </button>
+                    )}
+                    {/* 给 AI 的话: a one-turn direction, not story text. A story
+                        room's round is put together by the server, so not there. */}
+                    {api.sessionId && !api.storyRoom && (
+                      <button
+                        onClick={() => {
+                          setActionsOpen(false);
+                          setNote((cur) => cur ?? "");
+                          requestAnimationFrame(() => noteInputRef.current?.focus({ preventScroll: true }));
+                        }}
+                        className="flex w-full items-center gap-3 rounded-md px-3.5 py-[0.65em] text-base text-foreground/80 transition-colors hover:bg-accent"
+                      >
+                        <MessageSquareDashed className={`h-[1.15em] w-[1.15em] ${note !== null ? "text-primary" : ""}`} />
+                        {t("note")}
+                      </button>
+                    )}
+                    {api.mode === "session" && api.sessionId && !readOnly && (
+                      <DropdownMenu modal={false}>
+                        <DropdownMenuTrigger
+                          aria-label={t("messageButtonColor")}
+                          className="flex w-full items-center gap-3 rounded-md px-3.5 py-[0.65em] text-left text-base text-foreground/80 transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
+                        >
+                          <Palette aria-hidden="true" className="h-[1.15em] w-[1.15em]" />
+                          <span className="flex min-w-0 flex-1 flex-col">
+                            <span>{t("messageButtonColor")}</span>
+                            <span className="text-xs text-muted-foreground">{t(buttonColorLabels[api.messageButtonColor])}</span>
+                          </span>
+                          <ChevronDown aria-hidden="true" className="h-4 w-4" />
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent
+                          {...appearance}
+                          ref={colorMenuRef}
+                          align="start"
+                          collisionPadding={8}
+                          aria-label={t("messageButtonColor")}
+                          className={`${appearance.className} z-[9001] w-[var(--radix-dropdown-menu-trigger-width)] border-current/65`}
+                        >
+                          {(["default", "lighter", "darker"] as const).map((color) => (
+                            <DropdownMenuItem
+                              key={color}
+                              role="menuitemradio"
+                              aria-checked={api.messageButtonColor === color}
+                              className="justify-between px-3 py-2"
+                              onSelect={() => api.setMessageButtonColor(color)}
+                            >
+                              {t(buttonColorLabels[color])}
+                              {api.messageButtonColor === color && <Check aria-hidden="true" />}
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
+                    {/* Search the whole story, loaded or not (chat-search.tsx). */}
+                    {api.mode === "session" && api.sessionId && (
+                      <button
+                        onClick={() => {
+                          setActionsOpen(false);
+                          window.dispatchEvent(new CustomEvent(OPEN_CHAT_SEARCH_EVENT));
+                        }}
+                        className="flex w-full items-center gap-3 rounded-md px-3.5 py-[0.65em] text-base text-foreground/80 transition-colors hover:bg-accent"
+                      >
+                        <Search className="h-[1.15em] w-[1.15em]" />
+                        {t("searchMessages")}
+                      </button>
+                    )}
+                    {/* Memory: pinned notes and how far back the AI reads.
+                        The host mount opens the extension's panel when it is
+                        installed, the core one otherwise. */}
+                    {api.sessionId && (
+                      <button
+                        onClick={() => {
+                          setActionsOpen(false);
+                          window.dispatchEvent(new CustomEvent(OPEN_MEMORY_PANEL_EVENT));
+                        }}
+                        className="flex w-full items-center gap-3 rounded-md px-3.5 py-[0.65em] text-base text-foreground/80 transition-colors hover:bg-accent"
+                      >
+                        <Brain className="h-[1.15em] w-[1.15em]" />
+                        {t("memory")}
+                      </button>
+                    )}
                     <div className="my-1 h-px bg-border" />
                     <button
                       onClick={handleContinue}
@@ -693,6 +981,15 @@ export function MessageInput() {
                       >
                         <Share2 className="h-[1.15em] w-[1.15em]" />
                         {t("sharePlaythrough")}
+                      </button>
+                    )}
+                    {api.sessionId && !readOnly && api.storyRoomOffer && (
+                      <button
+                        onClick={handlePlayWithFriends}
+                        className="flex w-full items-center gap-3 rounded-md px-3.5 py-[0.65em] text-base text-foreground/80 transition-colors hover:bg-accent"
+                      >
+                        <Users className="h-[1.15em] w-[1.15em]" />
+                        {t("playWithFriends")}
                       </button>
                     )}
                     <button
@@ -731,6 +1028,29 @@ export function MessageInput() {
                             <span className={`absolute h-[0.85em] w-[0.85em] rounded-full bg-background shadow transition-all ${turnImages.auto ? "left-[1.1em]" : "left-[0.15em]"}`} />
                           </span>
                         </button>
+                        {(turnImages.styles?.length ?? 0) > 1 && (
+                          <div role="radiogroup" aria-label={t("autoIllustrate")} className="flex gap-1.5 px-3.5 pb-1.5 pl-[2.9em]">
+                            {(["default", "detailed", "vivid"] as const).filter((style) => turnImages.styles?.includes(style)).map((style) => {
+                              const active = (turnImages.style ?? "default") === style;
+                              return (
+                                <button
+                                  key={style}
+                                  role="radio"
+                                  aria-checked={active}
+                                  onClick={() => {
+                                    if (active) return;
+                                    void setTurnImageStyle(style).then((ok) => { if (!ok) api.showToast(t("illustrateFailed"), "error"); });
+                                  }}
+                                  className={`rounded-full px-2.5 py-[0.2em] text-xs transition-colors ${active ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}
+                                >
+                                  {t(style === "default" ? "illustrateStyleDefault" : style === "detailed" ? "illustrateStyleDetailed" : "illustrateStyleVivid")}
+                                  {/* 亮彩 draws one-person pictures without a portrait; the rest stay on the default. */}
+                                  {style === "vivid" && <span className="-mt-1 text-[0.7em] leading-none opacity-60" data-illustrate-vivid-tag>{t("illustrateStyleVividTag")}</span>}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
                       </>
                     )}
                     {filmOn && (
@@ -851,10 +1171,14 @@ export function MessageInput() {
                   with the model row + every extension's own settings button).
                   Wider toolbars keep the inline pills. */}
               {collapseTools ? (
-                <ComposerToolMenu onOpenModelPicker={openModelPicker} compactBalance={isTight} />
+                <>
+                  <ComposerToolMenu onOpenModelPicker={openModelPicker} compactBalance={isTight} />
+                  <ThinkingControl />
+                </>
               ) : (
                 <>
                   <ModelTrigger onClick={openModelPicker} compactBalance={isTight} />
+                  <ThinkingControl />
                   {/* Installed extensions' composer contributions (e.g. the
                       session-memory Context button) — see sandbox/extensions/. */}
                   <SlotOutlet point="chat.composer.toolbar" />
@@ -877,7 +1201,7 @@ export function MessageInput() {
                 </span>
               )}
               <VoicePanelButton />
-              {isStreaming ? (
+              {isStreaming && !(api.storyRoom && content.trim()) ? (
                 <button
                   onClick={stopGeneration}
                   className="play-composer-stop hover-surface-strong flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground"
@@ -890,7 +1214,7 @@ export function MessageInput() {
               ) : (
                 <button
                   onClick={handleSend}
-                  disabled={(!content.trim() && !images.length) || generationBlocked || readingImages || incompatibleImages}
+                  disabled={api.storyRoom ? !content.trim() || !!assist?.writing : (!content.trim() && !images.length && !noteText) || generationBlocked || readingImages || incompatibleImages || !!assist?.writing}
                   className="play-composer-send flex h-9 w-9 items-center justify-center rounded-full bg-primary text-primary-foreground transition-opacity disabled:pointer-events-none disabled:opacity-20"
                   title={t("sendMessage")}
                 >

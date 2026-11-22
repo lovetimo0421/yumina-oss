@@ -34,6 +34,8 @@ import { isDeletedIdentityRegistrationBlocked } from "./deleted-identity-policy.
 import { sendRedditConversion } from "./reddit-capi.js";
 import { sendTikTokEvent, tikTokCookieKeys } from "./tiktok-events-api.js";
 import { invalidateSessionUser } from "./session-user-cache.js";
+import { applySignupInviteContentAccess } from "./invite-content-access.js";
+import { clientIpFrom, CLIENT_IP_HEADER } from "./client-ip.js";
 
 /**
  * Server-side ad-conversion for a fresh signup (Reddit CAPI). The browser
@@ -51,10 +53,7 @@ function reportSignupConversion(user: { id: string; email?: string | null }, ctx
     const cookies = headers?.get?.("cookie") ?? "";
     const cid = /(?:^|;\s*)_rdt_cid=([^;]+)/.exec(cookies)?.[1];
     const ruuid = /(?:^|;\s*)_rdt_uuid=([^;]+)/.exec(cookies)?.[1];
-    const ipAddress =
-      headers?.get?.("cf-connecting-ip") ??
-      headers?.get?.("x-forwarded-for")?.split(",")[0]?.trim() ??
-      null;
+    const ipAddress = headers?.get ? clientIpFrom((name) => headers.get(name)) : null;
     const userAgent = headers?.get?.("user-agent") ?? null;
     sendRedditConversion({
       eventType: "SignUp",
@@ -270,7 +269,10 @@ export const auth = betterAuth({
     // cannot be spoofed by the client through our edge; the x-forwarded-for
     // fallback keeps local dev and non-CF environments working.
     ipAddress: {
-      ipAddressHeaders: ["cf-connecting-ip", "x-forwarded-for"],
+      // routes/auth.ts stamps CLIENT_IP_HEADER on every request it hands to
+      // Better Auth (lib/client-ip.ts explains which address that is). The
+      // other two only ever apply where no edge sits in front: local runs.
+      ipAddressHeaders: [CLIENT_IP_HEADER, "cf-connecting-ip", "x-forwarded-for"],
     },
     ...(isYuminaHostedAppUrl(env.APP_URL)
       ? {
@@ -343,6 +345,12 @@ export const auth = betterAuth({
     storeSessionInDatabase: true,
     expiresIn: 60 * 60 * 24 * 30,  // 30 days (Better Auth default is only 7)
     updateAge: 60 * 60 * 24,        // refresh session once per day
+    // Better Auth 1.6 counts a login as "fresh" for one day from the moment
+    // it was made (1.5 counted from its last daily refresh, which an active
+    // login always passed) and now asks for a fresh one to list login devices
+    // or unlink a provider. With 30-day logins that refused both to nearly
+    // everyone. 0 turns the check off, which is how it behaved before.
+    freshAge: 0,
     // Short-lived signed-cookie session cache. Lets get-session resolve from a
     // signed cookie instead of a DB/Redis round-trip for `maxAge` seconds, so a
     // mobile tab-resume / BFCache thaw / brief network blip on the client no
@@ -547,6 +555,8 @@ export const auth = betterAuth({
           }
         },
         after: async (user: any, ctx: any) => {
+          // Bind restricted invite arrivals before the new account receives a session.
+          await applySignupInviteContentAccess(user.id, ctx?.headers ?? ctx?.request?.headers ?? ctx?.context?.headers);
           // Re-check after INSERT. A same-email signup can start while a restricted
           // deletion transaction is uncommitted, then continue after the old
           // unique email row disappears. Compensate only restricted identities;

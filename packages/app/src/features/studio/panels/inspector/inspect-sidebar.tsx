@@ -103,7 +103,7 @@ export function InspectSidebar({
         </div>
         {source ? (
           <>
-            <div className="break-all font-mono text-xs text-amber-300/90">
+            <div className="break-all font-mono text-xs text-foreground/80">
               {source.ref.file}:{source.ref.line}
             </div>
             {slice?.component && (
@@ -154,7 +154,7 @@ export function InspectSidebar({
           {isAttached ? (
             <Check className="h-3.5 w-3.5 shrink-0" />
           ) : (
-            <Sparkles className="h-3.5 w-3.5 shrink-0 text-primary" />
+            <Sparkles className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           )}
           {isAttached ? t("studio.inspect.attached") : t("studio.inspect.sendToAgent")}
         </button>
@@ -173,14 +173,12 @@ export function InspectSidebar({
             <button
               type="button"
               onClick={exits.onAskDecompose}
+              title={t("studio.inspect.askDecomposeHint")}
               className={`${ACTION} text-muted-foreground hover:bg-accent hover:text-foreground`}
             >
-              <Wand2 className="h-3.5 w-3.5 shrink-0 text-amber-400" />
+              <Wand2 className="h-3.5 w-3.5 shrink-0" />
               {t("studio.inspect.askDecompose")}
             </button>
-            <p className="mt-1 px-2 text-[9px] leading-relaxed text-muted-foreground/45">
-              {t("studio.inspect.askDecomposeHint")}
-            </p>
           </div>
         )
       )}

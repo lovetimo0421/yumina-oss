@@ -5,9 +5,12 @@
     "outDir": "dist",
     "lib": ["ES2022"],
     "types": ["node"],
+    "declaration": false,
+    "declarationMap": false,
     "paths": {
       "@yumina/engine": ["../engine/src/index.ts"],
-      "@yumina/shared": ["../shared/src/index.ts"]
+      "@yumina/shared": ["../shared/src/index.ts"],
+      "@yumina/shared/card-code": ["../shared/src/card-code/index.ts"]
     }
   },
   "include": ["src"]

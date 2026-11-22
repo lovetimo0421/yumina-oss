@@ -52,7 +52,12 @@ interface ActiveKey {
 
 // ─── Main Component ──────────────────────────────────────────────────
 
-export function ProfileAiSettings() {
+/**
+ * `embedded`: shown at the top of Settings → AI config, which already has the
+ * page title, the full story-memory and streaming controls, and is where
+ * "Advanced" would lead. The card keeps plan, wallet, model and provider.
+ */
+export function ProfileAiSettings({ embedded = false }: { embedded?: boolean } = {}) {
   const { t } = useTranslation("profile");
   const { t: tChat } = useTranslation("chat");
   const { t: tc } = useTranslation();
@@ -213,10 +218,12 @@ export function ProfileAiSettings() {
 
   return (
     <section>
-      <div className="mb-4 flex items-center gap-2">
-        <div className="h-4 w-1 rounded-full bg-gold" />
-        <h2 className="text-lg font-bold text-main">{t("tabs.aiSettings")}</h2>
-      </div>
+      {!embedded && (
+        <div className="mb-4 flex items-center gap-2">
+          <div className="h-4 w-1 rounded-full bg-gold" />
+          <h2 className="text-lg font-bold text-main">{t("tabs.aiSettings")}</h2>
+        </div>
+      )}
 
       <div className="overflow-hidden rounded-2xl border border-white/[0.06]">
         {/* ── Plan Section (hosted: plan badge, Billing, wallet) ── */}
@@ -291,6 +298,7 @@ export function ProfileAiSettings() {
 
         {/* ── Controls Section ── */}
         <div className={`px-5 py-4 ${provider === "private" ? "bg-slate-400/[0.03]" : "bg-white/[0.01]"}`}>
+          {!embedded && (
           <div className="flex flex-col gap-2 md:flex-row md:items-center">
             {/* Story memory — the same dial as Settings, nothing else. */}
             <div className="flex flex-1 flex-col gap-2 rounded-lg bg-white/[0.02] px-3 py-2.5 sm:flex-row sm:items-center sm:gap-2.5">
@@ -340,9 +348,10 @@ export function ProfileAiSettings() {
               </label>
             </div>
           </div>
+          )}
 
           {/* Provider + Advanced */}
-          <div className="mt-3 flex items-center justify-between">
+          <div className={`${embedded ? "" : "mt-3 "}flex items-center justify-between`}>
             <button
               type="button"
               onClick={canSwitchProvider ? requestProviderToggle : undefined}
@@ -366,14 +375,14 @@ export function ProfileAiSettings() {
               <span>{provider === "official" ? t("aiProvider.yuminaApi") : t("aiProvider.privateKey")}</span>
             </button>
 
-            <button
+            {!embedded && <button
               type="button"
               onClick={() => navigate({ to: "/app/settings", hash: "ai-config" })}
               className="flex items-center gap-1 text-[10px] font-medium text-white/30 transition-colors hover:text-white/50"
             >
               <Settings2 className="h-3 w-3" />
               <span>{t("summary.advanced")}</span>
-            </button>
+            </button>}
           </div>
         </div>
       </div>

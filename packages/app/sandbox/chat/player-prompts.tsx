@@ -11,7 +11,7 @@
 // through api.navigate.
 
 import { useEffect, useLayoutEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { Compass, Info, Plus, RotateCcw, ShieldAlert, Shuffle, SlidersHorizontal, Upload, X } from "lucide-react";
+import { Compass, Info, Play, Plus, RotateCcw, ShieldAlert, Shuffle, SlidersHorizontal, Upload, X } from "lucide-react";
 import { twMerge } from "tailwind-merge";
 import { PLAY_MODELS, formatModelId } from "@yumina/shared";
 import { useYumina } from "../sandbox-context";
@@ -224,6 +224,21 @@ export function PromptsQuickSheet() {
                   {t("writeOne")}
                 </button>
               </div>
+              {pp.worldScoped && pp.prompts.length > 0 && (
+                <div className="flex min-h-7 items-center gap-2 px-3.5 text-[11px] text-muted-foreground">
+                  <span className="min-w-0 flex-1 truncate">{pp.worldCustomized ? t("worldCustomized") : t("worldScopeHint")}</span>
+                  {pp.worldCustomized && (
+                    <button
+                      type="button"
+                      onClick={() => void api.resetWorldPrompts()}
+                      className="inline-flex shrink-0 items-center gap-1 font-medium text-primary transition-opacity hover:opacity-80"
+                    >
+                      <RotateCcw className="h-3 w-3" aria-hidden="true" />
+                      {t("followSettings")}
+                    </button>
+                  )}
+                </div>
+              )}
               {pp.prompts.length === 0 ? (
                 <p className="px-3.5 pb-3.5 pt-1 text-xs leading-relaxed text-muted-foreground">{t("myPromptsEmpty")}</p>
               ) : (
@@ -293,8 +308,8 @@ export function RefusalBar({
   const [pickerOpen, setPickerOpen] = useState(false);
   if (dismissKey && dismissedRefusals.has(dismissKey)) return null;
 
-  // No nudge toward prompts here: a refusal offers retry or another model, and
-  // players find the prompt plaza on their own.
+  const showPromptNotice = api.mode === "session" && !api.readOnly
+    && api.playerPrompts?.eligible === true;
   const disabled = api.isStreaming || api.readOnly;
   const model = modelName(api.selectedModel) || t("currentModelFallback");
 
@@ -318,7 +333,7 @@ export function RefusalBar({
 
   if (kind === "blocked") {
     return (
-      <div className={twMerge("play-turn-error play-refusal-bar mt-2 w-full min-w-0 rounded-xl border border-destructive/30 bg-destructive/10 px-3.5 py-3 text-xs text-destructive", className)}>
+      <div className={twMerge("play-turn-error play-refusal-bar relative mt-2 w-full min-w-0 rounded-xl border border-destructive/30 bg-destructive/10 px-3.5 py-3 text-xs text-destructive", dismissKey && "pr-10", className)}>
         <div className="flex items-start gap-2">
           <ShieldAlert className="mt-px h-4 w-4 shrink-0" aria-hidden="true" />
           <div className="min-w-0 flex-1">
@@ -335,6 +350,17 @@ export function RefusalBar({
             {t("retry")}
           </button>
         </div>
+        {dismissKey && (
+          <button
+            type="button"
+            title={t("close")}
+            aria-label={t("close")}
+            onClick={() => { dismissedRefusals.add(dismissKey); emit(); }}
+            className="absolute right-1.5 top-1.5 flex h-8 w-8 items-center justify-center rounded-lg text-destructive/60 transition-colors hover:bg-destructive/15 hover:text-destructive"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
         {picker}
       </div>
     );
@@ -358,6 +384,20 @@ export function RefusalBar({
           </button>
         </div>
       </div>
+      {showPromptNotice && (
+        <div className="mt-2 border-t border-border pt-3">
+          <p role="status" className="leading-relaxed text-muted-foreground">{t("refusalPromptNotice")}</p>
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => api.navigate(PROMPTS_HUB)}
+            className={`${btn} mt-2 min-h-11 border border-primary/30 bg-primary/10 text-primary hover:bg-primary/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary`}
+          >
+            <Compass className="h-4 w-4 shrink-0" aria-hidden="true" />
+            {t("openPromptPlaza")}
+          </button>
+        </div>
+      )}
       {dismissKey && (
         <button
           type="button"
@@ -372,6 +412,62 @@ export function RefusalBar({
       {picker}
     </div>
   );
+}
+
+// ─── A reply that stopped partway ─────────────────────────────────────
+
+/** Under the last reply when it stopped before the model finished: the length
+ *  limit, or the provider's content filter on a reply it still sent. Continue
+ *  picks the story up in a new reply, with this model or another. */
+export function CutBar({ kind, className }: { kind: "length" | "filter"; className?: string }) {
+  const api = useYumina();
+  const t = usePromptsT();
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const disabled = api.isStreaming || api.readOnly;
+  const model = modelName(api.selectedModel) || t("currentModelFallback");
+  const btn = "inline-flex min-h-8 items-center gap-1.5 rounded-lg px-3 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50";
+  return (
+    <div data-reply-cut={kind} className={twMerge("play-refusal-bar mt-2 w-full min-w-0 rounded-xl border border-border bg-muted/50 px-3.5 py-2.5 text-xs", className)}>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <span className="inline-flex min-h-8 items-center gap-1.5 font-medium text-muted-foreground">
+          <Info className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          {kind === "filter" ? t("cutFilter", { model }) : t("cutLength")}
+        </span>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" disabled={disabled} onClick={() => api.continueLastMessage()} className={`${btn} border border-primary/30 bg-primary/10 text-primary hover:bg-primary/20`}>
+            <Play className="h-3.5 w-3.5" aria-hidden="true" />
+            {t("continueOn")}
+          </button>
+          {kind === "filter" && (
+            <button type="button" disabled={disabled} onClick={() => setPickerOpen(true)} className={`${btn} border border-border text-foreground/80 hover:border-primary/40 hover:text-foreground`}>
+              <Shuffle className="h-3.5 w-3.5" aria-hidden="true" />
+              {t("continueOther")}
+            </button>
+          )}
+        </div>
+      </div>
+      <ModelPickerModal
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        selectedModel={api.selectedModel}
+        title={t("continueOther")}
+        subtitle={t("pickContinueSub")}
+        onSelectModel={(id) => {
+          setPickerOpen(false);
+          api.setModel(id);
+          // setModel is a fire-and-forget message; let the host apply it first.
+          window.setTimeout(() => api.continueLastMessage(), 250);
+        }}
+      />
+    </div>
+  );
+}
+
+/** Why the active swipe stopped early, if it did. */
+export function replyCutOf(message: SandboxMessage): "length" | "filter" | null {
+  if (message.role !== "assistant") return null;
+  const cut = message.swipes?.[message.activeSwipeIndex ?? 0]?.cut;
+  return cut === "length" || cut === "filter" ? cut : null;
 }
 
 // ─── Turn classification (shared by the bubble, the list banner and the host) ──
@@ -400,6 +496,11 @@ export function useRetryTrailingTurn() {
 // ─── Host overlay for custom-UI cards ────────────────────────────────
 
 let transcriptMounts = 0;
+/** Whether the platform transcript (MessageList) is on screen — chat search
+ *  can only scroll to a message where it is. */
+export function isTranscriptMounted(): boolean {
+  return transcriptMounts > 0;
+}
 /** MessageList calls this so RefusalHost knows the transcript shows the bar itself. */
 export function useRegisterTranscript() {
   useLayoutEffect(() => {

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createInstance } from "i18next";
-import { createWorldSchema, MAX_WORLD_SAVE_BODY_BYTES } from "@yumina/shared";
+import { createWorldSchema, MAX_WORLD_DESCRIPTION, MAX_WORLD_SAVE_BODY_BYTES } from "@yumina/shared";
 import {
   serializeWorldSavePayload,
   WorldSavePayloadTooLargeError,
@@ -88,13 +88,13 @@ test("an imported title over the shared limit explains the limit and actual leng
 });
 
 test("a real server validation response identifies multiple fields using the submitted snapshot", () => {
-  const payload = { name: "x".repeat(55), description: "x".repeat(10001) };
+  const payload = { name: "x".repeat(55), description: "x".repeat(MAX_WORLD_DESCRIPTION + 1) };
   const result = createWorldSchema.safeParse(payload);
   assert.equal(result.success, false);
   if (result.success) return;
   const message = worldSaveErrorMessage(400, { error: "Validation failed", details: result.error.flatten() }, { payload });
   assert.match(message, /World title.*50.*55/);
-  assert.match(message, /Description.*10000.*10001/);
+  assert.match(message, new RegExp(`Description.*${MAX_WORLD_DESCRIPTION}.*${MAX_WORLD_DESCRIPTION + 1}`));
   assert.match(worldSaveErrorMessage(400, { error: "Validation failed", details: result.error.flatten() }), /at most 50 characters/);
   assert.doesNotMatch(worldSaveErrorMessage(400, { error: "Validation failed", details: result.error.flatten() }), /currently/);
 });

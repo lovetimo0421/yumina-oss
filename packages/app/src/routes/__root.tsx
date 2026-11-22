@@ -1,6 +1,7 @@
 import { AssetImportDialog } from "@/features/library/asset-import-dialog";
 import { createRootRoute, Outlet } from "@tanstack/react-router";
 import { GlobalConfirmDialog } from "@/components/ui/global-confirm-dialog";
+import { BackgroundConsentDialog } from "@/features/background-charges/background-consent-dialog";
 import { AssetUploadHost } from "@/features/library/folder-upload-dialog";
 import { DocumentTitleSync } from "@/components/document-title-sync";
 import { NotFoundPage } from "@/components/not-found-page";
@@ -15,6 +16,7 @@ export const Route = createRootRoute({
     <>
       <Outlet />
       <GlobalConfirmDialog />
+      <BackgroundConsentDialog />
       <AssetUploadHost />
       <AssetImportDialog />
       <DocumentTitleSync />

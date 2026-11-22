@@ -19,6 +19,18 @@ export const TTS_MODEL = "fish-audio/s2.1-pro";
 /** $15 per million UTF-8 bytes (OpenRouter pricing.prompt for the model). */
 export const TTS_PRICE_USD_PER_UTF8_BYTE = 15 / 1_000_000;
 
+/** The audio studio's 配音 (and its 试一句): Fish Audio Drama 3, which acts bracketed cues like [哽咽] / [whispers]
+ *  without reading them out, in the same Fish voices (catalog, designed, cloned). Artificial Analysis speech arena
+ *  #7 against S2.1 Pro's #24 (11/2026), and $2 per million UTF-8 bytes on OpenRouter against $15. */
+export const STUDIO_TTS_MODEL = "fish-audio/drama-3";
+
+/** Per-UTF-8-byte price of each voice model we call (OpenRouter pricing.prompt, checked 2026-11-08). */
+export const TTS_MODEL_PRICES: Readonly<Record<string, number>> = {
+  [TTS_MODEL]: TTS_PRICE_USD_PER_UTF8_BYTE,
+  [STUDIO_TTS_MODEL]: 2 / 1_000_000,
+};
+export const ttsPricePerByte = (model: string): number => TTS_MODEL_PRICES[model] ?? TTS_PRICE_USD_PER_UTF8_BYTE;
+
 /** The platform markup on the provider's charge — the same 1.2 every chat
  *  model carries in model_prices. Voice is billed per byte with no price row,
  *  so the multiplier lives here. */
@@ -225,3 +237,27 @@ export function readTtsCustomVoices(preferences: unknown): TtsCustomVoice[] {
 export function ttsCustomVoiceLabel(voice: TtsCustomVoice): string {
   return voice.name || `${voice.id.slice(0, 8)}…`;
 }
+
+// ── AI voice design ────────────────────────────────────────────────────
+// An author describes a voice in words; fish.audio's voice-design model
+// returns a few short candidates; the one they keep is registered as an
+// UNLISTED fish.audio voice model on the platform's Fish account. An unlisted
+// id plays through the same OpenRouter readout as any marketplace id (checked
+// 2026-10-18 with the Draconia voice), so the saved id goes into the very
+// field a pasted custom id goes into and nothing downstream changes.
+
+/** fish.audio `voice-design-1`: billed once per successful request, however
+ *  many candidates it returns (docs.fish.audio pricing, 2026-11-07). */
+export const VOICE_DESIGN_PRICE_USD = 0.01;
+
+/** Registering a kept candidate (`POST /model`, train_mode fast). Fish's
+ *  price list has no line for model creation; a model was created on an
+ *  empty Fish wallet on 2026-10-18. If Fish starts charging, change this
+ *  number and the save is billed like the design. */
+export const VOICE_SAVE_PRICE_USD = 0;
+
+/** Candidates per design request (Fish allows 1–4, one price for all). */
+export const VOICE_DESIGN_CANDIDATES = 3;
+
+/** Longest description an author can send (Fish allows 2000). */
+export const VOICE_DESIGN_PROMPT_MAX = 500;

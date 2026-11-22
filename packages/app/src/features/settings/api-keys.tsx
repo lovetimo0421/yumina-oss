@@ -145,7 +145,8 @@ function OllamaUrlHelp({ showLoopbackWarning }: { showLoopbackWarning: boolean }
   );
 }
 
-export function ApiKeysSettings() {
+/** `embedded`: the settings page supplies the card and title (a folded row). */
+export function ApiKeysSettings({ embedded = false }: { embedded?: boolean } = {}) {
   const { t } = useTranslation("profile");
   const profile = useUserProfileStore((s) => s.profile);
   const forceFetchProfile = useUserProfileStore((s) => s.forceFetchProfile);
@@ -324,14 +325,18 @@ export function ApiKeysSettings() {
   }, [selected, selectedId, isCreating]);
 
   return (
-    <div className="profile-overview-glass profile-overview-glass--soft rounded-2xl p-6 space-y-5">
-      <div className="flex items-center gap-2">
-        <Plug className="h-4 w-4 text-violet-300" />
-        <h3 className="text-sm font-semibold text-main">{t("apiKeys.title")}</h3>
-      </div>
-      <p className="-mt-3 text-xs text-sub">
-        {t("apiKeys.subtitle")}
-      </p>
+    <div className={embedded ? "space-y-5" : "profile-overview-glass profile-overview-glass--soft rounded-2xl p-6 space-y-5"}>
+      {!embedded && (
+        <>
+          <div className="flex items-center gap-2">
+            <Plug className="h-4 w-4 text-violet-300" />
+            <h3 className="text-sm font-semibold text-main">{t("apiKeys.title")}</h3>
+          </div>
+          <p className="-mt-3 text-xs text-sub">
+            {t("apiKeys.subtitle")}
+          </p>
+        </>
+      )}
 
       {/* ── Source picker ── */}
       <div>

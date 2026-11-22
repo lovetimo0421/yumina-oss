@@ -61,3 +61,17 @@ test("unacknowledged command memory is bounded",async()=>{
   assert.deepEqual(await c.sendCommand("do"),{ok:false,body:{reason:"busy"}});
   c.destroy();assert.equal((await Promise.all(pending)).every(r=>!r.ok),true);
 });
+test("rules tables send the card's world id, never fall back to a guest ticket, and surface the gate's reason", async () => {
+  const requests:Array<{url:string;body:any}>=[],s=new Socket();
+  const c=new GameRoomConnection(()=>{}, {
+    fetch:async(u,init)=>{requests.push({url:String(u),body:JSON.parse(String(init?.body))});return assignment();},
+    socket:()=>s as unknown as WebSocket,
+  });
+  const joining=c.join("rules:AB12",{worldId:"world-1"});await wait();s.onopen?.();s.frame({t:"welcome",roomId:"rules:AB12",seatId:"u1",snap:{kind:"rules"}});
+  assert.equal((await joining).ok,true);assert.deepEqual(requests[0]!.body,{roomId:"rules:AB12",worldId:"world-1"});c.destroy();
+  const signedOut=new GameRoomConnection(()=>{}, {fetch:async()=>new Response(null,{status:401}),guest:async()=>{throw new Error("no guest for rules tables");}});
+  assert.equal((await signedOut.join("rules:AB12",{worldId:"world-1"})).reason,"sign-in-required");
+  const gated=new GameRoomConnection(()=>{}, {fetch:async()=>Response.json({error:"birth-year-required"},{status:403})});
+  assert.equal((await gated.join("rules:AB12",{worldId:"world-1"})).reason,"birth-year-required");
+  assert.deepEqual(activeReloadHolds(),[]);
+});

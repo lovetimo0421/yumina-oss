@@ -61,7 +61,14 @@ test("world update reads protect visibility, aggregate safe variants, and pagina
 
   assert.ok(routeStart >= 0 && routeEnd > routeStart);
   assert.match(route, /optionalAuthMiddleware/);
-  assert.match(route, /currentUser \? await readOwn\(currentUser\.id\) : await readDb\(\)/);
+  // Who may read the history is decided on the primary, so a card made private
+  // or restricted a moment ago stops answering at once (7237f3ad8). The list
+  // itself reads the replica for someone else's card (readForEdit below).
+  assert.match(route, /const own = currentUser \? await readOwn\(currentUser\.id\) : null;/);
+  assert.match(route, /const \[world\] = await \(own \?\? db\)\s*\.select\(\{ creatorId: worlds\.creatorId, status: worlds\.status, visibility: worlds\.visibility, ageRating: worlds\.ageRating \}\)/);
+  assert.doesNotMatch(route.slice(0, route.indexOf("if (!world)")), /readPublic\(\)/);
+  assert.match(route, /await own\s*\.select\(\{ followerId: follows\.followerId \}\)/);
+  assert.match(route, /await readForEdit\(currentUser\?\.id, world\.creatorId\)/);
   assert.match(route, /canReadWorldUpdateHistory\(\{/);
   assert.match(route, /\.from\(follows\)[\s\S]*follows\.followerId[\s\S]*follows\.followingId/);
   assert.match(route, /w\.language_group_id = \(SELECT language_group_id FROM worlds WHERE id = \$\{worldId\}\)/);

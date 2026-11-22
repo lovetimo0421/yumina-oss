@@ -35,6 +35,10 @@ export function LoreTokenMeter({ right }: { right: number }) {
     { label: t("entries.tokenBreakdown.dormant"), value: sum.dormant, hint: t("entries.tokenBreakdown.dormantHint"), tone: sum.dormant > 0 ? "text-amber-300/70" : undefined },
     { label: t("entries.tokenBreakdown.disabledLabel"), value: sum.disabled, hint: "", tone: "opacity-60" },
   ];
+  // A number on the board only when it is a warning: a healthy card's
+  // token count is something to look up (视图 → 这回合 AI 读到什么), not a
+  // badge in the corner of every board.
+  if (sum.health === "healthy") return null;
   return (
     <div
       data-lore-meter=""
@@ -64,11 +68,10 @@ export function LoreTokenMeter({ right }: { right: number }) {
               <span className="shrink-0 tabular-nums">{n(r.value)}</span>
             </div>
           ))}
-          <div className="mt-1.5 flex items-center justify-between border-t border-white/[0.06] pt-1.5 font-medium text-foreground/80">
+          <div title={healthText} className="mt-1.5 flex items-center justify-between border-t border-white/[0.06] pt-1.5 font-medium text-foreground/80">
             <span>{t("entries.tokenBreakdown.totalLabel")}</span>
             <span className="tabular-nums">{n(sum.total)} {t("entries.tokenBreakdown.tokUnit", "tok")}</span>
           </div>
-          {sum.health !== "healthy" && <p className="pt-1 leading-relaxed text-foreground/60">{healthText}</p>}
         </div>
       )}
     </div>

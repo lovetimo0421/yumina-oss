@@ -12,7 +12,8 @@
 import { ResponseParser } from "./response-parser.js";
 import type { ReplyRule } from "./reply-rules.js";
 import { PARTIAL_BOOKKEEPING_TAIL_RE } from "./bookkeeping-blocks.js";
-import { isPartialLeadingSpeakerTag, parseLeadingSpeakerTag } from "../prompts/speaker-tag.js";
+import { stripTrailingDirectiveLabel } from "./directive-label.js";
+import { isPartialLeadingSpeakerTag, parseLeadingSpeakerTag, stripFaceLines } from "../prompts/speaker-tag.js";
 
 export interface DisplayTextOptions {
   /** The world's variable ids (keys of the game state), when known. */
@@ -21,8 +22,8 @@ export interface DisplayTextOptions {
   replyRules?: readonly ReplyRule[];
   /** The reply is still arriving: hold back what is not finished yet. */
   streaming?: boolean;
-  /** Keep a leading `[speaker: Name]` (normalised onto its own line) for the
-   *  bubble to pick the face; a partial one is returned as is. */
+  /** Keep a leading `[speaker: Name]` / `[face: …]` (normalised onto their
+   *  own lines) for the bubble to pick the face; a partial one is returned as is. */
   keepSpeakerTag?: boolean;
 }
 
@@ -41,10 +42,14 @@ export function cleanDisplayText(text: string, opts: DisplayTextOptions = {}): s
   if (opts.keepSpeakerTag) {
     if (isPartialLeadingSpeakerTag(text)) return text;
     const tag = parseLeadingSpeakerTag(text);
-    if (tag.speaker) return `[speaker: ${tag.speaker}]\n${cleanDisplayText(tag.text, { ...opts, keepSpeakerTag: false })}`;
+    // The face tag rides along: a live character beside the chat reads it.
+    if (tag.speaker || tag.face) {
+      const head = (tag.speaker ? `[speaker: ${tag.speaker}]\n` : "") + (tag.face ? `[face: ${tag.face}]\n` : "");
+      return head + cleanDisplayText(tag.text, { ...opts, keepSpeakerTag: false });
+    }
   }
   const visibleRules = opts.replyRules?.filter((rule) => !rule.hide);
-  let out = parser.parse(text, undefined, { variableIds: opts.variableIds, replyRules: visibleRules }).cleanText
+  let out = stripFaceLines(parser.parse(text, undefined, { variableIds: opts.variableIds, replyRules: visibleRules }).cleanText).text
     .replace(BG_TAG, "")
     .replace(TRAILING_INCOMPLETE, "");
   if (opts.streaming) {
@@ -53,5 +58,7 @@ export function cleanDisplayText(text: string, opts: DisplayTextOptions = {}): s
       .replace(PARTIAL_BOOKKEEPING_TAIL_RE, "")
       .replace(TRAILING_OPEN_BRACKET_LINE, "$1");
   }
-  return out.trimEnd();
+  // "Directives follow." in front of a directive still arriving (held back
+  // above), or of nothing yet while streaming: its directives come next.
+  return stripTrailingDirectiveLabel(out.trimEnd(), text, { force: opts.streaming });
 }

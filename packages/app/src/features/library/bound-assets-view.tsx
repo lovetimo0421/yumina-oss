@@ -29,6 +29,7 @@ import { useTranslation } from "react-i18next";
 import { feedback } from "@/lib/feedback";
 import { useCopyFeedback } from "@/hooks/use-copy-feedback";
 import { useFolderBindingStore } from "@/stores/folder-bindings";
+import { useEditorStore } from "@/stores/editor";
 import { useUserAssetStore, type UserAsset } from "@/stores/user-assets";
 import { getAssetCdnUrl, cardImageUrl, fallbackToOriginalOnError } from "@/lib/asset-url";
 import { getUploadMetadata } from "@/lib/asset-upload";
@@ -82,6 +83,10 @@ export function BoundAssetsView({ worldId }: { worldId: string }) {
   const fetchBindings = useFolderBindingStore((s) => s.fetch);
   const bind = useFolderBindingStore((s) => s.bind);
   const unbind = useFolderBindingStore((s) => s.unbind);
+  // The bound folders' files belong to the card's author: someone the card
+  // was shared with can use them but not delete or move them.
+  const cardAccess = useEditorStore((s) => s.access);
+  const ownsCard = !cardAccess || cardAccess.role === "owner";
 
   const folders = useUserAssetStore((s) => s.folders);
   const fetchFolders = useUserAssetStore((s) => s.fetchFolders);
@@ -378,13 +383,8 @@ export function BoundAssetsView({ worldId }: { worldId: string }) {
           <p className="mt-1 text-xs text-muted-foreground">
             {t("bindings.emptySubtitle")}
           </p>
-          <button
-            onClick={() => setShowPicker(true)}
-            className="mt-4 inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground"
-          >
-            <FolderPlus size={14} />
-            {t("bindings.bindFolder")}
-          </button>
+          {/* No second 绑定文件夹 here: the gold one in the header is a
+              hand's width above. */}
         </div>
       ) : (
         <div className="space-y-3">
@@ -472,15 +472,18 @@ export function BoundAssetsView({ worldId }: { worldId: string }) {
                     )}
                   </button>
 
-                  <button
-                    // R1: the folder leaves this list on unbind; the store's
-                    // own pill covers a failure.
-                    onClick={() => void unbind(worldId, folder.id)}
-                    title={t("bindings.unbind")}
-                    className="shrink-0 rounded-md p-1.5 text-muted-foreground/60 transition-colors hover:bg-white/5 hover:text-destructive"
-                  >
-                    <Unlink size={15} />
-                  </button>
+                  {/* On a shared card: the creator, or whoever's folder it is. */}
+                  {(ownsCard || folders.some((f) => f.id === folder.id)) && (
+                    <button
+                      // R1: the folder leaves this list on unbind; the store's
+                      // own pill covers a failure.
+                      onClick={() => void unbind(worldId, folder.id)}
+                      title={t("bindings.unbind")}
+                      className="shrink-0 rounded-md p-1.5 text-muted-foreground/60 transition-colors hover:bg-white/5 hover:text-destructive"
+                    >
+                      <Unlink size={15} />
+                    </button>
+                  )}
                 </div>
 
                 {/* Expanded asset grid */}
@@ -507,7 +510,7 @@ export function BoundAssetsView({ worldId }: { worldId: string }) {
                     ) : (
                       <>
                         {/* Manage toolbar */}
-                        <div className="mb-2 flex flex-wrap items-center gap-2">
+                        {ownsCard && <div className="mb-2 flex flex-wrap items-center gap-2">
                           {managing ? (
                             <>
                               <span className="text-[11px] font-medium text-primary">
@@ -564,7 +567,7 @@ export function BoundAssetsView({ worldId }: { worldId: string }) {
                               {t("bulk.select")}
                             </button>
                           )}
-                        </div>
+                        </div>}
                         <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6">
                           {assets.map((a) => (
                             <AssetTile
@@ -574,7 +577,7 @@ export function BoundAssetsView({ worldId }: { worldId: string }) {
                               selectable={managing}
                               selected={selectedIds.has(a.id)}
                               onToggleSelect={() => toggleSelect(a.id)}
-                              onDelete={() => setPendingDeleteIds([a.id])}
+                              onDelete={ownsCard ? () => setPendingDeleteIds([a.id]) : undefined}
                             />
                           ))}
                         </div>

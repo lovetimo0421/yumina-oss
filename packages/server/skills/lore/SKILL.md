@@ -171,13 +171,11 @@ ai_rules:
 
 ## Multiplayer Lore
 
-When designing for multiplayer worlds:
+For a card friends play together (story mode), load the **multiplayer** skill: how a round's actions reach the AI (`[Name · Role]: text` lines plus a roster line), roles linked to character entries, and how to write the narrator for several players. Lore itself is written as usual:
 
-- **DM-style system prompt**: Write a system-presets entry instructing the AI to manage multiple players as a narrator/DM
-- **Per-player state**: Use a JSON variable (e.g., `players`) with dot-path addressing. No need for per-player entries.
-- **Character-linked lore**: Use chat-history entries with character name keywords so lore surfaces when that character is discussed
-- **Shared world state**: Use JSON variables for faction standings, world events, and locations that all players interact with
-- The engine automatically includes a player roster in multiplayer prompts — no manual entry needed
+- **Per-player state**: a JSON variable (e.g., `players`) keyed by player name, with dot-path addressing. No per-player entries.
+- **Character-linked lore**: chat-history entries with character name keywords, so lore surfaces when that character is discussed.
+- **Shared world state**: JSON variables for faction standings, world events and locations every player touches.
 
 ## Response Pattern
 

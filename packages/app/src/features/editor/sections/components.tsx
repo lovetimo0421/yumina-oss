@@ -216,24 +216,18 @@ export function ComponentsSection() {
     <div className="flex h-full min-h-0 flex-col">
       <div className="shrink-0 border-b border-border bg-card px-6 py-4">
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-[22px] font-bold tracking-tight text-foreground">
-              {t("components.title")}
-            </h1>
-            <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-              {t("components.description")}
-            </p>
-          </div>
+          <h1 className="text-[22px] font-bold tracking-tight text-foreground">
+            {t("components.title")}
+          </h1>
         </div>
       </div>
 
       {/* 像 PPT 一样摆 — the visual builder, one click away from the code. */}
-      <div className="shrink-0 border-b border-border/60 bg-primary/[0.06] px-6 py-3">
+      <div className="shrink-0 border-b border-border/60 bg-card px-6 py-3">
         <div className="flex items-center gap-3">
-          <LayoutTemplate className="h-4 w-4 shrink-0 text-primary" />
+          <LayoutTemplate className="h-4 w-4 shrink-0 text-muted-foreground" />
           <div className="min-w-0 flex-1">
-            <p className="text-[13px] font-medium text-foreground">{t("components.builderBanner")}</p>
-            <p className="text-[11px] leading-relaxed text-muted-foreground">{t("components.builderBannerHint")}</p>
+            <p className="text-[13px] font-medium text-foreground" title={t("components.builderBannerHint")}>{t("components.builderBanner")}</p>
           </div>
           <button
             type="button"
@@ -381,12 +375,12 @@ export function ComponentsSection() {
           <div className="rounded-lg border border-border/60 bg-muted/20 p-4">
             <h3 className="mb-2 text-xs font-medium text-foreground">{t("components.availableTools")}</h3>
             <div className="space-y-1 text-[11px] text-muted-foreground">
-              <div><code className="text-primary">{"useYumina()"}</code> — {t("components.toolUseYumina")}</div>
-              <div><code className="text-primary">{"<Chat renderBubble={...} />"}</code> — {t("components.toolChat")}</div>
-              <div><code className="text-primary">{"<MessageList>"}</code> — {t("components.toolMessageList")}</div>
-              <div><code className="text-primary">{"<MessageInput onSend={...} />"}</code> — {t("components.toolMessageInput")}</div>
-              <div><code className="text-primary">{"Icons.Heart, Icons.Sword, ..."}</code> — {t("components.toolIcons")}</div>
-              <div><code className="text-primary">{"<LoreSlot id=\"slot-id\" />"}</code> — {t("components.toolLoreSlot")}</div>
+              <div><code className="text-foreground">{"useYumina()"}</code><span className="ml-2">{t("components.toolUseYumina")}</span></div>
+              <div><code className="text-foreground">{"<Chat renderBubble={...} />"}</code><span className="ml-2">{t("components.toolChat")}</span></div>
+              <div><code className="text-foreground">{"<MessageList>"}</code><span className="ml-2">{t("components.toolMessageList")}</span></div>
+              <div><code className="text-foreground">{"<MessageInput onSend={...} />"}</code><span className="ml-2">{t("components.toolMessageInput")}</span></div>
+              <div><code className="text-foreground">{"Icons.Heart, Icons.Sword, ..."}</code><span className="ml-2">{t("components.toolIcons")}</span></div>
+              <div><code className="text-foreground">{"<LoreSlot id=\"slot-id\" />"}</code><span className="ml-2">{t("components.toolLoreSlot")}</span></div>
             </div>
           </div>
         </div>

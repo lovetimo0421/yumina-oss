@@ -8,6 +8,8 @@ import { z } from "zod";
 import { aiDecisionRequestSchema, MAX_DECISION_REQUEST_CHARS, parseAiDecisionResponse } from "@yumina/shared";
 import { db } from "../db/index.js";
 import { playSessions, worlds } from "../db/schema.js";
+import { draftAccessEnded, viewerCanEditSql } from "../lib/working-copy.js";
+import { activeWorldTesterSql } from "../lib/world-testers.js";
 import { env } from "../lib/env.js";
 import { decide, decisionModelConfigured, DecisionError, DEFAULT_DECISION_URL } from "../lib/continuity/jev-client.js";
 import { getUserApiKey, resolveProviderForModel } from "../lib/resolve-provider.js";
@@ -47,9 +49,12 @@ decisionRoutes.post("/sessions/:sessionId/decisions", authMiddleware, bodyLimit(
 
   const limit = await checkDecisionRateLimit(currentUser.id) ?? await checkSideCallRateLimit(currentUser.id);
   if (limit) { c.header("Retry-After", String(limit.retryAfter)); return c.json(limit, 429); }
-  const [world] = await db.select({ allowCustomApi: worlds.allowCustomApi, creatorId: worlds.creatorId }).from(worlds).where(eq(worlds.id, session.worldId));
+  const [world] = await db.select({ allowCustomApi: worlds.allowCustomApi, creatorId: worlds.creatorId, sealedContent: worlds.sealedContent, status: worlds.status, viewerCanEdit: viewerCanEditSql(currentUser.id), viewerIsTester: activeWorldTesterSql(currentUser.id) }).from(worlds).where(eq(worlds.id, session.worldId));
   if (!world) return c.json({ error: "World not found" }, 404);
-  const protectedWorld = world.allowCustomApi === false && world.creatorId !== currentUser.id;
+  if (draftAccessEnded(world, currentUser, world.viewerCanEdit === true || world.viewerIsTester === true)) return c.json({ error: "You no longer have access to this card.", code: "WORLD_ACCESS_ENDED" }, 403);
+  // The creator and editor collaborators can read the source anyway: exempt
+  // (a sealed card stays official-only for everyone).
+  const protectedWorld = world.sealedContent || (world.allowCustomApi === false && world.creatorId !== currentUser.id && world.viewerCanEdit !== true);
   const resolved = await resolveProviderForModel(currentUser.id, body.narrativeModel, { forceOfficial: protectedWorld, allowRetiredForAccessCheck: true });
   if (!resolved) return protectedWorld
     ? c.json({ error: "This world requires the official Yumina API.", code: "PROTECTED_WORLD" }, 403)

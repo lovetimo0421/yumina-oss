@@ -1,3 +1,4 @@
+import { useReadingAppearance } from "./reading-appearance";
 import { useLayoutEffect, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 
@@ -40,6 +41,7 @@ export function ComposerPopover({
   role?: string;
   ariaLabel?: string;
 }) {
+  const appearance = useReadingAppearance();
   const [pos, setPos] = useState<{ left: number; bottom: number; maxHeight: number } | null>(null);
 
   useLayoutEffect(() => {
@@ -72,7 +74,7 @@ export function ComposerPopover({
     : { position: "fixed", left: -9999, bottom: 0 };
 
   return createPortal(
-    <div ref={popoverRef} role={role} aria-label={ariaLabel} style={style} className={`z-[9000] ${className ?? ""}`}>
+    <div {...appearance} ref={popoverRef} role={role} aria-label={ariaLabel} style={style} className={`z-[9000] ${appearance.className} ${className ?? ""}`}>
       {children}
     </div>,
     document.body,

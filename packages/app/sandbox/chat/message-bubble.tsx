@@ -11,6 +11,7 @@
  * - cn() inlined (clsx + tailwind-merge)
  */
 
+import { applyRegexRules } from "@yumina/shared";
 import React, { useState, useRef, useLayoutEffect, useMemo } from "react";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -28,12 +29,26 @@ import type { SandboxMessage } from "./types";
 import { classifyChatError, errorDetail, type ChatErrorCode } from "./error-codes";
 import { aiFrameIds, resolveSpeaker, stripLeadingSpeakerTag, isPartialLeadingSpeakerTag } from "./speaker";
 import { splitBySpeaker } from "./speaker-split";
-import { RefusalBar, isRefusedReply } from "./player-prompts";
+import { CutBar, RefusalBar, isRefusedReply, replyCutOf } from "./player-prompts";
 import { TurnImageState } from "./turn-image-state";
 import { TurnImageCard } from "./turn-image-card";
 import { PortraitViewer, usePortraitViewer } from "./portrait-viewer";
 import { splitTurnImages, splitTurnVideos } from "./turn-image-embeds";
 import { cleanDisplayText } from "@yumina/engine";
+import { RoomTurnBubbles } from "./story-room";
+
+/**
+ * Rendered message text. React 19 rewrites `dangerouslySetInnerHTML` whenever
+ * the `{ __html }` object is new, even when the HTML is identical, so an inline
+ * object re-laid-out every mounted bubble on each send. WebKit (iPhone Safari,
+ * in-app browsers) has no scroll anchoring and lost the reader's place: the view
+ * jumped dozens of messages back (P.xuan, 2026-10-27). Keep the object stable
+ * until the text changes.
+ */
+function MessageHtml({ text, ...props }: { text: string } & Omit<React.HTMLAttributes<HTMLDivElement>, "dangerouslySetInnerHTML" | "children">) {
+  const html = useMemo(() => ({ __html: renderMessage(text) }), [text]);
+  return <div {...props} data-story-content="" dangerouslySetInnerHTML={html} />;
+}
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -61,6 +76,8 @@ interface MessageBubbleProps {
    *  toggles card state redraws without redrawing the whole transcript. */
   rendererEpoch?: number;
   messageIndex?: number;
+  /** Place in the whole session (#1 = the opening), shown quietly in the tool row. */
+  messageNumber?: number;
   showRoleLabel?: boolean;
   /** This is the session's opening. Handed to the message renderer, which may
    *  draw the opening differently (a card's message style can). */
@@ -115,6 +132,7 @@ const MessageBubbleInner: React.FC<MessageBubbleProps> = function MessageBubbleI
   rendererComponent: RendererComp,
   variables,
   messageIndex,
+  messageNumber,
   showRoleLabel = true,
   isGreeting,
   isLastMessage,
@@ -144,11 +162,18 @@ const MessageBubbleInner: React.FC<MessageBubbleProps> = function MessageBubbleI
   // server; cleaning it again only drops what an older parser missed, so old
   // chats stop showing it. The game-state keys are the world's variable ids.
   const variableIdsKey = variables ? Object.keys(variables).join("\u0001") : "";
+  // How far back this message is (0 = newest), for rules limited by depth.
+  const depth = typeof messageIndex === "number" && api.messages?.length ? Math.max(0, api.messages.length - 1 - messageIndex) : 0;
   const displayContent = useMemo(() => {
     const variableIds = variableIdsKey ? variableIdsKey.split("\u0001") : undefined;
-    if (!isStreaming) return cleanDisplayText(rawContent, { variableIds, replyRules: api.replyRules });
-    return holdingSpeakerTag ? "" : cleanDisplayText(stripLeadingSpeakerTag(rawContent), { variableIds, replyRules: api.replyRules, streaming: true });
-  }, [rawContent, isStreaming, holdingSpeakerTag, variableIdsKey, api.replyRules]);
+    const cleaned = !isStreaming
+      ? cleanDisplayText(rawContent, { variableIds, replyRules: api.replyRules })
+      : holdingSpeakerTag ? "" : cleanDisplayText(stripLeadingSpeakerTag(rawContent), { variableIds, replyRules: api.replyRules, streaming: true });
+    // The player's own regex rules (正则), on screen only: the saved message is untouched.
+    return api.playerRegexRules?.length
+      ? applyRegexRules(cleaned, api.playerRegexRules, { role: message.role, where: "display", depth: isStreaming ? 0 : depth })
+      : cleaned;
+  }, [rawContent, isStreaming, holdingSpeakerTag, variableIdsKey, api.replyRules, api.playerRegexRules, message.role, depth]);
   // A card's own renderer gets the reply without per-turn pictures; the host
   // draws them under its bubble (see turn-image-embeds.ts).
   const rendererText = useMemo(() => {
@@ -193,6 +218,8 @@ const MessageBubbleInner: React.FC<MessageBubbleProps> = function MessageBubbleI
   const blockedTurn = generationFailed && failure.code === "CONTENT_FILTER" && !!isLastMessage && !api.modelFallback;
   // The model answered with a policy refusal instead of story text.
   const refusedReply = !isUser && !isSystem && !isStreaming && !!isLastMessage && isRefusedReply(message);
+  // Stopped partway (length limit, or the provider's filter on a reply it still sent).
+  const cutReply = !isUser && !isSystem && !isStreaming && !!isLastMessage && !refusedReply && !generationFailed ? replyCutOf(message) : null;
 
   // Raw LLM output for the active swipe. Persisted server-side starting 2026-05
   // so older messages may not have it — hide the toggle when missing rather
@@ -285,7 +312,7 @@ const MessageBubbleInner: React.FC<MessageBubbleProps> = function MessageBubbleI
 
   // ── Metadata ─────────────────────────────────────────────────────
 
-  const hasMetadata = !isStreaming && !isUser && message.generationTimeMs;
+  const hasMetadata = Boolean(!isStreaming && !isUser && message.generationTimeMs);
   const metadataTitle = [
     creditCost != null
       ? `${trimFixed(creditCost, 3)} mush${creditBalanceAfter != null ? ` · balance ${Math.floor(creditBalanceAfter).toLocaleString()} mush` : ""}`
@@ -309,8 +336,20 @@ const MessageBubbleInner: React.FC<MessageBubbleProps> = function MessageBubbleI
 
   // ── Render ───────────────────────────────────────────────────────
 
+  // A story room's round: each player's line as their own bubble.
+  if (isUser && message.contributions?.length && !isEditing) {
+    return (
+      <div className={cn("play-message-block group relative", dimmed && "opacity-50")}>
+        <RoomTurnBubbles contributions={message.contributions} />
+        {!isStreaming && !dimmed && children && <div className="mt-1 flex justify-end">{children}</div>}
+      </div>
+    );
+  }
+
   return (
     <div
+      data-message-role={message.role}
+      data-message-id={message.id}
       className={cn(
         "play-message-block group relative",
         isUser && "play-message-block--user",
@@ -379,6 +418,15 @@ const MessageBubbleInner: React.FC<MessageBubbleProps> = function MessageBubbleI
           </div>
         )}
 
+        {/* 给 AI 的话 sent with this turn: the player's direction, not story text. */}
+        {message.playerNote && !isEditing && (
+          <p data-player-note="" className={cn("play-message-note mb-1.5 whitespace-pre-wrap break-words text-xs text-muted-foreground/70", isUser && "text-right")}>
+            <span className="font-medium text-muted-foreground/90">{t("note")}</span>
+            <span aria-hidden="true" className="px-1 text-muted-foreground/40">·</span>
+            {message.playerNote}
+          </p>
+        )}
+
         {/* Thinking/reasoning collapsible section */}
         {showThinking && (
           <div className="mb-2">
@@ -441,7 +489,7 @@ const MessageBubbleInner: React.FC<MessageBubbleProps> = function MessageBubbleI
                     onCancelEdit?.();
                   }
                 }}
-                className="w-full resize-y rounded-md border border-primary/30 bg-white/5 p-2 text-sm leading-relaxed text-foreground focus:border-primary/50 focus:ring-1 focus:ring-primary/30 focus:outline-none"
+                className="play-message-editor w-full resize-y rounded-md border border-primary/30 bg-white/5 p-2 text-sm leading-relaxed text-foreground focus:border-primary/50 focus:ring-1 focus:ring-primary/30 focus:outline-none"
               />
               <div className="mt-2 flex items-center justify-end gap-2">
                 <button
@@ -502,13 +550,7 @@ const MessageBubbleInner: React.FC<MessageBubbleProps> = function MessageBubbleI
                   message.stateSnapshot,
                   variables,
                 ]}
-                fallback={(
-                  <div
-                    dangerouslySetInnerHTML={{
-                      __html: renderMessage(displayContent),
-                    }}
-                  />
-                )}
+                fallback={<MessageHtml text={displayContent} />}
                 onError={(error) => {
                   console.warn(
                     "[Yumina] Custom message renderer failed; using the default message renderer.",
@@ -536,7 +578,7 @@ const MessageBubbleInner: React.FC<MessageBubbleProps> = function MessageBubbleI
               </MessageRendererBoundary>
               {rendererText.embeds.length > 0 && (
                 <div className="play-turn-images">
-                  {rendererText.embeds.map((embed) => <TurnImageCard key={embed} embed={embed} message={message} api={api} t={t} />)}
+                  {rendererText.embeds.map((embed, i) => <TurnImageCard key={i} embed={embed} message={message} api={api} t={t} />)}
                 </div>
               )}
             </div>
@@ -552,25 +594,20 @@ const MessageBubbleInner: React.FC<MessageBubbleProps> = function MessageBubbleI
                       : <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border bg-muted text-[11px] font-semibold">{seg.speaker.slice(0, 1)}</span>}
                     <div className="min-w-0 flex-1">
                       <p className="play-message-role mb-0.5 text-xs font-medium text-primary/70">{seg.speaker}</p>
-                      <div className="rounded-xl border border-border/60 bg-muted/30 px-3 py-1.5" dangerouslySetInnerHTML={{ __html: renderMessage(seg.text) }} />
+                      <MessageHtml className="rounded-xl border border-border/60 bg-muted/30 px-3 py-1.5" text={seg.text} />
                     </div>
                   </div>
                 ) : (
-                  <div key={i} dangerouslySetInnerHTML={{ __html: renderMessage(seg.text) }} />
+                  <MessageHtml key={i} text={seg.text} />
                 );
               })}
             </div>
           ) : (
             <>
-              <div
-                onClick={handleClick}
-                dangerouslySetInnerHTML={{
-                  __html: renderMessage(rendererText.content),
-                }}
-              />
+              <MessageHtml onClick={handleClick} text={rendererText.content} />
               {rendererText.embeds.length > 0 && (
                 <div className="play-turn-images">
-                  {rendererText.embeds.map((embed) => <TurnImageCard key={embed} embed={embed} message={message} api={api} t={t} />)}
+                  {rendererText.embeds.map((embed, i) => <TurnImageCard key={i} embed={embed} message={message} api={api} t={t} />)}
                 </div>
               )}
             </>
@@ -588,12 +625,14 @@ const MessageBubbleInner: React.FC<MessageBubbleProps> = function MessageBubbleI
         )}
 
         {blockedTurn && (
-          <RefusalBar kind="blocked" onRetry={() => api.continueLastMessage()} />
+          <RefusalBar kind="blocked" dismissKey={`blocked:${message.id}`} onRetry={() => api.continueLastMessage()} />
         )}
 
         {refusedReply && (
           <RefusalBar kind="refused" dismissKey={message.id} onRetry={() => api.regenerateMessage(message.id)} />
         )}
+
+        {cutReply && <CutBar kind={cutReply} />}
 
         {generationFailed && !blockedTurn && (
           <div className="play-turn-error mt-2 w-full min-w-0 self-stretch rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
@@ -636,7 +675,7 @@ const MessageBubbleInner: React.FC<MessageBubbleProps> = function MessageBubbleI
 
         {/* Swipe controls — separate centered row */}
         {!isStreaming && !dimmed && swipeControls && (
-          <div className="touch-reveal mt-2 flex justify-center opacity-0 transition-opacity duration-150 group-hover:opacity-100">
+          <div className="play-message-tools touch-reveal mt-2 flex justify-center opacity-0 transition-opacity duration-150 group-hover:opacity-100 focus-within:opacity-100">
             {swipeControls}
           </div>
         )}
@@ -644,8 +683,8 @@ const MessageBubbleInner: React.FC<MessageBubbleProps> = function MessageBubbleI
         {/* Hover-reveal actions + metadata. flex-wrap: on touch the action
             buttons grow to 40px targets — metadata wraps below on narrow
             phones instead of squeezing the buttons. */}
-        {!isStreaming && !dimmed && (children || hasMetadata || hasRawOutput) && (
-          <div className="touch-reveal mt-1 flex flex-wrap items-center justify-between gap-2 opacity-0 transition-opacity duration-150 group-hover:opacity-100">
+        {!isStreaming && !dimmed && (children || hasMetadata || hasRawOutput || messageNumber) && (
+          <div className="play-message-tools touch-reveal mt-1 flex flex-wrap items-center justify-between gap-2 opacity-0 transition-opacity duration-150 group-hover:opacity-100 focus-within:opacity-100">
             <div className="flex items-center gap-1">
               {children}
               {hasRawOutput && (
@@ -675,15 +714,17 @@ const MessageBubbleInner: React.FC<MessageBubbleProps> = function MessageBubbleI
                 </button>
               )}
             </div>
-            {hasMetadata && (
+            {(hasMetadata || messageNumber) && (
               <p
                 className="shrink-0 text-[11px] text-muted-foreground/35"
-                title={metadataTitle}
+                title={hasMetadata ? metadataTitle : undefined}
               >
-                {(message.generationTimeMs! / 1000).toFixed(1)}s
-                {message.model
-                  ? ` \u00b7 ${message.model.split("/").pop()}`
-                  : ""}
+                {hasMetadata && `${(message.generationTimeMs! / 1000).toFixed(1)}s${message.model ? ` \u00b7 ${message.model.split("/").pop()}` : ""}`}
+                {messageNumber ? (
+                  <span data-message-number={messageNumber} className="tabular-nums">
+                    {hasMetadata ? " \u00b7 " : ""}#{messageNumber}
+                  </span>
+                ) : null}
               </p>
             )}
           </div>
@@ -719,6 +760,7 @@ export function messageBubblePropsEqual(prev: MessageBubbleProps, next: MessageB
   if (prev.variables !== next.variables) return false;
   if (prev.rendererEpoch !== next.rendererEpoch) return false;
   if (prev.messageIndex !== next.messageIndex) return false;
+  if (prev.messageNumber !== next.messageNumber) return false;
   if (prev.isGreeting !== next.isGreeting) return false;
   // Swipe: check by active swipe index (content changes on swipe)
   if (prev.message.activeSwipeIndex !== next.message.activeSwipeIndex) return false;

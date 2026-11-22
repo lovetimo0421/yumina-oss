@@ -1,3 +1,4 @@
+import { resolveMemoryEvery } from "@yumina/shared";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createHash } from "node:crypto";
@@ -82,6 +83,31 @@ test("short conversations batch up; initial, large, failed and explicit updates 
     assert.equal(shouldUpdateSessionMemory({ ...base, ...change }), true);
   }
   assert.equal(shouldUpdateSessionMemory({ ...base, pendingTurns: 0, force: true, failed: true }), false);
+});
+
+test("a player who chooses a longer gap gets fewer updates, each covering the whole wait", () => {
+  const base = { pendingTurns: 1, pendingChars: 100, hasMemory: true, failed: false, every: 10 };
+  assert.equal(shouldUpdateSessionMemory({ ...base, pendingTurns: 9 }), false);
+  assert.equal(shouldUpdateSessionMemory({ ...base, pendingTurns: 10 }), true);
+  // Long replies no longer bring a slower choice back to an update every turn...
+  assert.equal(shouldUpdateSessionMemory({ ...base, pendingTurns: 4, pendingChars: 20_000 }), false);
+  // ...but the character trigger still exists, scaled to the choice.
+  assert.equal(shouldUpdateSessionMemory({ ...base, pendingTurns: 4, pendingChars: 50_000 }), true);
+  // A first memory, a failure and an explicit update still go now.
+  for (const change of [{ hasMemory: false }, { failed: true }, { force: true }]) {
+    assert.equal(shouldUpdateSessionMemory({ ...base, ...change }), true);
+  }
+  // The default is what it was.
+  assert.equal(shouldUpdateSessionMemory({ ...base, every: undefined, pendingTurns: 3 }), true);
+  assert.equal(memoryBatchTurnLimit(0, null), 3);
+  assert.equal(memoryBatchTurnLimit(0, null, 10), 10);
+  assert.equal(memoryBatchTurnLimit(2, "Memory could not fit within its size budget", 10), 1);
+  assert.equal(resolveMemoryEvery(10), 10);
+  assert.equal(resolveMemoryEvery(7), 7);
+  assert.equal(resolveMemoryEvery(0), 3);
+  assert.equal(resolveMemoryEvery(51), 3);
+  assert.equal(resolveMemoryEvery(2.5), 3);
+  assert.equal(resolveMemoryEvery("20"), 3);
 });
 
 test("oversized normal output is rewritten once at a smaller target and saved whole", async () => {

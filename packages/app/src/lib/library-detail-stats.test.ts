@@ -153,7 +153,7 @@ test("expanded activity stats hydrate from the public aggregate endpoint", async
     return new Response(JSON.stringify({
       data: {
         totalUniquePlayers: 18,
-        avgSessionSeconds: 442,
+        avgPlaytimePerPlayerSeconds: 442,
         averageRating: 4.67,
         reviewCount: 9,
       },
@@ -178,12 +178,26 @@ test("expanded activity stats hydrate from the public aggregate endpoint", async
     assert.deepEqual(harness.current.activityStats, {
       ...complete,
       uniquePlayerCount: 18,
-      averageSessionSeconds: 442,
+      averagePlaytimePerPlayerSeconds: 442,
       averageRating: 4.67,
+      reviewCount: 9,
     });
   } finally {
     await harness.unmount();
   }
+});
+
+test("a cached legacy response does not label a per-save average as per-player", async () => {
+  const harness = createHookHarness();
+  const fetcher = (async () => new Response(JSON.stringify({
+    data: { totalUniquePlayers: 18, avgSessionSeconds: 442 },
+  }), { status: 200 })) as typeof fetch;
+  try {
+    await harness.render({ ...baseline, apiBase: "", enabled: false,
+      creatorAnalyticsEnabled: true, fetcher });
+    assert.equal(harness.current.activityStats.uniquePlayerCount, 18);
+    assert.equal(harness.current.activityStats.averagePlaytimePerPlayerSeconds, undefined);
+  } finally { await harness.unmount(); }
 });
 
 test("creator activity stats keep empty-session and unrated states explicit", async () => {
@@ -191,7 +205,7 @@ test("creator activity stats keep empty-session and unrated states explicit", as
   const fetcher = (async () => new Response(JSON.stringify({
     data: {
       totalUniquePlayers: 0,
-      avgSessionSeconds: 0,
+      avgPlaytimePerPlayerSeconds: 0,
       averageRating: 0,
       reviewCount: 0,
     },
@@ -209,8 +223,9 @@ test("creator activity stats keep empty-session and unrated states explicit", as
     assert.deepEqual(harness.current.activityStats, {
       ...complete,
       uniquePlayerCount: 0,
-      averageSessionSeconds: null,
+      averagePlaytimePerPlayerSeconds: null,
       averageRating: null,
+      reviewCount: 0,
     });
   } finally {
     await harness.unmount();
@@ -239,7 +254,7 @@ test("creator analytics survive a later public-counter hydration", async () => {
     requests.get(creatorUrl)?.(new Response(JSON.stringify({
       data: {
         totalUniquePlayers: 18,
-        avgSessionSeconds: 442,
+        avgPlaytimePerPlayerSeconds: 442,
         averageRating: 4.67,
         reviewCount: 9,
       },
@@ -261,8 +276,9 @@ test("creator analytics survive a later public-counter hydration", async () => {
       messageCount: 34,
       favoriteCount: 56,
       uniquePlayerCount: 18,
-      averageSessionSeconds: 442,
+      averagePlaytimePerPlayerSeconds: 442,
       averageRating: 4.67,
+      reviewCount: 9,
     });
   } finally {
     await harness.unmount();
@@ -500,6 +516,88 @@ test("authoritative favorite props take over after the local count is acknowledg
     const authoritative = { ...initial, favoriteCount: 7 };
     await harness.render({ ...authoritative, apiBase: "", enabled: true, fetcher });
     assert.equal(harness.current.activityStats.favoriteCount, 7);
+  } finally {
+    await harness.unmount();
+  }
+});
+
+test("the preview response also brings the rating count, total playtime and the card's details", async () => {
+  const harness = createHookHarness();
+  const fetcher = (async () => new Response(JSON.stringify({
+    data: {
+      downloadCount: 12,
+      messageCount: 34,
+      favoriteCount: 56,
+      reviewCount: "3",
+      averageRating: "4.33",
+      totalPlaytimeSeconds: 7200,
+      totalTokens: 9000,
+      galleryImages: ["a.png"],
+    },
+  }), { status: 200 })) as typeof fetch;
+
+  try {
+    await harness.render({ ...baseline, apiBase: "", enabled: true, fetcher });
+    assert.deepEqual(harness.current.activityStats, {
+      worldId: "world-a",
+      downloadCount: 12,
+      messageCount: 34,
+      favoriteCount: 56,
+      reviewCount: 3,
+      averageRating: 4.33,
+      totalPlaytimeSeconds: 7200,
+    });
+    assert.equal(harness.current.detail?.totalTokens, 9000);
+    assert.deepEqual(harness.current.detail?.galleryImages, ["a.png"]);
+  } finally {
+    await harness.unmount();
+  }
+});
+
+test("a preview without ratings clears the average; without playtime it leaves the key unset", async () => {
+  const harness = createHookHarness();
+  const fetcher = (async () => new Response(JSON.stringify({
+    data: { messageCount: 1, favoriteCount: 2, reviewCount: 0, averageRating: 0 },
+  }), { status: 200 })) as typeof fetch;
+
+  try {
+    await harness.render({ ...baseline, apiBase: "", enabled: true, fetcher });
+    assert.equal(harness.current.activityStats.reviewCount, 0);
+    assert.equal(harness.current.activityStats.averageRating, null);
+    assert.equal("totalPlaytimeSeconds" in harness.current.activityStats, false);
+  } finally {
+    await harness.unmount();
+  }
+});
+
+test("Discover's seeded counters skip the preview request but keep their rating and playtime", async () => {
+  const harness = createHookHarness();
+  let calls = 0;
+  const fetcher = (async () => { calls += 1; return new Response("{}", { status: 200 }); }) as typeof fetch;
+
+  try {
+    await harness.render({
+      ...baseline,
+      messageCount: 5,
+      favoriteCount: 6,
+      averageRating: 4.5,
+      reviewCount: 2,
+      totalPlaytimeSeconds: 0,
+      apiBase: "",
+      enabled: false,
+      fetcher,
+    });
+    assert.equal(calls, 0);
+    assert.deepEqual(harness.current.activityStats, {
+      worldId: "world-a",
+      downloadCount: 10,
+      messageCount: 5,
+      favoriteCount: 6,
+      averageRating: 4.5,
+      reviewCount: 2,
+      totalPlaytimeSeconds: 0,
+    });
+    assert.equal(harness.current.detail, null);
   } finally {
     await harness.unmount();
   }

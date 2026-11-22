@@ -21,13 +21,23 @@ import { createProvider } from "../llm/provider-factory.js";
 import { getFallbackGenerationProvider, getTurnImagePoolProvider, type GenerationProvider } from "../generation/provider.js";
 import { getComfyDeployProvider } from "../generation/comfy-deploy.js";
 import { getObjectBuffer, putObject } from "../s3.js";
+import { fetchUserEndpoint } from "../ssrf.js";
+import { isPublicCdnKey } from "../cdn-key-policy.js";
+
+const PORTRAIT_MAX_BYTES = 20 * 1024 * 1024;
 import type { MessageContent } from "../llm/types.js";
 import { sql } from "drizzle-orm";
 import { db } from "../../db/index.js";
-import { isExplicitMoment, negativeFor, normalizeTags } from "./age.js";
+import { turnImages } from "../../db/schema.js";
+import { cleanTrigger, isExplicitMoment, loraTextMentionsYouth, negativeFor, normalizeTags } from "./age.js";
 import { canonTags, withCanon } from "./canon.js";
-import { perTurnImagesEnabled, turnImagePrefs } from "./availability.js";
+import { perTurnImagesEnabled, turnImagePrefs, type TurnImageStyle } from "./availability.js";
+import { markLorasUsed } from "../generation/comfy-library.js";
+import { captionForLora, loadLorasForDraw, lookForLora, resolveTurnImageLoras, triggersExplicit, turnImageLorasEnabled, withTrigger, type DrawLora, type LoraOwners, type TurnImageLoras } from "./loras.js";
+import type { ImageLoraBinding } from "@yumina/engine";
 import { stripTurnVideos } from "../realtime-video/turn-clip.js";
+import { stripTurnImages } from "./embeds.js";
+import { OWN_PROMPT_MAX, passageIn, tidyPassage } from "./passage.js";
 import { recordUsageLog } from "../usage-log.js";
 import { redis } from "../redis.js";
 import { markPlayerKeyDenied, playerKeyDenied, sideCallTier, type PlayerSideKey, type SideCallKeySource } from "../side-call-key.js";
@@ -69,6 +79,7 @@ const FALLBACK_RENDER_TIMEOUT_MS = 90_000;
 // refusals (a refusal is quick, and a slow answer is hedged after HEDGE_MS).
 // gemini-2.5-flash retires on OpenRouter 2026-10-20 and no newer Gemini has
 // been measured here (3.5-flash-lite blocked 9/32), so grok-4.3 leads.
+// Those timings were with the taggers thinking; see askOnce for them without.
 const DEFAULT_TAG_MODELS = ["x-ai/grok-4.3", "deepseek/deepseek-v4.1-flash"];
 
 // Exactly one character and no player in shot: otherwise the model likes to
@@ -90,8 +101,8 @@ Return ONLY JSON: {"player":"unknown","cast":[{"name":"<name>","aliases":["<othe
 - cast: the people who can appear on screen with the player, most important first (the card's lead or heroine first). Include EVERY name listed under "Character entries"; add at most 8 others. Not the player ({{user}}, "you", the protagonist the player controls), not groups, factions, places, systems or rules.
 - name: as the card writes it. aliases: nicknames, short forms, other-language or romanized forms the story may use.
 - canon: only for a character taken from a published anime, manga, game, light novel or film (the card retells that work or borrows the character): their danbooru character tag, then the work's danbooru copyright tag, exactly as danbooru spells them, with spaces instead of underscores (e.g. "rias gremory, high school dxd", "makima (chainsaw man), chainsaw man", "hestia (danmachi), dungeon ni deai wo motomeru no wa machigatteiru darou ka"). Leave it "" when the character is the card's own invention, when you are not sure of the exact tag, or when the character is a minor in the source or is drawn there with a child's body or face (whatever their stated age): those are drawn from tags alone.
-- tags: 6-14 comma-separated English danbooru tags for the body only: head count first (1girl, 1boy or 1other), then hair color and style, eye color, skin, body type and size, species features (animal ears, horns, tail, wings), and permanent marks (glasses, scars, tattoos). For a character from a published work, their canonical design (exact hair and eye colors). No clothes, names, pose, expression or personality. When the card gives no appearance and the character is not from a published work, infer a plausible consistent one from their role.
-- outfit: 3-8 danbooru tags for what they usually wear (for a published character, their signature outfit).
+- tags: 8-16 comma-separated English danbooru tags for the body only: head count first (1girl, 1boy or 1other), then hair color and style, eye color, then 2-4 face tags that set this face apart from the other characters' (eye shape: tsurime, tareme, narrowed eyes, sanpaku, long eyelashes; eyebrows: thick eyebrows, short eyebrows; face: round face, sharp jawline, freckles, mole under eye, mole under mouth, dimples, red lips, eyeshadow, fang; how old they look: mature female, mature male, aged up), then skin, body type and size, species features (animal ears, horns, tail, wings), and permanent marks (glasses, scars, tattoos). Two characters of the same sex never share the same face tags. For a character from a published work, their canonical design (exact hair and eye colors). No clothes, names, pose, expression or personality. When the card gives no appearance and the character is not from a published work, infer a plausible consistent one from their role.
+- outfit: 3-8 danbooru tags for what they usually wear (for a published character, their signature outfit). Clothes only: never nude, nipples, visible nipples, no bra, no panties or other body tags; a turn that undresses them says so itself.
 - Draw everyone as an adult: never child, loli, lolita or shota tags.`;
 
 const MOMENT_SYSTEM = `You turn the end of one interactive-story turn into an anime illustration prompt for an uncensored illustration model (danbooru tags).
@@ -100,7 +111,7 @@ Draw the KEY MOMENT of this reply: the main visual event it is about (the sex ac
 Return ONLY JSON:
 {"characters":[{"name":"<name>","look":"","outfit":"<tags>","outfit_lasting":false}],"player":"male","pov":false,"player_in_shot":false,"nsfw":false,"shot":"<shot>","action":"<tags>","scene":"<tags>","caption":"<one or two English sentences>"}
 - characters: who is physically present and visible in the key moment, the most important first. Someone only mentioned, remembered, phoned or texted is not visible. The player ("you") is never listed, even when the story narrates the player's body. "Known characters" is a list to match against, not a list of who is here. Match a known character only when the reply uses that name or one of its other names, or clearly refers back to someone the reply already named that way ("she"/"他"). A person the reply calls by a name that is not in the list is a NEW character, even when their role sounds like a known one: give their look from how the reply describes them. Add someone new (including a monster or creature) only when the reply describes them as present; never invent extras.
-- name: a known character's given name; for someone the reply never names, a short description in the reply's language (修女, the guard, 老板娘). look: "" for a known character; for anyone else, 6-12 danbooru tags starting with 1girl, 1boy or 1other, then hair, eyes, body (appearance only, reused in later scenes).
+- name: a known character's given name; for someone the reply never names, a short description in the reply's language (修女, the guard, 老板娘). look: "" for a known character; for anyone else, 8-14 danbooru tags starting with 1girl, 1boy or 1other, then hair, eyes, 2-3 face tags (eye shape, freckles, a mole, lips, how old they look), body (appearance only, reused in later scenes).
 - outfit: what that character is wearing in the key moment, as 2-8 danbooru tags, ONLY from the text (the reply, or the player's line): clothes it names and their state (open shirt, skirt lift, pantyhose, torn clothes, bra, panties, towel, nude, naked apron...). "" when neither says anything about their clothes: the story already knows what they wear, so never guess.
 - outfit_lasting: true when outfit is what they wear from now on: they got dressed or changed clothes, the text describes their clothes for the first time, or the player's line says what someone should wear or look like (then outfit is exactly that). false for a passing state of the same clothes (unbuttoned, pulled aside, taken off for sex, wet, torn).
 - player: "male", "female" or "unknown": the player's sex, from the player's persona when given, otherwise from how the story addresses or describes "you" (pronouns; 怒那/欧尼/姐姐 = a woman is being addressed, 欧巴/哥哥/hyung = a man; body parts).
@@ -110,8 +121,8 @@ Return ONLY JSON:
 - One camera, one frame: pick the single main act or pose the key moment shows and the one angle that shows it best. Never combine two views of it (a face close-up plus the body from behind, a cut-in of the mouth): the model then draws a collage.
 - shot: one of close-up, upper body, cowboy shot, full body, from above, from side, from below, from behind.
 - Two people: action says how they are together, never just that they are there: hug, kiss, holding hands, carrying, princess carry, face-to-face, looking at another, back-to-back, sitting together, fighting, walking away, ... Two people standing side by side looking at the viewer is never the key moment.
-- caption: one or two plain English sentences saying exactly what the picture shows: each visible person described by their look instead of their name ("a silver-haired woman in a white haori"; a known character's hair and eye colors exactly as their listed look gives them), as a woman or a man, never a girl or a boy, what they are doing and to whom, where they are looking, and the place. Concrete and visual only; no names, story words or feelings beyond visible expressions. Sex is described as plainly as the tags. Through the player's eyes, write "the viewer".
-- action: at most 10 tags; scene: at most 8 tags. Only what a camera can see: pose, hands, expression, gaze, held props, place, time of day, lighting. No sounds, smells, feelings, story words or names. Do not repeat known characters' hair or eye colors.`;
+- caption: one or two plain English sentences saying exactly what the picture shows: each visible person described by their look instead of their name ("a silver-haired woman with sharp eyes and a mole under her eye, in a white haori"; a known character's hair and eye colors exactly as their listed look gives them, plus one or two of its face tags in words), as a woman or a man, never a girl or a boy, what they are doing and to whom, where they are looking, and the place. Concrete and visual only; no names, story words or feelings beyond visible expressions. Sex is described as plainly as the tags. Through the player's eyes, write "the viewer".
+- action: at most 12 tags; scene: at most 10 tags. Only what a camera can see: pose, hands, expression, gaze, held props, place, time of day, lighting. Keep the visible details the reply dwells on (a wound or bandage, blood, tears, a held letter or weapon, a broken window, rain): they belong in the tags and the caption. No sounds, smells, feelings, story words or names. Do not repeat known characters' hair or eye colors.`;
 
 // The answers' shapes, sent as a strict JSON schema: in json_object mode Gemini
 // broke ~6% of its answers right after the characters array (a stray
@@ -164,18 +175,23 @@ export interface UsageCtx { userId: string; sessionId: string; playerKey?: Playe
 class TagProviderError extends Error {}
 
 const isTimeout = (message: string) => /timed? ?out|timeout|aborted/i.test(message);
+// A provider refusing the content, not the key: Gemini's PROHIBITED_CONTENT,
+// OpenAI/Azure/Seedream content filters, OpenRouter's own prompt flag.
+const CONTENT_BLOCK_RE = /PROHIBITED_CONTENT|blocked the request|content[_ ]filter|safety system|content (policy|moderation)|flagged as potentially violating/i;
 
 async function askOnce(
   model: string, system: string, userText: MessageContent, ctx: UsageCtx,
   key: { apiKey: string; source: SideCallKeySource } = { apiKey: env.YUMINA_OPENROUTER_KEY, source: "platform" },
   maxTokens = 900,
   shape?: JsonShape,
+  thinking = false,
 ): Promise<Record<string, unknown>> {
   ctx.signal?.throwIfAborted();
   const provider = createProvider("openrouter", key.apiKey);
   const started = Date.now();
   let text = "";
-  let usage: { promptTokens: number; completionTokens: number; totalTokens: number } | undefined;
+  let usage: { promptTokens: number; completionTokens: number; totalTokens: number; providerCostUsd?: number } | undefined;
+  try {
   for await (const chunk of provider.generateStream({
     model,
     messages: [{ role: "system", content: system }, { role: "user", content: userText }],
@@ -184,8 +200,16 @@ async function askOnce(
     responseFormat: shape && schemaModel(model)
       ? { type: "json_schema", json_schema: { name: shape.name, strict: true, schema: shape.schema } }
       : { type: "json_object" },
-    // Tagging needs no thinking, and grok-4.3 has no "minimal" level (it fell back to thinking).
-    reasoningEffort: "none",
+    // Tagging needs no thinking. "none" alone only leaves the effort unsent,
+    // and both taggers then think by default: grok-4.3 took p50 11.5s and
+    // deepseek spent its whole 1400-token budget thinking (no JSON) on 1 turn
+    // in 5. Switched off, on 16 real prod turns (2026-10-24, 6 explicit):
+    // grok 16/16 at p50 3.0s with the same nsfw flag on all 16, deepseek
+    // 16/16 at p50 2.1s.
+    // Gemini 3.5+ and grok-4.7 endpoints refuse to switch reasoning off (400
+    // "Reasoning is mandatory", bench 2026-10-24): those get one retry thinking low.
+    reasoningEffort: thinking ? "low" : "none",
+    disableReasoning: !thinking,
     singleAttempt: true,
     // Reading a whole card's cast (a long answer, once per card) takes longer than one turn's tags.
     signal: AbortSignal.any([AbortSignal.timeout(maxTokens > 2000 ? CAST_TIMEOUT_MS : TAG_TIMEOUT_MS), ...(ctx.signal ? [ctx.signal] : [])]),
@@ -194,11 +218,19 @@ async function askOnce(
     if (chunk.type === "done" && chunk.usage) usage = chunk.usage;
     if (chunk.type === "error") throw new TagProviderError(chunk.content || "tagging failed");
   }
+  } catch (error) {
+    if (!thinking && /reasoning is mandatory/i.test(error instanceof Error ? error.message : String(error))) {
+      return askOnce(model, system, userText, ctx, key, maxTokens, shape, true);
+    }
+    throw error;
+  }
   if (usage) {
     void recordUsageLog({
       userId: ctx.userId, sessionId: ctx.sessionId, model, endpoint: "turn-image-tagging",
       promptTokens: usage.promptTokens, completionTokens: usage.completionTokens, totalTokens: usage.totalTokens,
       apiKeyTier: sideCallTier(key.source), generationTimeMs: Date.now() - started, tokenMeasurement: "provider",
+      // What OpenRouter billed, so the pictures' tagging spend is visible next to their GPU spend.
+      providerCostUsd: usage.providerCostUsd?.toString(),
     }).catch(() => { /* logged inside */ });
   }
   const start = text.indexOf("{");
@@ -222,6 +254,10 @@ async function askModel(model: string, system: string, userText: MessageContent,
       const message = error instanceof Error ? error.message : String(error);
       // A bad answer or a timeout isn't the key's fault: the next model, as before.
       if (!(error instanceof TagProviderError) || isTimeout(message)) throw error;
+      // Nor is a content block (Gemini answers those 403 PROHIBITED_CONTENT):
+      // it would block on our key too, and since 2026-10-21 it fired on
+      // nearly every turn, marking every BYOK player's key denied for 10 min.
+      if (CONTENT_BLOCK_RE.test(message)) throw error;
       if (/\b(401|402|403)\b/.test(message)) markPlayerKeyDenied(player, "chat");
       console.warn(`[PerTurnImage] player key failed for ${model}; retrying on the platform key`);
     }
@@ -231,7 +267,7 @@ async function askModel(model: string, system: string, userText: MessageContent,
 
 /** Models in order; the next starts when one fails, or — hedging a slow
  *  answer — when one has been quiet for HEDGE_MS. The first good answer wins. */
-function askJson(system: string, userText: MessageContent, ctx: UsageCtx, maxTokens?: number, shape?: JsonShape): Promise<Record<string, unknown>> {
+export function askJson(system: string, userText: MessageContent, ctx: UsageCtx, maxTokens?: number, shape?: JsonShape): Promise<Record<string, unknown>> {
   const models = tagModels();
   const hedgeMs = (maxTokens ?? 0) > 2000 ? CAST_HEDGE_MS : HEDGE_MS;
   return new Promise((resolve, reject) => {
@@ -254,10 +290,14 @@ function askJson(system: string, userText: MessageContent, ctx: UsageCtx, maxTok
       running++;
       clearTimeout(hedge);
       if (next < models.length) hedge = setTimeout(launch, hedgeMs);
+      const asked = Date.now();
       askModel(model, system, userText, ctx, maxTokens, shape).then((result) => {
         if (settled) return;
         settled = true;
         cleanup();
+        // Which tagger's answer drew the picture: the lead's, or a backup's
+        // after a refusal or a hedge. Greppable next to the "tags Nms" line.
+        console.log(`[PerTurnImage] tagger ${model} answered ${shape?.name ?? "json"} in ${Date.now() - asked}ms${next > 1 ? ` (${next} asked)` : ""}`);
         resolve(result);
       }, (error: unknown) => {
         running--;
@@ -407,7 +447,9 @@ const CAST_RETRY_MS = 10 * 60_000;
 const CAST_TTL_S = 180 * 86_400;
 const cardLookCache = new Map<string, Promise<CardCast>>();
 // cast2: read since looks carry canon names (2026-10-13); older reads have none.
-const castKey = (hash: string) => `turnimg:cast2:${hash}`;
+// cast3: looks carry face tags (2026-11-03). Without them every woman got Anima's
+// one default face, only her hair changed (Discord, 2026-11-02).
+const castKey = (hash: string) => `turnimg:cast3:${hash}`;
 
 function cardLooks(world: WorldDefinition, ctx: UsageCtx): Promise<CardCast> {
   const chars = characterEntries(world);
@@ -479,9 +521,28 @@ const portraitCache = new Map<string, Promise<{ tags: string; outfit: string } |
 /** The bytes of an entry's portrait: an @asset ref, a /cdn/key path, a raw storage key or an https URL. */
 async function loadPortrait(ref: string): Promise<Buffer> {
   if (/^https?:\/\//i.test(ref)) {
-    const r = await fetch(ref, { signal: AbortSignal.timeout(15_000) });
+    // The URL is the card author's. It is fetched from our server, so it gets
+    // the same address check as any user-supplied endpoint, and a size cap.
+    const r = await fetchUserEndpoint(ref, { signal: AbortSignal.timeout(15_000) });
     if (!r.ok) throw new Error(`portrait ${r.status}`);
-    return Buffer.from(await r.arrayBuffer());
+    if (Number(r.headers.get("content-length") ?? 0) > PORTRAIT_MAX_BYTES) throw new Error("portrait too large");
+    // Counted as it arrives: a server that sends no length (or a false one)
+    // is cut off at the cap instead of being read into memory first.
+    const reader = r.body?.getReader();
+    if (!reader) throw new Error("portrait empty");
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > PORTRAIT_MAX_BYTES) {
+        await reader.cancel().catch(() => {});
+        throw new Error("portrait too large");
+      }
+      chunks.push(value);
+    }
+    return Buffer.concat(chunks, total);
   }
   let key: string | null = null;
   const assetId = ref.match(ASSET_ID_RE)?.[1];
@@ -497,10 +558,14 @@ async function loadPortrait(ref: string): Promise<Buffer> {
   } else {
     key = ref;
   }
-  if (!key) throw new Error("portrait asset not found");
-  return (await getObjectBuffer(key, { maxBytes: 20 * 1024 * 1024 })).buffer;
+  // Only what /cdn would hand to anyone: never a private prefix named by the card.
+  if (!key || !isPublicCdnKey(key)) throw new Error("portrait asset not found");
+  return (await getObjectBuffer(key, { maxBytes: PORTRAIT_MAX_BYTES })).buffer;
 }
 
+// Prepared portrait JPEGs (~100-350 kB each) were kept for every portrait a
+// replica ever drew; cap them like cardLookCache, oldest out first.
+const MAX_CACHED_PORTRAIT_IMAGES = 300;
 const styleCache = new Map<string, Promise<{ name: string; jpeg: Buffer }>>();
 
 /** A portrait prepared as the reference a character is drawn from: the square
@@ -519,6 +584,7 @@ function styleImage(ref: string): Promise<{ name: string; jpeg: Buffer }> {
           .resize(768, 768, { withoutEnlargement: true }).jpeg({ quality: 92 }).toBuffer(),
       };
     })();
+    if (styleCache.size >= MAX_CACHED_PORTRAIT_IMAGES) styleCache.delete(styleCache.keys().next().value!);
     styleCache.set(ref, image);
     image.catch(() => styleCache.delete(ref));
   }
@@ -537,6 +603,7 @@ function referenceImage(ref: string): Promise<{ name: string; jpeg: Buffer }> {
       jpeg: await sharp(await loadPortrait(ref)).rotate().resize(1024, 1024, { fit: "inside", withoutEnlargement: true })
         .flatten({ background: "#ffffff" }).jpeg({ quality: 92 }).toBuffer(),
     }))();
+    if (referenceCache.size >= MAX_CACHED_PORTRAIT_IMAGES) referenceCache.delete(referenceCache.keys().next().value!);
     referenceCache.set(ref, image);
     image.catch(() => referenceCache.delete(ref));
   }
@@ -641,19 +708,15 @@ function knownList(known: Record<string, Look>, remembered: Record<string, Look>
 const TRAILER_RE = /\n\s*(?:【\s*(?:去向|选项|回合结算|状态|choices|options|status)[^】]*】|<options>|大事记[:：]|chronicle\.push)[\s\S]*$/i;
 
 /** The story text of a reply, split into what led up to the end and the end
- *  itself (its last ~450-900 characters, on paragraph or sentence boundaries). */
-export function momentText(reply: string): { before: string; final: string } {
-  let text = stripTurnVideos(stripTurnImages(reply))
-    .replace(/<options>[\s\S]*?<\/options>/gi, "")
-    .replace(/\[[\w一-鿿]+:\s*[{[][\s\S]*?[}\]]\s*\]/g, "")
-    .replace(/<speaker\s+id="([^"]*)">/gi, "$1: ")
-    .replace(/<\/?[a-z][^>]*>/gi, "")
-    .replace(/\[\/?[a-z]{1,4}\]/gi, "");
-  // Menus and state panels trail the story: cut one only in the last third,
-  // and keep the text as it was if cutting would leave nothing.
-  const tailFrom = Math.floor(text.length * 2 / 3);
-  const cut = text.slice(tailFrom).replace(TRAILER_RE, "");
-  text = (text.slice(0, tailFrom) + cut).trim() || text.trim();
+ *  itself (its last ~450-900 characters, on paragraph or sentence boundaries).
+ *  With a passage the player picked, that passage is the end and only what
+ *  came before it leads up to it. */
+export function momentText(reply: string, passage?: string): { before: string; final: string } {
+  const text = storyText(reply);
+  if (passage) {
+    const at = passageIn(text, passage);
+    return { before: at ? text.slice(0, at.start).trim().slice(-3500) : "", final: tidyPassage(passage) };
+  }
   const paragraphs = text.split(/\n+/).map((p) => p.trim()).filter(Boolean);
   const final: string[] = [];
   let size = 0;
@@ -674,8 +737,35 @@ export function momentText(reply: string): { before: string; final: string } {
   return { before: paragraphs.join("\n").slice(-3500), final: end };
 }
 
+/** A reply without its pictures, markup, menus and state panels. */
+function storyText(reply: string): string {
+  const text = stripTurnVideos(stripTurnImages(reply))
+    .replace(/<options>[\s\S]*?<\/options>/gi, "")
+    .replace(/\[[\w一-鿿]+:\s*[{[][\s\S]*?[}\]]\s*\]/g, "")
+    .replace(/<speaker\s+id="([^"]*)">/gi, "$1: ")
+    .replace(/<\/?[a-z][^>]*>/gi, "")
+    .replace(/\[\/?[a-z]{1,4}\]/gi, "");
+  // Menus and state panels trail the story: cut one only in the last third,
+  // and keep the text as it was if cutting would leave nothing.
+  const tailFrom = Math.floor(text.length * 2 / 3);
+  const cut = text.slice(tailFrom).replace(TRAILER_RE, "");
+  return (text.slice(0, tailFrom) + cut).trim() || text.trim();
+}
+
 /** The first sentence of an entry, trimmed: "左边房间的魅魔。" tells the
  *  tagger that the woman in "the room on the left" is Luna. */
+/** The tagger left a character's look empty although the card doesn't know
+ *  them (it took them for a known one, under another name): the caption still
+ *  says whether it drew a man or a woman, which beats defaulting to 1girl (a
+ *  male lead came out tagged 1girl under a caption of a muscular man). */
+export function headCountFor(name: string, caption: string): string {
+  const men = /\b(man|men|male|guy|gentleman|husband|father|boyfriend)\b/i.test(caption);
+  const women = /\b(woman|women|female|lady|wife|mother|girlfriend)\b/i.test(caption);
+  if (men && !women) return "1boy";
+  if (women && !men) return "1girl";
+  return /\b(mr|sir|lord|king|prince|duke|boss|master)\b|先生|老闆|老板|大人|哥|爷|王子|殿下|少年|男/.test(name) ? "1boy" : "1girl";
+}
+
 function firstSentence(text?: string): string | undefined {
   const line = text?.replace(/\s+/g, " ").trim().split(/(?<=[。！？.!?])/)[0]?.trim();
   return line ? line.slice(0, 80) : undefined;
@@ -758,6 +848,10 @@ interface Recipe {
   scheduler: string;
   /** Whether this host has the portrait adapter (Comfy Cloud does; our RunPod volumes don't). */
   styleReference: boolean;
+  /** Tags this checkpoint wants after the picture's own. */
+  tags?: string;
+  /** Tags only: the plain-English caption is left out. */
+  tagsOnly?: boolean;
 }
 
 function parseLoras(spec: string): Recipe["loras"] {
@@ -800,6 +894,33 @@ function fallbackRecipe(): Recipe {
   return { checkpoint: "plat_nsfw_anime.safetensors", loras: [], steps: 24, cfg: 5, sampler: "euler_ancestral", scheduler: "normal", styleReference: false };
 }
 
+/** The "vivid" style: WAI, the checkpoint's recommended quality tags, no speed
+ *  LoRA. Brighter and glossier than Anima, and draws original-work characters
+ *  well, but it drops some tags (short hair came out long) and slips a chibi
+ *  copy into the frame now and then (bench 2026-11-14, 4 real turns), so it
+ *  draws one person only and its negative names the chibi. */
+export function vividAvailable(): boolean {
+  return env.PER_TURN_IMAGE_VIVID_CHECKPOINT !== "";
+}
+
+const VIVID_NEGATIVE = "chibi, inset, multiple views, bad anatomy, bad hands, extra digits, text, signature";
+
+function vividRecipe(): Recipe {
+  const [steps, cfg, sampler, scheduler] = (env.PER_TURN_IMAGE_VIVID_SAMPLING || "20:5:euler_ancestral:normal").split(":").map((s) => s.trim());
+  return {
+    checkpoint: env.PER_TURN_IMAGE_VIVID_CHECKPOINT, loras: [], styleReference: false,
+    steps: Number(steps) || 20, cfg: Number(cfg) || 5, sampler: sampler || "euler_ancestral", scheduler: scheduler || "normal",
+    tags: "amazing quality, very aesthetic, absurdres", tagsOnly: true,
+  };
+}
+
+/** One person in the frame: no second body, one head-count tag. */
+export function onePerson(prompt: TurnPrompt): boolean {
+  if (prompt.bodies.length > 1) return false;
+  if (/\b(?:[2-9]\+?|multiple )(?:girls|boys|others)\b/i.test(prompt.scene)) return false;
+  return new Set(prompt.scene.match(/\b1(?:girl|boy|other)\b/gi)?.map((t) => t.toLowerCase()) ?? []).size <= 1;
+}
+
 /** A scene prompt plus, for a two-person shot, each body (appended to it). */
 export interface TurnPrompt {
   scene: string;
@@ -815,6 +936,13 @@ export interface TurnPrompt {
   portraits?: { name: string; jpeg: Buffer; slot: number; look?: string }[];
   /** Nudity, sex or suggestive content (age.ts isExplicitMoment). */
   explicit?: boolean;
+  /** The player's chosen art style (Settings › Story illustrations). */
+  style?: TurnImageStyle;
+  /** Anima LoRAs this picture is drawn with: the card's style, and those of
+   *  the characters (and the player) in it. Any of them keeps it on Anima. */
+  loras?: DrawLora[];
+  /** The card's style LoRA's trigger, placed after the safety tag. */
+  styleTrigger?: string;
 }
 
 /** Which model draws a picture:
@@ -826,7 +954,8 @@ export interface TurnPrompt {
  *           scenery better than the story and SDXL routes it replaces;
  *   story — no portraits, nothing explicit: Z-Anime from the caption (actions,
  *           several people, signs and scenery come out as written);
- *   sdxl  — everything else, and any host-specific recipe (RunPod). */
+ *   sdxl  — the "vivid" style's one-person pictures (WAI), everything else
+ *           when no other model is set, and any host-specific recipe (RunPod). */
 export type TurnRoute = "edit" | "anima" | "story" | "sdxl";
 
 // A sex act in the picture. The edit model keeps a portrait's face through
@@ -837,12 +966,15 @@ const SEX_ACT_RE = /\b(sex|vaginal|anal|fellatio|irrumatio|deepthroat|handjob|fo
 
 export function turnRoute(prompt: TurnPrompt | string, recipe?: Recipe): TurnRoute {
   if (typeof prompt === "string" || recipe) return "sdxl";
+  // The LoRAs load only on Anima: never the portrait edit model or the vivid checkpoint.
+  if (prompt.loras?.length && env.PER_TURN_IMAGE_ANIMA_MODEL) return "anima";
   const portraits = prompt.portraits ?? [];
   const sexAct = prompt.explicit === true && SEX_ACT_RE.test(prompt.scene);
   // With Anima there, nudity leaves the edit model too: it paints bare skin
   // over in flat white patches (bench 2026-10-10).
   const bare = env.PER_TURN_IMAGE_ANIMA_MODEL !== "" && animaSafety(prompt) === "explicit";
   if (portraits.length && env.PER_TURN_IMAGE_EDIT_MODEL && (!(sexAct || bare) || env.PER_TURN_IMAGE_EDIT_EXPLICIT === "1")) return "edit";
+  if (prompt.style === "vivid" && vividAvailable() && onePerson(prompt)) return "sdxl";
   if (env.PER_TURN_IMAGE_ANIMA_MODEL) return "anima";
   if (!portraits.length && env.PER_TURN_IMAGE_STORY_MODEL && !prompt.explicit && prompt.caption) return "story";
   return "sdxl";
@@ -941,7 +1073,7 @@ export function animaText(prompt: TurnPrompt): string {
   const people = prompt.bodies.map((body) => body.replace(/^\s*1(?:girl|boy|other)\s*,\s*/i, ""));
   const tags = [prompt.scene, ...people].join(", ").replace(/\(([^()]+?):\d+(?:\.\d+)?\)/g, "$1")
     .split(",").map((t) => t.trim()).filter((t) => t && !SDXL_ONLY_RE.test(t));
-  const head = dedupeTags([ANIMA_QUALITY, animaSafety(prompt), ...tags].join(", "));
+  const head = dedupeTags([ANIMA_QUALITY, animaSafety(prompt), cleanTrigger(prompt.styleTrigger ?? ""), ...tags].filter(Boolean).join(", "));
   return [`${head}.`, adultCaption(prompt.caption ?? ""), ADULTS].filter(Boolean).join(" ");
 }
 
@@ -959,7 +1091,19 @@ export function adultCaption(caption: string): string {
     .replace(/\b(?:petite|childlike|child-like|youthful|young-looking)\b/gi, "slim");
 }
 
-function animaRecipe(fine: boolean): Pick<Recipe, "steps" | "cfg" | "sampler" | "scheduler"> {
+/** The "detailed" style: Anima's full Aesthetic model instead of its Turbo
+ *  distill. Flatter, more drawn anime with more varied framing, and faces
+ *  follow their face tags further; ~8s a picture against Turbo's ~5s on the
+ *  warm deployment (6 real cast members, 2026-11-03). Off unless configured. */
+export function animaDetailedAvailable(): boolean {
+  return env.PER_TURN_IMAGE_ANIMA_MODEL !== "" && env.PER_TURN_IMAGE_ANIMA_DETAILED_MODEL !== "";
+}
+
+function animaRecipe(fine: boolean, detailed = false): Pick<Recipe, "steps" | "cfg" | "sampler" | "scheduler"> {
+  if (detailed) {
+    const [steps, cfg, sampler, scheduler] = (env.PER_TURN_IMAGE_ANIMA_DETAILED_SAMPLING || "30:4:er_sde:simple").split(":");
+    return { steps: Number(steps) || 30, cfg: Number(cfg) || 4, sampler: sampler || "er_sde", scheduler: scheduler || "simple" };
+  }
   const turbo = /turbo/i.test(env.PER_TURN_IMAGE_ANIMA_MODEL);
   const [steps, cfg, sampler, scheduler] = (env.PER_TURN_IMAGE_ANIMA_SAMPLING || (turbo ? "10:1:euler:simple" : "30:4:er_sde:simple")).split(":");
   const base = { steps: Number(steps) || 10, cfg: Number(cfg) || 1, sampler: sampler || "euler", scheduler: scheduler || "simple" };
@@ -967,16 +1111,46 @@ function animaRecipe(fine: boolean): Pick<Recipe, "steps" | "cfg" | "sampler" | 
   return fine && turbo ? { ...base, steps: Math.max(base.steps, 12), sampler: "er_sde" } : base;
 }
 
+/** A picture that is never drawn: a LoRA picture whose prompt names a child
+ *  anywhere after every cleaning step, or any explicit picture whose text names
+ *  one (explicitNamesMinor). Thrown before a route renders and never retried on
+ *  another route; the draw ends as a refusal and its charge is given back. */
+export class PromptRefusedError extends Error {}
+
+/** An explicit picture (nudity or a sex act, or a moment the tagger flagged)
+ *  whose own text names a minor: its scene, bodies, caption, the looks given to
+ *  portraits, or a LoRA trigger, read with the normalized youth check (plurals,
+ *  "_"/"-" variants, CJK). Every story picture, with or without a LoRA. */
+export function explicitNamesMinor(prompt: TurnPrompt): boolean {
+  if (prompt.explicit !== true && animaSafety(prompt) !== "explicit") return false;
+  const text = [prompt.scene, ...prompt.bodies, prompt.caption ?? "", prompt.styleTrigger ?? "",
+    ...(prompt.loras ?? []).map((l) => l.trigger), ...(prompt.portraits ?? []).map((p) => p.look ?? "")].join(", ");
+  return loraTextMentionsYouth(text);
+}
+
 function buildAnimaWorkflow(prompt: TurnPrompt, seed: number, negative: string): Record<string, unknown> {
-  const recipe = animaRecipe(prompt.fine === true);
+  const text = animaText(prompt);
+  // Trigger words are authors' text entering the prompt: with a LoRA, a prompt
+  // that still names a minor after every cleaning step is never drawn.
+  if (prompt.loras?.length && loraTextMentionsYouth(text)) throw new PromptRefusedError("prompt names a minor");
+  const detailed = prompt.style === "detailed" && animaDetailedAvailable();
+  const recipe = animaRecipe(prompt.fine === true, detailed);
+  // Creators' LoRAs (UNET-only, as Anima's trainers write them), chained after the model.
+  const loras: Record<string, unknown> = {};
+  let model: [string, number] = ["unet", 0];
+  (prompt.loras ?? []).forEach((l, i) => {
+    loras[`lora${i}`] = { class_type: "LoraLoaderModelOnly", inputs: { model, lora_name: l.file, strength_model: l.weight } };
+    model = [`lora${i}`, 0];
+  });
   return {
-    unet: { class_type: "UNETLoader", inputs: { unet_name: env.PER_TURN_IMAGE_ANIMA_MODEL, weight_dtype: "default" } },
+    unet: { class_type: "UNETLoader", inputs: { unet_name: detailed ? env.PER_TURN_IMAGE_ANIMA_DETAILED_MODEL : env.PER_TURN_IMAGE_ANIMA_MODEL, weight_dtype: "default" } },
+    ...loras,
     clip: { class_type: "CLIPLoader", inputs: { clip_name: ANIMA_TEXT_ENCODER, type: "stable_diffusion" } },
     vae: { class_type: "VAELoader", inputs: { vae_name: ANIMA_VAE } },
-    pos: { class_type: "CLIPTextEncode", inputs: { clip: ["clip", 0], text: animaText(prompt) } },
+    pos: { class_type: "CLIPTextEncode", inputs: { clip: ["clip", 0], text } },
     neg: { class_type: "CLIPTextEncode", inputs: { clip: ["clip", 0], text: dedupeTags(`${ANIMA_NEGATIVE}, ${negative}`) } },
     latent: { class_type: "EmptyLatentImage", inputs: { width: 832, height: 1216, batch_size: 1 } },
-    ks: { class_type: "KSampler", inputs: { model: ["unet", 0], positive: ["pos", 0], negative: ["neg", 0], latent_image: ["latent", 0],
+    ks: { class_type: "KSampler", inputs: { model, positive: ["pos", 0], negative: ["neg", 0], latent_image: ["latent", 0],
       seed, steps: recipe.steps, cfg: recipe.cfg, sampler_name: recipe.sampler, scheduler: recipe.scheduler, denoise: 1 } },
     dec: { class_type: "VAEDecode", inputs: { samples: ["ks", 0], vae: ["vae", 0] } },
     save: { class_type: "SaveImage", inputs: { images: ["dec", 0], filename_prefix: "yumina_turn" } },
@@ -993,10 +1167,16 @@ const PORTRAIT_CLIP_VISION = "CLIP-ViT-bigG-14-laion2B-39B-b160k.safetensors";
 const PORTRAIT_WEIGHT = 0.8;
 
 export function buildTurnWorkflow(prompt: TurnPrompt | string, seed: number, negative: string, recipe?: Recipe): Record<string, unknown> {
+  // Here, so every route (the RunPod fallback recipe included) meets it before anything renders;
+  // render() rethrows it at once rather than trying the next route.
+  if (typeof prompt !== "string" && explicitNamesMinor(prompt)) throw new PromptRefusedError("explicit picture names a minor");
   const route = turnRoute(prompt, recipe);
   if (route === "edit") return buildEditWorkflow(prompt as TurnPrompt, seed);
   if (route === "story") return buildStoryWorkflow(prompt as TurnPrompt, seed);
   if (route === "anima") return buildAnimaWorkflow(prompt as TurnPrompt, seed, negative);
+  if (!recipe && typeof prompt !== "string" && prompt.style === "vivid" && vividAvailable()) {
+    return buildSdxlWorkflow(prompt, seed, dedupeTags(`${negative}, ${VIVID_NEGATIVE}`), vividRecipe());
+  }
   return buildSdxlWorkflow(prompt, seed, negative, recipe);
 }
 
@@ -1005,7 +1185,7 @@ function buildSdxlWorkflow(prompt: TurnPrompt | string, seed: number, negative: 
   // With the edit model configured, portraits are its job: a moment it doesn't
   // take (explicit, when not allowed) is drawn from the characters' tags.
   const portraits = typeof prompt === "string" || env.PER_TURN_IMAGE_EDIT_MODEL ? [] : prompt.portraits ?? [];
-  const caption = typeof prompt === "string" || env.PER_TURN_IMAGE_CAPTION !== "1" ? "" : prompt.caption ?? "";
+  const caption = typeof prompt === "string" || env.PER_TURN_IMAGE_CAPTION !== "1" || hostRecipe?.tagsOnly ? "" : prompt.caption ?? "";
   let recipe = hostRecipe ?? primaryRecipe(portraits.length === 0, typeof prompt !== "string" && prompt.fine === true);
   if (!hostRecipe && typeof prompt !== "string" && prompt.explicit && env.PER_TURN_IMAGE_EXPLICIT_CHECKPOINT) {
     recipe = { ...recipe, checkpoint: env.PER_TURN_IMAGE_EXPLICIT_CHECKPOINT };
@@ -1032,7 +1212,7 @@ function buildSdxlWorkflow(prompt: TurnPrompt | string, seed: number, negative: 
   Object.assign(g, {
     skip: { class_type: "CLIPSetLastLayer", inputs: { clip, stop_at_clip_layer: -2 } },
     // A caption, when the checkpoint reads them, goes after all the tags.
-    pos: { class_type: "CLIPTextEncode", inputs: { clip: ["skip", 0], text: [scene, ...people, ...triggers, caption].filter(Boolean).join(", ") } },
+    pos: { class_type: "CLIPTextEncode", inputs: { clip: ["skip", 0], text: [scene, ...people, ...triggers, recipe.tags ?? "", caption].filter(Boolean).join(", ") } },
     neg: { class_type: "CLIPTextEncode", inputs: { clip: ["skip", 0], text: negative } },
     latent: { class_type: "EmptyLatentImage", inputs: { width: 832, height: 1216, batch_size: 1 } },
   });
@@ -1136,6 +1316,7 @@ async function render(prompt: TurnPrompt, negative: string, signal?: AbortSignal
       return { png: await renderOn(r.provider, workflow, r.timeoutMs, r.style ? prompt.portraits : undefined, signal), route: r.route };
     } catch (error) {
       signal?.throwIfAborted();
+      if (error instanceof PromptRefusedError) throw error;
       const failure = classify(error);
       failures.push(failure);
       const next = routes[i + 1];
@@ -1148,20 +1329,9 @@ async function render(prompt: TurnPrompt, negative: string, signal?: AbortSignal
 }
 
 // ── Embeds ──────────────────────────────────────────────────────────
+// Live in embeds.ts (no DB/GPU imports); re-exported for existing importers.
 
-const EMBED_RE = /\n*\[\s*image:\s*\/cdn\/key\/([A-Za-z0-9_-]+)[^\]\n]*\]/g;
-
-/** Removes per-turn illustration embeds. The model sees earlier replies (with
- *  their embeds) in history and sometimes copies one into its new reply. */
-export function stripTurnImages(text: string): string {
-  return text.replace(EMBED_RE, (match, b64: string) => {
-    try {
-      return Buffer.from(b64, "base64url").toString("utf8").includes("/turn-images/") ? "" : match;
-    } catch {
-      return match;
-    }
-  });
-}
+export { stripTurnImages } from "./embeds.js";
 
 // ── Entry point ─────────────────────────────────────────────────────
 
@@ -1173,6 +1343,10 @@ export interface IllustrateArgs {
   replyText: string;
   /** What the player asked of this picture when redrawing it ("keep the black sweater", "closer"). */
   note?: string;
+  /** A passage of the reply the player picked: the picture shows that moment, not the reply's end. */
+  focus?: string;
+  /** The player's own description of the picture: it is what is drawn, the reply only says who is who. */
+  prompt?: string;
   /** Redraw on the full schedule (sharper, slower). */
   fine?: boolean;
   userId: string;
@@ -1182,6 +1356,14 @@ export interface IllustrateArgs {
   playerKey?: string | null;
   /** The player's persona as the chat model sees it, if they have one. */
   playerPersona?: string | null;
+  /** The reply this picture is for, and whether the player's automatic switch asked for it
+   *  (kept with the picture's recipe; redraws share the reply). */
+  messageId?: string;
+  automatic?: boolean;
+  /** Whose LoRAs the card's bindings may use: its author, and a fork's source as it binds them. */
+  loraOwners?: Omit<LoraOwners, "player">;
+  /** The LoRA the player bound to the persona they play with. */
+  personaLora?: ImageLoraBinding | null;
 }
 
 const DEFAULT_QUALITY = "masterpiece, best quality, amazing quality, very aesthetic, absurdres";
@@ -1198,8 +1380,12 @@ export interface PlanArgs {
   playerText: string;
   replyText: string;
   note?: string;
+  focus?: string;
+  prompt?: string;
   playerPersona?: string | null;
   ctx: UsageCtx;
+  /** Creators' LoRAs bound to the card, its characters and the player's persona. */
+  loras?: TurnImageLoras;
 }
 
 /** Tags the final moment of a reply and builds the prompt that draws it. */
@@ -1213,35 +1399,55 @@ export async function planTurn(args: PlanArgs): Promise<TurnPlan> {
   ctx.signal?.throwIfAborted();
   const memory = await sessionMemory(args.sessionId);
   const remembered = memory.looks;
-  const { before, final } = momentText(args.replyText);
+  const { before, final } = momentText(args.replyText, args.focus);
+  const own = args.prompt?.trim().slice(0, OWN_PROMPT_MAX) ?? "";
+  // Which text the key moment is taken from: the reply's end, a passage the
+  // player picked, or (with the player's own description) only who is who.
+  const story = own
+    ? [`Story so far (only for who is who and what they wear, not what to draw):\n${[before, final].filter(Boolean).join("\n")}`]
+    : args.focus
+      ? [before ? `Reply, up to the passage the player picked:\n${before}` : "",
+        `The passage the player picked to be drawn. Its key moment is the picture, whatever the rest of the reply goes on to:\n${final}`]
+      : [before ? `Reply:\n${before}` : "", `${before ? "Reply, continued to its end" : "Reply"}:\n${final}`];
   const moment = await askJson(MOMENT_SYSTEM, [
     knownList(known, remembered),
     card.player !== "unknown" ? `The player ("you") is ${card.player}, per the card.` : "",
     args.playerPersona ? `The player's own persona (this is "you"):\n${args.playerPersona.slice(0, 800)}` : "",
+    // A player with a drawn look of their own is worth showing beside the character.
+    args.loras?.persona ? "The player has a fixed drawn look: player_in_shot may also be true when a non-sexual moment shows the player physically beside one character (walking, sitting or standing together, hugging), as a third-person view." : "",
     `Player's line: ${args.playerText.slice(0, 800)}`,
     // A redraw request beats the reply wherever they disagree (framing, who is
     // in it, clothes); clothes it asks for are theirs from now on.
     args.note ? `The player asks this picture to be redrawn like this, which overrides the reply where they differ (clothes it names are lasting): ${args.note.slice(0, 200)}` : "",
-    before ? `Reply:\n${before}` : "",
-    `${before ? "Reply, continued to its end" : "Reply"}:\n${final}`,
+    // The player's own words are the key moment: who is in it, what they do,
+    // the framing and the camera are theirs.
+    own ? `The player wrote what this picture shows. Draw exactly this; it overrides the story wherever they differ (who is in it, what they wear and do, the framing, the camera). pov only when it says the picture is seen through the player's eyes; when it shows the player's own character beside one character as a third-person view, set player_in_shot true, sex included:\n${own}` : "",
+    ...story,
     // Room for the caption too: at 900 a long scene's JSON could be cut off.
   ].filter(Boolean).join("\n\n"), ctx, 1400, { name: "moment", schema: MOMENT_SCHEMA });
 
   const nsfw = moment.nsfw === true;
   // A sex act always puts the camera in the player's eyes: a figure standing
   // in for the player beside the partner turns into a stray head or body.
-  const pov = moment.pov === true || (nsfw && Array.isArray(moment.characters) && moment.characters.length > 0);
+  // A player who wrote the picture themselves picks the camera: players asked
+  // for intimate scenes that are not always through their own eyes.
+  const pov = moment.pov === true || (!own && nsfw && Array.isArray(moment.characters) && moment.characters.length > 0);
   // The card knows who the player is better than one turn's prose does, and
   // a session keeps the first sex a turn made clear.
   const said = str(moment.player).toLowerCase();
   const votes = memory.votes;
   if (said === "male" || said === "female") votes[said]++;
   const majority = votes.female > votes.male ? "female" : votes.male > votes.female ? "male" : said;
-  const player = card.player !== "unknown" ? card.player : majority;
+  // A persona with a drawn look (its LoRA) is who the player is: the tagger read
+  // their sex off the persona, which beats the card's guess.
+  const personaSaid = args.loras?.persona && args.playerPersona && (said === "male" || said === "female") ? said : "";
+  const player = personaSaid || (card.player !== "unknown" ? card.player : majority);
   const listed = Array.isArray(moment.characters) ? moment.characters : [];
   const shown: string[] = [];
   // Each person's look and what they wear in this picture.
-  const cast: { look: Look; outfit: string }[] = [];
+  const cast: { look: Look; outfit: string; lora?: DrawLora }[] = [];
+  const loraFor = (filed: string, look: Look) => args.loras?.characters.find((c) =>
+    sameName(c.name, filed) || (look.aliases ?? []).some((a) => sameName(c.name, a)))?.lora;
   for (const raw of listed) {
     const entry = typeof raw === "string" ? { name: raw } : (raw ?? {}) as Record<string, unknown>;
     // Someone the reply never names ("a nun at the door") is still drawn: an
@@ -1254,7 +1460,7 @@ export async function planTurn(args: PlanArgs): Promise<TurnPlan> {
       // no look from the tagger she is still drawn as herself, from her
       // clothes; standing in the card's lead would draw the wrong person.
       look = toLook({ tags: entry.look })
-        ?? { tags: normalizeTags(str(entry.outfit) || "1girl").split(", ").filter((t) => /^(1girl|1boy|1other|adult)$/i.test(t)).join(", ") };
+        ?? { tags: normalizeTags(str(entry.outfit) || headCountFor(name, str(moment.caption))).split(", ").filter((t) => /^(1girl|1boy|1other|adult)$/i.test(t)).join(", ") };
       if (name !== "__proto__") remembered[name] = look;
     }
     if (look && !cast.some((c) => c.look === look)) {
@@ -1264,7 +1470,7 @@ export async function planTurn(args: PlanArgs): Promise<TurnPlan> {
       // tagger rarely says so), unless that first mention is them undressed.
       const lasting = worn !== "" && !BARE_RE.test(worn) && (entry.outfit_lasting === true || !memory.outfits[filed]);
       if (lasting && filed !== "__proto__") memory.outfits[filed] = worn;
-      cast.push({ look, outfit: outfitFor(worn, lasting, memory.outfits[filed], look.outfit) });
+      cast.push({ look, outfit: outfitFor(worn, lasting, memory.outfits[filed], look.outfit), ...(key !== undefined ? { lora: loraFor(filed, look) } : {}) });
       shown.push(name);
     }
   }
@@ -1272,13 +1478,13 @@ export async function planTurn(args: PlanArgs): Promise<TurnPlan> {
   saveSessionMemory(args.sessionId, memory);
   // Explicit if the tagger says so OR its own tags are sexual: a tagger that
   // drops the flag but still writes "nude" is not trusted with the flag.
-  const explicit = isExplicitMoment(nsfw, str(moment.action), str(moment.scene));
+  const explicitMoment = isExplicitMoment(nsfw, str(moment.action), str(moment.scene));
   // The player is intimate with someone the tagger didn't name: that is the
   // card's lead. An empty list otherwise means an empty scene.
   const leads = Object.entries(known);
-  if (cast.length === 0 && leads.length > 0 && explicit && pov) {
+  if (cast.length === 0 && leads.length > 0 && explicitMoment && pov) {
     const [leadName, lead] = leads[0]!;
-    cast.push({ look: lead, outfit: outfitFor("", false, memory.outfits[leadName], lead.outfit) });
+    cast.push({ look: lead, outfit: outfitFor("", false, memory.outfits[leadName], lead.outfit), lora: loraFor(leadName, lead) });
     shown.push(leadName);
   }
   const people = cast.length > 0 || pov;
@@ -1294,11 +1500,16 @@ export async function planTurn(args: PlanArgs): Promise<TurnPlan> {
   const names = await Promise.all(drawn.map((c) => (c.look.canon ? canonTags(c.look.canon) : "")));
   // The body never changes; the clothes are the ones the story last put them in.
   // Normalized again here: looks cached before this change kept youth tags.
-  const bodies = drawn.map((c, i) => [withCanon(normalizeTags(c.look.tags), names[i] ?? ""), c.outfit].filter(Boolean).join(", "));
+  // A character drawn by a LoRA: its hair and eyes are the LoRA's, not the card's words for them.
+  const bodies = drawn.map((c, i) => {
+    const look = normalizeTags(c.look.tags);
+    return [withTrigger(withCanon(c.lora ? lookForLora(look) : look, names[i] ?? ""), c.lora?.trigger ?? ""), c.outfit].filter(Boolean).join(", ");
+  });
   // The player beside one character (asleep in his arms): an anonymous figure
   // of the player's sex takes the second half of the frame.
-  const playerShown = moment.player_in_shot === true && !pov && !nsfw && drawn.length === 1 && (player === "female" || player === "male");
-  if (playerShown) bodies.push(player === "female" ? "1girl, adult" : "1boy, adult");
+  const playerShown = moment.player_in_shot === true && !pov && (!nsfw || !!own) && drawn.length === 1 && (player === "female" || player === "male");
+  const personaLora = playerShown ? args.loras?.persona : undefined;
+  if (playerShown) bodies.push(withTrigger(player === "female" ? "1girl, adult" : "1boy, adult", personaLora?.trigger ?? ""));
   // An empty scene's "action" describes the unseen player.
   const action = people ? str(moment.action) : "";
   // A close-up of a whole-body pose (straddling, lying, kneeling) is two
@@ -1324,9 +1535,19 @@ export async function planTurn(args: PlanArgs): Promise<TurnPlan> {
     });
     return image ? { ...image, slot, look: normalizeTags(c.look.tags) } : null;
   }))).filter((p) => p !== null);
-  const caption = str(moment.caption).slice(0, 400);
+  const rawCaption = str(moment.caption).slice(0, 500);
+  // One person, drawn by a LoRA: the caption's hair and eye colours would fight it too.
+  const caption = drawn.length === 1 && drawn[0]!.lora ? captionForLora(rawCaption) : rawCaption;
+  // The style LoRA always; a character's or the player's only when they are in the picture.
+  const loras = [args.loras?.style, ...drawn.map((c) => c.lora), personaLora]
+    .filter((l): l is DrawLora => !!l)
+    .filter((l, i, all) => all.findIndex((o) => o.file === l.file) === i);
+  // A trigger that names something explicit makes the picture explicit: its
+  // negative and safety tag follow, as for the tagger's own tags.
+  const explicit = explicitMoment || triggersExplicit(loras);
   const prompt: TurnPrompt = {
     scene, bodies: parts.bodies, explicit, ...(caption ? { caption } : {}), ...(portraits.length ? { portraits } : {}),
+    ...(loras.length ? { loras } : {}), ...(args.loras?.style?.trigger ? { styleTrigger: args.loras.style.trigger } : {}),
   };
   const solo = drawn.length === 1 && !playerShown;
   const sex = soloMale || /(^|,\s*)1boy(\s*,|$)/.test(parts.inline) ? "boy" : "girl";
@@ -1348,8 +1569,17 @@ export async function illustrateTurn(args: IllustrateArgs): Promise<IllustrateRe
       userId: args.userId, sessionId: args.sessionId,
       playerKey: args.playerKey ? { userId: args.userId, apiKey: args.playerKey } : null,
     };
+    // A binding that can't be used (deleted, taken down, not the author's) just drops out.
+    const loras = turnImageLorasEnabled()
+      ? await resolveTurnImageLoras(args.world, { card: args.loraOwners?.card, source: args.loraOwners?.source ?? null, player: args.userId }, args.personaLora ?? null).catch((error) => {
+        console.warn("[PerTurnImage] LoRAs unreadable:", error instanceof Error ? error.message : error);
+        return undefined;
+      })
+      : undefined;
     const plan = await abortable(planTurn({
-      world: args.world, sessionId: args.sessionId, playerText: args.playerText, replyText: args.replyText, note: args.note, playerPersona: args.playerPersona, ctx,
+      world: args.world, sessionId: args.sessionId, playerText: args.playerText, replyText: args.replyText, note: args.note,
+      focus: args.focus, prompt: args.prompt, playerPersona: args.playerPersona, ctx,
+      ...(loras ? { loras } : {}),
     }), args.signal);
     args.signal?.throwIfAborted();
     if (!plan.draw) {
@@ -1360,20 +1590,43 @@ export async function illustrateTurn(args: IllustrateArgs): Promise<IllustrateRe
 
     const tagged = Date.now();
     if (args.fine) prompt.fine = true;
+    if (prefs.style !== "default") prompt.style = prefs.style;
+    // A LoRA whose library file was evicted is uploaded again first; one that can't be is dropped.
+    if (prompt.loras?.length) {
+      const loaded = await loadLorasForDraw(prompt.loras);
+      if (loaded.length) prompt.loras = loaded;
+      else delete prompt.loras;
+    }
     const { png, route } = await render(prompt, negative, args.signal);
+    const drawnBy = `${route === getFallbackGenerationProvider()?.name ? "sdxl" : turnRoute(prompt)}@${route}`;
     args.signal?.throwIfAborted();
     const jpeg = await sharp(png).jpeg({ quality: 86 }).toBuffer();
     args.signal?.throwIfAborted();
     const key = `users/${args.userId}/turn-images/${randomUUID()}.jpg`;
     await putObject(key, jpeg, "image/jpeg");
+    // The picture's recipe, so the player can post it to the gallery (生图广场)
+    // and others can draw its sibling. Losing it only loses that option.
+    void db.insert(turnImages).values({
+      imageKey: key, userId: args.userId, sessionId: args.sessionId,
+      prompt: [prompt.scene, ...prompt.bodies].map((part) => part.trim()).filter(Boolean).join(", ").slice(0, 4000),
+      negative: negative.slice(0, 2000), nsfw, style: prompt.style ?? null,
+      messageId: args.messageId ?? null, route: drawnBy, auto: args.automatic ?? null,
+      ...(prompt.loras?.length ? { loraIds: prompt.loras.map((l) => l.modelId) } : {}),
+    }).onConflictDoNothing().catch((error) => console.warn("[PerTurnImage] recipe not saved:", error instanceof Error ? error.message : error));
     console.log(`[PerTurnImage] tags ${tagged - started}ms, render+store ${Date.now() - tagged}ms via ${route} ` +
-      `(${route === getFallbackGenerationProvider()?.name ? "sdxl" : turnRoute(prompt)}); ` +
+      `(${route === getFallbackGenerationProvider()?.name ? "sdxl" : turnRoute(prompt)}${prompt.style ? ` ${prompt.style}` : ""}); ` +
       `shown=${shown.join("/") || "-"} nsfw=${nsfw} pov=${pov} player=${plan.player || "-"} portraits=${prompt.portraits?.length ?? 0} ` +
+      `${prompt.loras?.length ? `loras=${prompt.loras.map((l) => `${l.file}:${l.weight}`).join(",")} ` : ""}` +
       `prompt=${[prompt.scene, ...prompt.bodies].join(" | ").slice(0, 500)}`);
+    if (prompt.loras?.length) void markLorasUsed(prompt.loras.map((l) => l.modelId));
     // Same-origin path: the embed parser refuses anything but https / @asset / /cdn.
     return { ok: true, embed: `[image:/cdn/key/${Buffer.from(key).toString("base64url")}|alt=${(shown[0] ?? "scene").replace(/[|\]]/g, "")}]` };
   } catch (error) {
     if (args.signal?.aborted) return { ok: false, reason: args.signal.reason === "cancelled" ? "cancelled" : "unavailable" };
+    if (error instanceof PromptRefusedError) {
+      console.warn("[PerTurnImage] refused:", error.message);
+      return { ok: false, reason: "unavailable" };
+    }
     const reason = error instanceof RenderError ? error.kind : "unavailable";
     console.warn(`[PerTurnImage] failed (${reason}) after ${Date.now() - started}ms:`, error instanceof Error ? error.message : error);
     return { ok: false, reason };

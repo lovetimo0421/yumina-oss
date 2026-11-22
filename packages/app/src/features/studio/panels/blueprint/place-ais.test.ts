@@ -57,7 +57,7 @@ test("no AI is a frame: every one is a row; a scenario is still a scenario", () 
   assert.deepEqual(books.filter(livesSomewhere).map((b) => b.id), ["cat", "guide", "diary", "loose"]);
 });
 
-test("an AI call written in the interface code is a row: on the card every call, in a situation the calls that read it", () => {
+test("an AI call written in the interface code is a row: in the situation it reads, else on the card", () => {
   const coded = {
     ...world,
     rootComponent: {
@@ -70,17 +70,20 @@ test("an AI call written in the interface code is a row: on the card every call,
   } as unknown as WorldDefinition;
   const card = placeAis(coded, undefined, t);
   const code = card.rows.filter((r) => r.code);
-  assert.deepEqual(code.map((r) => r.key), ["code:director.ts:1", "code:director.ts:2"]);
-  assert.deepEqual(code.map((r) => r.type), ["script", "script"]);
-  assert.equal(code[0]!.name, "阁楼", "named for the situation it reads");
-  assert.match(code[0]!.link!, /linkReadsModules/);
-  assert.match(code[0]!.memory, /memLoreMatched/);
-  assert.match(code[1]!.name, /codeCallName/, "a call that names no situation is named for its file");
+  // The call that reads 阁楼 is drawn in 阁楼, once; the card keeps the one
+  // that reads no situation.
+  assert.deepEqual(code.map((r) => r.key), ["code:director.ts:2"]);
+  assert.deepEqual(code.map((r) => r.type), ["script"]);
+  assert.match(code[0]!.name, /codeCallName/, "a call that names no situation is named for its file");
   assert.equal(card.group, true, "code calls never count as voices");
 
   const attic = placeAis(coded, "attic", t);
-  assert.deepEqual(attic.rows.filter((r) => r.code).map((r) => r.key), ["code:director.ts:1"]);
-  assert.match(attic.rows.find((r) => r.code)!.job, /jobFromCodeHere/);
+  const here = attic.rows.filter((r) => r.code);
+  assert.deepEqual(here.map((r) => r.key), ["code:director.ts:1"]);
+  assert.equal(here[0]!.name, "阁楼", "named for the situation it reads, having no name of its own");
+  assert.match(here[0]!.link!, /linkReadsModules/);
+  assert.match(here[0]!.memory, /memLoreMatched/);
+  assert.match(here[0]!.job, /jobFromCodeHere/);
   assert.equal(placeAis(coded, "cat", t).rows.some((r) => r.code), false);
 });
 
@@ -93,7 +96,7 @@ test("calls on one line of a compiled bundle get keys of their own, the same on 
     },
   } as unknown as WorldDefinition;
   const keys = placeAis(coded, undefined, t).rows.filter((r) => r.code).map((r) => r.key);
-  assert.deepEqual(keys, ["code:index.js:1", "code:index.js:1#2", "code:index.js:1#3"]);
+  assert.deepEqual(keys, ["code:index.js:1", "code:index.js:1#2"], "the third reads 阁楼 and is drawn there");
   assert.deepEqual(placeAis(coded, "attic", t).rows.filter((r) => r.code).map((r) => r.key), ["code:index.js:1#3"]);
 });
 
@@ -233,4 +236,68 @@ test("an entry says who reads it when the chat is not where it goes", () => {
   assert.equal(entryReadBy(screen, "official"), "interface", "plain lore on a card whose chat never speaks: the code reads it");
   assert.equal(entryReadBy(screen, "ref"), null, "an AI's own entries are that AI's");
   assert.equal(entryReadBy(world, undefined), null, "a card with a chat: the chat's AI, as usual");
+});
+
+test("the platform's AIs the card's screen sets going are on the card: a film's director and video model, voice, voice input, pictures", () => {
+  const screen = [
+    "var rv = api.realtimeVideo;",
+    "function startFilm(){ rv.start({ engine: 'fal' }); }",
+    "api.tts.speak({ text: line });",
+    "api.voice.record();",
+    "api.illustrateMessage(id);",
+  ].join("\n");
+  const card = { ...world, worldbooks: [], rootComponent: { id: "r", name: "r", entryFile: "index.tsx", files: { "index.tsx": screen } } } as unknown as WorldDefinition;
+  const rows = placeAis(card, undefined, t).rows.filter((r) => r.type === "platform");
+  assert.deepEqual(rows.map((r) => r.key), ["platform:film-director", "platform:film-camera", "platform:tts", "platform:voice-input", "platform:illustrate"]);
+  assert.deepEqual(rows[0]!.codeAt, { file: "index.tsx", line: 1 }, "a click opens the code where the film is set going");
+  const plain = { ...card, rootComponent: { ...card.rootComponent!, files: { "index.tsx": "export default () => null;" } } } as WorldDefinition;
+  assert.equal(placeAis(plain, undefined, t).rows.some((r) => r.type === "platform"), false, "a screen that uses none has none");
+});
+
+test("an AI in the code that reads one situation's entries by tag is drawn in that situation, with what it gets and answers", () => {
+  const screen = [
+    "function pick(r){return r.filter(e=>(e.tags??[]).includes(\"actor:referee\"))}",
+    "function mb({persona:r=\"\",world:e=\"\",ledger:n,transcript:s=[]}){return{responseFormat:{type:\"json_schema\",json_schema:{required:[\"say\",\"order\"]}},messages:[{role:\"system\",content:\"You judge what the resident says and return JSON only.\"}]}}",
+    "async function go(api){let Q=api.ai,ae=mb({persona:1,world:pick(api.entries),ledger:2,transcript:[]});await Q.complete({...ae});new Error(\"The referee timed out.\")}",
+  ].join("\n");
+  const card = {
+    ...world,
+    entries: [
+      { id: "e1", name: "Oceania", content: "x", worldbookId: "world", tags: ["actor:referee"], enabled: true },
+      { id: "e2", name: "Ministry", content: "y", worldbookId: "world", tags: ["actor:referee"], enabled: true },
+    ],
+    worldbooks: [{ id: "world", name: "The world", order: 0, activation: { mode: "always" } }],
+    rootComponent: { id: "r", name: "r", entryFile: "index.tsx", files: { "index.tsx": screen } },
+  } as unknown as WorldDefinition;
+  assert.equal(placeAis(card, undefined, t).rows.some((r) => r.type === "script"), false, "not on the card: it lives with its entries");
+  const [row] = placeAis(card, "world", t).rows.filter((r) => r.type === "script");
+  assert.ok(row, "drawn in the situation whose entries it reads");
+  assert.equal(row!.name, "Referee", "called what the code calls it, not the situation's name");
+  assert.match(row!.receives ?? "", /readsTagged.*"count":2/);
+  assert.match(row!.receives ?? "", /input\.ledger/);
+  assert.equal(row!.returns, "→ { say, order }");
+  assert.equal(row!.instructions, "You judge what the resident says and return JSON only.");
+});
+
+test("every AI says what it is handed and what it gives back, as the server builds its prompt", () => {
+  const card = placeAis(world, undefined, t);
+  const narrator = card.rows.find((r) => r.key === "narrator")!;
+  assert.match(narrator.receives ?? "", /getsPlayer.*getsHistory.*getsLore/);
+  assert.doesNotMatch(narrator.receives ?? "", /getsState/, "a card with no variables sends none");
+  assert.match(narrator.returns ?? "", /givesReply/);
+  assert.equal(narrator.when, undefined, "the card's own AI just answers");
+
+  const attic = placeAis(world, "attic", t);
+  const guide = attic.rows.find((r) => r.key === "guide")!;
+  assert.match(guide.receives ?? "", /getsWrites.*战地日记/, "a wired worker shows among what it gets");
+  const diary = attic.rows.find((r) => r.key === "diary")!;
+  assert.match(diary.receives ?? "", /getsOwnLore.*getsTranscript.*"n":20/);
+  assert.match(diary.returns ?? "", /givesNote/);
+  assert.match(diary.when ?? "", /jobEveryTurns/, "a behind-the-scenes AI keeps when it runs");
+  assert.match(attic.rows[0]!.when ?? "", /narratorAway/);
+
+  const withVars = { ...world, variables: [{ id: "hp", name: "HP", type: "number", default: 10 }] } as unknown as WorldDefinition;
+  assert.match(placeAis(withVars, undefined, t).rows[0]!.receives ?? "", /getsState/);
+  const noneToAi = { ...withVars, settings: { variablesToAi: "none" } } as unknown as WorldDefinition;
+  assert.doesNotMatch(placeAis(noneToAi, undefined, t).rows[0]!.receives ?? "", /getsState/);
 });

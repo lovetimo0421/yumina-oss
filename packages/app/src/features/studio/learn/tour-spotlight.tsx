@@ -142,7 +142,7 @@ export function TourSpotlight({ id, motionKey, title, eyebrow, big, dim, getTarg
           const area = !phone && board ? { left: board.left, top: board.top, width: board.width, height: board.height } : viewport;
           const width = Math.min(size.width, area.width - 24);
           const dockTop = area.top + area.height - size.height - (phone ? 12 : 16);
-          const at = (left: number) => ({ left, top: dockTop, width, height: size.height });
+          const at = (left: number, top = dockTop) => ({ left, top, width, height: size.height });
           // What the card must not cover: the thing pointed at, and the editor
           // a lesson opens beside a row (the fields its beats point into).
           const editor = document.querySelector("[data-floating-editor]");
@@ -152,7 +152,9 @@ export function TourSpotlight({ id, motionKey, title, eyebrow, big, dim, getTarg
           // Centred, else either end of the same line. Chosen once per lesson
           // and kept for its steps, so the card moves between lessons (while
           // it is faded out) and never between the steps of one.
-          const spots = [at(area.left + (area.width - width) / 2), at(area.left + 12), at(area.left + area.width - width - 12)];
+          // A phone is one card wide: its other place is the top of the screen.
+          const centre = area.left + (area.width - width) / 2;
+          const spots = phone ? [at(centre), at(centre, area.top + 12)] : [at(centre), at(area.left + 12), at(area.left + area.width - width - 12)];
           if (state.dock === undefined || hits(spots[state.dock]!)) { const free = spots.findIndex(box => !hits(box)); state.dock = free < 0 ? undefined : free; }
           const docked = state.dock === undefined ? undefined : spots[state.dock];
           if (docked) {

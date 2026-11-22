@@ -1,3 +1,8 @@
+---
+title: "Variables and directives"
+description: "The variable object in a world file, the four types, and the bracket directives the AI writes in a reply to change a value."
+---
+
 # Variables & Directives
 
 Variables are the world's game state. The AI reads current values each turn and writes bracket directives in its response to update them.

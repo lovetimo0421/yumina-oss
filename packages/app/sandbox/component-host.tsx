@@ -9,7 +9,9 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { NeverShowSelection } from "./chat/never-show";
 import { scheduleRootRendered } from "./schedule-root-rendered";
+import { applySandboxFontScale } from "./font-scale";
 
 import { installSandboxMedia } from "../src/lib/sandbox-media";
 
@@ -44,7 +46,7 @@ import type {
   SandboxMode,
   UIChannelData,
 } from "./protocol";
-import { YuminaContext, buildAPI, useYumina, resolveApiCall, receiveStreamChunk, AUDIO_ENDED_EVENT, VOICE_PLAYBACK_FRAME_EVENT, COMPOSER_DRAFT_EVENT, ROOM_FRAME_EVENT, VIDEO_EVENT, STORY_EVENT, OPEN_MEMORY_PANEL_EVENT } from "./sandbox-context";
+import { YuminaContext, buildAPI, useYumina, resolveApiCall, receiveStreamChunk, AUDIO_ENDED_EVENT, VOICE_PLAYBACK_FRAME_EVENT, COMPOSER_DRAFT_EVENT, ROOM_FRAME_EVENT, VIDEO_EVENT, STORY_EVENT, OPEN_MEMORY_PANEL_EVENT, OPEN_CHAT_SEARCH_EVENT, OPEN_AT_MESSAGE_EVENT } from "./sandbox-context";
 import { runBehaviorCode, type BehaviorCodeApi } from "./behavior-code";
 import { dispatchVoiceEvent } from "./voice-api";
 import { withVariableNameAliases } from "./variable-alias";
@@ -58,11 +60,16 @@ import { MessageList } from "./chat/message-list";
 import { isScrollIntent } from "./chat/scroll-intent";
 import { restoreTranscriptPosition, setTranscriptActive, trackCustomTranscriptPositions } from "./chat/transcript-position";
 import { MessageInput } from "./chat/message-input";
+import { reportRoomComposerAfterBoot } from "./chat/story-room";
 import { makeChatT } from "./chat/i18n";
 import { ModelPickerModal, ModelTrigger } from "./chat/model-picker-modal";
 import { SessionMemoryModal } from "./extensions/session-memory/session-memory-modal";
+import { RigCharacter } from "./building-blocks/rig-character";
+import { RoomParty } from "./building-blocks/room-party";
 import type { StateChannel } from "@yumina/engine";
 import type { SandboxState } from "./protocol";
+import { CoreMemoryPanel } from "./chat/core-memory";
+import { ChatSearchPanel, OpenAtMessageHost } from "./chat/chat-search";
 
 // ── Channel State ───────────────────────────────────────────────────
 
@@ -81,6 +88,7 @@ function assembleState(channels: ChannelState): SandboxState {
     ),
     // Messages channel
     messages: channels.messages?.messages ?? [],
+    firstMessageNumber: channels.messages?.firstMessageNumber ?? 1,
 
     // Streaming channel
     isStreaming: channels.streaming?.isStreaming ?? false,
@@ -100,6 +108,7 @@ function assembleState(channels: ChannelState): SandboxState {
     worldbooks: channels.session?.worldbooks ?? [],
     replyRules: channels.session?.replyRules ?? [],
     speakerBubbles: channels.session?.speakerBubbles === true,
+    composeAssistOff: channels.session?.composeAssistOff === true,
 
     // UI channel
     canvasMode: "custom",
@@ -119,23 +128,32 @@ function assembleState(channels: ChannelState): SandboxState {
     modelFallback: channels.ui?.modelFallback ?? null,
     userPlan: channels.ui?.userPlan ?? "free",
     memorySummaryEnabled: channels.ui?.memorySummaryEnabled ?? false,
+    playerRegexRules: channels.ui?.playerRegexRules ?? [],
     installedExtensions: channels.ui?.installedExtensions ?? [],
     preferredProvider: channels.ui?.preferredProvider ?? "official",
     localBridge: channels.ui?.localBridge ?? null,
     mixMode: channels.ui?.mixMode ?? false,
     modelPool: channels.ui?.modelPool ?? [],
+    reasoningEffort: channels.ui?.reasoningEffort ?? "low",
+    composeModel: channels.ui?.composeModel ?? "",
+    streaming: channels.ui?.streaming ?? true,
     hasEarlierMessages: channels.ui?.hasEarlierMessages ?? false,
     isLoadingEarlier: channels.ui?.isLoadingEarlier ?? false,
     bgmVolume: channels.ui?.bgmVolume ?? 0.7,
     sfxVolume: channels.ui?.sfxVolume ?? 0.8,
     language: channels.ui?.language ?? "en",
     balance: channels.ui?.balance ?? null,
+    messageButtonColor: channels.ui?.messageButtonColor ?? "default",
+    playColorMode: channels.ui?.playColorMode === "light" ? "light" : "dark",
     composerSendKey: channels.ui?.composerSendKey ?? "enter",
     sendFailureNonce: channels.ui?.sendFailureNonce ?? 0,
     errorCode: channels.ui?.errorCode ?? null,
     playerPrompts: channels.ui?.playerPrompts ?? null,
     tts: channels.ui?.tts ?? { available: false, enabled: false, voice: "", mode: "full", autoPlay: false, volume: 100, playback: null },
     voiceInput: channels.ui?.voiceInput,
+    hostWindow: channels.ui?.hostWindow,
+    storyRoom: channels.ui?.storyRoom ?? null,
+    storyRoomOffer: channels.ui?.storyRoomOffer === true,
   };
 }
 
@@ -499,7 +517,51 @@ function scheduleScrollClampCheck(trigger: string): void {
   });
 }
 
+// ── Interface-builder stage pin ─────────────────────────────────────
+//
+// A card built in the interface builder draws a fixed 375×812 (or 1024×640)
+// design scaled to fit `[data-ui-stage]`, an overflow:hidden box. The scale
+// is a transform, so the design's LAYOUT box is still 812 tall: once the
+// stage is shorter than that, it has (812 − stage) / 2 of hidden scroll
+// range below. Hidden is not clip — the browser may still scroll it, and
+// Android's soft-keyboard focus reveal does: the composer sits near the
+// bottom, the keyboard shrinks the iframe, and the stage is scrolled to its
+// max to show the composer. The rescale then fits the whole design back in,
+// but the offset stays (it is in range, so the clamp watchdog never sees
+// it): the design and its backdrop ride up and a dead band of exactly that
+// range opens above the keyboard. Report 2026-10-31 (Steph, Android 10
+// installed app, 827→488px viewport: band 162px = (812 − 488) / 2), on a
+// fresh card with only a template. The stage is never meant to scroll, so
+// any offset on it is put straight back.
+function pinUiStage(event: Event): void {
+  const el = event.target;
+  if (!(el instanceof Element) || !el.hasAttribute("data-ui-stage")) return;
+  const top = el.scrollTop;
+  const left = el.scrollLeft;
+  if (top === 0 && left === 0) return;
+  markProgrammaticScroll(el);
+  const setTop = sandboxScrollState.scrollTopDesc?.set;
+  const setLeft = sandboxScrollState.scrollLeftDesc?.set;
+  if (setTop) setTop.call(el, 0);
+  else el.scrollTop = 0;
+  if (setLeft) setLeft.call(el, 0);
+  else el.scrollLeft = 0;
+  const delta = Math.round(Math.max(Math.abs(top), Math.abs(left)));
+  if (delta >= 8 && scrollClampState.diagBudget > 0) {
+    scrollClampState.diagBudget--;
+    postToParentWindow(
+      wrapMessage({
+        type: "diag" as const,
+        event: "ui-stage-pinned",
+        data: { delta, clientHeight: el.clientHeight, scrollHeight: el.scrollHeight, trigger: "scroll" },
+      }),
+    );
+  }
+}
+
 function installScrollClampWatchdog(): () => void {
+  // Capture: element scroll events don't bubble, but they do pass the document.
+  document.addEventListener("scroll", pinUiStage, { capture: true, passive: true });
   const onResize = () => scheduleScrollClampCheck("resize");
   const onOrientation = () => scheduleScrollClampCheck("orientation");
   const onFocusOut = () => scheduleScrollClampCheck("focusout");
@@ -523,6 +585,7 @@ function installScrollClampWatchdog(): () => void {
   // hook — three layout reads every 2.5s is negligible next to streaming.
   const heartbeat = window.setInterval(() => runScrollClampCheck("heartbeat"), 2500);
   return () => {
+    document.removeEventListener("scroll", pinUiStage, { capture: true });
     window.removeEventListener("resize", onResize);
     window.removeEventListener("orientationchange", onOrientation);
     document.removeEventListener("focusout", onFocusOut);
@@ -770,7 +833,8 @@ function installEarlierHistoryLoader(ctxRef: { current: EarlierLoaderCtx }): () 
 /** Host-level mount for the session-memory panel. The parent play-controls bar
  *  can ask for it (open-memory-panel message) so worlds whose custom UI never
  *  renders the composer slots — no Memory pill — still reach the panel. The
- *  modal is mounted here, OUTSIDE creator markup, and gated on install state. */
+ *  modal is mounted here, OUTSIDE creator markup: the extension's full panel
+ *  when installed, the core Memory panel otherwise. */
 function MemoryPanelHostMount() {
   const api = useYumina();
   const [open, setOpen] = useState(false);
@@ -779,8 +843,34 @@ function MemoryPanelHostMount() {
     window.addEventListener(OPEN_MEMORY_PANEL_EVENT, handler);
     return () => window.removeEventListener(OPEN_MEMORY_PANEL_EVENT, handler);
   }, []);
-  if (!api.memorySummaryEnabled || !open) return null;
+  if (!open) return null;
+  // Without the memory extension the bar still opens Memory: pinned notes
+  // and how far back the AI reads are every player's.
+  if (!api.memorySummaryEnabled) return <CoreMemoryPanel open={open} onClose={() => setOpen(false)} />;
   return <SessionMemoryModal open={open} onClose={() => setOpen(false)} />;
+}
+
+/** Host-level mount for the chat-history search, outside creator markup like
+ *  the memory panel: opened from the composer's "+" menu or the play-controls
+ *  bar, so cards with their own interface reach it too. */
+function ChatSearchHostMount() {
+  const api = useYumina();
+  const [open, setOpen] = useState(false);
+  // A search handed over from outside (the save picker), typed in for the player.
+  const [initialQuery, setInitialQuery] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const query = (event as CustomEvent<{ query?: unknown } | undefined>).detail?.query;
+      setInitialQuery(typeof query === "string" && query ? query : undefined);
+      setOpen(true);
+    };
+    window.addEventListener(OPEN_CHAT_SEARCH_EVENT, handler);
+    return () => window.removeEventListener(OPEN_CHAT_SEARCH_EVENT, handler);
+  }, []);
+  // A new session starts closed (and with its own remembered search).
+  useEffect(() => { setOpen(false); }, [api.sessionId]);
+  if (!open || !api.sessionId) return null;
+  return <ChatSearchPanel key={`${api.sessionId}:${initialQuery ?? ""}`} open={open} initialQuery={initialQuery} onClose={() => setOpen(false)} />;
 }
 
 export function ComponentHost() {
@@ -839,6 +929,16 @@ export function ComponentHost() {
     return () => window.removeEventListener(STORY_EVENT, handler);
   }, []);
 
+  // In a story room, tell the parent once the card's screen settles whether
+  // it carries the platform composer (round strip); if not, the parent shows
+  // the round above the card.
+  const inStoryRoom = !!channels.ui?.storyRoom;
+  const rootKey = rootComponent?.filesKey ?? "";
+  useEffect(() => {
+    if (!inStoryRoom || !rootKey) return;
+    return reportRoomComposerAfterBoot();
+  }, [inStoryRoom, rootKey]);
+
   // Force the hydration gate open if the initial channel pushes never arrive
   // (an unexpected host) — degrades to pre-gate behavior instead of hanging.
   useEffect(() => {
@@ -866,12 +966,11 @@ export function ComponentHost() {
   // crosses an iframe boundary, so chat text in here stayed 16px-rooted no
   // matter what the setting said (@burlingk's report). Scaling the root
   // font-size is the same mechanism the host uses: rem-based text (the
-  // injected chat UI, creator Tailwind classes) follows; px-based card
-  // layouts are untouched.
+  // injected chat UI, creator Tailwind classes) follows. Card-drawn message
+  // bubbles mostly size text in px, so they get a zoom too (font-scale.ts).
   const uiFontScale = channels.ui?.uiFontScale ?? 1;
   useEffect(() => {
-    document.documentElement.style.fontSize =
-      uiFontScale === 1 ? "" : `${16 * uiFontScale}px`;
+    applySandboxFontScale(document.documentElement.style, uiFontScale);
   }, [uiFontScale]);
 
   // Self-healing clamp for stuck out-of-range scroll offsets (game UI pushed
@@ -986,6 +1085,8 @@ export function ComponentHost() {
               LorePanel: LorePanel as React.ComponentType<Record<string, unknown>>,
               LoreGroup: LoreGroup as React.ComponentType<Record<string, unknown>>,
               LoreSwitch: LoreSwitch as React.ComponentType<Record<string, unknown>>,
+              RigCharacter: RigCharacter as unknown as React.ComponentType<Record<string, unknown>>,
+              RoomParty: RoomParty as unknown as React.ComponentType<Record<string, unknown>>,
             }, { files: files ?? {} });
             Compiled = result.Component;
             error = result.error;
@@ -1016,6 +1117,8 @@ export function ComponentHost() {
                   LorePanel: LorePanel as React.ComponentType<Record<string, unknown>>,
                   LoreGroup: LoreGroup as React.ComponentType<Record<string, unknown>>,
                   LoreSwitch: LoreSwitch as React.ComponentType<Record<string, unknown>>,
+                  RigCharacter: RigCharacter as unknown as React.ComponentType<Record<string, unknown>>,
+              RoomParty: RoomParty as unknown as React.ComponentType<Record<string, unknown>>,
                 },
               );
               Compiled = result.Component;
@@ -1128,6 +1231,19 @@ export function ComponentHost() {
 
       case "story-event": {
         window.dispatchEvent(new CustomEvent(STORY_EVENT, { detail: msg.event }));
+        break;
+      }
+
+      case "open-chat-search": {
+        window.dispatchEvent(new CustomEvent(OPEN_CHAT_SEARCH_EVENT));
+        break;
+      }
+
+      case "jump-to-message": {
+        const { sessionId, messageId, position, query } = msg;
+        if (typeof sessionId === "string" && typeof messageId === "string" && Number.isFinite(position)) {
+          window.dispatchEvent(new CustomEvent(OPEN_AT_MESSAGE_EVENT, { detail: { sessionId, messageId, position, query } }));
+        }
         break;
       }
 
@@ -1416,6 +1532,9 @@ export function ComponentHost() {
         )}
       </div>
       <MemoryPanelHostMount />
+      <ChatSearchHostMount />
+      <OpenAtMessageHost />
+      <NeverShowSelection />
       <ModelFallbackHost />
       <RefusalHost />
     </YuminaContext.Provider>
@@ -1487,7 +1606,7 @@ function hardenImageEl(img: HTMLImageElement): void {
   const src = img.getAttribute("src");
   if (src && src.startsWith("@asset:") && !img.dataset.yuminaAssetResolved) {
     img.dataset.yuminaAssetResolved = "1";
-    resolveAssetUrl(src).then((resolved) => {
+    resolveAssetUrl(src, { original: true }).then((resolved) => {
       if (resolved !== src) img.src = resolved;
     });
   }
@@ -1519,14 +1638,14 @@ function hardenImageEl(img: HTMLImageElement): void {
 async function resolveAssetOnStyleTag(styleEl: HTMLStyleElement): Promise<void> {
   const cssText = styleEl.textContent ?? "";
   if (!cssText.includes("@asset:")) return;
-  const resolved = await resolveAssetRefs(cssText);
+  const resolved = await resolveAssetRefs(cssText, { original: true });
   if (resolved !== cssText) styleEl.textContent = resolved;
 }
 
 async function resolveAssetOnStyledEl(el: HTMLElement): Promise<void> {
   const styleAttr = el.getAttribute("style") ?? "";
   if (!styleAttr.includes("@asset:")) return;
-  const resolved = await resolveAssetRefs(styleAttr);
+  const resolved = await resolveAssetRefs(styleAttr, { original: true });
   if (resolved !== styleAttr) el.setAttribute("style", resolved);
 }
 

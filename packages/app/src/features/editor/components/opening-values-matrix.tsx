@@ -141,8 +141,7 @@ export function OpeningValuesMatrix() {
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <div className="shrink-0 px-6 pt-6">
-        <h2 className="text-base font-bold text-foreground">{t("variables.openingValues.title")}</h2>
-        <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{t("variables.openingValues.hint")}</p>
+        <h2 className="text-base font-bold text-foreground" title={t("variables.openingValues.hint")}>{t("variables.openingValues.title")}</h2>
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto p-6">

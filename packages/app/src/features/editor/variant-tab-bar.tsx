@@ -1,13 +1,14 @@
 import { useState, useCallback, useRef, useEffect, useMemo, Fragment } from "react";
 import { useRouter } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
-import { Check, ChevronDown, Plus, Loader2, Pencil, X, Star } from "lucide-react";
+import { Check, ChevronDown, Plus, Loader2, Pencil, X, Star, Languages } from "lucide-react";
 import { feedback } from "@/lib/feedback";
 import { cn } from "@/lib/utils";
 import { useEditorStore } from "@/stores/editor";
 import { useWorldsStore } from "@/stores/worlds";
 import { LANGUAGE_LABELS, LANGUAGE_SHORT, currentVariantTrigger, variantRowLabels } from "@/lib/languages";
 import { LanguageSelectDialog } from "@/components/language-select-dialog";
+import { TranslateVariantDialog } from "./translate-variant-dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,8 +33,14 @@ function langBadge(language: string | null): string | null {
   return LANGUAGE_SHORT[language] ?? language.toUpperCase();
 }
 
-export function VariantTabBar({ compact = false, destination = "/app/worlds/$worldId/edit" }: {
+export function VariantTabBar({ compact = false, header = false, readOnly: readOnlyProp = false, destination = "/app/worlds/$worldId/edit" }: {
   compact?: boolean;
+  /** The compact menu as the small pill beside the card name in the Studio's
+   *  top bar — the one place the canvas shows its variants, so it carries the
+   *  same create / rename / delete the full bar has. */
+  header?: boolean;
+  /** Switch only: a guest or an inspector has nothing to change here. */
+  readOnly?: boolean;
   destination?: "/app/worlds/$worldId/edit" | "/app/studio/$worldId";
 }) {
   const { t } = useTranslation(["editor", "common"]);
@@ -44,9 +51,18 @@ export function VariantTabBar({ compact = false, destination = "/app/worlds/$wor
   const variantsLoading = useEditorStore((s) => s.variantsLoading);
   const saving = useEditorStore((s) => s.saving);
   const loadingWorld = useEditorStore((s) => s.loadingWorld);
+  const worldIsPublished = useEditorStore((s) => s.worldIsPublished);
   const language = useEditorStore((s) => s.language);
   const worldName = useEditorStore((s) => s.worldDraft.name);
   const variantLabel = useEditorStore((s) => s.variantLabel);
+  // Language versions are the author's: someone the card was shared with can
+  // switch between them (and rename the one they're in, unless they only
+  // view it), but adding, deleting, re-languaging or promoting one is not theirs.
+  const access = useEditorStore((s) => s.access);
+  // An admin inspecting changes nothing either, same as the readOnly prop.
+  const inspecting = useEditorStore((s) => s.readOnlyInspect);
+  const readOnly = readOnlyProp || inspecting;
+  const ownsCard = !access || access.role === "owner";
 
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -60,6 +76,12 @@ export function VariantTabBar({ compact = false, destination = "/app/worlds/$wor
   // Language picker states
   const [showCreateLangPicker, setShowCreateLangPicker] = useState(false);
   const [changeLangTargetId, setChangeLangTargetId] = useState<string | null>(null);
+  const [showTranslate, setShowTranslate] = useState(false);
+  // A card in none of the AI translation languages still shows the item: the dialog says to set
+  // the card's language and opens that picker.
+  const existingLanguages = useMemo(() => new Set(variants.map((v) => v.language ?? "").filter(Boolean)), [variants]);
+  // Stays available when every language exists: picking one refreshes that version from this card.
+  const canTranslate = !!serverWorldId;
 
   // 主/副 (primary/secondary): the marker and the "set primary" action only
   // matter when a language actually has 2+ variants to choose between.
@@ -67,14 +89,6 @@ export function VariantTabBar({ compact = false, destination = "/app/worlds/$wor
     (lang: string | null) => variants.filter((v) => (v.language ?? "") === (lang ?? "")).length,
     [variants],
   );
-  const hasPrimarySecondary = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const v of variants) {
-      const k = v.language ?? "";
-      counts.set(k, (counts.get(k) ?? 0) + 1);
-    }
-    return [...counts.values()].some((n) => n >= 2);
-  }, [variants]);
   // Only a PUBLISHED version can become the public hub face. The action stays
   // visible on a draft 副 so the path is discoverable, but it is DISABLED and
   // labelled "(publish first)" — the guidance sits on the control instead of
@@ -336,10 +350,23 @@ export function VariantTabBar({ compact = false, destination = "/app/worlds/$wor
   }
   const multipleLanguages = langGroups.length > 1;
   const rowLabels = variantRowLabels(tabs);
+  const translateDialog = canTranslate && serverWorldId ? (
+    <TranslateVariantDialog
+      open={showTranslate}
+      onClose={() => setShowTranslate(false)}
+      worldId={serverWorldId}
+      currentLanguage={language}
+      existingLanguages={existingLanguages}
+      destination={destination}
+      onChangeLanguage={() => setChangeLangTargetId(serverWorldId)}
+    />
+  ) : null;
 
-  if (compact) {
+  if (compact || header) {
     const current = tabs.find((variant) => variant.id === serverWorldId) ?? tabs[0] ?? null;
     if (!current) return null;
+    // Read-only with a single version: nothing to switch to, nothing to do.
+    if (readOnly && !hasMultipleVariants) return null;
     const currentLabel = current ? displayLabel(current) : t("variantBar.untitled", "Untitled");
     const currentBadge = current ? langBadge(current.language) : null;
     const isEditingCurrent = current && editingId === current.id;
@@ -360,12 +387,15 @@ export function VariantTabBar({ compact = false, destination = "/app/worlds/$wor
               }}
               maxLength={100}
               placeholder={t("variantBar.rename", "Rename")}
-              className="h-8 min-w-0 flex-1 rounded-full border border-border bg-background px-3 text-xs text-foreground focus:border-primary/40 focus:outline-none"
+              className={cn(
+                "min-w-0 flex-1 rounded-full border border-border bg-background px-3 text-xs text-foreground focus:border-primary/40 focus:outline-none",
+                header ? "h-7 w-36" : "h-8",
+              )}
             />
             <button
               type="button"
               onClick={commitRename}
-              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground"
+              className={cn("inline-flex shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground", header ? "h-7 w-7" : "h-8 w-8")}
               aria-label={t("action.confirm", { defaultValue: "Confirm" })}
             >
               <Check className="h-4 w-4" />
@@ -373,18 +403,24 @@ export function VariantTabBar({ compact = false, destination = "/app/worlds/$wor
             <button
               type="button"
               onClick={() => setEditingId(null)}
-              className="hover-surface inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground"
+              className={cn("hover-surface inline-flex shrink-0 items-center justify-center rounded-full text-muted-foreground", header ? "h-7 w-7" : "h-8 w-8")}
               aria-label={t("action.cancel", { defaultValue: "Cancel" })}
             >
               <X className="h-4 w-4" />
             </button>
           </div>
         ) : (
-          <DropdownMenu>
+          // Re-read the versions on open: one made elsewhere (the assistant's translate_card,
+          // another tab) would otherwise not show until the page reloads.
+          <DropdownMenu onOpenChange={(open) => { if (open && serverWorldId && !variantsLoading) void useEditorStore.getState().loadVariants(); }}>
             <DropdownMenuTrigger asChild>
               <button
-                className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-border bg-card/70 px-2 text-left transition-colors hover:bg-accent"
-                title={currentLabel}
+                type="button"
+                className={header
+                  // No outline in the top bar: the language tag inside is the chip.
+                  ? "group inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+                  : "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-border bg-card/70 px-2 text-left transition-colors hover:bg-accent"}
+                title={header && !hasMultipleVariants ? t("variantBar.languageVersions") : currentLabel}
               >
                 {variantsLoading ? (
                   <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
@@ -397,24 +433,24 @@ export function VariantTabBar({ compact = false, destination = "/app/worlds/$wor
                         version — which one this is: a lone 「中」 chip did not
                         say it was the way to add an English version. */}
                     {/* On a phone the chip alone: the name beside it needs the room. */}
-                    <span className="max-w-[14rem] truncate text-xs text-foreground/80 max-sm:hidden">
+                    {/* A first draft in one language keeps the chip alone in
+                        the top bar: 「语言版本」 is a word a newcomer reads
+                        before 试玩 and cannot use yet. The menu is the same. */}
+                    {(!header || hasMultipleVariants || worldIsPublished) && <span className={cn("truncate max-sm:hidden", header ? "max-w-[140px]" : "max-w-[14rem] text-xs text-foreground/80")}>
                       {hasMultipleVariants
                         ? currentVariantTrigger(tabs, serverWorldId, currentLabel, currentLabel)
-                        : current.language
+                        // The top bar has no room for the language twice:
+                        // the chip already says it.
+                        : current.language && !header
                           ? `${LANGUAGE_LABELS[current.language] ?? current.language} · ${t("variantBar.languageVersions")}`
                           : t("variantBar.languageVersions")}
-                    </span>
+                    </span>}
                     <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                   </>
                 )}
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-[min(22rem,calc(100vw-1.5rem))]">
-              {hasPrimarySecondary && (
-                <p className="px-2 py-1.5 text-[11px] leading-snug text-muted-foreground/70">
-                  {t("variantBar.primaryExplainer", "一种语言可以做好几个版本。带 ★ 的「主」是别人浏览时看到的那个；其它版本玩家点进卡片后也能选来玩。")}
-                </p>
-              )}
               {langGroups.map((group) => (
                 <div key={group.lang ?? "_none"}>
                   {multipleLanguages && (
@@ -438,10 +474,12 @@ export function VariantTabBar({ compact = false, destination = "/app/worlds/$wor
                       >
                         <span className="min-w-0 flex-1 truncate">{label}</span>
                         {showPrimaryStar && (
-                          <Star
-                            className="h-3 w-3 shrink-0 fill-[#C9A25E] text-[#C9A25E]"
-                            aria-label={t("variantBar.primaryBadge", "主")}
-                          />
+                          <span className="shrink-0" title={t("variantBar.primaryExplainer", "一种语言可以做好几个版本。带 ★ 的「主」是别人浏览时看到的那个；其它版本玩家点进卡片后也能选来玩。")}>
+                            <Star
+                              className="h-3 w-3 fill-[#C9A25E] text-[#C9A25E]"
+                              aria-label={t("variantBar.primaryBadge", "主")}
+                            />
+                          </span>
                         )}
                         <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-bold text-muted-foreground">
                           {badge ?? t("variantBar.noLanguage", "Lang")}
@@ -453,10 +491,10 @@ export function VariantTabBar({ compact = false, destination = "/app/worlds/$wor
                 </div>
               ))}
 
-              {current && (
+              {current && !readOnly && (
                 <>
                   <DropdownMenuSeparator />
-                  {current.isPrimaryVariant === false && sameLangCount(current.language) >= 2 && (
+                  {ownsCard && current.isPrimaryVariant === false && sameLangCount(current.language) >= 2 && (
                     <DropdownMenuItem
                       disabled={current.status !== "published"}
                       onClick={(e) => {
@@ -470,15 +508,24 @@ export function VariantTabBar({ compact = false, destination = "/app/worlds/$wor
                         : t("variantBar.setPrimaryDraft", "Set as primary (publish first)")}
                     </DropdownMenuItem>
                   )}
-                  <DropdownMenuItem onClick={() => setChangeLangTargetId(current.id)}>
-                    {t("variantBar.changeLanguage", "Change language")}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => startRename(current.id, currentLabel)}>
-                    <Pencil className="mr-2 h-4 w-4" />
-                    {t("variantBar.rename", "Rename")}
-                  </DropdownMenuItem>
-                  {hasMultipleVariants && (
+                  {ownsCard && (
+                    <DropdownMenuItem onClick={() => setChangeLangTargetId(current.id)}>
+                      {t("variantBar.changeLanguage", "Change language")}
+                    </DropdownMenuItem>
+                  )}
+                  {!readOnly && (
+                    <DropdownMenuItem onClick={() => startRename(current.id, currentLabel)}>
+                      <Pencil className="mr-2 h-4 w-4" />
+                      {t("variantBar.rename", "Rename")}
+                    </DropdownMenuItem>
+                  )}
+                  {ownsCard && hasMultipleVariants && (
                     <DropdownMenuItem
+                      // The first tap arms it, the second deletes: the menu
+                      // has to stay open in between or 「再次点按」 can't be.
+                      onSelect={(e) => {
+                        if (confirmDeleteId !== current.id) e.preventDefault();
+                      }}
                       onClick={(e) => {
                         e.stopPropagation();
                         handleDeleteClick(current.id);
@@ -495,14 +542,24 @@ export function VariantTabBar({ compact = false, destination = "/app/worlds/$wor
                 </>
               )}
 
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={handleCreateClick}
-                disabled={creating || saving || loadingWorld || !serverWorldId}
-              >
-                {creating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
-                {t("variantBar.newVariant", "New Variant")}
-              </DropdownMenuItem>
+              {ownsCard && !readOnly && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={handleCreateClick}
+                    disabled={creating || saving || loadingWorld || !serverWorldId}
+                  >
+                    {creating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
+                    {t("variantBar.newVariant", "New Variant")}
+                  </DropdownMenuItem>
+                  {canTranslate && (
+                    <DropdownMenuItem onClick={() => setShowTranslate(true)} disabled={creating || saving || loadingWorld}>
+                      <Languages className="mr-2 h-4 w-4" />
+                      {t("translate.menu")}
+                    </DropdownMenuItem>
+                  )}
+                </>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         )}
@@ -521,6 +578,7 @@ export function VariantTabBar({ compact = false, destination = "/app/worlds/$wor
           title={t("variantBar.changeLanguage", "Change language")}
           allowSkip
         />
+        {translateDialog}
       </div>
     );
   }
@@ -577,18 +635,18 @@ export function VariantTabBar({ compact = false, destination = "/app/worlds/$wor
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                if (isActive) {
+                if (isActive && ownsCard) {
                   setChangeLangTargetId(variant.id);
                 }
               }}
-              disabled={!isActive}
+              disabled={!isActive || !ownsCard}
               className={cn(
                 "shrink-0 rounded-full px-1.5 py-0.5 ml-2.5 text-[10px] font-bold leading-none transition-colors",
                 isActive
                   ? "text-muted-foreground hover:bg-white/10 hover:text-foreground cursor-pointer"
                   : "text-muted-foreground/60 cursor-default",
               )}
-              title={isActive ? t("variantBar.changeLanguage", "Change language") : undefined}
+              title={isActive && ownsCard ? t("variantBar.changeLanguage", "Change language") : undefined}
             >
               {badge ?? t("variantBar.noLanguage", "Lang")}
             </button>
@@ -603,10 +661,12 @@ export function VariantTabBar({ compact = false, destination = "/app/worlds/$wor
 
             {/* 主 marker — only when this language has 2+ variants to choose from */}
             {variant.isPrimaryVariant && sameLangCount(variant.language) >= 2 && (
-              <Star
-                className="mr-0.5 h-3 w-3 shrink-0 fill-[#C9A25E] text-[#C9A25E]"
-                aria-label={t("variantBar.primaryBadge", "主")}
-              />
+              <span className="mr-0.5 shrink-0" title={t("variantBar.primaryExplainer", "一种语言可以做好几个版本。带 ★ 的「主」是别人浏览时看到的那个；其它版本玩家点进卡片后也能选来玩。")}>
+                <Star
+                  className="h-3 w-3 fill-[#C9A25E] text-[#C9A25E]"
+                  aria-label={t("variantBar.primaryBadge", "主")}
+                />
+              </span>
             )}
 
             {/* Action buttons — fade in on hover; always visible on touch devices */}
@@ -614,7 +674,7 @@ export function VariantTabBar({ compact = false, destination = "/app/worlds/$wor
               {/* Promote a 副 to 主. Shown for any same-language 副 so the path
                   is discoverable; a draft one is disabled and its tooltip says
                   "(publish first)". */}
-              {variant.isPrimaryVariant === false && sameLangCount(variant.language) >= 2 && (
+              {ownsCard && variant.isPrimaryVariant === false && sameLangCount(variant.language) >= 2 && (
                 <button
                   disabled={variant.status !== "published"}
                   onClick={(e) => {
@@ -634,7 +694,7 @@ export function VariantTabBar({ compact = false, destination = "/app/worlds/$wor
                   <Star className="h-3 w-3" />
                 </button>
               )}
-              {isActive && (
+              {isActive && !readOnly && (
                 <button
                   onClick={() => startRename(variant.id, label)}
                   className={cn(
@@ -647,7 +707,7 @@ export function VariantTabBar({ compact = false, destination = "/app/worlds/$wor
                 </button>
               )}
 
-              {hasMultipleVariants && (
+              {ownsCard && hasMultipleVariants && (
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -684,12 +744,16 @@ export function VariantTabBar({ compact = false, destination = "/app/worlds/$wor
       {/* Spacer */}
       <div className="flex-1" />
 
-      {/* Create button */}
+      {/* Create button. Someone the card was shared with sees why it's off. */}
       <button
         onClick={handleCreateClick}
-        disabled={creating || saving || loadingWorld || !serverWorldId}
-        title={!serverWorldId ? t("variantBar.saveFirst") : undefined}
-        className="flex shrink-0 items-center gap-1.5 rounded-full border border-dashed border-white/10 px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-white/20 hover:bg-white/5 hover:text-foreground disabled:opacity-40 disabled:pointer-events-none"
+        disabled={creating || saving || loadingWorld || !serverWorldId || !ownsCard}
+        title={!ownsCard ? t("collab.onlyOwner.newVariant") : !serverWorldId ? t("variantBar.saveFirst") : undefined}
+        className={cn(
+          "flex shrink-0 items-center gap-1.5 rounded-full border border-dashed border-white/10 px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-white/20 hover:bg-white/5 hover:text-foreground disabled:opacity-40",
+          // Off for a collaborator keeps its hover, so the reason shows.
+          ownsCard ? "disabled:pointer-events-none" : "disabled:cursor-not-allowed",
+        )}
       >
         {creating ? (
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -698,6 +762,18 @@ export function VariantTabBar({ compact = false, destination = "/app/worlds/$wor
         )}
         {!hasMultipleVariants && t("variantBar.newVariant", "New Variant")}
       </button>
+      {canTranslate && ownsCard && (
+        <button
+          onClick={() => setShowTranslate(true)}
+          disabled={creating || saving || loadingWorld}
+          title={t("translate.menu")}
+          className="flex shrink-0 items-center gap-1.5 rounded-full border border-dashed border-white/10 px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-white/20 hover:bg-white/5 hover:text-foreground disabled:opacity-40 disabled:pointer-events-none"
+        >
+          <Languages className="h-3.5 w-3.5" />
+          {!hasMultipleVariants && t("translate.menu")}
+        </button>
+      )}
+      {translateDialog}
 
       {/* Language picker for creating a new variant */}
       <LanguageSelectDialog
@@ -718,13 +794,6 @@ export function VariantTabBar({ compact = false, destination = "/app/worlds/$wor
       />
       </div>
 
-      {/* 主/副 explainer — only when a language actually has multiple versions */}
-      {hasPrimarySecondary && (
-        <p className="flex items-center gap-1.5 px-3 pb-1.5 text-[11px] leading-snug text-muted-foreground/70">
-          <Star className="h-3 w-3 shrink-0 fill-[#C9A25E] text-[#C9A25E]" />
-          {t("variantBar.primaryExplainer", "一种语言可以做好几个版本。带 ★ 的「主」是别人浏览时看到的那个；其它版本玩家点进卡片后也能选来玩。")}
-        </p>
-      )}
     </div>
   );
 }

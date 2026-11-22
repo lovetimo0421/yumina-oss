@@ -82,7 +82,13 @@ const envSchema = z.object({
     (v) => (typeof v === "string" ? ["1", "true", "on"].includes(v.trim().toLowerCase()) : v),
     z.boolean().default(false),
   ),
-  BETTER_AUTH_SECRET: z.string().min(1),
+  // The value in .env.example is public. Sessions, upload tokens and (without
+  // ENCRYPTION_KEY) stored API keys all hang on this secret, so a production
+  // server refuses to start with the placeholder rather than run forgeable.
+  BETTER_AUTH_SECRET: z.string().min(1).refine(
+    (value) => process.env.NODE_ENV !== "production" || value !== "your-secret-key-here",
+    "BETTER_AUTH_SECRET is still the placeholder from .env.example. Set a long random value.",
+  ),
   // Key material for encrypting stored BYOK API keys. Unset = derived from
   // BETTER_AUTH_SECRET (the historical behaviour, kept so existing rows keep
   // decrypting). Set it on a fresh install so rotating the auth secret never
@@ -168,6 +174,9 @@ const envSchema = z.object({
   DATABASE_QUERY_TIMEOUT_MS: z.coerce.number().int().min(1000).max(300_000).default(60_000),
   // Temporary diagnostic capture; zero disables it. Never opens a debug port.
   RUNTIME_CPU_PROFILE_SECONDS: z.coerce.number().int().min(0).max(180).default(0),
+  // Same capture, armed when the event loop stays saturated for a minute; at
+  // most one per process every six hours. Zero disables it.
+  RUNTIME_STALL_PROFILE_SECONDS: z.coerce.number().int().min(0).max(120).default(30),
   // PostHog analytics
   POSTHOG_API_KEY: z.string().default(""),
   POSTHOG_HOST: z.string().default("https://us.i.posthog.com"),
@@ -216,17 +225,36 @@ const envSchema = z.object({
   OPENROUTER_IMAGE_MAX_ACTIVE_PER_USER: z.coerce.number().int().min(1).max(50).default(4),
   // Daily supplier-cost reservation (USD); isolates image spend from chat.
   OPENROUTER_IMAGE_DAILY_BUDGET_USD: z.coerce.number().positive().default(25),
+  // One creator's own 24h image spend may use at most this share of that budget. Default 1 (no per-creator
+  // cap beyond the budget itself): at 0.2 a paying creator was stopped after ~20 pictures ($5) for the day and
+  // Studio batches stalled. Spend caps must sit far above normal heavy use; set this only to deliberately
+  // stop one person from using up the whole budget.
+  OPENROUTER_IMAGE_USER_SHARE: z.coerce.number().positive().max(1).default(1),
+  // The workbench tool lane (fal): its own fleet-wide 24h provider budget (USD), and one creator's share of it.
+  MEDIA_TOOLS_DAILY_BUDGET_USD: z.coerce.number().positive().default(300),
+  MEDIA_TOOLS_USER_SHARE: z.coerce.number().positive().max(1).default(0.2),
   RUNPOD_COMFY_ENDPOINT_ID: z.string().default(""),
   // Comfy Cloud workspace API key. Used only when GENERATION_PROVIDER is
   // "comfy-cloud"; otherwise RunPod, then COMFY_LOCAL_URL, is picked.
   COMFY_CLOUD_API_KEY: z.string().default(""),
   COMFY_CLOUD_URL: z.string().default("https://cloud.comfy.org"),
+  // Viggle (JST-2) scene model: AI scenes for the blockout builder. Empty
+  // hides the option.
+  VIGGLE_API_KEY: z.string().default(""),
   GENERATION_PROVIDER: z.enum(["", "runpod", "local", "comfy-cloud"]).default(""),
   // Our Comfy API deployments (https://<deployment>.run.comfy.app). The image
   // one serves 自定义生图 in place of the shared pool; the other is the
   // per-turn illustration build.
   COMFY_IMAGE_DEPLOY_URL: z.string().default(""),
   COMFY_DEPLOY_URL: z.string().default(""),
+  // The live-character build (comfyui_yumina_rig: layer split + rig build);
+  // its edit-model drawings run on COMFY_IMAGE_DEPLOY_URL.
+  COMFY_RIG_DEPLOY_URL: z.string().default(""),
+  // LoRA training (comfyui_yumina_lora_train: kohya sd-scripts on Anima Base). Its dataset drawings and
+  // sample pictures run on COMFY_IMAGE_DEPLOY_URL.
+  COMFY_TRAIN_DEPLOY_URL: z.string().default(""),
+  // "1": creators train their own Anima LoRAs in the workbench (lib/lora-train). Off: no UI, no routes.
+  LORA_TRAINING: z.string().default(""),
   // Platform styles marked optIn (e.g. anime-story) are offered only when
   // listed here (comma-separated slugs), once the deployment carries them.
   IMAGE_OPT_IN_STYLES: z.string().default(""),
@@ -274,6 +302,35 @@ const envSchema = z.object({
   // The SDXL checkpoint for explicit moments, when it differs from
   // PER_TURN_IMAGE_CHECKPOINT. Same LoRAs and sampling.
   PER_TURN_IMAGE_EXPLICIT_CHECKPOINT: z.string().default(""),
+  // The players' "detailed" style (Settings › Story illustrations): Anima's
+  // full model, e.g. anima-aesthetic-v1.1.safetensors, drawn instead of
+  // PER_TURN_IMAGE_ANIMA_MODEL. Empty: the style isn't offered.
+  PER_TURN_IMAGE_ANIMA_DETAILED_MODEL: z.string().default(""),
+  // "steps:cfg:sampler:scheduler" for it. Empty: 30:4:er_sde:simple (its card).
+  PER_TURN_IMAGE_ANIMA_DETAILED_SAMPLING: z.string().default(""),
+  // The players' "vivid" style: an Illustrious checkpoint (e.g.
+  // waiIllustriousSDXL_v170.safetensors) for one-person pictures; two or more
+  // people stay on Anima. Empty: the style isn't offered.
+  PER_TURN_IMAGE_VIVID_CHECKPOINT: z.string().default(""),
+  // "steps:cfg:sampler:scheduler" for it. Empty: 20:5:euler_ancestral:normal
+  // (as good as 28 steps on 4 real turns, ~6.5s; bench 2026-11-14).
+  PER_TURN_IMAGE_VIVID_SAMPLING: z.string().default(""),
+  // "1": authors bind Anima LoRAs to a card (art style) and its characters,
+  // players to their persona, and story illustrations are drawn with them.
+  // The LoRAs are uploaded to the Comfy Cloud workspace library. Off: no UI,
+  // no import on Comfy, bindings are ignored.
+  TURN_IMAGE_LORAS: z.string().default(""),
+  // "1": the workbench's custom images take creators' LoRAs on Comfy Cloud too
+  // (SDXL-family LoRAs on the SDXL styles, Anima LoRAs on the Anima styles),
+  // uploaded to the same workspace library. Off: platform models only, as before.
+  WORKBENCH_LORAS: z.string().default(""),
+  // Our storage keeps every LoRA; the Comfy library is a cache of them. A
+  // library file no row has drawn with for this many days is deleted from the
+  // library and uploaded again on its next use. 0: never evicted.
+  TURN_IMAGE_LORA_EVICT_DAYS: z.coerce.number().int().min(0).default(30),
+  // What one account may keep in the Comfy library for this.
+  TURN_IMAGE_LORA_MAX_PER_USER: z.coerce.number().int().min(1).default(20),
+  TURN_IMAGE_LORA_MAX_BYTES_PER_USER: z.coerce.number().int().min(1).default(4 * 1024 ** 3),
   // What a per-turn picture costs (mushies), and how many each account gets free.
   PER_TURN_IMAGE_PRICE_MUSHIES: z.coerce.number().min(0).default(12),
   PER_TURN_IMAGE_FREE_COUNT: z.coerce.number().int().min(0).default(5),
@@ -282,6 +339,8 @@ const envSchema = z.object({
   PER_TURN_IMAGE_MAX_PER_MINUTE: z.coerce.number().int().min(1).default(10),
   PER_TURN_IMAGE_MAX_ACTIVE_PER_USER: z.coerce.number().int().min(1).default(2),
   PER_TURN_IMAGE_DAILY_CAP: z.coerce.number().int().min(0).default(20_000),
+  // Pictures one save's card interface may ask for in a day (api.images.generate); 0 = no cap.
+  CARD_IMAGE_SESSION_DAILY_CAP: z.coerce.number().int().min(0).default(40),
   // Tagging models (comma-separated, tried in order). Empty = the built-in list.
   PER_TURN_TAG_MODEL: z.string().default(""),
   // Direct ComfyUI server (http://127.0.0.1:8188) — local development only.

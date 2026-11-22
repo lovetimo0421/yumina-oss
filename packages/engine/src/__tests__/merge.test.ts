@@ -174,16 +174,42 @@ describe("mergeWorldDefinition — fields", () => {
     expect(conflicts).toEqual([]);
   });
 
-  it("reports a settings conflict without changing the existing whole-field selection policy", () => {
+  it("merges settings key by key, reporting only a key changed both ways", () => {
     const original = { temperature: 0.7, maxTokens: 2000 } as WorldDefinition["settings"];
-    const localSettings = { ...original, temperature: 0.9 };
-    const { merged, conflicts } = mergeWorldDefinition(
+    const apart = mergeWorldDefinition(
       world({ settings: original }),
-      world({ settings: localSettings }),
+      world({ settings: { ...original, temperature: 0.9 } }),
       world({ settings: { ...original, maxTokens: 3000 } }),
     );
-    expect(merged.settings).toEqual(localSettings);
-    expect(conflicts).toEqual([{ collection: "field", id: "settings", reason: "both-edited" }]);
+    expect(apart.merged.settings).toEqual({ temperature: 0.9, maxTokens: 3000 });
+    expect(apart.conflicts).toEqual([]);
+    const clash = mergeWorldDefinition(
+      world({ settings: original }),
+      world({ settings: { ...original, temperature: 0.9 } }),
+      world({ settings: { ...original, temperature: 0.1 } }),
+    );
+    expect(clash.merged.settings).toEqual({ temperature: 0.9, maxTokens: 2000 });
+    expect(clash.conflicts).toEqual([{ collection: "field", id: "settings.temperature", reason: "both-edited" }]);
+  });
+
+  it("keeps both people's canvas moves and sticky notes", () => {
+    const note = (id: string, text: string) => ({ id, x: 0, y: 0, w: 100, h: 80, text });
+    const base = world({ graphLayout: { version: 1, nodes: { a: { x: 0, y: 0 }, b: { x: 0, y: 0 } }, notes: [note("n1", "old")] } });
+    const local = world({ graphLayout: { version: 1, nodes: { a: { x: 50, y: 0 }, b: { x: 0, y: 0 } }, notes: [note("n1", "old")] } });
+    const server = world({ graphLayout: { version: 1, nodes: { a: { x: 0, y: 0 }, b: { x: 9, y: 9 } }, notes: [note("n1", "edited"), note("n2", "theirs")] } });
+    const { merged, conflicts } = mergeWorldDefinition(base, local, server);
+    expect(merged.graphLayout).toEqual({ version: 1, nodes: { a: { x: 50, y: 0 }, b: { x: 9, y: 9 } }, notes: [note("n1", "edited"), note("n2", "theirs")] });
+    expect(conflicts).toEqual([]);
+  });
+
+  it("merges characters by id", () => {
+    const c = (id: string, name: string) => ({ id, name });
+    const { merged } = mergeWorldDefinition(
+      world({ characters: [c("a", "A")] } as Partial<WorldDefinition>),
+      world({ characters: [c("a", "A2")] } as Partial<WorldDefinition>),
+      world({ characters: [c("a", "A"), c("b", "B")] } as Partial<WorldDefinition>),
+    );
+    expect((merged as unknown as { characters: unknown[] }).characters).toEqual([c("a", "A2"), c("b", "B")]);
   });
 
   it("treats identical structural edits as agreement despite key order and omitted undefined keys", () => {
@@ -223,5 +249,63 @@ describe("mergeWorldDefinition — no ancestor (defensive)", () => {
     const server = world({ entries: [e("a", "A-user"), e("b", "B-agent")] });
     const { merged } = mergeWorldDefinition(null, local, server);
     expect(ids(merged.entries as any[]).sort()).toEqual(["a", "b"]);
+  });
+});
+
+describe("mergeWorldDefinition — keys outside the fixed lists", () => {
+  it("keeps unsaved local edits to uiDoc, continuity and tag colors when the server changed something else", () => {
+    const base = world({ uiDoc: { v: 1 } as any, continuity: { a: 1 } as any, customTagColors: { x: "red" }, description: "d" });
+    const local = world({ uiDoc: { v: 2 } as any, continuity: { a: 2 } as any, customTagColors: { x: "blue" }, description: "d" });
+    const server = world({ uiDoc: { v: 1 } as any, continuity: { a: 1 } as any, customTagColors: { x: "red" }, description: "agent" });
+    const { merged, conflicts } = mergeWorldDefinition(base, local, server);
+    expect(merged.uiDoc).toEqual({ v: 2 });
+    expect(merged.continuity).toEqual({ a: 2 });
+    expect(merged.customTagColors).toEqual({ x: "blue" });
+    expect(merged.description).toBe("agent");
+    expect(conflicts).toEqual([]);
+  });
+
+  it("honors a local removal of an optional field", () => {
+    const base = world({ systems: ["a"] });
+    const { merged } = mergeWorldDefinition(base, world({}), world({ systems: ["a"] }));
+    expect("systems" in merged).toBe(false);
+  });
+
+  it("merges worldbooks by id so two people editing different situations both land", () => {
+    const wb = (id: string, name: string) => ({ id, name }) as any;
+    const base = world({ worldbooks: [wb("w1", "One"), wb("w2", "Two")] });
+    const local = world({ worldbooks: [wb("w1", "One (me)"), wb("w2", "Two")] });
+    const server = world({ worldbooks: [wb("w1", "One"), wb("w2", "Two (them)"), wb("w3", "Three")] });
+    const { merged, conflicts } = mergeWorldDefinition(base, local, server);
+    expect((merged.worldbooks as any[]).map((w) => w.name)).toEqual(["One (me)", "Two (them)", "Three"]);
+    expect(conflicts).toEqual([]);
+  });
+
+  it("falls back to a whole-field merge when a collection has rows without ids", () => {
+    const base = world({ replyRules: [{ name: "old" }] as any });
+    const local = world({ replyRules: [{ name: "mine" }] as any });
+    const server = world({ replyRules: [{ name: "old" }] as any });
+    const { merged } = mergeWorldDefinition(base, local, server);
+    expect(merged.replyRules).toEqual([{ name: "mine" }]);
+  });
+});
+
+describe("mergeWorldDefinition — one entry, two people", () => {
+  it("keeps both when they changed different fields of the same entry", () => {
+    const base = world({ entries: [e("a", "old")] });
+    const local = world({ entries: [{ ...e("a", "old"), name: "Renamed" }] });
+    const server = world({ entries: [e("a", "their text")] });
+    const { merged, conflicts } = mergeWorldDefinition(base, local, server);
+    expect(merged.entries[0]).toMatchObject({ name: "Renamed", content: "their text" });
+    expect(conflicts).toEqual([]);
+  });
+
+  it("reports a conflict only for the same field changed both ways, keeping ours", () => {
+    const base = world({ variables: [{ id: "v", name: "hp", defaultValue: 1 }] as any });
+    const local = world({ variables: [{ id: "v", name: "hp", defaultValue: 2 }] as any });
+    const server = world({ variables: [{ id: "v", name: "HP", defaultValue: 3 }] as any });
+    const { merged, conflicts } = mergeWorldDefinition(base, local, server);
+    expect(merged.variables[0]).toMatchObject({ name: "HP", defaultValue: 2 });
+    expect(conflicts).toEqual([{ collection: "variables", id: "v", reason: "both-edited" }]);
   });
 });

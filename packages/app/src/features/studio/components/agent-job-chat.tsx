@@ -112,3 +112,33 @@ export function DigestProgress({ phase, source, done, total }: {
     </div>
   );
 }
+
+export const RIG_STAGES = ["start", "draw", "finish", "turn", "fit"] as const;
+
+/** While a picture becomes a live character (about half an hour): split into parts, the expressions and mouth
+ *  shapes drawn, put together, the head turns drawn by the video model, every layer fitted to them. */
+export function RigProgress({ stage, done, total, intro, lite }: { stage: (typeof RIG_STAGES)[number]; done: number; total: number; intro?: string;
+  /** the light character: no head turns or fit */
+  lite?: boolean }) {
+  const { t } = useTranslation("editor");
+  const stages = lite ? RIG_STAGES.slice(0, 3) : RIG_STAGES;
+  const at = stages.indexOf(stage);
+  const share = (Math.max(0, at) + ((stage === "draw" || stage === "turn") && total > 0 ? done / total : 0)) / stages.length;
+  return (
+    <div className="mt-1.5 flex flex-col gap-2 text-xs" data-agent-job="rig">
+      <p className="text-muted-foreground">{intro ?? t("studio.job.rigIntro")}</p>
+      <ol className="space-y-1">
+        {stages.map((s, i) => (
+          <li key={s} className={cn("flex items-center gap-2", i > at && "text-muted-foreground/60", i < at && "text-muted-foreground")}>
+            <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", i < at ? "bg-primary/60" : i === at ? "bg-primary animate-pulse" : "bg-muted-foreground/30")} />
+            <span className={cn(i === at && "font-medium text-foreground")}>{t(`studio.job.rigStep.${s}` as never)}</span>
+            {i === at && (s === "draw" || s === "turn") && total > 0 && <span className="tabular-nums text-muted-foreground">{done}/{total}</span>}
+          </li>
+        ))}
+      </ol>
+      <div className="h-1 overflow-hidden rounded-full bg-muted">
+        <div className="h-full rounded-full bg-primary transition-[width] duration-500" style={{ width: `${Math.round(share * 100)}%` }} />
+      </div>
+    </div>
+  );
+}

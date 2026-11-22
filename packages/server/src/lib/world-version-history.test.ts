@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { getTableConfig } from "drizzle-orm/pg-core";
 import { MAX_AUTO_VERSIONS_PER_WORLD, MAX_VERSIONS_PER_WORLD } from "@yumina/shared";
-import { user, worlds, worldPendingEdits, worldReviewSubmissions, worldVersions } from "../db/schema.js";
+import { user, worldCollaborators, worlds, worldPendingEdits, worldReviewSubmissions, worldVersions } from "../db/schema.js";
 import {
   captureAutomaticVersion,
   captureEditCheckpoint,
@@ -34,6 +34,7 @@ const schema = (content: string) => ({
   variables: [], firstMessage: content,
 });
 const action = { worldId: "world", creatorId: "owner", versionId: "target" };
+const restoreAction = { worldId: "world", userId: "owner", versionId: "target" };
 const transact = <T>(run: (tx: VersionExecutor) => Promise<T>) =>
   database.transaction((tx) => run(tx as unknown as VersionExecutor));
 
@@ -68,7 +69,7 @@ async function rejectsCode(run: () => Promise<unknown>, code: string) {
 
 describe("world version history with PostgreSQL", { concurrency: false }, () => {
   before(async () => {
-    for (const table of [user, worlds, worldPendingEdits, worldReviewSubmissions, worldVersions]) {
+    for (const table of [user, worlds, worldPendingEdits, worldReviewSubmissions, worldVersions, worldCollaborators]) {
       const config = getTableConfig(table);
       const columns = config.columns.map((column) => {
         const type = column.getSQLType().replace(/^vector\(\d+\)$/, "text");
@@ -79,7 +80,7 @@ describe("world version history with PostgreSQL", { concurrency: false }, () => 
     }
   });
   beforeEach(async () => {
-    await pg.exec('TRUNCATE "world_versions", "world_pending_edits", "world_review_submissions", "worlds", "user"');
+    await pg.exec('TRUNCATE "world_versions", "world_pending_edits", "world_review_submissions", "world_collaborators", "worlds", "user"');
     await database.insert(user).values({ id: "owner", name: "Owner", email: "owner@example.test", isBanned: false });
     await database.insert(worlds).values({
       id: "world", creatorId: "owner", name: "Current listing title", description: "Story",
@@ -132,7 +133,7 @@ describe("world version history with PostgreSQL", { concurrency: false }, () => 
     await rejectsCode(() => transact((tx) => makeVersionLive(tx, action)), "VERSION_NOT_APPROVED");
     assert.equal((await worldRow()).schema.firstMessage, "current");
     // It remains recoverable as an editable draft through the normal review path.
-    await transact((tx) => restoreVersionDraft(tx, action));
+    await transact((tx) => restoreVersionDraft(tx, restoreAction));
     assert.equal((await database.select().from(worldPendingEdits))[0]?.schema.firstMessage, "target");
     assert.equal((await worldRow()).schema.firstMessage, "current");
   });
@@ -297,7 +298,7 @@ describe("world version history with PostgreSQL", { concurrency: false }, () => 
     await pending("pending");
     await database.insert(worldReviewSubmissions).values({ id: "review", worldId: "world", groupKey: "world", submittedBy: "owner", decision: "pending", submissionType: "edit" });
     const beforeLive = await worldRow();
-    await transact((tx) => restoreVersionDraft(tx, action));
+    await transact((tx) => restoreVersionDraft(tx, restoreAction));
     const afterLive = await worldRow();
     assert.deepEqual(afterLive.schema, beforeLive.schema);
     assert.equal(afterLive.thumbnailUrl, beforeLive.thumbnailUrl);
@@ -314,12 +315,34 @@ describe("world version history with PostgreSQL", { concurrency: false }, () => 
     assert.equal(backups[0]?.schema.firstMessage, "unfinished");
   });
 
+  it("lets an editor collaborator restore, keeping the history the creator's, but never make a version live", async () => {
+    await version();
+    await database.insert(user).values([
+      { id: "editor", name: "Editor", email: "editor@example.test", isBanned: false },
+      { id: "viewer", name: "Viewer", email: "viewer@example.test", isBanned: false },
+    ]);
+    await database.insert(worldCollaborators).values([
+      { id: "c1", worldId: "world", userId: "editor", role: "editor", canPublish: true, status: "accepted" },
+      { id: "c2", worldId: "world", userId: "viewer", role: "viewer", canPublish: false, status: "accepted" },
+    ]);
+    await rejectsCode(() => transact((tx) => makeVersionLive(tx, { ...action, creatorId: "editor" })), "NOT_FOUND");
+    await rejectsCode(() => transact((tx) => restoreVersionDraft(tx, { ...restoreAction, userId: "viewer" })), "NOT_FOUND");
+    await rejectsCode(() => transact((tx) => restoreVersionDraft(tx, { ...restoreAction, userId: "stranger" })), "NOT_FOUND");
+    await transact((tx) => restoreVersionDraft(tx, { ...restoreAction, userId: "editor" }));
+    assert.equal((await database.select().from(worldPendingEdits))[0]?.schema.firstMessage, "target");
+    assert.equal((await database.select().from(worldPendingEdits))[0]?.createdBy, "owner");
+    const [backup] = (await database.select().from(worldVersions)).filter((v) => v.source === "backup");
+    assert.equal(backup?.createdBy, "owner");
+    assert.equal(backup?.actorId, "editor");
+    assert.equal((await worldRow()).schema.firstMessage, "current");
+  });
+
   it("restores legacy schema-only saves without erasing the effective working cover or rating", async () => {
     await version("target", "manual");
     await database.update(worldVersions).set({ ageRating: null, thumbnailUrl: null }).where(eq(worldVersions.id, "target"));
     await pending();
     await database.update(worldPendingEdits).set({ ageRating: "adult" }).where(eq(worldPendingEdits.worldId, "world"));
-    await transact((tx) => restoreVersionDraft(tx, { ...action, skipSafetySnapshot: true }));
+    await transact((tx) => restoreVersionDraft(tx, { ...restoreAction, skipSafetySnapshot: true }));
     const [draft] = await database.select().from(worldPendingEdits);
     assert.equal(draft?.schema.firstMessage, "target");
     assert.equal(draft?.thumbnailUrl, "draft.webp");
@@ -332,7 +355,7 @@ describe("world version history with PostgreSQL", { concurrency: false }, () => 
     await version("target", "manual");
     await database.update(worldVersions).set({ thumbnailUrl: null }).where(eq(worldVersions.id, "target"));
     await database.update(worlds).set({ status: "draft", isPublished: false }).where(eq(worlds.id, "world"));
-    await transact((tx) => restoreVersionDraft(tx, action));
+    await transact((tx) => restoreVersionDraft(tx, restoreAction));
     const world = await worldRow();
     assert.equal(world.schema.firstMessage, "target");
     assert.equal(world.thumbnailUrl, null);
@@ -357,7 +380,7 @@ describe("world version history with PostgreSQL", { concurrency: false }, () => 
     await database.insert(worldReviewSubmissions).values({ id: "review", worldId: "world", groupKey: "world", submittedBy: "owner", decision: "pending", submissionType: "edit" });
     await pg.exec("ALTER TABLE world_versions ADD CONSTRAINT fail_backup CHECK (source <> 'backup')");
     try {
-      await assert.rejects(() => transact((tx) => restoreVersionDraft(tx, action)));
+      await assert.rejects(() => transact((tx) => restoreVersionDraft(tx, restoreAction)));
       const [draft] = await database.select().from(worldPendingEdits);
       assert.equal(draft?.schema.firstMessage, "unfinished");
       assert.equal(draft?.status, "pending");

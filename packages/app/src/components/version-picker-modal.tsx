@@ -6,21 +6,6 @@ import { LANGUAGE_SHORT, variantRowLabels } from "@/lib/languages";
 import type { LanguageVariant } from "@/lib/languages";
 
 
-/**
- * The one version to start without asking: the only variant in the reader's
- * language (by base language, so zh-Hant readers count zh). Other variants
- * are translations they did not ask for; a chooser with a single option was
- * just a second click (launch QA). Null when there is a real choice.
- */
-export function soleCurrentLanguageVariant(
-  variants: readonly LanguageVariant[],
-  uiLanguage: string,
-): LanguageVariant | null {
-  const base = uiLanguage.split("-")[0];
-  const current = variants.filter((v) => (v.language ?? "").split("-")[0] === base);
-  return current.length === 1 ? current[0]! : null;
-}
-
 interface VersionPickerModalProps {
   open: boolean;
   onClose: () => void;
@@ -51,9 +36,11 @@ export function VersionPickerModal({
   const hasOtherLanguageVariants =
     variants.length > 1 && variants.some((v) => !isCurrentLang(v));
   const rowLabels = variantRowLabels(variants);
+  // The reader's language by default; the globe adds the others, the reader's own first
+  // (see SessionPickerModal).
   const displayedVariants =
     showAllLanguages || variantsInCurrentLanguage.length === 0
-      ? variants
+      ? [...variantsInCurrentLanguage, ...variants.filter((v) => !isCurrentLang(v))]
       : variantsInCurrentLanguage;
 
   useEffect(() => {
@@ -143,7 +130,7 @@ export function VersionPickerModal({
                 className={`flex h-5 w-5 items-center justify-center rounded-md transition-colors ${
                   showAllLanguages
                     ? "bg-primary/10 text-primary"
-                    : "text-muted-foreground/40 hover:bg-white/[0.04] hover:text-muted-foreground/70"
+                    : "text-muted-foreground/70 hover:bg-white/[0.04] hover:text-foreground"
                 }`}
               >
                 <Globe className="h-3 w-3" />

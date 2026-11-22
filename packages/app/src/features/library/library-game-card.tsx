@@ -1,9 +1,10 @@
 import { useDiscoverAccess } from "@/hooks/use-discover-access";
 import { selectWorldArtwork } from "@/lib/discover-world-artwork";
-import { Play, Heart, Trash2, Download, Pencil, Check, Loader2 } from "lucide-react";
+import { Play, Heart, Trash2, Download, Pencil, Check, Loader2, Users } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { WorldItem } from "@/stores/worlds";
 import { CroppedImage } from "@/lib/cover-crop";
+import { HalloweenSticker } from "@/components/halloween-decor";
 
 const CASTLE_ICON = "\u{1F3F0}";
 
@@ -28,6 +29,10 @@ interface LibraryGameCardProps {
   /** Short language tag shown before the title — set when the card has
    *  sibling language versions, which otherwise share one title. */
   languageBadge?: string | null;
+  /** One quiet line under the title, e.g. when it was last played. */
+  subtitle?: string | null;
+  /** People working on this card with its creator (shown on their own cards). */
+  collaboratorCount?: number;
 }
 
 export function LibraryGameCard({
@@ -44,6 +49,8 @@ export function LibraryGameCard({
   onCopyToProject,
   onToggleFavorite,
   languageBadge,
+  subtitle,
+  collaboratorCount,
   isFavorited,
   selectable,
   selected,
@@ -73,7 +80,7 @@ export function LibraryGameCard({
       onClick={handleCardClick}
     >
       <div
-        className={`library-overview-surface library-overview-surface--interactive relative mb-2 ${discoverPreview ? "aspect-[2/3]" : "aspect-[3/4]"} w-full overflow-hidden rounded-xl shadow-lg transition-all duration-200 ${
+        className={`library-overview-surface library-overview-surface--interactive library-game-card-cover relative mb-2 ${discoverPreview ? "aspect-[2/3]" : "aspect-[3/4]"} w-full overflow-hidden rounded-xl shadow-lg transition-all duration-200 ${
           !selectable ? "group-hover:shadow-[0_8px_25px_rgba(232,184,49,0.15)]" : ""
         } ${isFavorited ? "library-overview-surface--favorite" : ""} ${
           selectable && selected
@@ -81,6 +88,7 @@ export function LibraryGameCard({
             : ""
         }`}
       >
+        <HalloweenSticker seed={item.id} className="halloween-sticker--inside" />
         <div className="absolute inset-0 overflow-hidden">
           {item.thumbnailUrl ? (
             <CroppedImage
@@ -90,7 +98,7 @@ export function LibraryGameCard({
               src={item.thumbnailUrl}
               alt={item.name}
               crop={discoverPreview ? portrait.crop : item.coverCrop}
-              className="h-full w-full transition-[transform,filter] duration-700 ease-out will-change-transform group-hover:scale-105 group-hover:blur-[2px]"
+              className="h-full w-full transition-[transform,filter] duration-700 ease-out group-hover:scale-105 group-hover:blur-[2px]"
               decoding="async"
               width={480}
               height={720}
@@ -102,6 +110,11 @@ export function LibraryGameCard({
           )}
         </div>
 
+        {item.isPublished && (item.visibility === "followers" || item.visibility === "unlisted") && (
+          <span className="pointer-events-none absolute bottom-2 left-2 z-20 rounded-full bg-black/80 px-2 py-0.5 text-[10px] font-semibold text-white">
+            {t(item.visibility === "followers" ? "audience.followers" : "audience.unlisted")}
+          </span>
+        )}
         {hasUpdate && !selectable && (
           <div className="absolute top-2 right-2 z-20 h-3 w-3 rounded-full bg-blue-500 ring-2 ring-zinc-900" />
         )}
@@ -236,7 +249,16 @@ export function LibraryGameCard({
           <span className="mr-1 inline-block rounded bg-primary/15 px-1 py-px align-[1px] text-[10px] font-bold text-primary">{languageBadge}</span>
         )}
         {item.name}
+        {collaboratorCount ? (
+          <span
+            className="ml-1.5 inline-flex items-center gap-0.5 rounded bg-sky-500/15 px-1 py-px align-[1px] text-[10px] font-semibold text-sky-400"
+            title={t("collab.workingWith", { count: collaboratorCount, ns: "editor", defaultValue: "{{count}} people work on this with you" })}
+          >
+            <Users className="h-2.5 w-2.5" />{collaboratorCount}
+          </span>
+        ) : null}
       </h3>
+      {subtitle && <p className="library-game-card-subtitle mt-0.5 w-full truncate text-[11px] text-muted-foreground">{subtitle}</p>}
     </div>
   );
 }

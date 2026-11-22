@@ -16,6 +16,17 @@ const block = (titles: string[], hidden = 0): Block => ({
   sharedCount: 0,
 });
 
+test("card and module context reserve the full measured inline form height", () => {
+  for (const id of ["block:context", "block:m:chapter:context"]) {
+    const context: Block = { ...block([]), id, kind: "context" };
+    const chrome = { collapsed: false, expanded: false, contextRows: 2 };
+    const closed = blockHeight(context, chrome);
+    assert.equal(blockHeight(context, { ...chrome, expandedIds: new Set([id]) }), closed + OPEN_ROW_EDITOR_H);
+    assert.equal(blockHeight(context, { ...chrome, expandedIds: new Set([id]), editorHeights: new Map([[id, 740]]) }), closed + 740);
+    assert.equal(blockHeight(context, { ...chrome, editorHeights: new Map([[id, 740]]) }), closed, "closing releases the form's space");
+  }
+});
+
 test("collapsed is the head alone, whatever the mode", () => {
   assert.equal(blockHeight(block(["血量", "金钱"]), { collapsed: true, expanded: false }), BLOCK_HEAD_H);
 });

@@ -71,10 +71,23 @@ function escapeInlineScript(code: string): string {
   return code.replace(/<\/script/gi, "<\\/script");
 }
 
+/**
+ * A block that is already a whole document brings its own <head>, so the policy
+ * cannot ride in ours. It goes in ahead of everything the document says: right
+ * after the doctype when there is one (before it would drop the page into
+ * quirks mode), otherwise first. The parser files it under <head> either way,
+ * and a policy only binds what comes after it.
+ */
+function withEmbedPolicyFirst(documentHtml: string): string {
+  const policy = `<meta http-equiv="Content-Security-Policy" content="${HTML_EMBED_CSP}">`;
+  const doctype = /^\s*<!doctype[^>]*>/i.exec(documentHtml);
+  return doctype ? doctype[0] + policy + documentHtml.slice(doctype[0].length) : policy + documentHtml;
+}
+
 function buildHtmlEmbedSrcDoc(payload: HtmlEmbedPayload): string {
   const htmlBody = payload.html.trim();
   if (/<html[\s>]/i.test(htmlBody) || /<!doctype/i.test(htmlBody)) {
-    return htmlBody;
+    return withEmbedPolicyFirst(htmlBody);
   }
 
   const css = (payload.css ?? "").trim();
@@ -86,6 +99,7 @@ function buildHtmlEmbedSrcDoc(payload: HtmlEmbedPayload): string {
 <html>
   <head>
     <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="${HTML_EMBED_CSP}" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <style>
       html, body {
@@ -119,6 +133,15 @@ function buildHtmlEmbedSrcDoc(payload: HtmlEmbedPayload): string {
   </body>
 </html>`;
 }
+
+/**
+ * An html block comes from a card's description or from the model's reply, and
+ * runs script in a sandboxed frame. It may draw and load pictures, styles and
+ * libraries, but it cannot send anything out: no fetch/XHR/WebSocket, no form
+ * post. The same line the card interface sandbox draws (connect-src 'none').
+ * It must stay the first thing in <head> so it governs everything after it.
+ */
+const HTML_EMBED_CSP = "default-src https: data: blob: 'unsafe-inline' 'unsafe-eval'; connect-src 'none'; form-action 'none'; base-uri 'none'";
 
 function parseHtmlEmbed(code: string): HtmlEmbed {
   const trimmed = code.trim();
@@ -527,7 +550,9 @@ export function renderCommunityMarkdown(
   // earlier would sprinkle stray <br /> between <tr>/<td>, which the HTML
   // parser hoists out of the table and turns into blank rows.
   const tableBlocks: string[] = [];
-  let text = raw;
+  // One kind of line break: a post written on Windows ends its lines in \r\n, and the line rules below (headings,
+  // lists, rules, quotes) end at a bare \n, so its "## " headings showed as text (the 2026-11-16 launch post).
+  let text = raw.replace(/\r\n?/g, "\n");
 
   // Protect fenced code blocks
   text = text.replace(/```([\w-]*)\n?([\s\S]*?)```/g, (_match, lang, code) => {
@@ -724,8 +749,110 @@ export function renderCommunityMarkdown(
   return html;
 }
 
+/**
+ * Tags that only turn up when a description was written in HTML, the way
+ * creators bring them over from other sites (`<div style=…><img …>`).
+ */
+const HTML_DESCRIPTION_BLOCK_RE = /<(?:div|p|center|table|section|article|img|font|h[1-6])\b[^>]*>/i;
+const HTML_DESCRIPTION_TAG_RE = /<\/?(?:div|p|span|img|center|table|tr|td|th|h[1-6]|br|hr|section|article|ul|ol|li|font|blockquote|details|summary|b|i|u|strong|em|a)\b[^>]*>/gi;
+
+const HTML_DESCRIPTION_TAGS = [
+  "div", "span", "p", "img", "br", "hr", "strong", "em", "b", "i", "u", "s", "small", "sup", "sub",
+  "a", "center", "font", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "blockquote",
+  "table", "thead", "tbody", "tr", "th", "td", "details", "summary", "section", "article",
+  "figure", "figcaption", "pre", "code",
+];
+const HTML_DESCRIPTION_ATTRS = [
+  "style", "src", "alt", "title", "href", "target", "width", "height", "align", "color", "size",
+  "colspan", "rowspan", "open",
+];
+
+/**
+ * A description written in HTML rather than markdown. Markdown rendering
+ * escapes every tag, so these showed players their own source code
+ * (rinkujira, 11/06). Needs a block-level tag and at least two tags in all,
+ * so a stray `<br>` in a markdown blurb doesn't flip the whole text.
+ */
+export function isHtmlDescription(raw: string): boolean {
+  return HTML_DESCRIPTION_BLOCK_RE.test(raw) && (raw.match(HTML_DESCRIPTION_TAG_RE)?.length ?? 0) >= 2;
+}
+
+/**
+ * Render an HTML description as the creator wrote it: their tags and inline
+ * styles, sanitized (no scripts, handlers, classes or ids, so it can't reach
+ * the page's own styling). The caller contains it (`contain: paint`) so
+ * nothing positioned inside can leave the description box. Plain text lines
+ * between the tags still get markdown emphasis, images, links and headings,
+ * and keep their line breaks; the markup lines' own newlines are layout and
+ * add nothing.
+ */
+export function renderHtmlDescription(raw: string, options?: { theme?: MarkdownTheme }): string {
+  const themeStyles = MARKDOWN_THEME_STYLES[options?.theme ?? "light"];
+  const headingStyles: Record<number, string> = { 1: themeStyles.h1, 2: themeStyles.h2, 3: themeStyles.h3 };
+  const out: string[] = [];
+  // A run of text lines goes out as one box: creators wrap descriptions in
+  // flex columns, which would turn every line and <br> into its own item.
+  let text: string[] = [];
+  let blankBefore = false;
+  const flushText = () => {
+    if (text.length) out.push(`<div>${text.join("")}</div>`);
+    text = [];
+  };
+  for (const line of raw.replace(/<!--[\s\S]*?-->/g, "").split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) { blankBefore = true; continue; }
+    const markup = trimmed.startsWith("<") || trimmed.endsWith(">");
+    const heading = markup ? null : trimmed.match(/^(#{1,3})\s+(.+)$/);
+    if (markup) {
+      flushText();
+      out.push(trimmed);
+    } else if (heading) {
+      flushText();
+      const level = heading[1].length;
+      out.push(`<h${level} style="${headingStyles[level] ?? ""}">${applyInlineEmphasis(heading[2])}</h${level}>`);
+    } else {
+      const html = applyInlineImagesAndLinks(applyInlineEmphasis(trimmed));
+      text.push(text.length ? `${blankBefore ? "<br /><br />" : "<br />"}${html}` : html);
+    }
+    blankBefore = false;
+  }
+  flushText();
+
+  const body = DOMPurify.sanitize(out.join("\n"), {
+    ALLOWED_TAGS: HTML_DESCRIPTION_TAGS,
+    ALLOWED_ATTR: HTML_DESCRIPTION_ATTRS,
+    ALLOW_DATA_ATTR: false,
+    RETURN_DOM: true,
+  }) as HTMLElement;
+  for (const link of Array.from(body.querySelectorAll("a[href]"))) {
+    if ((link.getAttribute("href") ?? "").startsWith("/")) continue;
+    link.setAttribute("target", "_blank");
+    link.setAttribute("rel", "noopener noreferrer");
+  }
+  for (const image of Array.from(body.querySelectorAll("img"))) {
+    const src = image.getAttribute("src");
+    if (src) image.setAttribute("src", resolveMarkdownImageSrc(src));
+    image.setAttribute("loading", "lazy");
+    // Image hosts that refuse other sites' pages usually go by the referrer.
+    image.setAttribute("referrerpolicy", "no-referrer");
+  }
+  return body.innerHTML;
+}
+
 export function stripMarkdownForPreview(raw: string): string {
   return raw
+    // HTML descriptions: a one-line preview wants the words, not the tags.
+    // The list API cuts descriptions at 800 characters, so a tag or comment
+    // may be cut off before it closes.
+    .replace(/<!--[\s\S]*?(?:-->|$)/g, " ")
+    .replace(/<(?:style|script)\b[\s\S]*?(?:<\/(?:style|script)>|$)/gi, " ")
+    .replace(/<\/?[a-zA-Z][^>]*(?:>|$)/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#0?39;/g, "'")
+    .replace(/&amp;/g, "&")
     .replace(/```[\s\S]*?```/g, " ")
     .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, "$1")
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1")

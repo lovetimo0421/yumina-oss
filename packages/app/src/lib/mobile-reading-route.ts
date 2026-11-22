@@ -1,7 +1,9 @@
+import { isDiscoverAddress } from "./discover-genre";
+
 /** Mobile pages share Discover's document scrollport; games/editors keep panes.
  * Create starts at the picker, but can mount its editor at the same URL. */
 export function getMobileReadingPageId(pathname: string, search: { worldId?: unknown; view?: unknown } = {}, createPickerActive = true) {
-  if (pathname === "/" || /^\/app\/hub(?:\/|$)/.test(pathname)) return "hub-main";
+  if (isDiscoverAddress(pathname)) return "hub-main";
   // A world address (/@user/name-id) renders Discover with the preview open.
   if (/^\/@[^/]+\/[^/]+\/?$/.test(pathname)) return "hub-main";
   if (/^\/app\/community(?:\/|$)/.test(pathname)) return "community-main";

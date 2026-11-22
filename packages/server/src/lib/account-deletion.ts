@@ -23,7 +23,8 @@ import {
   verification,
 } from "../db/schema.js";
 import { env } from "./env.js";
-import { deleteObject, deletePrefix, isS3Configured } from "./s3.js";
+import { copyObject, deleteObject, deletePrefix, isS3Configured } from "./s3.js";
+import { copySharedCardAssets, handOverSharedCardAssets } from "./world-collaborators.js";
 import { redis } from "./redis.js";
 import { captureServerError, posthog } from "./posthog.js";
 import { invalidateSessionUser } from "./session-user-cache.js";
@@ -309,7 +310,7 @@ export async function getAccountDeletionPreflight(userId: string): Promise<Delet
     .where(
       and(
         eq(creatorEarnings.creatorId, userId),
-        sql`${creatorEarnings.status} NOT IN ('completed', 'refunded')`,
+        sql`${creatorEarnings.status} NOT IN ('completed', 'refunded', 'spent')`,
       ),
     )
     .limit(1);
@@ -936,6 +937,11 @@ export async function permanentlyDeleteAccount(
   options?: { verificationIdentifier?: string },
 ): Promise<void> {
   await assertAccountDeletionAllowed(userId);
+  // Images and sounds this account put into cards other people created move
+  // to those creators, or the cards would lose them with this storage. Files
+  // are copied now; owners change inside the transaction below.
+  const handOverStorage = { enabled: isS3Configured(), copy: (from: string, to: string) => copyObject(from, to) };
+  const handedOverCopies = await copySharedCardAssets(userId, handOverStorage);
   // The linked-guest scan reads the whole discovery_events table. Run it with
   // no locks held; the transaction re-checks only links received since.
   const knownDiscoveryGuests = await findLinkedDiscoveryGuests(db as unknown as Parameters<typeof findLinkedDiscoveryGuests>[0], userId);
@@ -984,7 +990,7 @@ export async function permanentlyDeleteAccount(
       .where(
         and(
           eq(creatorEarnings.creatorId, userId),
-          sql`${creatorEarnings.status} NOT IN ('completed', 'refunded')`,
+          sql`${creatorEarnings.status} NOT IN ('completed', 'refunded', 'spent')`,
         ),
       )
       .limit(1);
@@ -995,6 +1001,9 @@ export async function permanentlyDeleteAccount(
       );
     }
 
+    // Before the context reads this account's assets: handed-over ones are no
+    // longer its to purge.
+    await handOverSharedCardAssets(userId, handOverStorage, tx as unknown as Parameters<typeof handOverSharedCardAssets>[2], handedOverCopies);
     const lockedContext = await getDeletionContext(
       userId,
       tx as unknown as QueryExecutor,
@@ -1222,6 +1231,7 @@ export async function permanentlyDeleteAccount(
       UNION SELECT 'post', post_id FROM post_likes WHERE user_id = ${userId}
       UNION SELECT 'poll_option', option_id FROM poll_votes WHERE user_id = ${userId}
       UNION SELECT 'playthrough', playthrough_id FROM shared_playthrough_likes WHERE user_id = ${userId}
+      UNION SELECT 'image_post', post_id FROM image_post_likes WHERE user_id = ${userId}
       UNION SELECT 'extension', extension_key FROM extension_reviews WHERE user_id = ${userId}
       UNION SELECT 'extension', extension_key FROM extension_ratings WHERE user_id = ${userId}
       ON CONFLICT DO NOTHING
@@ -1351,7 +1361,7 @@ export async function permanentlyDeleteAccount(
     `);
     await tx.execute(sql`
       UPDATE reviews parent SET
-        reply_count = (SELECT count(*)::int FROM review_replies row WHERE row.review_id = parent.id)
+        reply_count = (SELECT count(*)::int FROM review_replies row WHERE row.review_id = parent.id AND row.deleted_at IS NULL)
       WHERE parent.id IN (SELECT id FROM account_deletion_affected WHERE kind = 'review')
     `);
     await tx.execute(sql`
@@ -1392,6 +1402,11 @@ export async function permanentlyDeleteAccount(
       UPDATE shared_playthroughs parent SET
         like_count = (SELECT count(*)::int FROM shared_playthrough_likes row WHERE row.playthrough_id = parent.id)
       WHERE parent.id IN (SELECT id FROM account_deletion_affected WHERE kind = 'playthrough')
+    `);
+    await tx.execute(sql`
+      UPDATE image_posts parent SET
+        like_count = (SELECT count(*)::int FROM image_post_likes row WHERE row.post_id = parent.id)
+      WHERE parent.id IN (SELECT id FROM account_deletion_affected WHERE kind = 'image_post')
     `);
     await tx.execute(sql`
       INSERT INTO extension_stats (extension_key, review_count, average_rating, updated_at)

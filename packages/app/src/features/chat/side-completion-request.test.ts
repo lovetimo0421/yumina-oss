@@ -51,3 +51,16 @@ test("the host uses fresh player preferences, ignores forged card overrides, and
   assert.equal(buildSideCompletionRequest({ ...params, context: undefined }, preferences).overrides, undefined);
   assert.equal(buildSideCompletionRequest({ ...params, model: "moonshotai/kimi-k2-0905" }, preferences).overrides?.repetitionPenalty, 1.08);
 });
+
+// e186b76ac: a call with no model fell to the server's Sonnet default.
+test("a call that names no model sends the player's own model, and only a card's own pick is marked as the card's", () => {
+  const messages = [{ role: "user" as const, content: "scene" }];
+  const unnamed = buildSideCompletionRequest({ messages }, { selectedModel: "openrouter/free" });
+  assert.equal(unnamed.model, "openrouter/free");
+  assert.equal(unnamed.modelSource, undefined, "the player's own pick is not a card pick");
+  assert.equal(buildSideCompletionRequest({ messages, model: "" }, { selectedModel: "openrouter/free" }).model, "openrouter/free");
+  assert.equal(buildSideCompletionRequest({ messages }, {}).model, undefined, "no pick at all: the server chooses a cheap default");
+  const named = buildSideCompletionRequest({ messages, model: "card/model" }, { selectedModel: "openrouter/free" });
+  assert.equal(named.model, "card/model");
+  assert.equal(named.modelSource, "card");
+});

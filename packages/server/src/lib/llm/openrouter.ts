@@ -1,9 +1,11 @@
 import { createHash } from "node:crypto";
+import { isContentFilterFinishReason } from "./stop-reason.js";
 import type { LLMProvider, GenerateParams, StreamChunk, Model, ChatMessage, ToolCall } from "./types.js";
 import { LLM_CONNECTION_TIMEOUT_MS, LLM_REQUEST_TIMEOUT_MS, LLM_STREAM_INACTIVITY_TIMEOUT_MS } from "./constants.js";
 import { clampTemperatureForModel, clampTopKForModel, repetitionPenaltyForModel } from "./sampling-limits.js";
 import { parseClaudeVersion } from "./anthropic-thinking.js";
 import { normalizeProviderCostUsd } from "../provider-cost.js";
+import { MODEL_THINKING } from "@yumina/shared";
 
 const OPENROUTER_BASE = "https://openrouter.ai/api/v1";
 
@@ -57,13 +59,7 @@ const CONTEXT_COMPRESSION_PLUGIN = [{ id: "context-compression" }];
  * "stopped unexpectedly" branch and lose the CONTENT_FILTER classification.
  * RECITATION is copyright, not policy — it stays on the generic path.
  */
-const CONTENT_FILTER_FINISH_REASONS = new Set([
-  "safety", "content_filter", "prohibited_content", "blocklist", "spii",
-  "image_safety", "image_prohibited_content",
-]);
-export function isContentFilterFinishReason(fr: string | null | undefined): boolean {
-  return !!fr && CONTENT_FILTER_FINISH_REASONS.has(fr.toLowerCase());
-}
+export { isContentFilterFinishReason };
 
 /**
  * finish_reason or OpenRouter's pass-through native_finish_reason says the
@@ -130,6 +126,47 @@ function reasoningHeadroom(effort: string | undefined): number {
     case "xhigh": return 65536;
     default: return 0; // unrecognized / undefined / "none" → no headroom
   }
+}
+
+/** Doubao Seed 2.x reasons before every reply unless told not to: 20-40 s per
+ *  turn, and a short `max_tokens` (a card's 300-token side call) can end with
+ *  the whole budget spent on reasoning and no content. With reasoning off it
+ *  answers in ~2 s at the same quality (2026-10-23 probe: roleplay with a
+ *  state directive, Avalon talk and JSON votes). A turn that asks for an
+ *  effort still gets one. */
+function reasoningOffByDefault(model: string): boolean {
+  // Hunyuan 4 thinks by drafting the whole reply first: 30-60 s before the first word, and a third of turns came back
+  // empty when the thinking used up max_tokens (2026-11-12 blind test). Off unless the player turns it on.
+  // Hunyuan 4 Flash (2026-11-16) thinks 1-3k tokens before a word and spent a whole 2,048-token summary budget
+  // thinking in 6 of 6 calls; with reasoning off it answered every time in ~1.2 s.
+  return model.startsWith("bytedance-seed/") || model === "tencent/hy4" || model === "tencent/hy4-flash";
+}
+
+/** The effort a model thinks at when the turn names none (or asks for "none" on a model that cannot stop
+ *  thinking). Inkling 2 Small must think; at its own default it thought longer and wrote worse roleplay than at
+ *  low (2026-11-14 blind test 6.33 vs 6.89, Chinese first words 6-11 s vs 0.5-3 s).
+ *  Gemini 4 Neon must think too; at its medium default it was slower (first words 23 s vs 14 s), cost a
+ *  quarter more, scored no better (2026-11-20 blind test 7.05 vs 7.75) and once spent a whole 4,096-token
+ *  turn thinking with no reply, since no effort means no reasoning headroom. */
+const DEFAULT_REASONING_EFFORT: Readonly<Record<string, string>> = {
+  "thinkingmachines/inkling-2-small": "low",
+  "google/gemini-4-neon": "low",
+};
+function withDefaultEffort(params: GenerateParams): GenerateParams {
+  const effort = DEFAULT_REASONING_EFFORT[params.model];
+  if (!effort || params.disableReasoning) return params;
+  if (params.reasoningEffort && params.reasoningEffort !== "none") return params;
+  return { ...params, reasoningEffort: effort };
+}
+
+/** Whether this request goes out with reasoning switched off. An effort of
+ *  "none" is a player's 「关闭」 (or a side call's): off, except on a model
+ *  measured to need its thinking, which keeps its own default rather than
+ *  spend a 400 on every turn (MODEL_THINKING). */
+function reasoningDisabled(params: GenerateParams): boolean {
+  return !!params.disableReasoning
+    || (params.reasoningEffort === "none" && MODEL_THINKING[params.model] !== "always")
+    || (reasoningOffByDefault(params.model) && !params.reasoningEffort);
 }
 
 /** Hard cap on the effective `max_tokens` we send upstream. Most models accept
@@ -209,9 +246,21 @@ const EMPTY_REPLY_HOSTS: Record<string, readonly string[]> = {
   "deepseek/deepseek-v4.1-flash": ["open-inference"],
 };
 
+/** GLM 5.3 on English roleplay slips Chinese words into replies, and how often
+ *  depends on the host. 2026-11-12, served provider (OpenRouter /generation)
+ *  for 200 replies with 3+ Chinese characters vs 220 clean ones:
+ *  PrimeIntellect 27/11, CoreWeave 23/10, InferenceNet 45/28,
+ *  OpenInference 21/14; Wafer 2/10, KT 5/16, Friendli 5/16, DeepInfra 5/13.
+ *  Skip the first four; prefer Wafer, which is also the cheapest endpoint for
+ *  both SKUs, and let OpenRouter fall back to the rest. */
+const GLM53_MODELS: ReadonlySet<string> = new Set(["z-ai/glm-5.3", "z-ai/glm-5.3-flash"]);
+const GLM53_PROVIDER_ORDER = ["wafer"];
+const GLM53_DRIFTING_HOSTS = ["primeintellect", "coreweave", "inference-net", "open-inference"];
+
 /** Build the `provider` routing preferences for one request attempt, merging
  *  the static per-model rules (Claude first-party pin, Bedrock cache_control
- *  avoidance, Gemini AI-Studio preference, known empty-reply hosts) with
+ *  avoidance, Gemini AI-Studio preference, GLM 5.3 host choice, known
+ *  empty-reply hosts) with
  *  dynamic exclusions collected
  *  by the retry loop from previous failed attempts. Returns undefined when
  *  there is nothing to send. Exported for tests. */
@@ -237,6 +286,10 @@ export function providerRoutingFor(
     if (isGeminiModel(model)) {
       order = GEMINI_PROVIDER_ORDER;
       if (VERTEX_BROKEN_MODELS.has(model)) ignore.add(GOOGLE_VERTEX_SLUG);
+    }
+    if (GLM53_MODELS.has(model)) {
+      order = GLM53_PROVIDER_ORDER;
+      for (const host of GLM53_DRIFTING_HOSTS) ignore.add(host);
     }
   }
 
@@ -742,6 +795,7 @@ export class OpenRouterProvider implements LLMProvider {
    *  `excludeProviders` carries routing slugs of providers that already failed
    *  earlier attempts of this same request. */
   private async *streamOnce(params: GenerateParams, excludeProviders?: readonly string[]): AsyncIterable<StreamChunk> {
+    params = withDefaultEffort(params);
     // Non-streaming branch: user explicitly disabled streaming (e.g. to bypass
     // filters on upstream proxies that moderate stream chunks differently).
     // Delegates to generateNonStream which yields equivalent StreamChunk events
@@ -785,7 +839,7 @@ export class OpenRouterProvider implements LLMProvider {
         messages: serialized,
         max_tokens: effectiveMaxTokens(
           params.maxTokens,
-          params.disableReasoning ? "none" : params.reasoningEffort,
+          reasoningDisabled(params) ? "none" : params.reasoningEffort,
           params.model,
         ),
         temperature: clampTemperatureForModel(params.model, params.temperature),
@@ -810,10 +864,10 @@ export class OpenRouterProvider implements LLMProvider {
             : params.tools,
         }),
         ...(params.toolChoice !== undefined && { tool_choice: params.toolChoice }),
-        // Background summaries explicitly disable reasoning; ordinary turns
-        // retain the existing semantics where a stored "none" means provider
-        // default and an active effort opts into reasoning headroom.
-        ...(params.disableReasoning
+        // "none" (and background summaries' disableReasoning) switches
+        // reasoning off; an active effort opts into reasoning headroom.
+        // Doubao Seed thinks by default, so its "provider default" is off.
+        ...(reasoningDisabled(params)
           ? { reasoning: { effort: "none" } }
           : params.reasoningEffort && params.reasoningEffort !== "none"
             ? { reasoning: { effort: params.reasoningEffort } }
@@ -850,7 +904,7 @@ export class OpenRouterProvider implements LLMProvider {
       console.warn(
         `[OpenRouter] ${response.status} for ${params.model} — ${requestSignature(requestBody)}`,
       );
-      if (params.disableReasoning && !params.singleAttempt && isReasoningMandatoryError(response.status, error)) {
+      if (reasoningDisabled(params) && !params.singleAttempt && isReasoningMandatoryError(response.status, error)) {
         console.warn(`[OpenRouter] ${params.model} cannot disable reasoning; retrying at low effort`);
         yield* this.streamOnce(withMandatoryReasoning(params), excludeProviders);
         return;
@@ -1117,6 +1171,7 @@ export class OpenRouterProvider implements LLMProvider {
    * differently from full responses.
    */
   private async *generateNonStream(params: GenerateParams, excludeProviders?: readonly string[]): AsyncIterable<StreamChunk> {
+    params = withDefaultEffort(params);
     const serialized = normalizeSystemPlacement(
       avoidClaudePrefill(params.messages.map(serializeMessage), params.model),
       params.model,
@@ -1149,7 +1204,7 @@ export class OpenRouterProvider implements LLMProvider {
           messages: serialized,
           max_tokens: effectiveMaxTokens(
             params.maxTokens,
-            params.disableReasoning ? "none" : params.reasoningEffort,
+            reasoningDisabled(params) ? "none" : params.reasoningEffort,
             params.model,
           ),
           temperature: clampTemperatureForModel(params.model, params.temperature),
@@ -1169,7 +1224,7 @@ export class OpenRouterProvider implements LLMProvider {
               : params.tools,
           }),
           ...(params.toolChoice !== undefined && { tool_choice: params.toolChoice }),
-          ...(params.disableReasoning
+          ...(reasoningDisabled(params)
             ? { reasoning: { effort: "none" } }
             : params.reasoningEffort && params.reasoningEffort !== "none"
               ? { reasoning: { effort: params.reasoningEffort } }
@@ -1208,7 +1263,7 @@ export class OpenRouterProvider implements LLMProvider {
       console.warn(
         `[OpenRouter] ${response.status} for ${params.model} (non-stream) — ${requestSignature(requestBody)}`,
       );
-      if (params.disableReasoning && !params.singleAttempt && isReasoningMandatoryError(response.status, error)) {
+      if (reasoningDisabled(params) && !params.singleAttempt && isReasoningMandatoryError(response.status, error)) {
         console.warn(`[OpenRouter] ${params.model} cannot disable reasoning; retrying at low effort (non-stream)`);
         yield* this.generateNonStream(withMandatoryReasoning(params), excludeProviders);
         return;

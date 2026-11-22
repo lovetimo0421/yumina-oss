@@ -1062,7 +1062,7 @@
     "saveTitle": "保存（Ctrl+S）",
     "saveTooltip": "保存 (Ctrl+S)",
     "publish": "发布",
-    "publishTooltip": "发布到发现页",
+    "publishTooltip": "发布设置",
     "publishUpdate": "更新发布",
     "publishUpdateTooltip": "更新已发布作品的信息",
     "play": "开始游戏",
@@ -1107,12 +1107,11 @@
     "customUI": "自定义 UI",
     "audio": "音频",
     "sceneImages": "场景图",
-    "assets": "资源",
-    "overview": "概览",
+    "assets": "素材",
+    "overview": "卡的设置",
     "bundles": "资源包",
-    "aiGeneration": "AI 生成",
-    "packs": "玩法包",
-    "backgrounds": "背景图"
+    "aiGeneration": "工坊",
+    "backgrounds": "聊天背景"
   },
   "kb": {
     "bindingsTab": "前端控制的词条",
@@ -2048,7 +2047,7 @@
     "notPublished": "尚未发布"
   },
   "assetPicker": {
-    "title": "资源",
+    "title": "素材",
     "searchPlaceholder": "搜索...",
     "uploadButton": "上传",
     "uploadingButton": "上传中...",
@@ -2453,7 +2452,7 @@
     "stage": {
       "tabBlueprint": "故事",
       "tabFrontend": "玩家界面",
-      "tabGeneration": "AI 生成",
+      "tabGeneration": "工坊",
       "toStage": "画布工作台——画布铺满整个工作室",
       "toClassic": "切换到旧版面板布局",
       "collapse": "收起",
@@ -2520,16 +2519,15 @@
       "frontEndCode": "前端代码",
       "audio": "音频",
       "sceneImages": "场景图",
-      "assets": "资源",
-      "overview": "概览",
+      "assets": "素材",
+      "overview": "卡的设置",
       "previewControls": "预览控制",
       "canvas": "界面预览",
       "aiAssistant": "创作助手",
       "playtest": "测试",
       "marketplace": "资源市场",
-      "aiGeneration": "AI 生成",
-      "packs": "玩法包",
-      "backgrounds": "背景图"
+      "aiGeneration": "工坊",
+      "backgrounds": "聊天背景"
     },
     "layouts": {
       "blueprint": "画布",
@@ -2835,7 +2833,7 @@
       "customComponent": "自定义组件",
       "messageRenderer": "消息渲染器",
       "audio": "音频",
-      "asset": "资源",
+      "asset": "素材",
       "template": "模板",
       "settings": "设置",
       "entityCat": "实体",
@@ -2921,6 +2919,9 @@
         "update_settings": "改设置",
         "load_skill": "查阅说明",
         "list_assets": "浏览素材",
+        "view_asset": "查看图片",
+        "set_cover": "设为封面",
+        "list_voices": "查找声音",
         "browse_assets": "浏览素材",
         "compile_tsx": "检查界面代码",
         "generate_image": "画一张图",
@@ -2929,7 +2930,8 @@
         "analyze_token_cost": "估算用量",
         "validate_ui_blueprint": "检查界面",
         "list_templates": "浏览模板",
-        "other": "其他步骤"
+        "other": "其他步骤",
+        "screenshot_ui": "看画面"
       },
       "field": {
         "name": "名称",
@@ -4625,11 +4627,11 @@
         "fileExists": "同名文件已存在",
         "confirmDelete": "确定要删除 {{name}} 吗？",
         "confirmUninstall": "确定要卸载「{{name}}」吗？这会删除它下面的所有文件。",
-        "uninstall": "卸载这个 bundle",
+        "uninstall": "卸载这个资源包",
         "lines": "行",
         "chars": "字符",
         "files": "个文件",
-        "composerNote": "自动生成（装/卸 bundle 时自动重写，不要手改）",
+        "composerNote": "自动生成（装/卸资源包时自动重写，不要手改）",
         "composerShow": "查看",
         "composerHide": "收起"
       },
@@ -4799,7 +4801,7 @@
     "cropSize": "裁剪尺寸",
     "cardCover": "卡片封面",
     "galleryPreview": "画廊预览",
-    "detailHeroPreview": "详情横幅 · 16:5",
+    "detailHeroPreview": "详情横幅 · 21:9",
     "crop": {
       "hint": "调整此封面的裁剪，预览与发现页卡片一致。",
       "dragHint": "拖动或缩放裁剪框",
@@ -4809,7 +4811,11 @@
       "reset": "重置当前视图",
       "save": "保存裁剪",
       "phone": "竖版卡片 · 2:3",
-      "desktop": "横版图片 · 16:9",
+      "desktop": "画廊展示",
+      "galleryDesktop": "桌面横幅 · 21:9",
+      "galleryMobile": "手机及画廊卡片 · 16:9",
+      "galleryDevice": "画廊视图",
+      "galleryHint": "两个视图可分别调整。桌面横幅用于故事预览和书库详情；手机预览和横向卡片使用手机裁剪。",
       "framing": "构图",
       "wholeImage": "显示全图",
       "fillFrame": "填满画面",
@@ -4914,7 +4920,7 @@
       },
       "publish": {
         "title": "发布你的世界",
-        "body": "做好之后点右上角这里提交发布，通过审核后就会出现在大厅，让所有人都能游玩！"
+        "body": "选择谁可以游玩，然后提交审核。"
       },
       "save": {
         "title": "记得保存",
@@ -4942,7 +4948,7 @@
       },
       "publishM": {
         "title": "发布你的世界",
-        "body": "做好之后点上方这里提交发布，通过审核后就会出现在大厅，让所有人都能游玩！"
+        "body": "选择谁可以游玩，然后提交审核。"
       },
       "menuOpen": {
         "title": "栏目菜单",
@@ -5002,7 +5008,7 @@
       },
       "sPublish": {
         "title": "发布",
-        "body": "满意了就在这里提交发布，通过审核后会出现在发现页，让所有人都能玩。"
+        "body": "选择谁可以游玩，然后提交审核。"
       },
       "sAdvanced": {
         "title": "想要更多？",
@@ -5085,19 +5091,6 @@
     "before": "原图",
     "after": "处理后",
     "previewSentence": "雨把整座城压得很低。她没有回头，只是把伞往你这边偏了一点。"
-  },
-  "packs": {
-    "title": "玩法包",
-    "blurb": "一组能直接跑的变量、行为和词条，一次点击装进来。装进来的东西就是卡自己的内容——打得开、读得懂、改得动。",
-    "add": "装进这张卡",
-    "addedAgain": "已装 — 再装一次",
-    "installed": "已装「{{name}}」",
-    "countVariables": "{{count}} 变量",
-    "countBehaviors": "{{count}} 行为",
-    "countEntries": "{{count}} 词条",
-    "deterministic": "真变量——由引擎执行，换模型也不会失效。",
-    "promptOnly": "只是提示词——听不听由模型决定。要精确就用变量。",
-    "footnote": "包可以叠加，好感度和生存能装在同一张卡上。不想要了在资源市场页卸掉，它带来的东西会一起走。"
   },
   "reviewState": {
     "rejectReasons": {

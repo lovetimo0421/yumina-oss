@@ -117,3 +117,28 @@ test("a cancelled response body cannot clear the replacement line's loading stat
     assert.deepEqual(await second, { ok: false, reason: "cancelled" });
   } finally { h.stopSpeaking(); globalThis.fetch = original; }
 });
+
+test("prefetch synthesizes a card line without playing it, then speak of the same line plays", async () => {
+  const original = globalThis.fetch;
+  const bodies: Array<Record<string, unknown>> = [];
+  globalThis.fetch = async (_url: unknown, init?: RequestInit) => {
+    bodies.push(JSON.parse(String(init?.body ?? "{}")));
+    return new Response(JSON.stringify({ url: "/clip.mp3", cached: bodies.length > 1 }));
+  };
+  const h = harness();
+  try {
+    assert.deepEqual(await h.prefetchSpeech("session", { text: " 次の文。 ", voice: "b450b19370434173b121446057622e9b" }), { ok: true });
+    assert.equal(h.played.length, 0);
+    assert.equal(h.state(), null);
+    assert.equal(bodies[0]!.text, "次の文。");
+    assert.equal(bodies[0]!.voice, "b450b19370434173b121446057622e9b");
+    assert.equal(bodies[0]!.casting, undefined);
+    const receipt = h.speakMessage("session", { text: "次の文。", voice: "b450b19370434173b121446057622e9b", waitForEnd: true });
+    await flush();
+    assert.equal(h.played.length, 1);
+    assert.equal(bodies[1]!.text, bodies[0]!.text);
+    h.finish({ ok: true });
+    assert.deepEqual(await receipt, { ok: true });
+    assert.deepEqual(await h.prefetchSpeech("session", { text: "   " }), { ok: false, reason: "empty" });
+  } finally { h.stopSpeaking(); globalThis.fetch = original; }
+});

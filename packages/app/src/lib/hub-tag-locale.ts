@@ -8,5 +8,8 @@ export function currentTagLocale(): TagLocale {
   if (lang.startsWith("zh")) return "zh";
   if (lang.startsWith("ja")) return "ja";
   if (lang.startsWith("es")) return "es";
+  if (lang.startsWith("ko")) return "ko";
+  if (lang.startsWith("id")) return "id";
+  if (lang.startsWith("ru")) return "ru";
   return "en";
 }

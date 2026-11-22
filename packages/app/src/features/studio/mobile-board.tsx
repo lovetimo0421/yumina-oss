@@ -14,7 +14,8 @@
  * (The first phone canvas, 10/20, drew modules as a list of cards with no
  * wires; the owner: 「不够画布」. The board is the point.)
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { TemplateBlanksChip } from "./components/template-blanks-chip";
+import { useCallback, useEffect, useMemo, useState, type MutableRefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { blockId, blockIdForNode, isBlockId, toGraph, type GraphNode } from "@yumina/engine";
 import { useEditorStore } from "@/stores/editor";
@@ -23,7 +24,7 @@ import { BlueprintCanvasCore } from "./panels/blueprint-panel";
 import { BlueprintInspector, type InspectorTarget } from "./panels/blueprint/inspector";
 import { resolveCanvasInspectorNode } from "./panels/blueprint/canvas-inspector-target";
 import { placeAis } from "./panels/blueprint/place-ais";
-import { LEARNING_PANEL_EVENT } from "./learn/learning-catalog";
+import { LEARNING_PANEL_EVENT, LEARNING_PHONE_OPEN_EVENT } from "./learn/learning-catalog";
 
 type Translate = (key: string, opts?: Record<string, unknown>) => string;
 
@@ -44,13 +45,16 @@ function blockTitleKey(id: string): string | null {
   return kind && ["state", "behavior", "audio", "image"].includes(kind) ? `blueprint.blocks.${kind}` : null;
 }
 
-export function MobileBoard({ bottomInset = 0 }: {
+export function MobileBoard({ bottomInset = 0, backRef, onPageChange }: {
   /** Room the assistant's drawer keeps at the foot of the screen. */
   bottomInset?: number;
+  /** The shell's back arrow steps out of an open page before it leaves Studio. */
+  backRef?: MutableRefObject<(() => boolean) | null>;
+  onPageChange?: (open: boolean) => void;
 }) {
   const { t } = useTranslation("editor");
   const worldDraft = useEditorStore((s) => s.worldDraft);
-  const readOnly = useEditorStore((s) => s.readOnlyInspect);
+  const readOnly = useEditorStore((s) => s.readOnlyInspect || s.guestMode);
   const applyGraphPatch = useEditorStore((s) => s.applyGraphPatch);
   const [stack, setStack] = useState<string[]>([]);
   /** The board's tools (加东西, 情境目录, search, 视图), floating in its top
@@ -67,6 +71,25 @@ export function MobileBoard({ bottomInset = 0 }: {
   const pop = useCallback(() => setStack((s) => s.slice(0, -1)), []);
   // A new card is a new board: nothing of the last one stays open.
   useEffect(() => { setStack([]); }, [worldDraft.id]);
+  // The guide opens its sample the way a tap would.
+  useEffect(() => {
+    const show = (event: Event) => {
+      const { objectId } = (event as CustomEvent<{ objectId: string }>).detail;
+      if (objectId) open(objectId);
+    };
+    window.addEventListener(LEARNING_PHONE_OPEN_EVENT, show);
+    return () => window.removeEventListener(LEARNING_PHONE_OPEN_EVENT, show);
+  }, [open]);
+  // A lesson about the board itself brings the board back: pages a lesson
+  // opened earlier would otherwise stand over the thing being taught.
+  useEffect(() => {
+    const back = (event: Event) => {
+      const { panelId } = (event as CustomEvent<{ panelId: string }>).detail;
+      if (panelId === "board" || panelId === "blueprint") setStack([]);
+    };
+    window.addEventListener(LEARNING_PANEL_EVENT, back);
+    return () => window.removeEventListener(LEARNING_PANEL_EVENT, back);
+  }, []);
 
   const graph = useMemo(() => toGraph(worldDraft, { foldPlainEntries: false }), [worldDraft]);
 
@@ -103,6 +126,17 @@ export function MobileBoard({ bottomInset = 0 }: {
   useEffect(() => { if (page && !target) pop(); }, [page, target, pop]);
 
   const phone = useMemo(() => ({ onOpen: open }), [open]);
+  const pageOpen = stack.length > 0;
+  useEffect(() => { onPageChange?.(pageOpen); }, [pageOpen, onPageChange]);
+  useEffect(() => {
+    if (!backRef) return;
+    backRef.current = () => {
+      if (!pageOpen) return false;
+      pop();
+      return true;
+    };
+    return () => { backRef.current = null; };
+  }, [backRef, pageOpen, pop]);
 
   return (
     <div className="relative h-full min-h-0" data-mobile-board="">
@@ -120,11 +154,16 @@ export function MobileBoard({ bottomInset = 0 }: {
         data-phone-board-toolbar=""
         className={cn(
           "studio-pill absolute left-2 top-2 z-20 w-[244px] rounded-xl border p-0.5 shadow-lg backdrop-blur [container-type:inline-size]",
-          page && "hidden",
+          (page || readOnly) && "hidden",
         )}
       />
+      {/* 「还差 2 项」 on the board's free corner: the top bar is the card's
+          name, and on a phone there is no width left in it. */}
+      {!page && <TemplateBlanksChip className="studio-pill absolute right-2 top-2 z-20 rounded-xl py-2 shadow-lg backdrop-blur" />}
       {page && target && (
-        <div className="studio-canvas absolute inset-0 z-30 flex min-h-0 flex-col bg-background" data-mobile-board-page={page}>
+        // Above the assistant's drawer, like the board: under it the page's
+        // last lines sat behind the peek and read as cut off.
+        <div className="studio-canvas absolute inset-x-0 top-0 z-30 flex min-h-0 flex-col bg-background" style={{ bottom: bottomInset }} data-mobile-board-page={page}>
           <BlueprintInspector
             key={page}
             target={target}

@@ -11,6 +11,9 @@ const copy = {
   "zh-Hant": ["狀態更新守衛", "尚無檢查記錄。安裝後保護新產生的回覆。", "指令已驗證", "無需 AI 更新", "無需檢查", "檢查中", "修正中", "檢查失敗", "已取消", "已中斷或過期", "格式檢查不保證劇情判斷正確。自動規則仍可更新數值。使用 Yumina 付費模型儲存修正會扣除蘑菇。免費模型和自備 API 不扣蘑菇，但 API 服務商可能收費。", "指令", "修正次數", "關閉"],
   ja: ["状態更新ガード", "確認済みの返信はまだありません。インストール後の新しい返信が対象です。", "コマンド確認済み", "AIの更新なし", "確認不要", "確認中", "修正中", "失敗", "キャンセル済み", "中断・期限切れ", "形式の確認は物語の正確さを保証しません。自動ルールは値を更新できます。Yuminaの有料モデルで保存した修正にはマッシュが必要です。無料モデルと自分のAPIではマッシュを消費しませんが、APIプロバイダーの料金は発生する場合があります。", "コマンド", "修正回数", "閉じる"],
   es: ["Protección de estado", "Aún no hay respuestas comprobadas. Protege las respuestas nuevas tras instalarla.", "Comandos verificados", "Sin cambios de IA", "No necesario", "Comprobando", "Corrigiendo", "Falló", "Cancelado", "Interrumpido / caducado", "Comprobar el formato no garantiza la precisión narrativa. Las reglas automáticas siguen funcionando. Las correcciones guardadas con modelos de pago de Yumina cuestan mushies. Los modelos gratuitos y BYOK no descuentan mushies; tu proveedor de API puede cobrar.", "Comandos", "Correcciones", "Cerrar"],
+  ko: ["상태 업데이트 가드", "아직 확인한 답변이 없어요. 설치한 뒤 새로 생성되는 답변부터 보호해요.", "명령 확인됨", "AI 업데이트 없음", "확인 필요 없음", "확인 중", "수정 중", "실패", "취소됨", "중단됨 / 만료됨", "형식 확인으로 스토리의 정확성까지 보장할 수는 없어요. 자동 규칙은 여전히 값을 바꿀 수 있어요. 유료 Yumina 모델로 저장된 수정은 버섯코인이 차감돼요. 무료 모델과 BYOK는 버섯코인이 차감되지 않지만, BYOK는 제공업체 요금이 부과될 수 있어요.", "명령", "수정", "닫기"],
+  id: ["Penjaga Pembaruan Status", "Belum ada balasan yang dicek. Perlindungan berlaku untuk balasan baru setelah dipasang.", "Perintah dicek", "Tidak ada pembaruan AI", "Tidak perlu", "Mengecek", "Memperbaiki", "Gagal", "Dibatalkan", "Terputus / kedaluwarsa", "Pengecekan format tidak menjamin cerita akurat. Aturan otomatis tetap bisa mengubah nilai. Perbaikan yang disimpan dengan model Yumina berbayar memakai mushies. Model gratis dan BYOK tidak memotong mushies, tapi penyedia BYOK mungkin mengenakan biaya.", "Perintah", "Perbaikan", "Tutup"],
+  ru: ["Защита обновлений состояния","Проверенных ходов пока нет. Защита работает для новых ответов после установки.","Проверено команд","Обновления ИИ не нужны","Не требуется","Проверка","Исправление","Ошибка","Отменено","Прервано / устарело","Проверка формата не гарантирует точность сюжета. Автоматические правила всё равно могут менять значения. Сохранённые исправления с платными моделями Yumina стоят mushies. Бесплатные модели и BYOK не списывают mushies, но провайдер BYOK может взимать плату.","Команды","Исправления","Закрыть"],
 } as const;
 
 export function guardLabels(language?: string) {
@@ -27,6 +30,9 @@ const modelCopy = {
   "zh-Hant": ["劇情模型", "修正模型", "未呼叫", "未記錄"],
   ja: ["ストーリーモデル", "修正モデル", "呼び出しなし", "記録なし"],
   es: ["Modelo de historia", "Modelo de corrección", "No se llamó", "No registrado"],
+  ko: ["스토리 모델", "수정 모델", "호출 안 됨", "기록 없음"],
+  id: ["Model cerita", "Model perbaikan", "Tidak dipanggil", "Tidak tercatat"],
+  ru: ["Модель сюжета","Модель коррекции","Не вызывалась","Не записано"],
 } as const;
 
 function ModelRoles({ audit, language = "en" }: { audit: StateValidationAudit; language?: string }) {
@@ -40,12 +46,16 @@ function ModelRoles({ audit, language = "en" }: { audit: StateValidationAudit; l
 
 const statusCopy = {
   en: ["Fixed", "No fix needed"], zh: ["已修复", "无需修复"], "zh-Hant": ["已修復", "無需修復"],
-  ja: ["修正済み", "修正不要"], es: ["Corregido", "No necesita corrección"],
+  ja: ["修正済み", "修正不要"], es: ["Corregido", "No necesita corrección"], ko: ["수정됨", "수정 필요 없음"],
+  id: ["Diperbaiki", "Tidak perlu diperbaiki"],
+  ru: ["Исправлено","Исправлять не нужно"],
 } as const;
 
 const unverifiedCopy = {
   en: "Unchecked, applied as written", zh: "未检查，按原回复更新", "zh-Hant": "未檢查，按原回覆更新",
-  ja: "未確認、元の返信どおり更新", es: "Sin comprobar, aplicado como se escribió",
+  ja: "未確認、元の返信どおり更新", es: "Sin comprobar, aplicado como se escribió", ko: "확인 안 함, 원래 답변대로 적용",
+  id: "Tidak dicek, diterapkan apa adanya",
+  ru: "Не проверено, применено как есть",
 } as const;
 
 function historyStatus(audit: StateValidationAudit, language = "en") {
@@ -82,6 +92,9 @@ const historyCopy = {
   "zh-Hant": ["檢視記錄", "返回", "歷史記錄", "呼叫詳情", "之前", "之後", "AI 更新", "自動規則", "已套用", "未套用", "此舊呼叫未記錄前後數值。", "數值沒有變化。", "修正輸出", "數值預覽已縮短。", "此預覽省略了部分變化。", "已載入聊天訊息及已儲存備選回覆的檢查記錄。", "僅檢查，未額外呼叫模型。", "觸發方式", "傳送", "重新產生", "繼續"],
   ja: ["履歴を表示", "戻る", "履歴", "呼び出しの詳細", "変更前", "変更後", "AIの更新", "自動ルール", "適用済み", "未適用", "この古い呼び出しには変更前後の値が記録されていません。", "値の変更はありません。", "修正出力", "値のプレビューは省略されています。", "一部の変更は省略されています。", "読み込み済みメッセージと保存済み候補の確認履歴。", "追加のモデル呼び出しなしで確認しました。", "トリガー", "送信", "再生成", "続行"],
   es: ["Ver historial", "Volver", "Historial", "Detalles de la llamada", "Antes", "Después", "Cambios de IA", "Reglas automáticas", "Aplicado", "No aplicado", "Esta llamada antigua no registró los valores anteriores y posteriores.", "Sin cambios de valores.", "Salida de corrección", "Vista previa abreviada.", "Se omiten algunos cambios en esta vista previa.", "Comprobaciones de mensajes cargados y alternativas guardadas.", "Comprobado sin otra llamada al modelo.", "Activador", "enviar", "regenerar", "continuar"],
+  ko: ["기록 보기", "뒤로", "기록", "호출 상세", "이전", "이후", "AI 업데이트", "자동 규칙", "적용됨", "적용 안 됨", "이 예전 호출은 이전/이후 상세가 기록되지 않았어요.", "값 변경 없음.", "수정 결과", "값 미리보기가 줄여졌어요.", "일부 변경 사항은 이 미리보기에서 생략됐어요.", "불러온 채팅 메시지와 저장된 다른 답변에서 기록된 확인 내역이에요.", "추가 모델 호출 없이 확인했어요.", "트리거", "전송", "다시 생성", "이어 쓰기"],
+  id: ["Lihat riwayat", "Kembali", "Riwayat", "Detail panggilan", "Sebelum", "Sesudah", "Pembaruan AI", "Aturan otomatis", "Diterapkan", "Tidak diterapkan", "Detail sebelum/sesudah tidak tercatat untuk panggilan lama ini.", "Tidak ada perubahan nilai.", "Hasil perbaikan", "Pratinjau nilai dipersingkat.", "Sebagian perubahan tidak ditampilkan di pratinjau ini.", "Riwayat pengecekan dari pesan chat yang dimuat dan alternatif yang disimpan.", "Dicek tanpa panggilan model tambahan.", "Pemicu", "kirim", "buat ulang", "lanjutkan"],
+  ru: ["Посмотреть историю","Назад","История","Детали вызова","До","После","Обновления от AI","Автоматические правила","Применено","Не применено","Для этого старого вызова значения до и после не записывались.","Значения не изменились.","Результат исправления","Превью значений сокращено.","Часть изменений в этом превью не показана.","Записанные проверки по загруженным сообщениям чата и сохранённым вариантам ответа.","Проверено без дополнительного вызова модели.","Триггер","отправка","перегенерация","продолжение"],
 } as const;
 
 /** A separate settings → history → detail navigation flow, available even when Off. */

@@ -53,3 +53,25 @@ test("kana still wins over han, and Spanish still needs its markers", () => {
   assert.equal(detectLang("Alguien me dejó feedback sobre mi bot y sería genial poder responder."), "es");
   assert.equal(detectLang("Someone gave me a feedback on my bot and It would be really nice"), "en");
 });
+
+// Korean, Indonesian and Russian became UI languages in November 2026. Before
+// they were detected, every one of their posts fell through to "en": English
+// readers got the Korean text with no translation, and the post was never
+// translated into Korean either.
+test("Hangul is Korean, Cyrillic is Russian", () => {
+  assert.equal(detectLang("이 카드 정말 재밌어요! 엔딩이 너무 좋았습니다"), "ko");
+  assert.equal(detectLang("Gemini 3 Flash 너무 느려요"), "ko");
+  assert.equal(detectLang("한자 漢字 섞인 글도 한국어입니다"), "ko");
+  assert.equal(detectLang("Очень интересная карточка, спасибо автору!"), "ru");
+  assert.equal(detectLang("Grok 4.1 не отвечает уже час"), "ru");
+});
+
+test("Indonesian is told from English by its function words", () => {
+  assert.equal(detectLang("Ceritanya bagus banget, aku suka karakternya"), "id");
+  assert.equal(detectLang("Kenapa model ini tidak bisa dipakai lagi?"), "id");
+  assert.equal(detectLang("Terima kasih untuk update yang baru"), "id");
+  // Capitalised names that happen to be Indonesian words stay English.
+  assert.equal(detectLang("Ada Lovelace and Dan wrote this card for the event"), "en");
+  assert.equal(detectLang("I love this card, the ending is so good"), "en");
+  assert.equal(detectLang("Gemini 3 Flash is fast but Sonnet 4.6 writes better"), "en");
+});

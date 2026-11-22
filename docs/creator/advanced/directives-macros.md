@@ -1,8 +1,13 @@
+---
+title: "AI directives & macros"
+description: "The bracket directives the AI writes to change game state, the order the engine parses them in, and every macro you can drop into an entry."
+---
+
 <div v-pre>
 
 # AI Directives & Macros
 
-The AI writes a story. Embedded in that story are short instructions — `[health: -15]`, `[gold: +50]` — that the engine strips out before the player sees anything. The player reads a clean narrative while the game state changes behind the scenes.
+The AI writes a story. Embedded in that story are short instructions, like `[health: -15]` or `[gold: +50]`, that the engine strips out before the player sees anything. The player reads a clean narrative while the game state changes behind the scenes.
 
 Macros work the other way: placeholders like `{{char}}` and `{{user}}` in your entries that the engine fills in before the AI reads them.
 
@@ -16,9 +21,9 @@ Variables with **Precise tracking** on (new Number and Switch variables start wi
 
 ## Why directives exist
 
-In a tabletop RPG, the game master says "the goblin slashes your arm — take 15 damage" and the player erases a number on their sheet. In Yumina, the AI is the game master and the engine is the character sheet.
+In a tabletop RPG, the game master says "the goblin slashes your arm, take 15 damage" and the player erases a number on their sheet. In Yumina, the AI is the game master and the engine is the character sheet.
 
-The AI could just output "the player now has 85 health" — but then you'd need the engine to parse natural language, figure out which variable changed, and calculate the new value. That's fragile and unreliable.
+The AI could just output "the player now has 85 health", but then you'd need the engine to parse natural language, figure out which variable changed, and calculate the new value. That's fragile and unreliable.
 
 Instead, the AI writes a structured bracket at the end of its narrative:
 
@@ -61,10 +66,10 @@ Three parts inside the brackets: **which variable**, **what to do**, and **with 
 
 ### Value syntax rules
 
-- **Numbers**: bare digits — `10`, `3.5`, `-7`
-- **Strings**: double-quoted — `"forest"`, `"magic sword"`
-- **Booleans**: bare keywords — `true`, `false`
-- **JSON**: inline object or array — `{"level": 2}`, `[1, 2, 3]`
+- **Numbers**: bare digits, like `10`, `3.5`, `-7`
+- **Strings**: double-quoted, like `"forest"`, `"magic sword"`
+- **Booleans**: bare keywords, `true` or `false`
+- **JSON**: inline object or array, like `{"level": 2}`, `[1, 2, 3]`
 
 ### The shorthand trap
 
@@ -77,7 +82,7 @@ This is the most common source of confusion for new creators:
 [health: 10]      → SETS health to 10 (implicit set, NOT add)
 ```
 
-The leading symbol (`-`, `+`, `*`) determines the operation. **No symbol means set.** So `[health: 50]` doesn't add 50 — it replaces the current value with 50.
+The leading symbol (`-`, `+`, `*`) determines the operation. **No symbol means set.** So `[health: 50]` doesn't add 50. It replaces the current value with 50.
 
 To explicitly set a negative value (rare, but possible), write `[health: set -10]`.
 
@@ -101,13 +106,13 @@ The engine navigates the path automatically. If intermediate objects don't exist
 
 ## Audio directives
 
-Audio uses a similar bracket syntax — `[audio: track-id action]` — with actions like `play`, `stop`, `crossfade`, `volume`, and track chaining. For the complete audio directive reference with examples, see [Audio Design](/creator/advanced/audio-deep).
+Audio uses a similar bracket syntax, `[audio: track-id action]`, with actions like `play`, `stop`, `crossfade`, `volume`, and track chaining. For the complete audio directive reference with examples, see [Audio Design](/creator/advanced/audio-deep).
 
 ---
 
 ## The JSON Patch format
 
-For complex operations — especially removing items from arrays — the engine supports an XML-wrapped JSON Patch format. This is also the format used by worlds migrated from SillyTavern.
+For complex operations, especially removing items from arrays, the engine supports an XML-wrapped JSON Patch format. This is also the format used by worlds migrated from SillyTavern.
 
 ```xml
 <UpdateVariable target="inventory">
@@ -134,9 +139,9 @@ Paths use forward slashes (`/health`, `/inventory/0`) which the engine converts 
 ::: details When to use JSON Patch vs bracket directives
 Most of the time, bracket directives are simpler and the AI produces them more reliably. JSON Patch is useful for two specific cases:
 
-1. **Removing array elements by index** — `[inventory: delete 0]` works, but JSON Patch's `{"op": "remove", "path": "/0"}` is the format some AI models produce more consistently when dealing with arrays.
+1. **Removing array elements by index.** `[inventory: delete 0]` works, but JSON Patch's `{"op": "remove", "path": "/0"}` is the format some AI models produce more consistently when dealing with arrays.
 
-2. **Batch operations on a single variable** — when you need to update several fields in one JSON variable at once, a single JSON Patch block is cleaner than five separate bracket directives.
+2. **Batch operations on a single variable.** When you need to update several fields in one JSON variable at once, a single JSON Patch block is cleaner than five separate bracket directives.
 
 If you're writing behavior rules for the AI, tell it which format to use. Most worlds stick to bracket directives exclusively. Only introduce JSON Patch if you specifically need array removal and bracket syntax isn't working reliably.
 :::
@@ -147,24 +152,24 @@ If you're writing behavior rules for the AI, tell it which format to use. Most w
 
 When the AI sends back a response, the engine runs it through a parsing pipeline before the player sees anything. Knowing the order helps you debug directives that aren't being picked up.
 
-**Step 1 — Strip thinking tags.** Some models (like Gemini) output internal reasoning in `<thinking>...</thinking>` tags. The engine removes these first.
+**Step 1: Strip thinking tags.** Some models (like Gemini) output internal reasoning in `<thinking>...</thinking>` tags. The engine removes these first.
 
-**Step 2 — Extract JSON Patch blocks.** The engine scans for `<UpdateVariable>` XML blocks and converts them to internal effect operations. Directives that some models wrap in a fenced `json` code block are picked up at this stage too.
+**Step 2: Extract JSON Patch blocks.** The engine scans for `<UpdateVariable>` XML blocks and converts them to internal effect operations. Directives that some models wrap in a fenced `json` code block are picked up at this stage too.
 
-**Step 3 — Extract audio directives.** Anything matching `[audio: ...]` is pulled out and queued for the audio system.
+**Step 3: Extract audio directives.** Anything matching `[audio: ...]` is pulled out and queued for the audio system.
 
-**Step 4 — Extract JSON directives.** Bracket directives with a JSON value (`set`, `merge`, `push`, `delete`) are extracted. These are parsed first because their JSON payloads could contain characters that confuse the simpler regex. `[image: …]` embeds are left alone.
+**Step 4: Extract JSON directives.** Bracket directives with a JSON value (`set`, `merge`, `push`, `delete`) are extracted. These are parsed first because their JSON payloads could contain characters that confuse the simpler regex. `[image: …]` embeds are left alone.
 
-**Step 5 — Extract standard directives.** Everything matching `[var: op value]` — the add, subtract, set, toggle, and other simple operations.
+**Step 5: Extract standard directives.** Everything matching `[var: op value]`: the add, subtract, set, toggle, and other simple operations.
 
-**Step 6 — Clean the text.** All extracted directives are removed. Extra blank lines are collapsed. The result is clean narrative text plus a list of effects.
+**Step 6: Clean the text.** All extracted directives are removed. Extra blank lines are collapsed. The result is clean narrative text plus a list of effects.
 
 After that, any [Reply processing](/creator/reply-rules) rules run on the clean text. The engine applies the effects (along with what Precise tracking decided) and checks behaviors. The player sees the clean text.
 
 ::: details Why parsing order matters
 JSON directives are extracted before standard directives because a directive like `[stats: merge {"health": 50, "mana": 30}]` contains colons and numbers that the standard regex would misinterpret. By handling JSON patterns first, the engine avoids false matches.
 
-If a directive isn't being recognized, the most common cause is malformed JSON — an unmatched brace or a missing quote. The engine silently skips directives it can't parse rather than crashing.
+If a directive isn't being recognized, the most common cause is malformed JSON: an unmatched brace or a missing quote. The engine silently skips directives it can't parse rather than crashing.
 
 Full reference → [World Spec: Variables](/world-spec/variables)
 :::
@@ -195,7 +200,7 @@ These three cover most use cases. You'll use `{{char}}` and `{{user}}` in almost
 | `{{pick::a::b::c}}` | Stable selection — same result within a turn | `{{pick::red::blue::green}}` always gives the same color on the same turn |
 | `{{roll::NdS+M}}` | Dice roll: N dice, S sides, plus modifier M | `{{roll::2d6+3}}` might give 11 |
 
-**The difference between `random` and `pick`**: `random` re-rolls every time the macro is expanded, so the same entry expanded twice might give different results. `pick` uses a stable hash based on the macro's position in the entry and the current turn number — it gives the same result every time within a turn, but may change next turn.
+**The difference between `random` and `pick`**: `random` re-rolls every time the macro is expanded, so the same entry expanded twice might give different results. `pick` uses a stable hash based on the macro's position in the entry and the current turn number. It gives the same result every time within a turn, but may change next turn.
 
 Use `random` for variety (weather, crowd descriptions). Use `pick` when consistency within a turn matters (a character's outfit should be the same if referenced twice). Use `roll` when you want dice-based mechanics the AI can react to.
 
@@ -223,7 +228,7 @@ These are real-world time, not in-game time. Useful for worlds that blend real a
 
 ### Player persona macros
 
-Players create personas from the **Profile page → persona carousel** — named identities with appearance, personality, and backstory. When a persona is active, these macros pull from it:
+Players create personas from the **Profile page → persona carousel**: named identities with appearance, personality, and backstory. When a persona is active, these macros pull from it:
 
 | Macro | Expands to |
 |-------|-----------|
@@ -246,7 +251,7 @@ Players create personas from the **Profile page → persona carousel** — named
 
 ### Variable fallback
 
-If a macro name doesn't match any built-in macro, the engine checks if it matches a variable ID. If you have a variable with the ID `mood` and a current value of "suspicious", then `{{mood}}` expands to "suspicious". This only works for IDs made of plain letters, digits and underscores: `{{player_hp}}` works, `{{player-hp}}` doesn't. Variables added on the canvas get a random ID with hyphens, so give the variable a plain **ID** under **Advanced** in its settings before using it as a macro.
+If a macro name doesn't match any built-in macro, the engine checks if it matches a variable ID. If you have a variable with the ID `mood` and a current value of "suspicious", then `{{mood}}` expands to "suspicious". This only works for IDs made of plain letters, digits and `_`: `{{player_hp}}` works, `{{player-hp}}` doesn't. Variables added on the canvas get a random ID with hyphens, so give the variable a plain **ID** under **Advanced** in its settings before using it as a macro.
 
 If it matches neither a built-in macro nor a variable, the engine leaves `{{xxx}}` as-is. No errors, no crashes.
 
@@ -274,11 +279,11 @@ The player sees a combat scene. The numbers do the bookkeeping.
 
 Pair a number variable (`aria-trust`, 0-100) with entries gated on thresholds (Conditional lore on the canvas). The AI updates trust through directives, and the entry system automatically adjusts what the AI knows about the character's behavior at each stage:
 
-- Entry "Aria — Guarded" (condition: `aria-trust < 30`): formal, keeps distance
-- Entry "Aria — Warming" (condition: `aria-trust >= 30 AND < 60`): shares opinions, occasional smile
-- Entry "Aria — Close" (condition: `aria-trust >= 60`): vulnerable, protective, inside jokes
+- Entry "Aria: Guarded" (condition: `aria-trust < 30`): formal, keeps distance
+- Entry "Aria: Warming" (condition: `aria-trust >= 30 AND < 60`): shares opinions, occasional smile
+- Entry "Aria: Close" (condition: `aria-trust >= 60`): vulnerable, protective, inside jokes
 
-The AI uses directives to move the number: `[aria-trust: +5]` after a kind interaction. (With Precise tracking on, the tracking helper moves it instead.) The entry system decides which version of Aria the AI sees. Neither system knows about the other — they communicate through the variable.
+The AI uses directives to move the number: `[aria-trust: +5]` after a kind interaction. (With Precise tracking on, the tracking helper moves it instead.) The entry system decides which version of Aria the AI sees. Neither system knows about the other. They communicate through the variable.
 
 ### Dynamic scene descriptions with macros
 
@@ -318,9 +323,9 @@ The AI receives an actual number and can narrate accordingly, so the outcome com
 
 **Directives in the wrong place.** The engine already tells the AI to put directives at the end of its reply. If a model writes them inline anyway, the parsing still works, but it's harder to debug.
 
-**Expecting the AI to do math.** The AI writes `[health: -15]`. The engine does the subtraction. Don't write behavior rules like "calculate the new health value" — the AI just needs to emit the right directive and the engine handles the arithmetic, including min/max clamping.
+**Expecting the AI to do math.** The AI writes `[health: -15]`. The engine does the subtraction. Don't write behavior rules like "calculate the new health value". The AI just needs to emit the right directive and the engine handles the arithmetic, including min/max clamping.
 
-**JSON syntax errors in directives.** A mismatched brace or missing quote causes the engine to silently skip the directive. If a `merge` or `push` directive isn't being applied, check that the JSON payload is valid. The engine doesn't crash — it just moves on.
+**JSON syntax errors in directives.** A mismatched brace or missing quote causes the engine to silently skip the directive. If a `merge` or `push` directive isn't being applied, check that the JSON payload is valid. The engine doesn't crash. It just moves on.
 
 **Confusing `{{random}}` with `{{pick}}`.** If a character's eye color changes every time the entry is expanded, you used `random` when you meant `pick`. Use `pick` for stable attributes, `random` for intentional variety.
 
@@ -332,9 +337,9 @@ The AI receives an actual number and can narrate accordingly, so the outcome com
 
 ## See also
 
-- [Designing Game State](/creator/advanced/variables-deep) — choosing variable types and writing behavior rules
-- [Writing Great Entries](/creator/advanced/entries-deep) — using `{{macros}}` inside entries and conditional entry design
-- [Audio Design](/creator/advanced/audio-deep) — the complete audio directive reference
+- [Designing Game State](/creator/advanced/variables-deep): choosing variable types and writing behavior rules
+- [Writing Great Entries](/creator/advanced/entries-deep): using `{{macros}}` inside entries and conditional entry design
+- [Audio Design](/creator/advanced/audio-deep): the complete audio directive reference
 
 Directive syntax and operation specs → [World Spec: Variables](/world-spec/variables)
 

@@ -1,7 +1,7 @@
 import { resolveDisplayMacros } from "@/lib/resolve-display-macros";
 import { memo, useEffect, useState, type DragEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
-import { BookOpen, ChevronDown, ChevronUp, FolderMinus, FolderOpen, GripVertical, Link2, MessageCircle, MoreHorizontal, Pencil, Plus, Volume2 } from "lucide-react";
+import { BookOpen, ChevronDown, ChevronUp, FolderMinus, FolderOpen, GripVertical, Link2, Lock, MessageCircle, MoreHorizontal, Pencil, Plus, Volume2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { isPlaceholderCharacterName, portHandleId, rowHandleId, type WorldEntry } from "@yumina/engine";
 import { cn } from "@/lib/utils";
@@ -13,6 +13,7 @@ import { isLessonHello } from "@/lib/world-templates";
 import type { BlockRowView } from "./block-node";
 import { getEntryDeliverySummary } from "./entry-delivery";
 import { entryReadBy } from "./place-ais";
+import { previewText } from "./preview-text";
 
 export const CANVAS_WRITING_NODE_WIDTH = 420;
 export const CANVAS_WRITING_NODE_HEADER_HEIGHT = 40;
@@ -22,7 +23,7 @@ export const CANVAS_WRITING_ROW_HEIGHT = 96;
 /** Simple: the name alone. */
 export const CANVAS_WRITING_COMPACT_ROW_HEIGHT = 40;
 /** Open: the object's whole editor, in the row, at a height the board can
- *  count. The editor scrolls inside it, so typing never resizes the board. */
+ *  count. This is its minimum; measured form growth feeds back into board layout. */
 export const CANVAS_WRITING_OPEN_EDITOR_HEIGHT = 460;
 /** An opening's editor is one body of text and a picture button. At the
  *  full height a new card's one-line opening sat in a box the height of the
@@ -30,10 +31,9 @@ export const CANVAS_WRITING_OPEN_EDITOR_HEIGHT = 460;
 const OPENING_OPEN_EDITOR_HEIGHT = 320;
 const openEditorHeight = (kind: CanvasWritingNodeData["kind"]) =>
   kind === "opening" ? OPENING_OPEN_EDITOR_HEIGHT : CANVAS_WRITING_OPEN_EDITOR_HEIGHT;
-/** What sits around the text box of an open entry — when it is sent, when
- *  the AI uses it, the label above, the gap below (measured on the board,
- *  10/18) — and one line of its text. */
-const OPEN_EDITOR_CHROME = 180;
+/** What sits around the text box of an open entry — the line saying when it
+ *  is sent, the padding — and one line of its text. */
+const OPEN_EDITOR_CHROME = 100;
 const OPEN_EDITOR_LINE = 26;
 /** Latin characters to a line of the text box on a usual block; a CJK
  *  character counts two. An open row spans its block (about 860px at its
@@ -61,6 +61,14 @@ export function openEntryEditorHeight(kind: CanvasWritingNodeData["kind"], conte
   const shown = Math.ceil(lines / OPEN_EDITOR_STEP) * OPEN_EDITOR_STEP;
   return Math.min(max, OPEN_EDITOR_CHROME + shown * OPEN_EDITOR_LINE);
 }
+/** The text box's own share of that height, kept as its floor: a character
+ *  also carries its portrait, moving portrait and voice under the box (about
+ *  300px), and with the box free to shrink they took the text's room, leaving
+ *  a 1200-character persona two lines to be edited in (owner, 10/28). The row
+ *  still fits the whole form, because the board measures the open editor. */
+export function openEntryTextHeight(kind: CanvasWritingNodeData["kind"], content: string | undefined): number {
+  return Math.max(52, openEntryEditorHeight(kind, content) - OPEN_EDITOR_CHROME + OPEN_EDITOR_LINE);
+}
 const ROW_HEADER_HEIGHT = 40;
 const SLOT_HEIGHT = 24;
 
@@ -72,6 +80,8 @@ export interface WritingFolder {
   /** A group of a 条件触发 block (gate-groups.ts): which of the gating
    *  variable's values it is sent at, and whether the preview lights it. */
   gate?: { on: boolean[] | null; state?: "lit" | "dim" };
+  /** Kept by the author of the card this one was copied from: no name is sent. */
+  sealed?: { by: string; from?: string };
 }
 
 /** The preview strip of a block drawn as groups: drag the gating variable
@@ -145,6 +155,14 @@ export type CanvasWritingNodeData = Record<string, unknown> & {
   onDrill?: (objectId: string) => void;
   compact?: boolean;
   /**
+   * Zoomed out on a computer: the row keeps its full height but its text
+   * waits, drawn as two faint lines. Rows used to shrink to their names
+   * here (`compact`), and on a big card every row changing height at once
+   * re-packed the whole board under the pointer: it jumped up, down and
+   * sideways whenever a zoom crossed 72% or 90%. Same size, nothing moves.
+   */
+  quiet?: boolean;
+  /**
    * The block is its header and nothing under it: a phone's card opening,
    * one opening a block of its own used to say twice — 「开场」 over a row
    * named 「开场」, two rows of an 844px screen for one thing. The header
@@ -177,6 +195,7 @@ export type CanvasWritingNodeData = Record<string, unknown> & {
   selectedId?: string | null;
   /** Rows opened for editing in place, by object id. */
   expandedIds?: ReadonlySet<string>;
+  editorHeights?: ReadonlyMap<string, number>;
   /** The chevron on the right of every row, and the row itself. */
   onToggleExpand?: (objectId: string) => void;
   /** An open row's title is the name field: the one place it is changed, in
@@ -212,7 +231,7 @@ export type CanvasWritingNodeData = Record<string, unknown> & {
   onPickOpening?: (id: string) => void;
 };
 
-type WritingLayout = Pick<CanvasWritingNodeData, "kind" | "entries" | "compact" | "columns" | "hiddenCount" | "unfolded" | "openGroups" | "expandedIds" | "folders" | "presetsTitle" | "collapsedFolders" | "gateBar" | "headOnly"> & { rows?: Pick<BlockRowView, "g" | "slots">[] };
+type WritingLayout = Pick<CanvasWritingNodeData, "kind" | "entries" | "compact" | "columns" | "hiddenCount" | "unfolded" | "openGroups" | "expandedIds" | "editorHeights" | "folders" | "presetsTitle" | "collapsedFolders" | "gateBar" | "headOnly"> & { rows?: Pick<BlockRowView, "g" | "slots">[] };
 /** In a block grouped by chapter, an open group draws this many rows and
  *  folds the rest behind "… N more"; the block draws this many groups and
  *  folds the rest the same way (owner, 10/17: a card of 466 gated entries
@@ -248,7 +267,7 @@ const isOpenRow = (data: WritingLayout, entry?: WorldEntry) => Boolean(entry && 
  *  board it was most of the words on a new card's first screen. */
 const isUnwritten = (entry?: WorldEntry) => !!entry && (!entry.content?.trim() || isLessonHello(entry.content));
 const rowBaseHeight = (data: WritingLayout, entry?: WorldEntry) =>
-  isOpenRow(data, entry) ? ROW_HEADER_HEIGHT + openEntryEditorHeight(data.kind, entry?.content)
+  isOpenRow(data, entry) ? ROW_HEADER_HEIGHT + Math.max(openEntryEditorHeight(data.kind, entry?.content), data.editorHeights?.get(objectIdFor(data.kind, entry!)) ?? 0)
     : data.compact || isUnwritten(entry) ? CANVAS_WRITING_COMPACT_ROW_HEIGHT
     : CANVAS_WRITING_ROW_HEIGHT;
 const rowHeight = (data: WritingLayout, entry?: WorldEntry) =>
@@ -353,12 +372,9 @@ export const writingColumns = (data: WritingLayout): 1 | 2 =>
   data.entries.some(entry => isOpenRow(data, entry)) ? 1 : data.columns ?? 1;
 
 /**
- * Canvas layout and the rendered node use the same fixed dimensions.
- *
- * A row is a row whatever is written in it, so typing can never resize the
- * board: the shut row is a name, the open row is a fixed-height editor that
- * scrolls inside itself. What changes the node's height is opening a row,
- * which is a click the creator made on purpose.
+ * Canvas layout and the rendered node share row dimensions. Closed rows have
+ * fixed heights; open forms report their measured height so expanded controls
+ * remain visible and the blocks below them stay clear.
  */
 export function canvasWritingNodeHeight(data: WritingLayout): number {
   if (data.headOnly) return CANVAS_WRITING_NODE_HEADER_HEIGHT + 2;
@@ -487,13 +503,13 @@ function CanvasWritingFolder({ data, folder, entries }: { data: CanvasWritingNod
       type="button"
       aria-pressed={selected}
       title={t("blueprint.writing.folderSelect", { count: ids.length })}
-      onDoubleClick={own ? event => { event.stopPropagation(); setRenaming(true); } : undefined}
+      onDoubleClick={own && !folder.sealed ? event => { event.stopPropagation(); setRenaming(true); } : undefined}
       onKeyDown={stopEditorKeys}
       onClick={event => { event.stopPropagation(); data.onSelectFolder?.(ids, event.shiftKey || event.ctrlKey || event.metaKey); }}
       className="flex h-full min-w-0 flex-1 items-center gap-1.5 text-left"
     >
-      {!gate && <FolderOpen className="h-3 w-3 shrink-0" />}
-      <span className={cn("min-w-0 truncate", gate ? "shrink" : "flex-1")}>{folder.name}</span>
+      {!gate && (folder.sealed ? <Lock className="h-3 w-3 shrink-0" /> : <FolderOpen className="h-3 w-3 shrink-0" />)}
+      <span className={cn("min-w-0 truncate", gate ? "shrink" : "flex-1")}>{folder.sealed ? t("blueprint.sealed.folder") : folder.name}</span>
       <span className="tabular-nums opacity-60">{ids.length}</span>
       {/* Where on the variable this group is sent: a strip with the values
           it covers filled, so 卷 3 and 卷 18–20 read as places on one line. */}
@@ -524,8 +540,8 @@ function WritingGateStrip({ bar }: { bar: WritingGateBar }) {
   >
     <div className="flex items-center gap-2 text-[11px]">
       <span className="shrink-0 text-zinc-400">{t("blueprint.gateGroups.preview", { name: bar.label })}</span>
-      <span className="shrink-0 font-mono font-semibold tabular-nums text-amber-200">{bar.active ? bar.value : "—"}</span>
-      <span className="min-w-0 flex-1 truncate text-zinc-400" title={bar.active ? bar.answer : undefined}>{bar.active ? bar.answer : t("blueprint.gateGroups.hint")}</span>
+      <span className="shrink-0 font-mono font-semibold tabular-nums text-zinc-100">{bar.active ? bar.value : "—"}</span>
+      <span className="min-w-0 flex-1 truncate text-zinc-400" title={bar.active ? bar.answer : undefined}>{bar.active ? bar.answer : ""}</span>
       {bar.active && <button type="button" onClick={event => { event.stopPropagation(); bar.onClear(); }} className="shrink-0 rounded px-1.5 text-zinc-400 hover:bg-white/10 hover:text-zinc-100">{t("blueprint.gateGroups.clear")}</button>}
     </div>
     <input
@@ -535,6 +551,7 @@ function WritingGateStrip({ bar }: { bar: WritingGateBar }) {
       step={1}
       value={bar.index}
       aria-label={t("blueprint.gateGroups.preview", { name: bar.label })}
+      title={t("blueprint.gateGroups.hint")}
       onPointerDown={event => event.stopPropagation()}
       onChange={event => bar.onChange(Number(event.target.value))}
       className="w-full accent-amber-300"
@@ -664,6 +681,27 @@ function CanvasWritingRow({ data, entry }: { data: CanvasWritingNodeData; entry?
     setLifted(true);
   };
 
+  // Kept by the author of the card this one was copied from: the server sends
+  // no name and no text. It can be moved, switched off or deleted from the
+  // row menu, never opened.
+  if (entry?.sealed) {
+    return (
+      <section
+        data-canvas-writing-object={objectId}
+        data-canvas-writing-sealed
+        className="group/writing relative border-t border-white/[0.07] bg-black/20"
+        style={{ height: rowHeight(data, entry) }}
+        onContextMenu={openMore}
+      >
+        <div className="flex items-center gap-1.5 px-3 text-sm font-medium text-zinc-500" style={{ height: ROW_HEADER_HEIGHT }}>
+          <Lock aria-hidden className="h-3.5 w-3.5 shrink-0" />
+          <span className="min-w-0 flex-1 truncate">{t("blueprint.sealed.entry")}</span>
+          {!data.readOnly && data.onRowContextMenu && <button type="button" data-canvas-writing-more={objectId} onClick={openMore} title={t("shell.moreActions")} aria-label={`${t("shell.moreActions")} · ${t("blueprint.sealed.entry")}`} className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-zinc-500 hover:bg-white/5 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-amber-400"><MoreHorizontal className="h-4 w-4" /></button>}
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section
       data-canvas-writing-object={objectId}
@@ -673,7 +711,9 @@ function CanvasWritingRow({ data, entry }: { data: CanvasWritingNodeData; entry?
       className={cn("group/writing relative border-t border-white/[0.07] transition-[background-color,box-shadow] duration-150",
         // Picked reads at a glance: a gold edge and a warm wash on the row
         // itself, the same for one row or ten.
-        picked ? "bg-amber-400/[0.11] shadow-[inset_3px_0_0_#f0c674,inset_0_0_0_1px_rgba(240,198,116,0.5)]" : expanded && "bg-white/[0.025]",
+        // An open row is being written in; the wash comes back only when it
+        // is one of several picked.
+        picked && (!expanded || data.multiSelected?.has(objectId)) ? "bg-amber-400/[0.11] shadow-[inset_3px_0_0_#f0c674,inset_0_0_0_1px_rgba(240,198,116,0.5)]" : expanded && "bg-white/[0.025]",
         lifted && "opacity-35 outline-dashed outline-1 -outline-offset-2 outline-amber-300/60",
         !lifted && entry && data.dimIds?.has(entry.id) && "opacity-40")}
       style={{ height: rowHeight(data, entry) }}
@@ -763,7 +803,7 @@ function CanvasWritingRow({ data, entry }: { data: CanvasWritingNodeData; entry?
           {row?.shared && <WritingSharedMark />}
           {/* Simple mode only: in detail the line under the name says the same
               thing in words, and in an open row the form spells it out. */}
-          {warning && data.compact && <span title={t(warning)} aria-label={t(warning)} className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" />}
+          {warning && (data.compact || data.quiet) && <span title={t(warning)} aria-label={t(warning)} className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" />}
           {entry && !data.readOnly && data.onRowContextMenu && <button type="button" data-canvas-writing-more={objectId} onClick={openMore} onContextMenu={openMore} title={t("shell.moreActions")} aria-label={`${t("shell.moreActions")} · ${entry.name || title}`} className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded text-zinc-400 hover:bg-white/5 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-amber-400",
             // Always there on the row you are editing; on the others it waits
             // for the pointer, so a list of names does not wear a ⋯ each.
@@ -781,7 +821,7 @@ function CanvasWritingRow({ data, entry }: { data: CanvasWritingNodeData; entry?
             title={t(expanded ? "blueprint.writing.collapseRow" : "blueprint.writing.expandRow")}
             aria-label={`${entry.name || title} · ${t(expanded ? "blueprint.writing.collapseRow" : "blueprint.writing.expandRow")}`}
             className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded transition-colors hover:bg-white/5 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-amber-400",
-              expanded ? "text-amber-300" : "text-zinc-500")}
+              expanded ? "text-zinc-200" : "text-zinc-500")}
           >
             <ChevronDown className={cn("h-4 w-4 transition-transform duration-150", expanded && "rotate-180")} />
           </button>}
@@ -789,11 +829,14 @@ function CanvasWritingRow({ data, entry }: { data: CanvasWritingNodeData; entry?
         {expanded && objectId
           ? <div
               data-canvas-writing-editor={objectId}
-              // A column so the body of text takes the slack the row gives it
-              // rather than leaving a hole under the last button; `nowheel` so
-              // a long one scrolls instead of zooming the board.
-              className="nowheel flex flex-col overflow-y-auto overscroll-contain border-t border-white/[0.07] px-3 py-3"
-              style={{ height: openEntryEditorHeight(data.kind, entry?.content) }}
+              // The form grows with expanded settings. Only its text area scrolls;
+              // its measured height keeps the blocks below it out of the way.
+              className="nowheel flex flex-col overflow-visible border-t border-white/[0.07] px-3 py-3"
+              style={{
+                minHeight: openEntryEditorHeight(data.kind, entry?.content),
+                // read by the entry form's text box (inspector.tsx) as its floor
+                ["--entry-text-min" as string]: `${openEntryTextHeight(data.kind, entry?.content)}px`,
+              }}
               onWheel={event => event.stopPropagation()}
             >
               {data.renderEditor?.(objectId)}
@@ -804,13 +847,22 @@ function CanvasWritingRow({ data, entry }: { data: CanvasWritingNodeData; entry?
                 「每回合都发」 under it, looked like a block already written and
                 already sent. Nothing is sent until something is written, so the
                 delivery line waits for the content too. */}
+            {data.quiet ? (
+              <span aria-hidden data-canvas-writing-quiet className="flex flex-col gap-2 pt-1.5">
+                <span className="block h-1.5 w-[88%] rounded-full bg-white/[0.07]" />
+                <span className="block h-1.5 w-[62%] rounded-full bg-white/[0.07]" />
+              </span>
+            ) : (
             <span className={cn("block overflow-hidden text-sm leading-[18px]", written ? "text-zinc-400" : "text-zinc-500/80")}
-              style={{ display: "-webkit-box", WebkitLineClamp: deliveryLine && written ? 2 : 3, WebkitBoxOrient: "vertical" }}>
-              {(entry?.content ? resolveDisplayMacros(entry.content, t("studio.preview.you"), charName || t("studio.preview.character")) : "") || guidanceText || t(opening ? "blueprint.writing.emptyOpening" : "blueprint.writing.emptySetting")}
+              style={{ display: "-webkit-box", WebkitLineClamp: deliveryLine && written && !(deliveryPlain && delivery?.mode === "always") ? 2 : 3, WebkitBoxOrient: "vertical" }}>
+              {(entry?.content ? previewText(resolveDisplayMacros(entry.content, t("studio.preview.you"), charName || t("studio.preview.character"))) : "") || guidanceText || t(opening ? "blueprint.writing.emptyOpening" : "blueprint.writing.emptySetting")}
             </span>
+            )}
             {/* Detail mode's whole point: not just what it says, but when the
                 AI is ever going to be told it. */}
-            {deliveryLine && written && <span data-canvas-writing-delivery className={cn("mt-1 block truncate text-[10px] leading-4", deliveryPlain ? "text-zinc-500" : "text-amber-300/70")}>{deliveryLine}</span>}
+            {/* Only what is out of the ordinary: 「每回合都发」 under every
+                row of a column said the same thing twenty times. */}
+            {!data.quiet && deliveryLine && written && !(deliveryPlain && delivery?.mode === "always") && <span data-canvas-writing-delivery className={cn("mt-1 block truncate text-[10px] leading-4", deliveryPlain ? "text-zinc-500" : "text-zinc-300")}>{deliveryLine}</span>}
           </button>}
         {row?.slots.map(slot => <div key={slot.portId} className="relative flex items-center border-t border-white/5 px-4 text-[10px] text-zinc-400" style={{ height: SLOT_HEIGHT }}>
           <Handle id={portHandleId(row.g.id, slot.portId)} type="target" position={Position.Left} isConnectable={!data.readOnly} className={cn(HANDLE_CLASS, "!bg-rose-400")} />
@@ -875,7 +927,9 @@ export const CanvasWritingNode = memo(function CanvasWritingNode({ data, selecte
   const head = data.headOnly ? data.entries[0] : undefined;
   const headRow = head ? rowFor(data, head) : undefined;
   const headId = head ? objectIdFor(data.kind, head) : undefined;
-  const headTaste = head?.content ? resolveDisplayMacros(head.content, t("studio.preview.you"), charName || t("studio.preview.character")).replace(/\s+/g, " ").trim() : "";
+  // Its words as a reader sees them: an opening often starts with an
+  // [image:@asset:…] tag, which read as "Opening [image:@asset:5c3…".
+  const headTaste = head?.content ? previewText(resolveDisplayMacros(head.content, t("studio.preview.you"), charName || t("studio.preview.character"))).replace(/\s+/g, " ").trim() : "";
   const keyBase = data.documentKey ?? "canvas";
   const dealt = (entries: WorldEntry[]) => <div
     className={cn(columns === 2 && "grid grid-cols-2 [&>*:nth-child(2)]:border-l [&>*:nth-child(2)]:border-white/[0.06]")}

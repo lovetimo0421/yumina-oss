@@ -1,7 +1,10 @@
 import { createFileRoute, useRouter, useRouterState } from "@tanstack/react-router";
 import { Suspense, useEffect, useReducer, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
-import { useEditorStore } from "@/stores/editor";
+import { saveBeforeLeaving, useEditorStore } from "@/stores/editor";
+import { flushPendingEditorFields } from "@/features/editor/components/flush-pending-edits";
+import { useExternalWrites } from "@/features/studio/lib/use-external-writes";
+import { useCollabPresence } from "@/features/collab/use-collab-presence";
 import { lazyRouteComponent } from "@/lib/lazy-route-component";
 import { getEditorMode, getGlobalEditorMode } from "@/features/editor/lib/editor-mode";
 import { useUnsavedChangesGuard } from "@/features/editor/use-unsaved-changes-guard";
@@ -38,6 +41,11 @@ function WorldEditPage() {
   useSaveWhenHidden(worldId);
   const { cover: coverTarget } = Route.useSearch();
   const coverVisit = useRouterState({ select: state => state.location.state.coverSettingsVisit });
+  // Saves from other tabs, devices and the assistant land here live.
+  const liveWorldId = useEditorStore((s) => (s.serverWorldId === worldId && s.access ? worldId : null));
+  useExternalWrites(liveWorldId);
+  // Who else has it open (and showing them we do).
+  useCollabPresence(liveWorldId);
   const router = useRouter();
   const loadWorld = useEditorStore((s) => s.loadWorld);
   const loadingWorld = useEditorStore((s) => s.loadingWorld);
@@ -45,7 +53,8 @@ function WorldEditPage() {
   const ownership = useEditorOwnership(worldId);
   const serverWorldId = useEditorStore((s) => s.serverWorldId);
   const editorMode = useEditorStore((s) => s.worldDraft.editorMode);
-  const isDirty = useEditorStore((s) => s.isDirty);
+  // A viewer's (or an admin's read-only) typing is never saved: nothing to guard.
+  const isDirty = useEditorStore((s) => s.isDirty && !s.readOnlyInspect);
   const saving = useEditorStore((s) => s.saving);
   const guestMode = useEditorStore((s) => s.guestMode);
   // The mode is read from this card's local choice first, which the store
@@ -68,7 +77,11 @@ function WorldEditPage() {
   // Like Studio, leave a local copy behind at that moment: the debounced
   // recovery write can be up to two seconds behind the last edit.
   const blocker = useUnsavedChangesGuard(isDirty, {
-    getIsDirty: () => useEditorStore.getState().isDirty,
+    getIsDirty: () => {
+      // A viewer or an admin inspecting has nothing that could be saved.
+      const state = useEditorStore.getState();
+      return !state.readOnlyInspect && !state.guestMode && state.isDirty;
+    },
     beforeLeave: () => {
       const state = useEditorStore.getState();
       if (state.serverWorldId === worldId) backupEditorDraft(state, localStorage);
@@ -85,6 +98,25 @@ function WorldEditPage() {
     setVisualDeclined(false);
     redirectAttempted.current = false;
     redirectHeld.current = false;
+  }, [worldId]);
+
+  // Closing or hiding the tab: what is still in a field's typing pause goes
+  // in, a local copy is left, and the edits are sent now (the classic editor
+  // used to leave them to the next visit's recovery offer).
+  useEffect(() => {
+    const flush = () => {
+      if (useEditorStore.getState().serverWorldId !== worldId) return;
+      try { flushPendingEditorFields(); } catch { /* fields are on their own */ }
+      backupEditorDraft(useEditorStore.getState(), localStorage);
+      saveBeforeLeaving();
+    };
+    const onHidden = () => { if (document.visibilityState === "hidden") flush(); };
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", onHidden);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", onHidden);
+    };
   }, [worldId]);
 
   useEffect(() => {
@@ -175,13 +207,16 @@ function WorldEditPage() {
 
   // Both modes write editorMode rather than navigating: the draft is already
   // loaded, and a route change here would re-enter the load/guard cycle for a
-  // card that never left the store.
+  // card that never left the store. On a card someone shared, the mode is
+  // only this person's (the per-card choice the editors save before calling
+  // these), so the card's own default is left to its creator.
+  const ownsCard = () => { const access = useEditorStore.getState().access; return !access || access.role === "owner"; };
   return (
     <>
       <Suspense fallback={<LoadingSpinner />}>
         {mode === "simple" && !coverTarget ? (
           <QuickCreateEditor
-            onOpenFullEditor={() => { useEditorStore.getState().setField("editorMode", "advanced"); rerender(); }}
+            onOpenFullEditor={() => { if (ownsCard()) useEditorStore.getState().setField("editorMode", "advanced"); rerender(); }}
             onBack={back}
           />
         ) : (
@@ -190,7 +225,8 @@ function WorldEditPage() {
             coverVisit={coverVisit}
             onBack={back}
             onSwitchToSimple={() => {
-              useEditorStore.getState().setField("editorMode", "simple");
+              // The simple editor is the creator's choice for their own card.
+              if (ownsCard()) useEditorStore.getState().setField("editorMode", "simple");
               if (coverTarget) void router.navigate({ to: "/app/worlds/$worldId/edit", params: { worldId }, search: {}, replace: true });
               rerender();
             }}

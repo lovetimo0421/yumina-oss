@@ -13,7 +13,7 @@ before(async () => {
   await db.execute(sql`CREATE TABLE "user" (id text PRIMARY KEY, name text, username text,
     display_username text, email text, email_verified boolean, image text, created_at timestamp,
     updated_at timestamp, role text, is_suspended boolean, is_muted boolean, muted_until timestamp,
-    is_banned boolean, tier text, skip_review boolean)`);
+    is_banned boolean, tier text, skip_review boolean, limited_content_only boolean NOT NULL DEFAULT false)`);
   await db.execute(sql`CREATE TABLE worlds (id text PRIMARY KEY)`);
   await db.execute(sql`CREATE TABLE user_personas (id text PRIMARY KEY, user_id text, name text,
     avatar_url text, appearance text, personality text, backstory text, entries jsonb NOT NULL DEFAULT '[]'::jsonb, note text, is_active boolean,

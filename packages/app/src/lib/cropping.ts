@@ -1,6 +1,13 @@
 import type { CSSProperties } from "react";
+import { LEGACY_BANNER_ASPECT } from "./banner-aspect";
 
 export interface CoverCropSettings {
+  /**
+   * Independent desktop banner crop. Top-level coordinates remain the 16:9 mobile/card crop.
+   * `aspect` is the banner shape it was framed in and is saved with it; one saved
+   * without (before the banner became 21:9) was framed at 16:5.
+   */
+  desktop?: { x: number; y: number; zoom: number; fit?: "cover" | "contain"; aspect?: number };
   x: number;
   y: number;
   zoom: number;
@@ -63,6 +70,12 @@ export function normalizeCoverCrop(value: unknown): CoverCropSettings {
     y: clamp(Number(raw.y ?? 0), -MAX_PAN, MAX_PAN),
     zoom,
     fit,
+    // A banner crop always says which shape it was framed in, so every reader
+    // re-frames an older one the same way (getCoverCropRect, convertCoverCrop).
+    ...(raw.desktop && typeof raw.desktop === "object" ? { desktop: normalizeCoverCrop({
+      x: raw.desktop.x, y: raw.desktop.y, zoom: raw.desktop.zoom, fit: raw.desktop.fit,
+      aspect: Number(raw.desktop.aspect) > 0 ? raw.desktop.aspect : LEGACY_BANNER_ASPECT,
+    }) } : {}),
     ...(Number.isFinite(aspect) && aspect > 0 ? { aspect } : {}),
   };
 }
@@ -164,6 +177,32 @@ export function getCoverCropRect(
     return reframeCropRect(authored, safeSourceAspect, safeTargetAspect);
   }
   return resolveCropRect(safeCrop, safeSourceAspect, safeTargetAspect);
+}
+
+/**
+ * A crop framed for another shape, rewritten as x/y/zoom for `targetAspect`:
+ * the framed region keeps its width and centre and grows up and down (or its
+ * height and centre, growing sideways) to the new shape, moves back inside the
+ * picture where it would cross an edge, and shrinks only when the picture is
+ * too small to hold it. A crop already framed for `targetAspect`, or one that
+ * does not say what it was framed for, is returned as it is.
+ */
+export function convertCoverCrop(
+  crop: CoverCropSettings,
+  sourceAspect: number,
+  targetAspect: number,
+): CoverCropSettings {
+  const authoredAspect = normalizeCoverCrop(crop).aspect;
+  if (!authoredAspect || Math.abs(authoredAspect - targetAspect) <= targetAspect * ASPECT_TOLERANCE) return crop;
+  const rect = getCoverCropRect(crop, sourceAspect, targetAspect);
+  const full = getCoverCropRect(DEFAULT_COVER_CROP, sourceAspect, targetAspect);
+  return {
+    x: rect.centerX - 50,
+    y: rect.centerY - 50,
+    zoom: clamp(rect.width / full.width, MIN_CROP_SIZE, MAX_CROP_SIZE),
+    fit: "cover",
+    aspect: targetAspect,
+  };
 }
 
 export function clampCoverCropForAspect(

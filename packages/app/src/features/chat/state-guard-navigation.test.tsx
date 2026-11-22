@@ -40,7 +40,7 @@ function button(text: string, scope: ParentNode = document): HTMLButtonElement {
   return found;
 }
 
-test("Memory and State Update Guard share the same toolbar pill styling and retain their launchers", async () => {
+test("Memory lives in the + menu; the State Update Guard keeps its toolbar pill", async () => {
   const h = await harness();
   try {
     const memory = await h.vite.ssrLoadModule("/sandbox/extensions/session-memory/client.tsx");
@@ -48,31 +48,28 @@ test("Memory and State Update Guard share the same toolbar pill styling and reta
     const { YuminaContext } = await h.vite.ssrLoadModule("/sandbox/sandbox-context.tsx");
     const slots: SlotContribution[] = [];
     const ctx: ExtensionClientContext = { contribute: (_point, slot) => slots.push(slot), contributeTool() {} };
-    memory.default(ctx); guard.default(ctx);
+    memory.default(ctx);
+    assert.equal(slots.length, 0, "the memory extension adds no composer pill");
+    guard.default(ctx);
     const api = { language: "en", sessionId: "toolbar-chat", memorySummaryEnabled: true, messages: [],
       selectedModel: "openrouter/free", preferredProvider: "official", userPlan: "free", modelPool: [],
       getStateGuardSettings: async () => ({ enabled: true, model: null }), getModels: async () => ({ models: [] }) };
     const render = () => h.render(createElement(YuminaContext.Provider, { value: api },
       createElement("div", {}, ...slots.map((slot) => createElement(slot.Component, { key: slot.id })))));
     await render();
-    const memoryButton = button("Memory");
+    assert.equal([...document.querySelectorAll("button")].some((item) => item.textContent === "Memory"), false);
     const guardButton = button("State Update Guard");
-    assert.equal(guardButton.className, memoryButton.className);
     assert.match(guardButton.className, /bg-white\/\[0\.05\]/);
     assert.match(guardButton.className, /py-1\.5/);
-    assert.equal(guardButton.querySelector("span")?.className, memoryButton.querySelector("span")?.className);
-    for (const pill of [memoryButton, guardButton]) {
-      assert.equal(pill.type, "button", "launcher cannot accidentally submit the composer");
-      assert.match(pill.querySelector("svg")!.getAttribute("class")!, /h-3\.5 w-3\.5 text-primary\/70 group-hover:text-primary/);
-      assert.equal(pill.querySelector("svg")!.getAttribute("aria-hidden"), "true");
-    }
+    assert.equal(guardButton.type, "button", "launcher cannot accidentally submit the composer");
+    assert.match(guardButton.querySelector("svg")!.getAttribute("class")!, /h-3\.5 w-3\.5 text-primary\/70 group-hover:text-primary/);
+    assert.equal(guardButton.querySelector("svg")!.getAttribute("aria-hidden"), "true");
     await act(async () => guardButton.click());
     assert.ok(document.querySelector('[role="dialog"][aria-label="State Update Guard"]'));
     await act(async () => button("Close").click());
     assert.equal(document.querySelector('[role="dialog"]'), null);
     api.memorySummaryEnabled = false;
     await render();
-    assert.equal([...document.querySelectorAll("button")].some((item) => item.textContent === "Memory"), false);
     assert.ok(button("State Update Guard"), "Memory availability does not gate the guard");
   } finally { await h.close(); }
 });

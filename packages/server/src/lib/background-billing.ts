@@ -18,7 +18,7 @@ import { resolveEffectivePlanWithEventEntitlements } from "./event-plan-entitlem
 const BACKGROUND_BILLING_LABELS: Record<string, string> = {
   "story-compaction": "Story summary compaction",
   "session-memory": "Session memory update",
-  "summaryception": "Layered summary",
+  "summaryception": "Recap",
   "run-summary": "Run memory summary",
   "module-worker": "Module worker briefing",
   "state-update-guard": "State update correction",

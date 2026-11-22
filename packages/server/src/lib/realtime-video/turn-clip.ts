@@ -49,8 +49,9 @@ export function stripTurnVideos(text: string): string {
   });
 }
 
-/** Why a message got no clip. "stale": its text changed while the clip rendered. */
-export type TurnClipFailure = "busy" | "credits" | "timeout" | "unavailable" | "stale";
+/** Why a message got no clip. "stale": its text changed while the clip rendered. "refused": the
+ *  directors would not film the reply. */
+export type TurnClipFailure = "busy" | "credits" | "timeout" | "unavailable" | "stale" | "refused";
 
 /** Where each shot of a film being made is: waiting for a machine, on one, finished, or left out. */
 export type TurnShotState = "queued" | "rendering" | "done" | "failed";
@@ -70,7 +71,8 @@ export interface TurnClipProgress {
 export type TurnClipJob =
   /** `sig`: the reply as it was filmed (storyFingerprint), so the shots of a film whose server
    *  died can still land on it, and only if it is unchanged. */
-  | ({ status: "rendering"; userId: string; startedAt: number; beat?: number; sig?: string } & Partial<TurnClipProgress>)
+  /** `charged`: the mushies the film has taken so far, given back if its server dies without it. */
+  | ({ status: "rendering"; userId: string; startedAt: number; beat?: number; sig?: string; charged?: number } & Partial<TurnClipProgress>)
   | { status: "done"; userId: string; content: string; credits: number }
   | { status: "failed"; userId: string; reason: TurnClipFailure };
 
@@ -85,7 +87,8 @@ export interface FilmState {
    *  person's look, clothing and pose (the director's scene state, carried to the next reply). */
   state?: string;
   /** The newest clip: the next one may continue from its last frames. */
-  lastClip: { key: string; messageId: string; scene: string | null; depth: number } | null;
+  /** `style`: the look it was filmed in (a reply in another look does not carry it on). */
+  lastClip: { key: string; messageId: string; scene: string | null; depth: number; style?: string } | null;
 }
 
 const JOB_TTL_S = 3600;

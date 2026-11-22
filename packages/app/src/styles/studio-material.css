@@ -203,3 +203,19 @@
   pointer-events: none;
   z-index: 10;
 }
+
+/* A resource pack being dragged over the canvas (features/bundles/pack-drawer):
+   every place it could go glows; the one under the pointer glows gold. */
+.react-flow__node.pack-drop-candidate {
+  outline: 2px solid rgba(125, 211, 252, 0.5);
+  outline-offset: 4px;
+  border-radius: 14px;
+  box-shadow: 0 0 26px rgba(125, 211, 252, 0.16);
+  transition: outline-color 120ms, box-shadow 120ms;
+}
+.react-flow__node.pack-drop-target {
+  outline: 2px solid rgba(240, 198, 116, 0.95);
+  outline-offset: 4px;
+  border-radius: 14px;
+  box-shadow: 0 0 34px rgba(240, 198, 116, 0.35);
+}

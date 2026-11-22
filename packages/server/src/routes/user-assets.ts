@@ -1,6 +1,7 @@
 import { assetIsVersioned } from "../lib/world-version-store.js";
 import { worldsUsingAsCover } from "../lib/asset-cover-use.js";
-import { retainUserAsset, urlServedElsewhere, worldsUsingAssetContent } from "../lib/retained-user-assets.js";
+import { assetHeldByLiveBundle, retainUserAsset, urlServedElsewhere, worldsUsingAssetContent } from "../lib/retained-user-assets.js";
+import { assetsUsedInSharedCards } from "../lib/world-collaborators.js";
 import { userAssetFilters } from "../lib/user-asset-filters.js";
 import { detachGenerationAsset } from "../lib/generation/asset-receipts.js";
 import { Hono } from "hono";
@@ -20,6 +21,7 @@ import {
 } from "../lib/s3.js";
 import type { AppEnv } from "../lib/types.js";
 import { normalizeAssetMimeType } from "../lib/asset-mime.js";
+import { uploadTypeRefusal } from "../lib/asset-upload-types.js";
 import { PLANS } from "../lib/plan-config.js";
 import { ensureWallet } from "../lib/credit-service.js";
 import { resolveEffectivePlanWithEventEntitlements } from "../lib/event-plan-entitlements.js";
@@ -100,64 +102,7 @@ userAssetRoutes.use("/*", authMiddleware);
 
 // ─── Constants ──────────────────────────────────────────────────────
 
-const ALLOWED_MIME_TYPES: Record<AssetType, string[]> = {
-  video: ["video/mp4", "video/webm"],
-  image: ["image/jpeg", "image/png", "image/gif", "image/webp"],
-  audio: [
-    "audio/mpeg",
-    "audio/wav",
-    "audio/ogg",
-    "audio/aac",
-    "audio/mp4",
-    "audio/x-wav",
-  ],
-  font: [
-    "font/woff",
-    "font/woff2",
-    "font/ttf",
-    "font/otf",
-    "application/font-woff",
-    "application/font-woff2",
-    "application/x-font-woff",
-    "application/x-font-woff2",
-    "application/x-font-ttf",
-    "application/x-font-truetype",
-    "application/x-font-otf",
-    "application/vnd.ms-opentype",
-    "application/font-sfnt",
-    "font/sfnt",
-  ],
-  txt: [
-    "text/plain",
-    "text/markdown",
-    "text/csv",
-    "application/json",
-  ],
-  // `other` is the escape hatch for formats we don't enumerate (3D models,
-  // sprite atlases, binary data tables). It stays open by design — but NOT to
-  // active content: /cdn serves these bytes from the app's own origin, so an
-  // uploaded text/html or application/javascript would be stored XSS on
-  // yumina.io, and SVG carries script too. Those are denied below instead of
-  // being allowlisted here, so a legitimate unknown format still uploads.
-  other: [],
-};
 
-/**
- * Content types that must never be served from our own origin, whatever the
- * asset type claims to be. `X-Content-Type-Options: nosniff` on /cdn stops the
- * browser inventing an active type, but it faithfully honors a declared one.
- */
-const ACTIVE_CONTENT_TYPES = new Set([
-  "text/html",
-  "application/xhtml+xml",
-  "image/svg+xml",
-  "text/javascript",
-  "application/javascript",
-  "application/x-javascript",
-  "text/xml",
-  "application/xml",
-  "application/xhtml",
-]);
 
 async function getUserStorageLimit(userId: string): Promise<number> {
   const wallet = await ensureWallet(userId);
@@ -481,14 +426,8 @@ userAssetRoutes.post("/upload-url", async (c) => {
   // empty allowlist and the `allowed.length > 0` guard short-circuited it away,
   // so `other` accepted any content-type at all — and /cdn is public and
   // unauthenticated, which made it an arbitrary file host on our own origin.
-  if (ACTIVE_CONTENT_TYPES.has(contentType.toLowerCase())) {
-    return c.json({ error: "This file type cannot be uploaded" }, 400);
-  }
-
-  const allowed = ALLOWED_MIME_TYPES[assetType];
-  if (allowed && allowed.length > 0 && !allowed.includes(contentType)) {
-    return c.json({ error: `Invalid content type for ${assetType}` }, 400);
-  }
+  const refusal = uploadTypeRefusal(assetType, contentType);
+  if (refusal) return c.json({ error: refusal }, 400);
 
   const operationId = body.requestId ? uploadOperationId(currentUser.id, "file", body.requestId) : undefined;
   if (operationId) {
@@ -627,8 +566,7 @@ userAssetRoutes.post("/", async (c) => {
   }
 
   const mimeType = normalizeAssetMimeType(body.filename, body.mimeType);
-  const allowed = ALLOWED_MIME_TYPES[body.type];
-  if (ACTIVE_CONTENT_TYPES.has(mimeType.toLowerCase()) || (allowed.length > 0 && !allowed.includes(mimeType))) {
+  if (uploadTypeRefusal(body.type, mimeType)) {
     return c.json({ error: "This file type cannot be uploaded" }, 400);
   }
   const requestedFolderName = body.folderName?.trim();
@@ -915,17 +853,27 @@ userAssetRoutes.delete("/:id", async (c) => {
   if (covers.length) return c.json({ error: "This image is still a card's cover.", code: "ASSET_IN_USE", reason: "cover", worlds: covers }, 409);
   const users = await worldsUsingAssetContent(db, currentUser.id, assetId, url);
   if (users.length) return c.json({ error: "A card still uses this file.", code: "ASSET_IN_USE", reason: "content", worlds: users }, 409);
+  // A card someone else created uses it (you put it there as a collaborator):
+  // deleting it would break their card.
+  const [sharedUse] = await assetsUsedInSharedCards(currentUser.id, assetId);
+  if (sharedUse) {
+    return c.json({
+      error: `This asset is used in "${sharedUse.world_name}", a card someone shared with you, and cannot be deleted.`,
+      code: "ASSET_IN_SHARED_CARD",
+      worldId: sharedUse.world_id,
+    }, 409);
+  }
 
-  // Only saved versions still holding the file keep its bytes (retention);
-  // the library entry goes either way.
+  // Only saved versions, or a live public resource pack, still holding the
+  // file keep its bytes (retention); the library entry goes either way.
   const retained = await db.transaction(async tx => {
     await tx.execute(sql`LOCK TABLE world_versions IN SHARE ROW EXCLUSIVE MODE`);
-    const versioned = await assetIsVersioned(tx, assetId, url);
-    if (versioned) await retainUserAsset(tx, assetId);
+    const held = await assetIsVersioned(tx, assetId, url) || await assetHeldByLiveBundle(tx, assetId, url, currentUser.id);
+    if (held) await retainUserAsset(tx, assetId);
     else if (isS3Configured() && !(await urlServedElsewhere(tx, url, assetId))) await deleteObject(url);
     await detachGenerationAsset(tx, currentUser.id, assetId);
     await tx.delete(userAssets).where(eq(userAssets.id, assetId));
-    return versioned;
+    return held;
   });
 
   return c.json({ data: { deleted: true, retained } });

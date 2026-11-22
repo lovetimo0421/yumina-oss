@@ -29,7 +29,7 @@
     },
     "all": {
       "title": "Ya están todas",
-      "body": "¿Se te olvidó algo? Pulsa Guía arriba."
+      "body": "¿Se te olvidó algo? Abre ⋮ arriba a la derecha y pulsa Guía."
     }
   },
   "parts": {
@@ -123,7 +123,7 @@
           "after": {
             "added": {
               "title": "Ya está añadida",
-              "body": "La variable nueva ya está en el lienzo y sus ajustes están abiertos a la derecha. Cambia el nombre arriba, como afecto, dinero o energía, y luego decide desde cuánto empieza y su rango. Para que el jugador la vea, pulsa \"Mostrar en la pantalla del jugador\". Haz clic de nuevo para quitar la visualización; la variable y sus datos se conservan."
+              "body": "La nueva variable está en el lienzo, con sus ajustes debajo del nombre. Cámbiale el nombre en la cabecera de la fila y define su valor inicial y su rango. Para que el jugador la vea, pulsa \"Mostrar en la pantalla del jugador\". Si vuelves a pulsar, solo se quita la visualización; la variable y sus datos se conservan."
             }
           }
         },
@@ -153,7 +153,7 @@
           "after": {
             "added": {
               "title": "Un comportamiento en una frase",
-              "body": "El comportamiento nuevo ya está en el lienzo. A la derecha, completa la frase: cuándo se comprueba, qué número llega a cuánto y qué pasa: decirle algo a la IA, cambiar un número o mostrar un aviso al jugador. Cuando esté completa, ya funciona."
+              "body": "El nuevo comportamiento está en el lienzo. Cámbiale el nombre en la cabecera de la fila y completa los ajustes de abajo: cuándo se comprueba, qué valor debe alcanzar un número y qué ocurre después. Puede informar a la IA, cambiar un número o mostrar una nota al jugador."
             }
           }
         }
@@ -162,7 +162,7 @@
     "atmosphere": {
       "title": "Música e imágenes de escena",
       "goal": "Música, efectos de sonido y las imágenes que la IA muestra en el momento justo.",
-      "body": "Estos dos añaden sonido e imágenes a tu historia. Ninguno es obligatorio. En Audio, sube una canción y escribe una línea sobre cuándo suena, como «cuando empieza una pelea», y la historia cambia a ella en ese momento.",
+      "body": "Estos dos añaden sonido e imágenes a tu historia. Ninguno es obligatorio. En Audio, sube una canción y escribe una línea sobre cuándo suena, como «cuando empieza una pelea», y la historia cambia a ella en ese momento. En el lienzo, abre una pista con su flecha para cambiar el nombre en la cabecera y editar sus ajustes debajo.",
       "bodyMobile": "En Audio, sube una canción y escribe cuándo suena. En Imágenes de escena, sube una imagen y escribe cuándo aparece. Ninguno es obligatorio.",
       "beats": {
         "image": {
@@ -181,19 +181,15 @@
       "title": "Portada, descripción y variantes",
       "goal": "Lo que ven los jugadores en Descubrir y otras versiones de tu tarjeta.",
       "body": "Este bloque es lo primero que ven los jugadores en Descubrir: portada, nombre y descripción. El nombre y la descripción se editan aquí mismo. El bloque Fondo, al lado, va detrás del chat; puede usar la portada tal cual.",
-      "bodyMobile": "La portada, el nombre y la descripción están en Ajustes de la carta; el fondo del chat, en Fondo. La portada necesita una vertical 2:3 y una horizontal 16:9: mira que el título y los botones no tapen una cara.",
+      "bodyMobile": "Sube una imagen vertical para las tarjetas 2:3 y una horizontal para la galería, o reutiliza la vertical. En Vista de galería, ajusta por separado Banner de escritorio (21:9) y Móvil y tarjetas de galería (16:9). Guardar recorte conserva ambas selecciones.",
       "beats": {
         "cover": {
           "title": "Pulsa la portada",
           "body": "Pulsa la portada y toda la información de tu tarjeta se abre a la derecha.",
           "after": {
-            "variants": {
-              "title": "Arriba, las variantes",
-              "body": "La misma carta puede tener varias versiones, como chino e inglés. Cambia entre ellas aquí o crea una versión en otro idioma."
-            },
             "cover": {
               "title": "Portada",
-              "body": "La carta lleva dos portadas: 2:3 vertical para móvil y 16:9 horizontal para escritorio. Sube cada una, o recorta la horizontal desde la vertical. Que el título y los botones no tapen las caras."
+              "body": "Sube una imagen vertical para las tarjetas 2:3 y una horizontal para la galería, o reutiliza la vertical. En Vista de galería, ajusta por separado Banner de escritorio (21:9) y Móvil y tarjetas de galería (16:9). Guardar recorte conserva ambas selecciones."
             },
             "gallery": {
               "title": "Galería",
@@ -262,8 +258,8 @@
     "ais": {
       "title": "IA",
       "goal": "Cada IA es una llamada más al modelo, en la tarjeta o en un escenario.",
-      "body": "La tarjeta y cada escenario terminan en un bloque 「IA」: una fila por IA, con su nombre y su tipo. La tarjeta empieza con una, llamada IA, por turnos: responde cada vez que el jugador habla. Cada IA que añades es una llamada más al modelo. Las de turnos corren en el turno del jugador; las de interfaz esperan a que un botón de la interfaz del jugador las llame; las de código corren solas cuando un valor cumple una condición o termina un escenario. Lo que una IA sabe depende de dónde vive: en la tarjeta usa los ajustes de la tarjeta; en un escenario, los de ese escenario. Al lado, 「Context」 es la conversación que se guarda ahí y qué IA la leen.",
-      "bodyMobile": "Las IA se añaden y editan en el lienzo, en un ordenador. En el móvil, pasa al siguiente paso.",
+      "body": "La tarjeta y cada escenario terminan en un bloque 「IA」: una fila por IA, con su nombre y su tipo. La tarjeta empieza con una, llamada IA, por turnos: responde cada vez que el jugador habla. Cada IA que añades es una llamada más al modelo. Las de turnos corren en el turno del jugador; las de interfaz esperan a que un botón de la interfaz del jugador las llame; las de código corren solas cuando un valor cumple una condición o termina un escenario. Lo que una IA sabe depende de dónde vive: en la tarjeta usa los ajustes de la tarjeta; en un escenario, los de ese escenario. Al lado, 「Context」 es la conversación que se guarda ahí y qué IA la leen. El título de cada situación también dice quién habla allí; pulsa esos nombres para ver todas las IA de la carta, incluidas las que la plataforma ejecuta en segundo plano.",
+      "bodyMobile": "En el móvil, Studio abre el lienzo. Toca el bloque de IA para añadir o editar una IA; Atrás vuelve al lienzo.",
       "beats": {
         "add": {
           "title": "Añadir",
@@ -280,8 +276,8 @@
     "canvas": {
       "title": "Moverse por el tablero",
       "goal": "Desplazar, ampliar, encuadrar, encontrar cosas.",
-      "body": "El lienzo es toda tu carta; cada bloque es un tipo de contenido. Haz clic para seleccionar y escribe para editar; doble clic abre su editor completo; con Ctrl puedes hacer clic o arrastrar un recuadro para elegir varias. Ahora las herramientas para encontrar cosas, una a una ↓",
-      "bodyMobile": "En el móvil el Lienzo es un conjunto de paneles, que cambias con las pestañas de arriba. El tablero completo con sus conexiones necesita una pantalla más ancha. Pasa al siguiente paso.",
+      "body": "El lienzo contiene toda tu tarjeta; cada bloque reúne un tipo de contenido. Pulsa una fila para seleccionarla y vuelve a pulsar, o usa su flecha, para abrir los ajustes debajo. Cambia el nombre en la cabecera. Audio y Contexto también se abren aquí. Haz doble clic en una fila de contenido para abrir su editor completo; mantén Ctrl al pulsar o arrastrar un recuadro para seleccionar varias.",
+      "bodyMobile": "En el móvil es el mismo lienzo: arrastra con un dedo y pellizca para acercar o alejar. Toca cualquier bloque para abrir su página; al volver regresas al mismo sitio. La esquina superior izquierda sirve para añadir cosas y encontrar tus escenarios.",
       "beats": {
         "fit": {
           "title": "Ver todo",
@@ -299,7 +295,7 @@
     },
     "ship": {
       "title": "Guardar, jugar, publicar",
-      "goal": "Guardar conserva versiones, Jugar juega de verdad, Publicar lo pone en línea.",
+      "goal": "Guardar conserva versiones; publicar requiere revisión.",
       "body": "Por último: guardar, probar y publicar.",
       "bodyMobile": "Guardar conserva una versión; Probar abre una partida real y gasta créditos. Para publicar, la portada necesita una vertical 2:3 y una horizontal 16:9.",
       "beats": {
@@ -313,7 +309,7 @@
         },
         "publish": {
           "title": "Publicar",
-          "body": "Nadie ve tu carta hasta que la publicas. La portada necesita una vertical 2:3 y una horizontal 16:9. Después puedes seguir editando y enviar actualizaciones."
+          "body": "Elige quién puede jugar tras la revisión: todos, quienes tengan el enlace o tus seguidores. Para compartir una tarjeta por enlace, abre su aviso de aprobación."
         }
       }
     }

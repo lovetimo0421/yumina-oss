@@ -1,87 +1,87 @@
-import { useTranslation } from "react-i18next";
+import { useLayoutEffect, useRef } from "react";
 import { useEditorStore } from "@/stores/editor";
-import { DebouncedInput } from "@/features/editor/components/debounced-field";
-import { BehaviorForm, EntryForm, GreetingForm, SceneImageForm, VariableForm } from "./inspector";
+import { blockId } from "@yumina/engine";
+import { AudioTrackForm, BehaviorForm, EntryForm, GreetingForm, ModuleMemoryForm, SceneImageForm, VariableForm } from "./inspector";
+import { CardContextForm } from "./context-forms";
+import { ReadOnlyForm } from "./read-only-form";
 
-/** The object kinds whose editor a row can hold. Everything on the board
- *  that has a form opens in its own row now, so a click does the same thing
- *  wherever it lands: a variable or a behaviour used to pop a floating card
- *  over the board while a setting opened in place, and newcomers never knew
- *  where the next click would put them. Those two open shorter
- *  (OPEN_SETTING_EDITOR_H): the 460px form that once opened in the middle of
- *  the shelf was, in the owner's words, meaningless and awkward. Audio tracks
- *  and legacy rules have no form of their own. */
-const INLINE_KINDS = ["entry:", "greeting:", "image:", "var:", "reaction:"] as const;
-export const canEditRowInline = (objectId: string) => INLINE_KINDS.some(prefix => objectId.startsWith(prefix));
+/** Every editable object uses the same expand-in-place interaction. Context
+ *  belongs to the card or module, so its block id is the editor's identity. */
+const INLINE_KINDS = ["entry:", "greeting:", "image:", "var:", "reaction:", "audio:"] as const;
+export const isInlineContext = (objectId: string) => objectId === blockId.context() || /^block:m:.+:context$/.test(objectId);
+export const canEditRowInline = (objectId: string) => isInlineContext(objectId) || INLINE_KINDS.some(prefix => objectId.startsWith(prefix));
 
-/**
- * An object's editor, inside the row it belongs to.
- *
- * The drawer beside the canvas is still there and a click on a row still opens
- * it: this is the second way in, for when you would rather not cover the board
- * you are reading the object on. Both render the SAME form — a cut-down inline
- * version would mean the creator has to learn which settings only exist
- * somewhere else — and both may be open at once, because the copy that is not
- * focused re-reads the draft when the focused one commits.
- *
- * A writing row's title bar becomes its name field while it is open, so those
- * two kinds bring no name field of their own; a block row's title is not
- * editable in place, so those kinds get one here.
- */
-export function BlueprintRowEditor({ objectId, readOnly, onDrill }: {
-  /** `entry:` / `greeting:` / `var:` / `reaction:` / `image:` + its id. */
+/** Commit by stable id: rows may be reordered before a debounced rename saves. */
+export function renameCanvasRow(objectId: string, name: string) {
+  const store = useEditorStore.getState();
+  const id = objectId.slice(objectId.indexOf(":") + 1);
+  if (objectId.startsWith("var:")) {
+    const index = store.worldDraft.variables.findIndex(v => v.id === id);
+    if (index >= 0) store.updateVariableAt(index, { name });
+  } else if (objectId.startsWith("reaction:")) store.updateReaction(id, { name });
+  else if (objectId.startsWith("image:")) store.updateSceneImage(id, { name });
+  else if (objectId.startsWith("audio:")) store.updateAudioTrack(id, { name });
+  else if (objectId.startsWith("entry:") || objectId.startsWith("greeting:")) store.updateEntry(id, { name });
+}
+
+/** The same forms as the inspector, without a duplicate name field: the
+ *  expanded row's header is its one rename control. */
+export function BlueprintRowEditor({ onMeasure, hostId, ...props }: {
   objectId: string;
   readOnly: boolean;
+  onDrill: (panelId: string) => void;
+  onOpenObject?: (objectId: string) => void;
+  hostId: string;
+  onMeasure?: (objectId: string, height: number, hostId: string) => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const row = ref.current?.parentElement;
+    if (!row || !onMeasure || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(entries => {
+      const entry = entries[0];
+      // Border-box sizes are in canvas units, unaffected by ReactFlow zoom.
+      const height = Math.ceil(entry?.borderBoxSize?.[0]?.blockSize ?? row.offsetHeight);
+      if (height > 0) onMeasure(props.objectId, height, hostId);
+    });
+    observer.observe(row);
+    return () => observer.disconnect();
+  }, [props.objectId, onMeasure, hostId]);
+  return <div ref={ref} className="flex flex-1 flex-col"><RowEditorForm {...props} /></div>;
+}
+
+function RowEditorForm({ readOnly, ...props }: {
+  objectId: string;
+  readOnly: boolean;
+  onDrill: (panelId: string) => void;
+  onOpenObject?: (objectId: string) => void;
+}) {
+  // Read only (a pack in the market, an admin's look, a signed-out visitor):
+  // the same form, locked, so what is in the row can be read in full. It used to say only 「只读视图」, which left a pack's
+  // entries and variables impossible to look at before installing it.
+  if (!readOnly) return <EditableRowForm {...props} />;
+  return <ReadOnlyForm><EditableRowForm {...props} /></ReadOnlyForm>;
+}
+
+function EditableRowForm({ objectId, onDrill, onOpenObject }: {
+  /** `entry:` / `greeting:` / `var:` / `reaction:` / `image:` + its id. */
+  objectId: string;
   /** Open one of the card's full editors (the opening and scene-image forms
    *  both link out to one). */
   onDrill: (panelId: string) => void;
+  onOpenObject?: (objectId: string) => void;
 }) {
-  const { t } = useTranslation("editor");
   const id = objectId.slice(objectId.indexOf(":") + 1);
-  if (readOnly) return <p className="text-xs text-muted-foreground">{t("blueprint.insp.readOnly")}</p>;
+  if (objectId === blockId.context()) return <CardContextForm />;
+  if (isInlineContext(objectId)) {
+    const ownerId = objectId.slice("block:m:".length, -":context".length);
+    return <ModuleMemoryForm key={ownerId} worldbookId={ownerId} onOpenModule={onOpenObject ? () => onOpenObject(`module:${ownerId}`) : undefined} />;
+  }
+  if (objectId.startsWith("audio:")) return <AudioTrackForm key={id} trackId={id} onDrill={onDrill} />;
   if (objectId.startsWith("greeting:")) return <GreetingForm key={id} entryId={id} onDrill={onDrill} />;
   if (objectId.startsWith("entry:")) return <EntryForm key={id} entryId={id} />;
-  if (objectId.startsWith("var:")) return <NamedRow objectId={objectId}><VariableForm key={id} variableId={id} /></NamedRow>;
-  if (objectId.startsWith("reaction:")) return <NamedRow objectId={objectId}><BehaviorForm key={id} reactionId={id} /></NamedRow>;
-  if (objectId.startsWith("image:")) return <NamedRow objectId={objectId}><SceneImageForm key={id} sceneImageId={id} onDrill={onDrill} /></NamedRow>;
+  if (objectId.startsWith("var:")) return <VariableForm key={id} variableId={id} />;
+  if (objectId.startsWith("reaction:")) return <BehaviorForm key={id} reactionId={id} />;
+  if (objectId.startsWith("image:")) return <SceneImageForm key={id} sceneImageId={id} onDrill={onDrill} />;
   return null;
-}
-
-/** A name field above the form, for the kinds the drawer renames from its own
- *  title bar — without it, the one thing you could not change in place is what
- *  the thing is called. */
-function NamedRow({ objectId, children }: { objectId: string; children: React.ReactNode }) {
-  const { t } = useTranslation("editor");
-  const id = objectId.slice(objectId.indexOf(":") + 1);
-  const name = useEditorStore(s =>
-    objectId.startsWith("var:") ? s.worldDraft.variables.find(v => v.id === id)?.name
-      : objectId.startsWith("reaction:") ? (s.worldDraft.reactions ?? []).find(r => r.id === id)?.name
-      : (s.worldDraft.sceneImages ?? []).find(img => img.id === id)?.name);
-  if (name === undefined) return null;
-  const rename = (next: string) => {
-    const store = useEditorStore.getState();
-    if (objectId.startsWith("var:")) {
-      // The list can be reordered while a debounced commit is in flight, so
-      // find the index again rather than closing over the one we rendered with.
-      const index = store.worldDraft.variables.findIndex(v => v.id === id);
-      if (index >= 0) store.updateVariableAt(index, { name: next });
-    } else if (objectId.startsWith("reaction:")) {
-      store.updateReaction(id, { name: next });
-    } else {
-      store.updateSceneImage(id, { name: next });
-    }
-  };
-  return (
-    <div className="flex min-h-0 flex-col gap-3">
-      <DebouncedInput
-        value={name}
-        syncKey={`row-editor-name-${objectId}`}
-        onCommit={rename}
-        aria-label={t("blueprint.insp.name")}
-        placeholder={t("blueprint.insp.name")}
-        className="studio-control w-full rounded-lg border px-2.5 py-1.5 text-sm font-medium text-foreground focus:studio-control-focus focus:outline-none"
-      />
-      {children}
-    </div>
-  );
 }

@@ -1,4 +1,4 @@
-import { normalizeHubLanguage, normalizeWorldLanguage } from "./world-language.js";
+import { normalizeEditorialLanguage, normalizeWorldLanguage, variantLanguages } from "./world-language.js";
 
 export type HeroSlot = { slot: number; kind: "world" | "group"; id: string };
 export interface HeroSlotRow {
@@ -13,7 +13,7 @@ export interface HeroSlotRow {
 
 /** An active local lineup replaces English; otherwise inherit English in full. */
 export function resolveHeroSlots(rows: HeroSlotRow[], language: string, now = new Date()): HeroSlot[] {
-  const locale = normalizeHubLanguage(language) ?? "en";
+  const locale = normalizeEditorialLanguage(language) ?? "en";
   const active = rows.filter(row => (!row.startsAt || row.startsAt <= now) && (!row.endsAt || row.endsAt > now));
   const local = active.filter(row => row.language === locale);
   return (local.length ? local : active.filter(row => row.language === "en"))
@@ -36,10 +36,12 @@ interface HeroCandidate {
 /** Candidates have already passed publication, visibility, age and block filters.
  * Return real variant rows so their titles, links, covers and game paths agree. */
 export function resolveHeroWorlds<T extends HeroCandidate>(slots: HeroSlot[], candidates: T[], language: string): T[] {
-  const locale = normalizeHubLanguage(language) ?? "en";
+  const locale = normalizeEditorialLanguage(language) ?? "en";
+  const chain = variantLanguages(language, locale);
   const rank = (world: T) => {
-    const lang = normalizeWorldLanguage(world.language);
-    return lang === locale ? 0 : lang === "en" ? 1 : 2;
+    const lang = normalizeWorldLanguage(world.language) ?? "";
+    const i = chain.indexOf(lang);
+    return i >= 0 ? i : lang === "en" ? chain.length : chain.length + 1;
   };
   const sorted = [...candidates].sort((a, b) => rank(a) - rank(b)
     || Number(b.isPrimaryVariant) - Number(a.isPrimaryVariant)

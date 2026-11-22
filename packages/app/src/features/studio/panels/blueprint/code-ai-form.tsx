@@ -45,7 +45,13 @@ export function CodeAiForm({ row }: { row: PlaceAiRow }) {
   const at = row.code ? { file: row.code.file, line: row.code.line } : row.codeAt;
   // A live voice is told the room when the interface updates its context.
   const toldScene = voice && Object.values(files ?? {}).some((src) => typeof src === "string" && /\.updateContext\s*\(/.test(src));
-  const facts: Array<[string, string]> = game
+  const io: Array<[string, string]> = [
+    ...(row.receives ? [[t("blueprint.placeAis.gets"), row.receives] as [string, string]] : []),
+    ...(row.returns ? [[t("blueprint.codeAi.returns"), row.returns.replace(/^→s*/, "")] as [string, string]] : []),
+  ];
+  const facts: Array<[string, string]> = row.type === "platform"
+    ? [[t("blueprint.codeAi.kind"), t("blueprint.codeAi.kindPlatform")], ...io]
+    : game
     ? [
         [t("blueprint.codeAi.kind"), t("blueprint.codeAi.kindGame")],
         ...(game.gets ? [[t("blueprint.codeAi.gets"), game.gets] as [string, string]] : []),
@@ -55,9 +61,10 @@ export function CodeAiForm({ row }: { row: PlaceAiRow }) {
         ...(game.where ? [[t("blueprint.codeAi.where"), game.where] as [string, string]] : []),
       ]
     : row.code
-    ? codeCallFacts(row.code, books, t, variables)
+    ? [...io, ...codeCallFacts(row.code, books, t, variables)]
     : [
         [t("blueprint.codeAi.kind"), t("blueprint.codeAi.kindVoice")],
+        ...io,
         [t("blueprint.codeAi.scene"), t(toldScene ? "blueprint.codeAi.sceneYes" : "blueprint.codeAi.sceneNo")],
       ];
 
@@ -91,8 +98,11 @@ export function CodeAiForm({ row }: { row: PlaceAiRow }) {
 
   return (
     <div className="space-y-3" data-code-ai-form={row.key}>
-      <p className="text-[11.5px] leading-relaxed text-foreground/60">{game?.book ? t("blueprint.codeAi.gameWhatBook", { name: books.find((b) => b.id === game.book)?.name ?? game.book }) : t(game ? "blueprint.codeAi.gameWhat" : voice ? "blueprint.codeAi.voiceWhat" : "blueprint.codeAi.callWhat")}</p>
-      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11.5px]">
+      {row.type === "platform" && row.job && <p className="text-[11.5px] leading-relaxed text-foreground/60">{row.job}</p>}
+      <dl
+        className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11.5px]"
+        title={row.type === "platform" ? undefined : game?.book ? t("blueprint.codeAi.gameWhatBook", { name: books.find((b) => b.id === game.book)?.name ?? game.book }) : t(game ? "blueprint.codeAi.gameWhat" : voice ? "blueprint.codeAi.voiceWhat" : "blueprint.codeAi.callWhat")}
+      >
         {facts.map(([k, v]) => (
           <div key={k} className="contents">
             <dt className="text-foreground/45">{k}</dt>
@@ -100,6 +110,14 @@ export function CodeAiForm({ row }: { row: PlaceAiRow }) {
           </div>
         ))}
       </dl>
+      {/* Its instructions as the code writes them: what it is actually told,
+          which no other place on the board shows for an AI in the code. */}
+      {row.instructions && (
+        <div data-code-ai-instructions="" className="space-y-1">
+          <p className="text-[11.5px] text-foreground/45">{t("blueprint.codeAi.instructions")}</p>
+          <p className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg border border-white/[0.06] bg-black/25 px-2.5 py-2 text-[11.5px] leading-relaxed text-foreground/80">{row.instructions}</p>
+        </div>
+      )}
       <Field label={t("blueprint.codeAi.note")} hint={t("blueprint.codeAi.noteHint")}>
         <DebouncedTextarea
           value={note?.text ?? ""}
@@ -118,7 +136,7 @@ export function CodeAiForm({ row }: { row: PlaceAiRow }) {
           onClick={askAssistant}
           className="studio-control inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11.5px] text-foreground/85 hover:text-foreground"
         >
-          <Sparkles className="h-3.5 w-3.5 text-primary" />
+          <Sparkles className="h-3.5 w-3.5" />
           {t("blueprint.codeAi.ask")}
         </button>}
         {row.code && !bundled && (
@@ -129,7 +147,7 @@ export function CodeAiForm({ row }: { row: PlaceAiRow }) {
             title={t("blueprint.codeAi.convertHint")}
             className="studio-control inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11.5px] text-foreground/85 hover:text-foreground"
           >
-            <SlidersHorizontal className="h-3.5 w-3.5 text-primary" />
+            <SlidersHorizontal className="h-3.5 w-3.5" />
             {t("blueprint.codeAi.convert")}
           </button>
         )}
@@ -145,11 +163,6 @@ export function CodeAiForm({ row }: { row: PlaceAiRow }) {
           </button>
         )}
       </div>
-      {row.code && (
-        <p className="text-[11px] leading-relaxed text-foreground/45" data-code-ai-convert-note="">
-          {t(bundled ? "blueprint.codeAi.convertBundled" : "blueprint.codeAi.convertHint")}
-        </p>
-      )}
     </div>
   );
 }

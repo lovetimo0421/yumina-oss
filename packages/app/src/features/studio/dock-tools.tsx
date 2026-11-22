@@ -37,6 +37,10 @@ export type DockTool = {
   /** Changing this brings the tool's tab to the front (a new change to
    *  inspect, say, while the review tab sits behind another). */
   focusKey?: string | number;
+  /** Alone in its panel it shows no tab: it has a heading of its own and a
+   *  button elsewhere that opens and closes it. It also draws its own
+   *  surface, so the panel behind it is left clear. */
+  bare?: boolean;
 };
 
 type Direction = "left" | "right" | "above" | "below";
@@ -54,14 +58,16 @@ type ToolsValue = {
   /** A kept-mounted tool's content lives in this element; its tab borrows it. */
   holder: (id: string) => HTMLElement | null;
   park: (el: HTMLElement) => void;
+  /** Tools that bring their own surface (see DockTool.bare). */
+  bare: Set<string>;
 };
-const ToolsContext = createContext<ToolsValue>({ content: {}, holder: () => null, park: () => {} });
+const ToolsContext = createContext<ToolsValue>({ content: {}, holder: () => null, park: () => {}, bare: new Set() });
 
 function MainPanel() {
   return <div className="flex h-full w-full min-h-0 min-w-0">{useContext(MainContext)}</div>;
 }
 function ToolPanel(props: IDockviewPanelProps<{ toolId: string }>) {
-  const { content, holder, park } = useContext(ToolsContext);
+  const { content, holder, park, bare } = useContext(ToolsContext);
   const id = props.params.toolId;
   const slot = useRef<HTMLDivElement>(null);
   const kept = holder(id);
@@ -71,7 +77,7 @@ function ToolPanel(props: IDockviewPanelProps<{ toolId: string }>) {
     el.appendChild(kept);
     return () => park(kept);
   }, [kept, park]);
-  return <div ref={slot} className="flex h-full w-full min-h-0 min-w-0 flex-col bg-background">{kept ? null : content[id]}</div>;
+  return <div ref={slot} className={`flex h-full w-full min-h-0 min-w-0 flex-col ${bare.has(id) ? "" : "bg-background"}`}>{kept ? null : content[id]}</div>;
 }
 const COMPONENTS = { main: MainPanel, tool: ToolPanel };
 const TAB_COMPONENTS = {
@@ -151,12 +157,17 @@ export function DockWorkspace({ scope, mainTitle, tools, className, children }: 
     }
   }, [scope]);
 
-  /** The page's own tab row only shows once a tool shares its panel. */
+  /** A tab row only shows where there is a choice of tabs: two things
+   *  sharing one panel. Alone, the page needs no tab, and neither does a
+   *  tool: the assistant under a tab reading 「创作助手」, beside the
+   *  toolbar's own 「创作助手」 button, said its name twice (owner, 11/15).
+   *  A lone tool is closed from its own heading or that button. */
   const tidyHeaders = useCallback(() => {
     const api = apiRef.current;
     if (!api) return;
+    const bare = new Set([MAIN_ID, ...toolsRef.current.filter(t => t.bare).map(t => t.id)]);
     for (const group of api.groups) {
-      group.header.hidden = group.panels.length === 1 && group.panels[0]!.id === MAIN_ID;
+      group.header.hidden = group.panels.length === 1 && bare.has(group.panels[0]!.id);
     }
   }, []);
 
@@ -255,7 +266,7 @@ export function DockWorkspace({ scope, mainTitle, tools, className, children }: 
 
   const toolContent: Record<string, ReactNode> = {};
   for (const tool of tools) if (tool.open) toolContent[tool.id] = tool.children;
-  const toolsValue: ToolsValue = { content: toolContent, holder: holderFor, park };
+  const toolsValue: ToolsValue = { content: toolContent, holder: holderFor, park, bare: new Set(tools.filter(t => t.bare).map(t => t.id)) };
 
   return (
     <MainContext.Provider value={children}>

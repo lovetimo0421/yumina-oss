@@ -35,7 +35,7 @@ export function AiTypePicker({ value, onPick, card }: { value: AiType; onPick?: 
               aria-checked={adds ? undefined : value === k}
               data-ai-type-option={k}
               data-ai-type-adds={adds ? "" : undefined}
-              title={adds ? t("blueprint.aiForm.addTyped", { type: t(`blueprint.aiType.${k}`) }) : undefined}
+              title={adds ? t("blueprint.aiForm.addTyped", { type: t(`blueprint.aiType.${k}`) }) : card ? `${t(`blueprint.aiTypeHint.${k}`)} ${t("blueprint.aiForm.cardTypeHint")}` : t(`blueprint.aiTypeHint.${k}`)}
               onClick={() => {
                 if (k === value) return;
                 if (card) requestAddAi(k);
@@ -53,10 +53,6 @@ export function AiTypePicker({ value, onPick, card }: { value: AiType; onPick?: 
           );
         })}
       </div>
-      <p className="pt-1.5 text-[11px] leading-relaxed text-foreground/55" data-ai-type-hint={value}>
-        {t(`blueprint.aiTypeHint.${value}`)}
-        {card && <> {t("blueprint.aiForm.cardTypeHint")}</>}
-      </p>
     </Field>
   );
 }

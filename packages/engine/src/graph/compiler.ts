@@ -21,6 +21,7 @@ import { UNPLACED_WORLDBOOK_ID } from "../lorebook/worldbook.js";
 export const WORLD_LOGIC_KEYS = [
   "rules", "variables", "reactions", "entries", "worldbooks", "loreUiBindings",
   "rootComponent", "audioTracks", "sceneImages", "name", "description", "avatar", "uiDoc",
+  "installedBundles",
 ] as const;
 
 /** The slice of a world the projection reads. Everything beyond rules/variables
@@ -28,7 +29,7 @@ export const WORLD_LOGIC_KEYS = [
 type WorldLogic = Pick<WorldDefinition, "rules" | "variables"> &
   Partial<Pick<WorldDefinition,
     "reactions" | "entries" | "worldbooks" | "loreUiBindings" | "rootComponent" |
-    "audioTracks" | "sceneImages" | "name" | "description" | "avatar" | "uiDoc">>;
+    "audioTracks" | "sceneImages" | "name" | "description" | "avatar" | "uiDoc" | "installedBundles">>;
 
 /** Compile error the moment WorldLogic gains a key WORLD_LOGIC_KEYS lacks —
  *  without it a new field would silently stop refreshing the canvas. The error
@@ -290,6 +291,9 @@ export function toGraph(world: WorldLogic, options?: ToGraphOptions): CardGraph 
     });
   }
 
+  // A pack's settings form is where its bound variables get their value: the
+  // creator fills it in, so "nothing writes this" is not true of them.
+  const settingVarIds = new Set((world.installedBundles ?? []).flatMap((b) => (b.settings ?? []).map((f) => f.variableId)));
   for (const v of world.variables ?? []) {
     // Variable ids are user-editable and were historically duplicable
     // (2026-07-10 community report) — two nodes sharing one id break React
@@ -300,7 +304,7 @@ export function toGraph(world: WorldLogic, options?: ToGraphOptions): CardGraph 
     // The AI writes any variable it is allowed to write, so "nothing writes
     // this" only means something when the AI is locked out too.
     const aiMayWrite = v.aiAccess !== "read" && v.aiAccess !== "none";
-    const dead = readByUi && writesAreKnown && !aiMayWrite && !writtenVarIds.has(v.id);
+    const dead = readByUi && writesAreKnown && !aiMayWrite && !writtenVarIds.has(v.id) && !settingVarIds.has(v.id);
     nodes.push({
       id: `var:${v.id}`, kind: "variable", title: v.name,
       ports: [port("write", "state", "in"), port("read", "state", "out")],
@@ -734,7 +738,52 @@ export function toGraph(world: WorldLogic, options?: ToGraphOptions): CardGraph 
     });
   }
 
+  markPackMembers(nodes, world);
   return { nodes, edges };
+}
+
+/**
+ * Which installed resource pack each object came with, as the pack's
+ * installId: entries carry it themselves (bundleInstallId), the rest are
+ * listed on the install record. The card's openings stay the card's, and
+ * whatever lives in one of the pack's own situations stays in that situation:
+ * a situation is a frame of its own already.
+ */
+export function packMembership(world: Pick<WorldLogic, "entries" | "variables" | "reactions" | "rules" | "audioTracks" | "installedBundles">): Map<string, string> {
+  const out = new Map<string, string>();
+  const records = world.installedBundles ?? [];
+  if (records.length === 0) return out;
+  const known = new Map(records.map((r) => [r.installId, r]));
+  const ownBooks = new Map(records.map((r) => [r.installId, new Set(r.worldbookIds ?? [])]));
+  for (const e of world.entries ?? []) {
+    const id = e.bundleInstallId ?? records.find((r) => r.entryIds.includes(e.id))?.installId;
+    if (!id || !known.has(id) || e.role === "greeting") continue;
+    if (e.worldbookId && ownBooks.get(id)!.has(e.worldbookId)) continue;
+    out.set(`entry:${e.id}`, id);
+  }
+  for (const r of records) {
+    const books = ownBooks.get(r.installId)!;
+    const vars = new Set(r.variableIds);
+    for (const v of world.variables ?? []) if (vars.has(v.id) && !(v.worldbookId && books.has(v.worldbookId))) out.set(`var:${v.id}`, r.installId);
+    const reactions = new Set(r.reactionIds ?? []);
+    for (const x of world.reactions ?? []) if (reactions.has(x.id) && !(x.worldbookId && books.has(x.worldbookId))) out.set(`reaction:${x.id}`, r.installId);
+    const rules = new Set(r.ruleIds);
+    for (const x of world.rules ?? []) if (rules.has(x.id)) out.set(`rule:${x.id}`, r.installId);
+    for (const id of r.audioTrackIds) out.set(`audio:${id}`, r.installId);
+  }
+  return out;
+}
+
+/** Tag every object an installed pack brought with `data.pack` (its
+ *  installId), which is what the board reads to draw the pack as a frame of
+ *  its own. */
+function markPackMembers(nodes: GraphNode[], world: WorldLogic): void {
+  const members = packMembership(world);
+  if (members.size === 0) return;
+  for (let i = 0; i < nodes.length; i++) {
+    const pack = members.get(nodes[i]!.id);
+    if (pack) nodes[i] = { ...nodes[i]!, data: { ...nodes[i]!.data, pack } };
+  }
 }
 
 function ensureNode(nodes: GraphNode[], node: GraphNode): void {

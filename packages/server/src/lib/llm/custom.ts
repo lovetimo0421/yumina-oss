@@ -2,7 +2,8 @@ import { PUBLIC_ORIGIN } from "../env.js";
 import { createHash, randomUUID } from "node:crypto";
 import type { LLMProvider, GenerateParams, StreamChunk, Model, ChatMessage, ToolCall } from "./types.js";
 import type { ApiKeyMetadata } from "@yumina/shared";
-import { validateCustomEndpointUrl } from "../ssrf.js";
+import { fetchUserEndpoint, validateCustomEndpointUrl } from "../ssrf.js";
+import { normalizeStopReason } from "./stop-reason.js";
 import { applyPromptPostProcessing } from "./post-process.js";
 import { parseUnsupportedParam, stripParamFromBody, looksLikeReasoningModel } from "./param-fallback.js";
 import { localGenerationTimeoutMs, readLocalStream } from "./local-timeout.js";
@@ -43,7 +44,7 @@ export class CustomProvider implements LLMProvider {
     const entry = { expiresAt: Date.now() + 15_000, value: Promise.resolve<number | undefined>(undefined) };
     entry.value = (async () => {
       try {
-        const response = await fetch(`${this.baseUrl}/plan`, {
+        const response = await fetchUserEndpoint(`${this.baseUrl}/plan`, {
           headers: this.buildHeaders({ contentType: false }),
           signal: AbortSignal.timeout(3_000),
         });
@@ -260,7 +261,7 @@ export class CustomProvider implements LLMProvider {
             yield {
               type: "done",
               content: "",
-              stopReason: lastFinishReason === "length" ? "max_tokens" : lastFinishReason ?? undefined,
+              stopReason: normalizeStopReason(lastFinishReason),
               ...(latestUsage && { usage: usageOf(latestUsage) }),
             };
             return;
@@ -351,7 +352,7 @@ export class CustomProvider implements LLMProvider {
               yield {
                 type: "done",
                 content: "",
-                stopReason: lastFinishReason === "length" ? "max_tokens" : lastFinishReason ?? undefined,
+                stopReason: normalizeStopReason(lastFinishReason),
                 usage: usageOf(parsed.usage),
               };
               return;
@@ -375,7 +376,7 @@ export class CustomProvider implements LLMProvider {
     yield {
       type: "done",
       content: "",
-      stopReason: lastFinishReason === "length" ? "max_tokens" : lastFinishReason ?? undefined,
+      stopReason: normalizeStopReason(lastFinishReason),
       ...(latestUsage && { usage: usageOf(latestUsage) }),
     };
   }
@@ -481,7 +482,7 @@ export class CustomProvider implements LLMProvider {
     yield {
       type: "done",
       content: "",
-      stopReason: fr === "length" ? "max_tokens" : fr ?? undefined,
+      stopReason: normalizeStopReason(fr),
       ...(usage && {
         usage: {
           promptTokens: usage.prompt_tokens ?? 0,
@@ -497,7 +498,7 @@ export class CustomProvider implements LLMProvider {
    *  Returns empty array on any failure — the whitelist in api_keys.metadata is the source of truth. */
   async listModels(): Promise<Model[]> {
     try {
-      const response = await fetch(`${this.baseUrl}/models`, {
+      const response = await fetchUserEndpoint(`${this.baseUrl}/models`, {
         headers: this.buildHeaders({ contentType: false }),
         signal: AbortSignal.timeout(10_000),
       });
@@ -518,7 +519,7 @@ export class CustomProvider implements LLMProvider {
   /** Detailed listModels for the connection panel — surfaces the upstream HTTP status on failure. */
   async listModelsDetailed(): Promise<{ ok: boolean; status?: number; models: string[]; reason?: string }> {
     try {
-      const response = await fetch(`${this.baseUrl}/models`, {
+      const response = await fetchUserEndpoint(`${this.baseUrl}/models`, {
         headers: this.buildHeaders({ contentType: false }),
         signal: AbortSignal.timeout(10_000),
       });
@@ -568,7 +569,7 @@ export class CustomProvider implements LLMProvider {
   /** Fast connectivity check via /models. Returns true on 2xx. */
   async verify(): Promise<boolean> {
     try {
-      const response = await fetch(`${this.baseUrl}/models`, {
+      const response = await fetchUserEndpoint(`${this.baseUrl}/models`, {
         headers: this.buildHeaders({ contentType: false }),
         signal: AbortSignal.timeout(10_000),
       });
@@ -630,8 +631,25 @@ export class CustomProvider implements LLMProvider {
     // Explicit per-call controls win over saved profile defaults. Leaving effort
     // unset preserves the profile/provider default; "low" must not become high.
     if (isOfficialDeepSeekEndpoint(this.baseUrl)) applyDeepSeekReasoning(shaped, params);
+    else if (params.disableReasoning && !this.profileControlsReasoning()) {
+      // Background work (recaps, memory) on a player's own API asks for no
+      // thinking: a thinking model spends the summary's budget on thoughts and
+      // costs more (droidito, 11/06). Only the OpenAI-standard field goes to
+      // other endpoints, never DeepSeek's native `thinking`; OpenAI, Gemini and
+      // most proxies honour it, and an endpoint that refuses it is resent once
+      // without it (postChatWithRetry), which is today's request.
+      shaped.reasoning_effort = "none";
+      noThinkingHints.add(shaped);
+    }
 
     return shaped;
+  }
+
+  /** The player's saved request-body fields already choose how this endpoint thinks. */
+  private profileControlsReasoning(): boolean {
+    const include = this.metadata.includeBody;
+    if (!include || typeof include !== "object") return false;
+    return ["reasoning_effort", "reasoning", "thinking", "chat_template_kwargs", "enable_thinking"].some((k) => k in include);
   }
 
   /** POST the chat body and, on a recognizable 400 "unsupported parameter"
@@ -647,14 +665,27 @@ export class CustomProvider implements LLMProvider {
     const headers = this.buildHeaders({ conversationId });
 
     let body = initialBody;
-    let response = await fetch(url, { method: "POST", headers, signal, body: JSON.stringify(body) });
-    if (response.ok || response.status !== 400 || !allowRetry) return response;
+    let response = await fetchUserEndpoint(url, { method: "POST", headers, signal, body: JSON.stringify(body) });
+    // Our own no-thinking hint (buildChatBody) is optional. A 400/422 means the
+    // model never ran and nothing was billed, so it is dropped and the request
+    // resent once even for single-attempt calls.
+    const hinted = noThinkingHints.has(initialBody);
+    if (response.ok) return response;
+    if (!(hinted && (response.status === 400 || response.status === 422))
+      && (response.status !== 400 || !allowRetry)) return response;
 
     // Drain the error body (Response bodies can only be consumed once). If we
     // decide not to retry, we have to wrap the text back into a fresh Response
     // so the caller's response.text() still works.
     const errorText = await response.text().catch(() => "");
     const errorShim = () => new Response(errorText, { status: response.status, statusText: response.statusText });
+
+    if (hinted && /reasoning/i.test(errorText)) {
+      console.warn(`[Custom] Upstream refused reasoning_effort "none". Resending once without it. Excerpt: ${errorText.slice(0, 200)}`);
+      const { reasoning_effort: _dropped, ...withoutHint } = body;
+      return fetchUserEndpoint(url, { method: "POST", headers, signal, body: JSON.stringify(withoutHint) });
+    }
+    if (response.status !== 400 || !allowRetry) return errorShim();
 
     const offendingParam = parseUnsupportedParam(errorText);
     if (!offendingParam) return errorShim();
@@ -663,7 +694,7 @@ export class CustomProvider implements LLMProvider {
 
     console.warn(`[Custom] Upstream rejected param '${offendingParam}'. Retrying once without it. Excerpt: ${errorText.slice(0, 200)}`);
     body = retryBody;
-    return fetch(url, { method: "POST", headers, signal, body: JSON.stringify(body) });
+    return fetchUserEndpoint(url, { method: "POST", headers, signal, body: JSON.stringify(body) });
   }
 
   /** Compose request headers: Authorization (always ours) + Content-Type + user-supplied includeHeaders.
@@ -713,6 +744,10 @@ export class CustomProvider implements LLMProvider {
 }
 
 // ── Helpers ──
+
+/** Request bodies that carry the optional no-thinking hint buildChatBody added
+ *  (not one the player configured), so only ours is dropped on a refusal. */
+const noThinkingHints = new WeakSet<Record<string, unknown>>();
 
 /** DeepSeek's thinking mode rejects a tool-call step whose assistant message
  *  carries no reasoning_content ("must be passed back to the API"), even when

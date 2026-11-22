@@ -1,4 +1,13 @@
 {
+  "cardImages": {
+    "ask": {
+      "title": "让这张卡为你画图？",
+      "body": "这张卡想为你画一张图，每张 {{price}} 蘑菇币。",
+      "free": "你还有 {{count}} 张免费额度。",
+      "confirm": "画",
+      "remember": "以后这张卡画图不再问我"
+    }
+  },
   "nativeVoice": {
     "title": "启用实时语音",
     "description": "自然交谈，也可以打断回复。摄像头保持关闭。",
@@ -50,11 +59,14 @@
   },
   "view": {
     "retry": "重试",
+    "sessionNotFound": "打不开这个对话。它可能属于你的另一个账号，或者已被删除。",
+    "switchAccount": "切换账号",
     "loadingSession": "加载会话中...",
     "exitFullscreen": "退出全屏 (F11)",
     "returnToFullscreen": "返回全屏",
     "switchModel": "模型",
     "memoryPanel": "记忆",
+    "searchMessages": "搜索聊天记录",
     "enterSystemFullscreen": "进入系统全屏",
     "exitImmersive": "退出沉浸模式",
     "showPlayControls": "显示操作栏",
@@ -76,6 +88,8 @@
     "displayModeKeep": "保留设置",
     "sandboxBootFailed": "这个世界的界面没能加载出来。检查一下网络，然后重试。",
     "sandboxBootSlow": "还在加载，你的网络似乎有点慢。",
+    "floatingHere": "现在在小窗里。",
+    "floatingDock": "收回到网页",
     "sceneVideo": "场景视频",
     "backToEditor": "返回编辑器"
   },
@@ -131,6 +145,29 @@
     "sceneGalleryLocked": "还没出现",
     "sceneGalleryEmpty": "这个世界没有场景图。",
     "sessionOrdinal": "会话 {{n}}",
+    "searchSaves": "搜索会话",
+    "clearSearch": "清除搜索",
+    "sortSaves": "排序",
+    "sort": {
+      "recent": "最近游玩",
+      "oldest": "最早创建",
+      "messages": "消息最多",
+      "name": "名称"
+    },
+    "searchHits_one": "{{count}} 处匹配",
+    "searchHits_other": "{{count}} 处匹配",
+    "searchMore_one": "还有 {{count}} 处",
+    "searchMore_other": "还有 {{count}} 处",
+    "searchFailed": "搜索失败，请重试",
+    "noMatchingSaves": "没有匹配的会话",
+    "pinSession": "置顶",
+    "unpinSession": "取消置顶",
+    "pinFailed": "置顶失败",
+    "unpinFailed": "取消置顶失败",
+    "selectAllMatching_one": "选择匹配的 {{count}} 个",
+    "selectAllMatching_other": "全选匹配的 {{count}} 个",
+    "deselectAllMatching_one": "取消选择这 {{count}} 个",
+    "deselectAllMatching_other": "取消选择这 {{count}} 个",
     "playedFor": "已玩 {{time}}",
     "chooseVersion": "选择要开始的版本",
     "startThisVersion": "开始这个版本"
@@ -237,6 +274,7 @@
     "unlockWeight": "取消固定这个占比"
   },
   "modelBrowser": {
+    "docsLink": "可以用哪些模型？",
     "privateSetupTitle": "设置私人模型",
     "privateSetupDescription": "请在 AI 配置中选择“私人 API 密钥”并设置提供商密钥，以使用这些模型。",
     "title": "浏览模型",
@@ -354,14 +392,11 @@
     "signInToSend": "登录以发送消息",
     "openPreview": "预览"
   },
-  "zoom": {
-    "adjustZoom": "调整游戏缩放",
-    "zoomLabel": "游戏缩放百分比"
-  },
   "stateGuard": {
     "unverified": "状态检查没能完成，已按原回复更新数值"
   },
   "errors": {
+    "WORLD_ACCESS_ENDED": "你已无法访问这张卡——作者已将你移出协作。",
     "PROTECTED_WORLD": "创作者已保护此世界的提示词，防止被窃取。只能使用梦坞官方 API 模型，不支持私有 API 密钥。",
     "NO_CREDITS": "蘑菇币用完了！完成每日任务可领取免费额度，或升级方案获取更多。",
     "PRIVATE_API_BALANCE": "你的私人 API 余额不足，请检查服务商账户。",
@@ -474,7 +509,12 @@
     "noKey": "语音朗读需要 API key，请到设置里添加。",
     "voiceUnavailable": "这个音色已经用不了了，请换一个。",
     "needsKeyOrCredits": "语音朗读需要 OpenRouter key 或蘑菇币",
-    "byokNoBalance": "你的 API key 余额不足"
+    "byokNoBalance": "你的 API key 余额不足",
+    "cardAsks": {
+      "title": "打开语音朗读？",
+      "body": "这个故事想出声跟你说话。语音朗读会用 AI 声音念出台词，按字数消耗 mushies。随时可以在 设置 › 显示 / 语言 里关掉。",
+      "confirm": "打开"
+    }
   },
   "worldDisplayUnavailable": "无法加载这个世界的界面，请联系客服。",
   "film": {
@@ -506,7 +546,9 @@
     "scenesEmpty": "开拍后出现场景",
     "current": "当前",
     "cutBack": "↩ 回到 {{scene}}",
-    "changesNextTime": "改动在下次开拍时生效",
+    "changesNextTime": "画风从下一条回复开始换；其他改动下次开拍时生效。",
+    "lookNext": "下一条回复起换成这个画风。",
+    "advanced": "高级",
     "engine": "引擎",
     "engineComfy": "Comfy H3 · 约每分钟 130 蘑菇币",
     "engineFal": "fal · 最快最稳 · 约每分钟 5,800 蘑菇币",
@@ -528,24 +570,25 @@
     "limitSeconds": "最长拍多少秒",
     "reset": "恢复默认",
     "consentTitle": "影游是实验性功能",
-    "consentBody": "会扣蘑菇币：fal 实时拍，约每分钟 5,800；短片每条回复约 100–1,400，每部拍好时扣。",
+    "consentBody": "会扣蘑菇币：fal 实时拍，约每分钟 5,800；短片每条回复约 800–2,000，每部拍好时扣。",
     "consentAccept": "打开并开拍",
     "consentDecline": "先不用",
     "noCredits": "蘑菇币用完了，已停止拍摄。",
     "notEnabled": "请先在设置里打开影游。",
     "unavailable": "影游暂时不可用。",
-    "engineShorts": "短片 · 每条回复一部，写完几分钟后出片 · 每条约 100–1,400 蘑菇币",
-    "shortsHint": "每条回复拍成一部 5–60 秒带配音的短片，长短看这一幕需要。回复写完几分钟后出片，在这里播放；两部之间停在最后一帧。",
+    "engineShorts": "短片 · 每条回复一部，写完约半分钟开始播 · 每条约 800–2,000 蘑菇币",
+    "shortsHint": "每条回复拍成一部 5–60 秒带配音的短片，长短看这一幕需要。回复写完约半分钟就在这里开始播放；两部之间停在最后一帧。",
     "shortWriting": "下一部：导演在写分镜…",
     "shortShooting": "下一部：已拍好 {{done}}/{{shots}} 个镜头",
-    "shortFailed": "这条回复没拍成：{{reason}}",
+    "shortFailed": "这条回复没拍成：{{reason}}。没有扣蘑菇币。",
+    "shortRefused": "导演不肯拍这一段",
     "shortBusy": "已经有两部在拍了",
     "shortTimeout": "拍得太久，已停止",
     "shortRetry": "重拍",
     "shortRetake": "把最新这条回复重拍一遍",
     "shortBack": "上一部",
     "shortForward": "下一部",
-    "shortNone": "第一部正在拍，回复写完几分钟后出片。",
+    "shortNone": "第一部正在拍，回复写完约半分钟开始播。",
     "shortOpening": "开场白",
     "shortReply": "第 {{n}} 条回复",
     "shortShot": "镜头 {{n}}/{{total}}",
@@ -641,5 +684,13 @@
       "shortRewind": "玩家回退：从头放一部"
     }
   },
-  "memoryModelNeedsPlan": "{{model}} 需要{{plan}}及以上会员。请给记忆换一个模型，或升级会员。"
+  "memoryModelNeedsPlan": "{{model}} 需要{{plan}}及以上会员。请给记忆换一个模型，或升级会员。",
+  "cardImages": {
+    "ask": {
+      "title": "让这张卡为你画图？",
+      "body": "这张卡想为你画一张图，每张 {{price}} 蘑菇币。同意后，这张卡以后画图不再询问。",
+      "free": "你还有 {{count}} 张免费额度。",
+      "confirm": "画"
+    }
+  }
 }

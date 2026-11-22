@@ -1,5 +1,4 @@
-import { useDiscoverAccess } from "@/hooks/use-discover-access";
-import { selectWorldArtwork } from "@/lib/discover-world-artwork";
+import { DISCOVER_COVER_ASPECTS, selectWorldArtwork } from "@/lib/discover-world-artwork";
 import { useOpenWorldPreview } from "@/edition/slots";
 import { useCardTextMacros } from "@/hooks/use-card-text-macros";
 import { useEdition } from "@/edition/edition";
@@ -15,26 +14,31 @@ import {
   Pencil,
   Heart,
   Share2,
+  UserPlus,
   Download,
+  Copy,
   FileText,
   Clapperboard,
   MessagesSquare,
   Loader2,
   Flag,
+  EyeOff,
+  Eye,
   Trash2,
   GitFork,
   Lock,
   Ellipsis,
   UserRound,
   ImageOff,
-  ChevronDown,
   History,
+  Users,
 } from "lucide-react";
 import { feedback } from "@/lib/feedback";
 import type { WorldItem } from "@/stores/worlds";
 import { useWorldsStore } from "@/stores/worlds";
 import { useFavoritesStore } from "@/edition/slots.state";
 import { useLibraryStore } from "@/stores/library";
+import { LibraryCollectionsPicker, useLibraryRow } from "./library-collections";
 import { resolveTagLabel } from "@/edition/slots";
 import {
   Dialog,
@@ -56,6 +60,7 @@ import { ReportDialog } from "@/components/report-dialog";
 import { usePlayWithLanguage } from "@/hooks/use-play-with-language";
 import { escapeHtml } from "@/lib/markdown";
 import { WorldDescription } from "@/components/world-description";
+import { ClampedDescription } from "@/features/library/clamped-description";
 import { isOwnTranslationSource } from "@/lib/fork-attribution";
 import { VariantDownloadPicker } from "@/components/variant-download-picker";
 import { VariantForkPicker } from "@/components/variant-fork-picker";
@@ -64,10 +69,14 @@ import type { LanguageVariant } from "@/lib/languages";
 import { CroppedImage } from "@/lib/cover-crop";
 import { useActivityStats } from "@/lib/library-detail-stats";
 import { SessionExportModal } from "./session-export-modal";
+import { ShareDialog } from "@/features/collab/share-dialog";
 import { SharePlaythroughModal } from "@/features/chat/share-playthrough-modal";
 import { SharePlaythroughPicker } from "./share-playthrough-picker";
-import { SupportBadge } from "@/edition/slots";
-import { WorldReviewsSection } from "@/edition/slots";
+import { SupportBadge, WorldTestersDialog } from "@/edition/slots";
+import { WorldReviewsSection, WorldPlaythroughsSection, LiveSeaBadge } from "@/edition/slots";
+import { FriendRoomsBar, MultiplayerBadge, PlayWithFriendsButton, useCardMultiplayer } from "@/features/story-room/card-entry";
+import { WorldGallery } from "@/components/world-gallery";
+import { formatTokenCount, galleryImageList, withWorldDetail } from "@/lib/world-detail-info";
 import { LibraryDetailActivityCard } from "./library-detail-activity-card";
 import { WorldUpdateHistory } from "./world-update-history";
 import { ShareLinkDialog } from "@/components/share-link-dialog";
@@ -93,9 +102,8 @@ export function LibraryDetailPanelMobile({
   userId,
 }: LibraryDetailPanelProps) {
   const { t } = useTranslation("library");
-  const { enabled: discoverPreview } = useDiscoverAccess();
   const previewArtwork = selectWorldArtwork(selectedItem, "landscape");
-  const artworkSrc = discoverPreview ? previewArtwork.src : selectedItem.thumbnailUrl;
+  const artworkSrc = previewArtwork.src;
   const cardMacros = useCardTextMacros();
   const { t: tCommon } = useTranslation("common");
   const navigate = useNavigate();
@@ -105,6 +113,7 @@ export function LibraryDetailPanelMobile({
   const copyingRef = useRef(false);
   const [showReport, setShowReport] = useState(false);
   const [shareWorldId, setShareWorldId] = useState<string | null>(null);
+  const [testersWorldId, setTestersWorldId] = useState<string | null>(null);
   // Published cards share their public address (/@creator/world-name-id),
   // looked up once if the library data does not carry it yet.
   const publicShareUrl = useWorldShareUrl(
@@ -122,10 +131,11 @@ export function LibraryDetailPanelMobile({
   const [forkPickerOpen, setForkPickerOpen] = useState(false);
   const [forkVariants, setForkVariants] = useState<LanguageVariant[]>([]);
   const [sessionExportOpen, setSessionExportOpen] = useState(false);
+  // Inviting people to work on one of my cards, from its ⋯ menu.
+  const [collabOpen, setCollabOpen] = useState(false);
   const [sharePickerOpen, setSharePickerOpen] = useState(false);
   const [shareSession, setShareSession] = useState<{ id: string; title: string; worldId: string } | null>(null);
   const [downloadPreparing, setDownloadPreparing] = useState(false);
-  const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const [failedHero, setFailedHero] = useState<string | null>(null);
   const heroImageFailed = failedHero === artworkSrc;
   const navigateToStory = useStoryNavigation();
@@ -152,6 +162,13 @@ export function LibraryDetailPanelMobile({
     s.items.find((item) => item.worldId === selectedItem.id)?.lastPlayedAt ?? null
   );
   const favorited = isFavorited(selectedItem.sourceWorldId ?? selectedItem.id);
+  const libraryRow = useLibraryRow(selectedItem.id);
+  const setShelf = useLibraryStore((s) => s.setShelf);
+  const toggleHidden = async () => {
+    if (!libraryRow) return;
+    const hide = libraryRow.shelf !== "hidden";
+    if (!(await setShelf(libraryRow.worldId, hide ? "hidden" : null))) feedback.error(t("collections.error.failed"));
+  };
 
   const isOrphanedFork = !!selectedItem.sourceWorldId && selectedItem.sourceWorldTakenDown === true;
   // Ownership, never the tab: `isProject` follows the URL and can disagree with
@@ -184,6 +201,29 @@ export function LibraryDetailPanelMobile({
     />
   );
 
+  const isDraft = isProject && !selectedItem.isPublished;
+  const { activityStats, reconcileFavoriteCount, detail } = useActivityStats({
+    apiBase,
+    enabled: !isDraft && !isOrphanedFork,
+    creatorAnalyticsEnabled: canViewCreatorAnalytics,
+    worldId: selectedItem.id,
+    downloadCount: selectedItem.downloadCount,
+    messageCount: selectedItem.messageCount,
+    favoriteCount: selectedItem.favoriteCount,
+  });
+  // The same card details the Discover preview shows. Library rows are lighter
+  // (no gallery; a not-yet-loaded card has only what /api/library carries), so
+  // the preview response the stats hook already reads fills what is missing.
+  const shown = withWorldDetail(selectedItem, detail);
+  const galleryImages = galleryImageList(shown.galleryImages);
+  const galleryLabels = {
+    open: t("detail.openGallery", { count: galleryImages.length }),
+    imageAlt: (index: number, total: number) => t("detail.galleryImageAlt", { index, total }),
+    previous: tCommon("imageViewer.prevImage"),
+    next: tCommon("imageViewer.nextImage"),
+    close: tCommon("imageViewer.close"),
+  };
+
   // Resolve "Based on X by Y" attribution. Prefer the server-attached
   // fields (work for forks of *anyone's* world, including ones not in
   // this user's local store), then fall back to the worlds store lookup
@@ -199,13 +239,13 @@ export function LibraryDetailPanelMobile({
   // the server field and the store fallback have to honor that, or the English
   // card reads "Based on <its own Chinese title>".
   const sourceIsOwnTranslation = isOwnTranslationSource(selectedItem, sourceWorldEntry);
-  const sourceWorldName = selectedItem.sourceWorldId && !sourceIsOwnTranslation
-    ? selectedItem.sourceWorldName ?? sourceWorldEntry?.name ?? null
+  const sourceWorldName = shown.sourceWorldId && !sourceIsOwnTranslation
+    ? shown.sourceWorldName ?? sourceWorldEntry?.name ?? null
     : null;
   const sourceCreatorName =
-    selectedItem.sourceCreatorName ?? sourceWorldEntry?.creatorName ?? null;
+    shown.sourceCreatorName ?? sourceWorldEntry?.creatorName ?? null;
   const sourceCreatorId =
-    selectedItem.sourceCreatorId ?? sourceWorldEntry?.creatorId ?? null;
+    shown.sourceCreatorId ?? sourceWorldEntry?.creatorId ?? null;
 
   async function handleDelete() {
     setIsDeleting(true);
@@ -306,16 +346,6 @@ export function LibraryDetailPanelMobile({
     }
   }
 
-  const isDraft = isProject && !selectedItem.isPublished;
-  const { activityStats, reconcileFavoriteCount } = useActivityStats({
-    apiBase,
-    enabled: !isDraft && !isOrphanedFork,
-    creatorAnalyticsEnabled: canViewCreatorAnalytics,
-    worldId: selectedItem.id,
-    downloadCount: selectedItem.downloadCount,
-    messageCount: selectedItem.messageCount,
-    favoriteCount: selectedItem.favoriteCount,
-  });
 
   function getRelativeTime(dateStr: string) {
     const diff = Date.now() - new Date(dateStr).getTime();
@@ -378,8 +408,6 @@ export function LibraryDetailPanelMobile({
 
   const tags = selectedItem.tags ?? (selectedItem.schema as Record<string, unknown>)?.tags as string[] | undefined;
   const lastActivityAt = !isProject ? libraryLastPlayedAt ?? selectedItem.updatedAt : selectedItem.updatedAt;
-  const description = (selectedItem.description && cardMacros(selectedItem.description, selectedItem.name)) || (isDraft ? t("detail.noDescriptionYet") : t("detail.noDescriptionAvailable"));
-  const descriptionIsLong = description.length > 420 || description.split(/\r?\n/).length > 6;
   const canDownload = canEditDirectly || selectedItem.allowEdit !== false;
   // File-system control characters are invalid in download names.
   // eslint-disable-next-line no-control-regex
@@ -387,7 +415,6 @@ export function LibraryDetailPanelMobile({
   const mobileDropdownItemClass = "min-h-12 rounded-xl px-3 text-sm font-medium focus:bg-white/[0.08] focus:text-foreground data-[disabled]:opacity-50";
 
   useEffect(() => {
-    setDescriptionExpanded(false);
     setFailedHero(null);
   }, [selectedItem.id]);
 
@@ -412,9 +439,20 @@ export function LibraryDetailPanelMobile({
     else if (!secondaryActionBlocked) void handleEditClick();
   }
 
+  const multiplayer = useCardMultiplayer(selectedItem.id, !!selectedItem.isPublished);
+
   function renderMobilePrimaryActions() {
     return (
       <div className="grid w-full grid-cols-2 gap-2">
+        {multiplayer && (
+          <PlayWithFriendsButton
+            mp={multiplayer}
+            onPlay={handlePlay}
+            loading={playLoading}
+            className="col-span-2 min-h-12 order-last"
+          />
+        )}
+        <FriendRoomsBar worldId={selectedItem.id} mp={multiplayer} className="col-span-2 order-last" />
         <button
           type="button"
           onClick={() => void handlePlay()}
@@ -451,11 +489,12 @@ export function LibraryDetailPanelMobile({
         className="library-detail-root relative flex h-full w-full min-w-0 flex-1 flex-col overflow-y-auto overflow-x-hidden text-foreground"
       >
           <div>
-          <div className="relative aspect-[4/3] w-full shrink-0 overflow-hidden bg-muted sm:aspect-[3/2]">
+          <div className="relative aspect-video w-full shrink-0 overflow-hidden bg-muted">
           {artworkSrc && !heroImageFailed ? (
             <CroppedImage
               src={artworkSrc!}
-              crop={discoverPreview ? previewArtwork.crop : undefined}
+            crop={previewArtwork.crop}
+            frameAspect={DISCOVER_COVER_ASPECTS.gallery}
               alt={selectedItem.name}
               width={1280}
               placeholder
@@ -538,12 +577,13 @@ export function LibraryDetailPanelMobile({
       className="library-detail-root relative flex h-full w-full min-w-0 flex-1 flex-col overflow-y-auto overflow-x-hidden text-foreground"
     >
         <div className="flex flex-col">
-        {/* A taller mobile gallery reveals more of the original cover while reserving space before load. */}
-        <div className="relative z-10 aspect-[4/3] w-full shrink-0 overflow-hidden bg-muted sm:aspect-[3/2]">
+        {/* Match the mobile crop editor with the same 16:9 media frame. */}
+        <div className="relative z-10 aspect-video w-full shrink-0 overflow-hidden bg-muted">
         {artworkSrc && !heroImageFailed ? (
           <CroppedImage
             src={artworkSrc!}
-              crop={discoverPreview ? previewArtwork.crop : undefined}
+            crop={previewArtwork.crop}
+            frameAspect={DISCOVER_COVER_ASPECTS.gallery}
             alt={selectedItem.name}
             width={1280}
             placeholder
@@ -563,8 +603,13 @@ export function LibraryDetailPanelMobile({
           </div>
         )}
 
-        <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/55 to-transparent" />
-        <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/45 to-transparent" />
+
+        {/* Screenshots at the lower right of the cover, as on Discover. */}
+        {galleryImages.length > 0 && (
+          <div className="absolute bottom-6 right-4 z-20">
+            <WorldGallery images={galleryImages} labels={galleryLabels} />
+          </div>
+        )}
 
         <button
           type="button"
@@ -592,15 +637,18 @@ export function LibraryDetailPanelMobile({
         )}
         </div>
 
-        <div className="library-detail-content-shell relative z-20 mx-auto -mt-3 w-full px-4 pb-28">
+        <div className="library-detail-content-shell relative z-20 mx-auto mt-4 w-full px-4 pb-28">
         <section aria-labelledby="library-detail-title" className="library-detail-mobile-surface rounded-2xl">
           <div className="px-3 py-3">
             <div className="min-w-0">
               {isDraft && (
                 <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-primary/90">
-                  {t("detail.draft")}
+                  {t("projects.inDevelopment")}
                 </div>
               )}
+              {/* Live multiplayer presence (renders nothing for normal worlds). */}
+              {features.hub && selectedItem.isPublished && <LiveSeaBadge worldId={selectedItem.id} />}
+              <MultiplayerBadge mp={multiplayer} className="mb-2" />
               <div className="flex min-w-0 items-start gap-3">
                 <h1 id="library-detail-title" className="min-w-0 flex-1 break-words text-[28px] font-black leading-[1.16] tracking-[-0.02em] text-foreground md:text-4xl">
                   {selectedItem.name}
@@ -635,8 +683,24 @@ export function LibraryDetailPanelMobile({
                     collisionPadding={12}
                     className="library-detail-actions-dropdown w-64 rounded-2xl border-white/12 p-2 shadow-2xl motion-reduce:animate-none"
                   >
-                    {features.hub && (
-                    <DropdownMenuItem onSelect={() => setShareWorldId(selectedItem.id)} className={mobileDropdownItemClass}>
+                    {features.hub && isDraft && (
+                    <DropdownMenuItem onSelect={() => setTestersWorldId(selectedItem.id)} className={mobileDropdownItemClass}>
+                      <Share2 aria-hidden="true" />
+                      <span>{t("detail.share")}</span>
+                    </DropdownMenuItem>
+                    )}
+                    {features.hub && !isDraft && (
+                    <DropdownMenuItem
+                      onSelect={() => {
+                        if (selectedItem.isPublished !== true) {
+                          feedback.notice(t("toast.unpublishedCannotShare"));
+                          return;
+                        }
+                        setShareWorldId(selectedItem.id);
+                      }}
+                      aria-disabled={selectedItem.isPublished !== true}
+                      className={`${mobileDropdownItemClass} ${selectedItem.isPublished === true ? "" : "cursor-not-allowed text-muted-foreground opacity-40 focus:text-muted-foreground"}`}
+                    >
                       <Share2 aria-hidden="true" />
                       <span>{t("detail.share")}</span>
                     </DropdownMenuItem>
@@ -655,6 +719,22 @@ export function LibraryDetailPanelMobile({
                         <span>{t("detail.download")}</span>
                       </DropdownMenuItem>
                     )}
+                    {canEditDirectly && (
+                      <DropdownMenuItem
+                        onSelect={() => void performCopy(selectedItem.id)}
+                        disabled={copying}
+                        className={mobileDropdownItemClass}
+                      >
+                        <Copy aria-hidden="true" />
+                        <span>{t("detail.duplicate")}</span>
+                      </DropdownMenuItem>
+                    )}
+                    {canEditDirectly && (
+                      <DropdownMenuItem onSelect={() => setCollabOpen(true)} className={mobileDropdownItemClass}>
+                        <UserPlus aria-hidden="true" />
+                        <span>{t("detail.inviteCollaborators")}</span>
+                      </DropdownMenuItem>
+                    )}
                     <DropdownMenuItem onSelect={() => setSessionExportOpen(true)} className={mobileDropdownItemClass}>
                       <FileText aria-hidden="true" />
                       <span>{t("detail.sessionExport.triggerTitle")}</span>
@@ -667,6 +747,12 @@ export function LibraryDetailPanelMobile({
                       <DropdownMenuItem onSelect={handleCreatorProfile} className={mobileDropdownItemClass}>
                         <UserRound aria-hidden="true" />
                         <span>{t("detail.viewCreatorProfile")}</span>
+                      </DropdownMenuItem>
+                    )}
+                    {!isProject && libraryRow && (
+                      <DropdownMenuItem onSelect={() => void toggleHidden()} className={mobileDropdownItemClass}>
+                        {libraryRow.shelf === "hidden" ? <Eye aria-hidden="true" /> : <EyeOff aria-hidden="true" />}
+                        <span>{libraryRow.shelf === "hidden" ? t("hidden.show") : t("hidden.hide")}</span>
                       </DropdownMenuItem>
                     )}
                     {(!isProject || canDelete) && <DropdownMenuSeparator className="my-2 bg-red-400/15" />}
@@ -710,13 +796,13 @@ export function LibraryDetailPanelMobile({
             </div>
           </div>
 
-          {sourceWorldName && (
+          {(sourceWorldName || (!sourceIsOwnTranslation && sourceCreatorName)) && (
             <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 border-t border-white/8 px-3 py-3 text-sm leading-6 text-muted-foreground">
               <GitFork className="h-4 w-4 shrink-0" aria-hidden="true" />
-              <span className="break-words">{t("detail.basedOn", { name: sourceWorldName })}</span>
+              <span className="break-words">{sourceWorldName ? t("detail.basedOn", { name: sourceWorldName }) : t("detail.originalCreator")}</span>
               {sourceCreatorName && (
                 <span className="flex flex-wrap gap-1">
-                  <span>{t("detail.basedOnBy", { defaultValue: "by" })}</span>
+                  <span>{sourceWorldName && t("detail.basedOnBy", { defaultValue: "by" })}</span>
                   {sourceCreatorId && features.socialProfiles ? (
                     <button
                       type="button"
@@ -733,6 +819,12 @@ export function LibraryDetailPanelMobile({
             </p>
           )}
 
+          {!isProject && libraryRow && (
+            <div className="flex items-center gap-3 border-t border-white/8 px-3 py-2.5">
+              <span className="shrink-0 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">{t("collections.label")}</span>
+              <LibraryCollectionsPicker row={libraryRow} />
+            </div>
+          )}
           <dl className="grid grid-cols-3 divide-x divide-white/8 border-t border-white/8">
             <div className="min-w-0 p-2 text-center sm:p-4">
               <dt className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
@@ -755,13 +847,13 @@ export function LibraryDetailPanelMobile({
                 {t("detail.tokens")}
               </dt>
               <dd className="mt-1.5 break-words text-sm font-semibold tabular-nums text-foreground sm:text-base">
-                {selectedItem.totalTokens != null ? `~${selectedItem.totalTokens.toLocaleString()}` : "—"}
+                {formatTokenCount(shown.totalTokens)}
               </dd>
             </div>
-            {selectedItem.approxTime && (
+            {shown.approxTime && (
               <div className="col-span-3 flex items-center justify-between gap-4 border-t border-white/8 px-3 py-2.5 sm:px-4">
                 <dt className="text-xs font-medium text-muted-foreground">{t("detail.estTime")}</dt>
-                <dd className="text-sm font-semibold tabular-nums text-foreground">{selectedItem.approxTime}</dd>
+                <dd className="text-sm font-semibold tabular-nums text-foreground">{shown.approxTime}</dd>
               </div>
             )}
           </dl>
@@ -779,7 +871,7 @@ export function LibraryDetailPanelMobile({
                 className="mt-4 text-base leading-[1.6] text-foreground/80"
               />
             ) : (
-              <p className="mt-4 text-base leading-[1.6] text-foreground/80">{description}</p>
+              <p className="mt-4 text-base leading-[1.6] text-foreground/80">{t("detail.noDescriptionYet")}</p>
             )}
             <div className="mt-6 rounded-xl border border-white/8 bg-white/[0.035] p-4">
               <h3 className="text-sm font-bold text-muted-foreground">{t("detail.developmentStatus")}</h3>
@@ -797,10 +889,10 @@ export function LibraryDetailPanelMobile({
                 {t("detail.overview")}
               </h2>
 
-              {selectedItem.announcement && (
+              {shown.announcement && (
                 <div className="mt-5 rounded-xl border border-white/8 bg-white/[0.035] p-4">
                   <h3 className="text-xs font-bold uppercase tracking-[0.12em] text-primary">{t("detail.announcement")}</h3>
-                  <p className="mt-2 whitespace-pre-line text-base leading-[1.6] text-foreground/80">{selectedItem.announcement}</p>
+                  <p className="mt-2 whitespace-pre-line text-base leading-[1.6] text-foreground/80">{shown.announcement}</p>
                   <span className="mt-3 block text-xs font-medium text-muted-foreground">
                     {t("detail.created")} {new Date(selectedItem.createdAt).toLocaleDateString()}
                   </span>
@@ -810,28 +902,14 @@ export function LibraryDetailPanelMobile({
               <div className="mt-5">
                 <h3 className="text-sm font-bold text-muted-foreground">{t("detail.about")}</h3>
                 {selectedItem.description ? (
-                  // Markdown renders block children, so `-webkit-line-clamp`
-                  // (which needs display:-webkit-box) would mangle the layout.
-                  // Clip by height instead and let "load more" reveal the rest.
-                  <div className={descriptionIsLong && !descriptionExpanded ? "max-h-60 overflow-hidden" : undefined}>
+                  <ClampedDescription key={selectedItem.id}>
                     <WorldDescription
                       content={cardMacros(selectedItem.description, selectedItem.name)}
                       className="mt-3 text-base leading-[1.6] text-foreground/80"
                     />
-                  </div>
+                  </ClampedDescription>
                 ) : (
-                  <p className="mt-3 text-base leading-[1.6] text-foreground/80">{description}</p>
-                )}
-                {descriptionIsLong && !descriptionExpanded && (
-                  <button
-                    type="button"
-                    onClick={() => setDescriptionExpanded(true)}
-                    aria-expanded={descriptionExpanded}
-                    className="mt-3 inline-flex min-h-12 items-center gap-2 rounded-xl px-3 text-sm font-semibold text-primary transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary motion-reduce:transition-none"
-                  >
-                    {tCommon("dm.loadMore")}
-                    <ChevronDown className="h-4 w-4" aria-hidden="true" />
-                  </button>
+                  <p className="mt-3 text-base leading-[1.6] text-foreground/80">{t("detail.noDescriptionAvailable")}</p>
                 )}
               </div>
 
@@ -869,11 +947,26 @@ export function LibraryDetailPanelMobile({
               </section>
             )}
 
-            {features.reviews && selectedItem.isPublished && selectedItem.allowReviews !== false && (
+            {/* Shared playthroughs: the Discover preview's Playthroughs tab. */}
+            {features.hub && selectedItem.isPublished && (
+              <section aria-labelledby="playthroughs-heading" className="library-detail-mobile-surface mt-4 rounded-2xl p-4">
+                <h2 id="playthroughs-heading" className="mb-5 flex items-center gap-2 border-b border-white/8 pb-5 text-base font-bold text-foreground">
+                  <Users className="h-5 w-5 text-primary" aria-hidden="true" />
+                  {t("detail.playthroughs")}
+                </h2>
+                <WorldPlaythroughsSection
+                  worldId={selectedItem.id}
+                  isWorldCreator={!!userId && selectedItem.creatorId === userId}
+                  currentUserId={userId ?? null}
+                />
+              </section>
+            )}
+
+            {features.reviews && selectedItem.isPublished && (
               <section aria-labelledby="reviews-heading" className="library-detail-mobile-surface mt-4 rounded-2xl p-4">
                 <h2 id="reviews-heading" className="mb-5 flex items-center gap-2 border-b border-white/8 pb-5 text-xl font-bold text-foreground">
                   <MessagesSquare className="h-5 w-5 text-primary" aria-hidden="true" />
-                  {t("detail.reviews")}
+                  {t("detail.reviewsHeading")}
                 </h2>
                 <div
                   role="region"
@@ -925,10 +1018,11 @@ export function LibraryDetailPanelMobile({
         </DialogContent>
       </Dialog>
 
+      <WorldTestersDialog worldId={testersWorldId} isOpen={testersWorldId !== null} onClose={() => setTestersWorldId(null)} />
       <ShareLinkDialog
         title={selectedItem.name}
         url={shareUrl}
-        open={shareWorldId === selectedItem.id}
+        open={shareWorldId === selectedItem.id && selectedItem.isPublished === true}
         onOpenChange={(open) => setShareWorldId(open ? selectedItem.id : null)}
         copiedLabel={t("toast.linkCopied")}
         failedLabel={t("toast.failedToShare")}
@@ -968,6 +1062,7 @@ export function LibraryDetailPanelMobile({
         loading={copying}
       />
 
+      {collabOpen && <ShareDialog worldId={selectedItem.id} open={collabOpen} onOpenChange={setCollabOpen} />}
       <SessionExportModal
         worldId={selectedItem.id}
         worldName={selectedItem.name}

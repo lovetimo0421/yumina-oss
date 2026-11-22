@@ -90,7 +90,7 @@ test("replacing invitations retains canvas identities and the original editable 
 });
 
 
-test("with a tray, unused audio and scene images become one line; an unused background is not offered", () => {
+test("with a tray, unused audio, scene images and the background become one line", () => {
   const board = [...blank(), block("block:background", "background")];
   const augmented = withStarterSlots(board, true, false, { hasBackground: false, revealed: new Set(), packs: true });
   const kinds = augmented.map((entry) => entry.kind);
@@ -98,7 +98,7 @@ test("with a tray, unused audio and scene images become one line; an unused back
   assert.ok(!kinds.includes("image"), "no empty scene-image block");
   assert.ok(!kinds.includes("background"), "no empty background block");
   const tray = augmented.find((entry) => entry.kind === "tray") as CanvasBlock | undefined;
-  assert.deepEqual(tray?.tray, ["state", "behavior", "audio", "image", "packs"], "variables and behaviours first; packs only when the board asks for them");
+  assert.deepEqual(tray?.tray, ["state", "behavior", "audio", "image", "background", "packs"], "variables and behaviours first; packs only when the board asks for them");
 });
 
 test("a slot taken out of the tray, or one already in use, is a block again", () => {

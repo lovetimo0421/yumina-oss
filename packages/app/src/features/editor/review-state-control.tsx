@@ -18,7 +18,6 @@ import { cn } from "@/lib/utils";
 import { confirmAction } from "@/components/ui/global-confirm-dialog";
 import { useEditorStore } from "@/stores/editor";
 import { useWorldsStore } from "@/stores/worlds";
-import { useUserProfileStore } from "@/stores/user-profile";
 import type { MaterialChangeReason } from "@yumina/shared";
 import {
   DropdownMenu,
@@ -34,6 +33,7 @@ const REASONS: Record<MaterialChangeReason, { key: string; fallback: string }> =
   frontend: { key: "review.pendingEdit.reasonFrontend", fallback: "Frontend / custom UI" },
   ageRating: { key: "review.pendingEdit.reasonRating", fallback: "Content mode" },
   cover: { key: "review.pendingEdit.reasonCover", fallback: "Cover image" },
+  illustration: { key: "review.pendingEdit.reasonIllustration", fallback: "Illustration style" },
 };
 
 type Tone = "amber" | "blue" | "violet" | "red";
@@ -96,11 +96,16 @@ export function ReviewStateControl({
   disabled = false,
   className,
   draftExtra,
+  compact = false,
 }: {
   onPublish: () => void;
   size?: Size;
   disabled?: boolean;
   className?: string;
+  /** On a narrow phone, the dot (or icon) without its words: the card's
+   *  name beside it had been squeezed to one character. The menu it opens,
+   *  and the title, still say everything. */
+  compact?: boolean;
   /** Shown under a card that is not live yet (the Studio's publish
    *  checklist); given a way to shut the menu. */
   draftExtra?: (close: () => void) => React.ReactNode;
@@ -117,7 +122,8 @@ export function ReviewStateControl({
   const readOnlyInspect = useEditorStore((s) => s.readOnlyInspect);
   const submitPendingEdit = useEditorStore((s) => s.submitPendingEdit);
   const withdrawPendingEdit = useEditorStore((s) => s.withdrawPendingEdit);
-  const canAutoPublish = useUserProfileStore((s) => s.profile?.skipReview === true && s.profile?.isBanned !== true);
+  // No trusted-creator bypass any more (11/07): every change goes to review (the AI looks first).
+  const canAutoPublish = false;
 
   const worlds = useWorldsStore((s) => s.worlds);
   const invalidate = useWorldsStore((s) => s.invalidate);
@@ -170,7 +176,7 @@ export function ReviewStateControl({
       )}
     >
       {worldIsPublished ? <RefreshCw className="h-3.5 w-3.5" /> : <Send className="h-3.5 w-3.5" />}
-      {worldIsPublished ? t("shell.publishUpdate", "Publish update") : t("shell.publish", "Publish")}
+      <span className={cn(compact && "max-[480px]:hidden")}>{worldIsPublished ? t("shell.publishUpdate", "Publish update") : t("shell.publish", "Publish")}</span>
     </button>
   );
 
@@ -349,8 +355,7 @@ export function ReviewStateControl({
           icon: Clock,
           title: t("review.newerChangesTitle", { defaultValue: "You have newer changes than the submitted review" }),
           body: t("review.newerChangesBody", {
-            defaultValue:
-              "This card is in review, but you've saved changes since submitting. Update the review so it covers your latest version, or withdraw it from the queue.",
+            defaultValue: "You saved changes after submitting. Update the review or withdraw it.",
           }),
           actionLabel: t("review.updateReview", { defaultValue: "Update review to latest version" }),
           actionIcon: RefreshCw,
@@ -365,10 +370,6 @@ export function ReviewStateControl({
           icon: Clock,
           title: t("review.submittedTitle"),
           body: t("review.submittedBody"),
-          hint: t("review.editableHint", {
-            defaultValue:
-              "You can keep editing and saving while it's in review. Use \"Update review\" after saving so reviewers see it as your newest version, or withdraw to pull it out of the queue.",
-          }),
           actionLabel: t("review.updateReview", { defaultValue: "Update review to latest version" }),
           actionIcon: RefreshCw,
           onAction: refreshFirstPublishReview,
@@ -399,7 +400,6 @@ export function ReviewStateControl({
         title: t("review.pendingEdit.inReviewTitle", { defaultValue: "Update in review" }),
         body: t("review.pendingEdit.inReviewBody"),
         reasons: true,
-        hint: t("review.pendingEdit.lockedHint"),
         actionLabel: t("review.pendingEdit.withdrawBtn", { defaultValue: "Withdraw request" }),
         actionIcon: Undo2,
         onAction: () => runStoreAction(withdrawPendingEdit, "review.withdrawFailed"),
@@ -441,8 +441,7 @@ export function ReviewStateControl({
       icon: CircleDot,
       title: t("review.stateControl.notLiveTitle", { defaultValue: "This version isn't live yet" }),
       body: t("review.stateControl.notLiveBody", {
-        defaultValue:
-          "What you saved is a draft — only you can see and playtest it. Publish it to submit for review; players can play it once it's approved.",
+        defaultValue: "Only you can see this draft. Publish to submit it for review.",
       }),
       actionLabel: t("review.stateControl.publishBtn", { defaultValue: "Publish" }),
       actionIcon: Send,
@@ -481,8 +480,8 @@ export function ReviewStateControl({
           title={view.title}
         >
           <span className={cn("h-2 w-2 shrink-0 rounded-full", tone.dot)} />
-          {view.chip}
-          <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-60" />
+          <span className={cn(compact && "max-[480px]:hidden")}>{view.chip}</span>
+          <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 opacity-60", compact && "max-[480px]:hidden")} />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-[min(22rem,calc(100vw-1.5rem))] p-3">

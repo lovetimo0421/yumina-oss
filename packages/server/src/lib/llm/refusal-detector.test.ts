@@ -16,6 +16,10 @@ const CLAUDE_ZH =
   "如果你愿意，我很乐意帮你换一个故事方向继续。";
 
 const EN_REFUSALS = [
+  // Refusal text from production replies correlated with PostHog on 2026-11-03.
+  "I cannot fulfill this request. I am unable to generate sexually explicit content or graphic depictions of sexual acts.",
+  "I'm sorry, but I can't assist with that request.",
+  "I cannot assist with that request.",
   "I can't continue this scene. It asks for sexually explicit content that goes against my guidelines. If you'd like, I can help take the story in a different direction instead.",
   "I need to stop and step out of the roleplay for a moment. As an AI, I'm not able to write this kind of explicit content.",
   "I cannot create content that sexualizes minors. This request violates the content policy.",
@@ -32,6 +36,15 @@ test("flags the real Claude refusal", () => {
 
 test("flags English assistant-voice refusals", () => {
   for (const text of EN_REFUSALS) assert.equal(detectRefusal(text), true, text);
+});
+
+test("flags Tencent Hunyuan's stock content-filter reply, and only as the whole reply", () => {
+  assert.equal(detectRefusal("我无法提供相关信息。如果你有其他的问题，我会很乐意为你解答。"), true);
+  assert.equal(detectRefusal("我无法提供相关信息。如果你有其他的问题，我会很乐意为你解答"), true);
+  assert.equal(detectRefusal("我无法提供相关信息。"), true);
+  assert.equal(detectRefusal("我无法提供相关信息。", { lang: "en" }), true);
+  assert.equal(detectRefusal("她摇了摇头：“我无法提供相关信息。如果你有其他的问题，我会很乐意为你解答。”说完便转身离开了。"), false);
+  assert.equal(detectRefusal("前台小姐公式化地重复：我无法提供相关信息。然后低头继续翻她的登记簿，连眼皮都没抬。"), false);
 });
 
 test("flags a longer refusal whose every paragraph is policy talk", () => {

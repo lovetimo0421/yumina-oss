@@ -28,7 +28,8 @@ import { messages, playSessions } from "../db/schema.js";
 import { normalizeGameState } from "./game-state.js";
 import type { ChatMessage } from "./llm/types.js";
 import { applyModelRedirect } from "./llm/model-redirects.js";
-import { DEFAULT_STORY_SUMMARY_MODEL, generateStorySummaryText } from "./session-compaction.js";
+import { generateStorySummaryText } from "./session-compaction.js";
+import { worldAiModel } from "./role-model.js";
 import { thinSnapshotForStorage } from "./snapshot.js";
 import { SESSION_NOT_FOUND, withSessionRowLock } from "./session-lock.js";
 import { liveSceneMessage, takeStoryEvents, type LiveScene } from "./live-scene.js";
@@ -266,7 +267,7 @@ export async function runGroupReply(args: {
   const room = replyRoom(books, computeActiveWorldbookIds(books, state));
   const station = resolveStation(voice);
   const model = applyModelRedirect(
-    ((await runnableModel(userId, station?.model)) ?? (await runnableModel(userId, args.model)) ?? (session.summaryModel || DEFAULT_STORY_SUMMARY_MODEL)).trim(),
+    ((await runnableModel(userId, station?.model)) ?? (await runnableModel(userId, args.model)) ?? (await worldAiModel(userId, null, session.summaryModel))).trim(),
   );
   const history = tail.filter((m) => m.status !== "failed" && (m.role === "user" || m.role === "assistant"));
   const turnEndsAt = tail[tail.length - 1]?.createdAt?.getTime() ?? 0;

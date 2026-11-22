@@ -8,7 +8,7 @@ export function StreamingText({ content }: { content: string }) {
   if (!content) return null;
   return (
     <div
-      className="prose prose-sm prose-invert max-w-none text-xs [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
+      className="prose prose-sm prose-invert max-w-none text-[13px] leading-relaxed text-foreground/90 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
       dangerouslySetInnerHTML={{ __html: html }}
     />
   );

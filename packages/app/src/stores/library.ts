@@ -1,3 +1,4 @@
+import type { LibraryShelf } from "@yumina/shared";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { cachedFetch } from "@/lib/cached-fetch";
@@ -30,6 +31,10 @@ export interface LibraryItem {
   worldAllowReviews?: boolean | null;
   worldLanguage?: string | null;
   worldLanguageGroupId?: string | null;
+  /** The card's own creation date (not when it was saved — that is `addedAt`). */
+  worldCreatedAt?: string | null;
+  worldTotalTokens?: number | null;
+  worldApproxTime?: string | null;
   /** All variant worldIds the user has in their library that share this row's
    *  `worldLanguageGroupId`. Provided by the dedup'd `/api/library`. The
    *  representative variant's id is included. For ungrouped rows this is just
@@ -40,7 +45,20 @@ export interface LibraryItem {
   lastPlayedAt: string | null;
   lastSeenUpdateAt: string | null;
   hasUpdate: boolean;
+  /** "hidden" = kept out of the library list; saves stay. */
+  shelf?: LibraryShelf | null;
+  /** The player's collections this game is in (any language sibling's). */
+  collectionIds?: string[];
 }
+
+/** A player's own named group of library games. */
+export interface LibraryCollection {
+  id: string;
+  name: string;
+}
+
+/** Why a collection write was refused, for the message the player sees. */
+export type CollectionWriteError = "nameTaken" | "tooMany" | "failed";
 
 interface LibraryStore {
   items: LibraryItem[];
@@ -56,6 +74,20 @@ interface LibraryStore {
   removeFromLibrary: (worldId: string) => Promise<void>;
   isInLibrary: (worldId: string) => boolean;
   markUpdateSeen: (worldId: string) => Promise<void>;
+  setShelf: (worldId: string, shelf: LibraryShelf | null) => Promise<boolean>;
+  collections: LibraryCollection[];
+  fetchCollections: () => Promise<void>;
+  /** The new collection, or why it could not be made. worldIds start in it. */
+  createCollection: (name: string, worldIds?: string[]) => Promise<LibraryCollection | CollectionWriteError>;
+  /** Rename and / or add and remove games, in one save. */
+  updateCollection: (id: string, change: { name?: string; add?: string[]; remove?: string[] }) => Promise<true | CollectionWriteError>;
+  /** Pull every remaining page, for pickers that list the whole library. */
+  fetchAll: () => Promise<void>;
+  deleteCollection: (id: string) => Promise<boolean>;
+  /** Exactly these collections for one game. */
+  setGameCollections: (worldId: string, collectionIds: string[]) => Promise<boolean>;
+  /** Add several games to one collection (select mode). */
+  addToCollection: (collectionId: string, worldIds: string[]) => Promise<boolean>;
   markPlayed: (worldId: string, playedAt?: string) => void;
   invalidate: () => void;
   _cachedLang: string;
@@ -68,6 +100,20 @@ const tr = (key: string, fallback: string) =>
 
 const LIBRARY_PAGE_SIZE = 50;
 
+/** The collapsed card stands for every language sibling. */
+const matchesWorld = (i: LibraryItem, worldId: string) =>
+  i.worldId === worldId || (i.siblingWorldIds?.includes(worldId) ?? false);
+
+const sortCollections = (list: LibraryCollection[]) =>
+  [...list].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+
+function collectionError(status: number, body: unknown): CollectionWriteError {
+  const code = (body as { code?: string } | null)?.code;
+  if (status === 409 || code === "NAME_TAKEN") return "nameTaken";
+  if (code === "TOO_MANY_COLLECTIONS") return "tooMany";
+  return "failed";
+}
+
 export const useLibraryStore = create<LibraryStore>()(
   persist(
     (set, get) => ({
@@ -76,6 +122,7 @@ export const useLibraryStore = create<LibraryStore>()(
   lastFetchedAt: null,
   total: 0,
   hasMore: false,
+  collections: [],
   _cachedLang: "" as string,
 
   fetchLibrary: () => {
@@ -253,6 +300,147 @@ export const useLibraryStore = create<LibraryStore>()(
     }
   },
 
+  setShelf: async (worldId, shelf) => {
+    // The collapsed card stands for every language sibling; the server writes
+    // the whole group, so the optimistic update matches siblings too.
+    const matches = (i: LibraryItem) => i.worldId === worldId || (i.siblingWorldIds?.includes(worldId) ?? false);
+    const before = get().items.find(matches)?.shelf ?? null;
+    set((s) => ({ items: s.items.map((i) => (matches(i) ? { ...i, shelf } : i)) }));
+    try {
+      const res = await fetch(`${apiBase}/api/library/${worldId}/shelf`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shelf }),
+      });
+      if (!res.ok) throw new Error(String(res.status));
+      return true;
+    } catch {
+      set((s) => ({ items: s.items.map((i) => (matches(i) ? { ...i, shelf: before } : i)) }));
+      return false;
+    }
+  },
+
+  fetchCollections: async () => {
+    try {
+      const res = await fetch(`${apiBase}/api/library/collections`, { credentials: "include" });
+      if (!res.ok) return;
+      const { data } = await res.json() as { data: LibraryCollection[] };
+      set({ collections: data.map(({ id, name }) => ({ id, name })) });
+    } catch {
+      /* the chips stay as they were; the next library visit retries */
+    }
+  },
+
+  createCollection: async (name, worldIds = []) => {
+    try {
+      const res = await fetch(`${apiBase}/api/library/collections`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, worldIds }),
+      });
+      if (!res.ok) return collectionError(res.status, await res.json().catch(() => null));
+      const { data } = await res.json() as { data: LibraryCollection };
+      const created = { id: data.id, name: data.name };
+      set((s) => ({
+        collections: sortCollections([...s.collections, created]),
+        items: s.items.map((i) => (worldIds.some((w) => matchesWorld(i, w))
+          ? { ...i, collectionIds: [...new Set([...(i.collectionIds ?? []), created.id])] }
+          : i)),
+      }));
+      return created;
+    } catch {
+      return "failed";
+    }
+  },
+
+  updateCollection: async (id, { name, add = [], remove = [] }) => {
+    try {
+      const res = await fetch(`${apiBase}/api/library/collections/${id}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...(name !== undefined ? { name } : {}), addWorldIds: add, removeWorldIds: remove }),
+      });
+      if (!res.ok) return collectionError(res.status, await res.json().catch(() => null));
+      set((s) => ({
+        collections: name === undefined ? s.collections : sortCollections(s.collections.map((c) => (c.id === id ? { ...c, name } : c))),
+        items: s.items.map((i) => {
+          if (add.some((w) => matchesWorld(i, w))) return { ...i, collectionIds: [...new Set([...(i.collectionIds ?? []), id])] };
+          if (remove.some((w) => matchesWorld(i, w))) return { ...i, collectionIds: (i.collectionIds ?? []).filter((c) => c !== id) };
+          return i;
+        }),
+      }));
+      return true;
+    } catch {
+      return "failed";
+    }
+  },
+
+  fetchAll: async () => {
+    // fetchMore is a no-op while a page is loading; wait for it rather than spin.
+    for (let guard = 0; guard < 200 && get().hasMore; guard++) {
+      if (get().loading) { await new Promise((r) => setTimeout(r, 150)); continue; }
+      await get().fetchMore();
+    }
+  },
+
+  deleteCollection: async (id) => {
+    try {
+      const res = await fetch(`${apiBase}/api/library/collections/${id}`, { method: "DELETE", credentials: "include" });
+      if (!res.ok) return false;
+      set((s) => ({
+        collections: s.collections.filter((c) => c.id !== id),
+        items: s.items.map((i) => (i.collectionIds?.includes(id) ? { ...i, collectionIds: i.collectionIds.filter((c) => c !== id) } : i)),
+      }));
+      return true;
+    } catch {
+      return false;
+    }
+  },
+
+  setGameCollections: async (worldId, collectionIds) => {
+    const before = get().items.find((i) => matchesWorld(i, worldId))?.collectionIds ?? [];
+    const apply = (ids: string[]) => set((s) => ({
+      items: s.items.map((i) => (matchesWorld(i, worldId) ? { ...i, collectionIds: ids } : i)),
+    }));
+    apply(collectionIds);
+    try {
+      const res = await fetch(`${apiBase}/api/library/${worldId}/collections`, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ collectionIds }),
+      });
+      if (!res.ok) throw new Error(String(res.status));
+      return true;
+    } catch {
+      apply(before);
+      return false;
+    }
+  },
+
+  addToCollection: async (collectionId, worldIds) => {
+    try {
+      const res = await fetch(`${apiBase}/api/library/collections/${collectionId}/worlds`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ worldIds }),
+      });
+      if (!res.ok) return false;
+      set((s) => ({
+        items: s.items.map((i) => (worldIds.some((w) => matchesWorld(i, w))
+          ? { ...i, collectionIds: [...new Set([...(i.collectionIds ?? []), collectionId])] }
+          : i)),
+      }));
+      return true;
+    } catch {
+      return false;
+    }
+  },
+
   markPlayed: (worldId, playedAt = new Date().toISOString()) => {
     set((s) => ({
       items: s.items.map((i) => {
@@ -288,11 +476,13 @@ export const useLibraryStore = create<LibraryStore>()(
       // v2: server now returns dedup'd library rows with `siblingWorldIds`.
       // Old persisted caches (v1) lack this field; bumping version forces
       // a clean fetch on first load instead of a stale-shape mismatch.
-      version: 2,
+      // v3: rows carry `collectionIds`, and `shelf` only means "hidden".
+      version: 3,
       partialize: (state) => ({
         items: state.items,
         total: state.total,
         hasMore: state.hasMore,
+        collections: state.collections,
       }),
     },
   ),

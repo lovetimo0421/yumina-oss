@@ -251,10 +251,9 @@ function MatchFields({ match, onChange }: { match: UiMessageMatch; onChange: (m:
           <input value={match.text} maxLength={200} onChange={(e) => onChange({ ...match, text: e.target.value })} className={smallCls} /></label>
       )}
       {match.kind === "regex" && (
-        <label className="flex flex-col gap-1"><span className="text-[10px] text-muted-foreground/80">{t("studio.messages.pattern")}</span>
+        <label className="flex flex-col gap-1"><span className="cursor-help text-[10px] text-muted-foreground/80" title={t("studio.messages.patternHint")}>{t("studio.messages.pattern")}</span>
           <input value={match.pattern} maxLength={300} onChange={(e) => onChange({ ...match, pattern: e.target.value })} className={cn(smallCls, "font-mono", badPattern && "border-destructive")} />
           {badPattern && <span className="text-[10px] text-destructive">{t("studio.messages.badPattern")}</span>}
-          <span className="text-[10px] leading-relaxed text-muted-foreground/70">{t("studio.messages.patternHint")}</span>
         </label>
       )}
     </div>
@@ -298,7 +297,7 @@ function ShowOptions({ rule, onOptions, swatches, worldId }: {
             <input value={o.coverText ?? ""} maxLength={60} placeholder={t("studio.messages.coverTextPh")} onChange={(e) => onOptions({ coverText: e.target.value || undefined })} className={smallCls} /></label>
           <label className="flex flex-col gap-1">
             <span className="flex items-center justify-between text-[10px] text-muted-foreground/80">
-              <span>{t("studio.messages.chance")}</span><span className="font-mono">{Math.round((o.revealChance ?? 1) * 100)}%</span>
+              <span className="cursor-help" title={t("studio.messages.chanceHint")}>{t("studio.messages.chance")}</span><span className="font-mono">{Math.round((o.revealChance ?? 1) * 100)}%</span>
             </span>
             <input type="range" min={0} max={100} step={5} value={Math.round((o.revealChance ?? 1) * 100)}
               onChange={(e) => { const v = Number(e.target.value) / 100; onOptions({ revealChance: v >= 1 ? undefined : v }); }}
@@ -308,7 +307,6 @@ function ShowOptions({ rule, onOptions, swatches, worldId }: {
             <label className="flex flex-col gap-1"><span className="text-[10px] text-muted-foreground/80">{t("studio.messages.missText")}</span>
               <input value={o.missText ?? ""} maxLength={60} placeholder={t("studio.messages.missTextPh")} onChange={(e) => onOptions({ missText: e.target.value || undefined })} className={smallCls} /></label>
           )}
-          <p className="text-[10px] leading-relaxed text-muted-foreground/70">{t("studio.messages.chanceHint")}</p>
         </div>
       );
     case "card":
@@ -334,7 +332,7 @@ function ShowOptions({ rule, onOptions, swatches, worldId }: {
       };
       return (
         <div className="flex flex-col gap-1.5">
-          <span className="text-[10px] text-muted-foreground/80">{t("studio.messages.names")}</span>
+          <span className="cursor-help text-[10px] text-muted-foreground/80" title={t("studio.messages.nameHint")}>{t("studio.messages.names")}</span>
           {names.map((name) => (
             <div key={name} className="flex items-center gap-1.5">
               <ImageField compact worldId={worldId} value={avatars[name]} onChange={(ref) => {
@@ -360,7 +358,6 @@ function ShowOptions({ rule, onOptions, swatches, worldId }: {
             }}>
             + {t("studio.messages.addName")}
           </button>
-          <p className="text-[10px] leading-relaxed text-muted-foreground/70">{t("studio.messages.nameHint")}</p>
         </div>
       );
     }
@@ -430,12 +427,12 @@ function RuleCard({ rule, index, count, open, onToggleOpen, onChange, onMove, on
                   rows={3}
                   placeholder={defaultAiHint(rule, lang)}
                   aria-label={t("studio.messages.aiHint")}
+                  title={t("studio.messages.aiHintHint")}
                   onChange={(e) => onChange({ ...rule, aiHint: e.target.value || undefined })}
                   className={cn(fieldCls, "resize-y text-[11px] leading-relaxed")}
                 />
                 <label className="flex flex-col gap-1"><span className="text-[10px] text-muted-foreground/80">{t("studio.messages.example")}</span>
                   <input value={rule.example ?? ""} maxLength={600} placeholder={ruleExample({ ...rule, example: undefined }, lang) ?? ""} onChange={(e) => onChange({ ...rule, example: e.target.value || undefined })} className={smallCls} /></label>
-                <p className="text-[10px] leading-relaxed text-muted-foreground/70">{t("studio.messages.aiHintHint")}</p>
               </>
             )}
           </div>
@@ -512,11 +509,11 @@ export function MessageDesignEditor({ lead, doc, pageId, edit, worldId }: {
         <div className="flex flex-col gap-2">
           <Segmented
             label={t("studio.messages.side")}
+            title={side === "greeting" ? t("studio.messages.greetingHint") : undefined}
             value={side}
             options={(["assistant", "user", "greeting"] as const).map((s) => ({ value: s, label: t(`studio.messages.sides.${s}`) }))}
             onChange={setSide}
           />
-          {side === "greeting" && <p className="text-[10px] leading-relaxed text-muted-foreground/70">{t("studio.messages.greetingHint")}</p>}
           <RoleStyleFields
             key={side}
             side={side}

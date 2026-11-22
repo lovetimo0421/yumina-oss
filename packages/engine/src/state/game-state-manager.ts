@@ -6,6 +6,17 @@ import { evaluateFormula } from "./formula.js";
 
 type VariableValue = number | string | boolean | Record<string, unknown> | unknown[];
 
+/** Older cards and snapshots can store JSON containers as serialized text.
+ * Decode containers only; scalar JSON values and ordinary text remain valid. */
+function normalizeJsonContainer(value: VariableValue): VariableValue {
+  if (typeof value !== "string" || !/^[\s]*[\[{]/.test(value)) return value;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (typeof parsed === "object" && parsed !== null) return parsed as VariableValue;
+  } catch { /* Preserve malformed text rather than discarding saved data. */ }
+  return value;
+}
+
 type StateChangeCallback = (
   variableId: string,
   oldValue: VariableValue,
@@ -716,7 +727,7 @@ export class GameStateManager {
       this.blockedWrites.push({ variableId: variable.id, reason: "once-true", attemptedValue: value });
       return true;
     }
-    if (variable.type === "json") return value;
+    if (variable.type === "json") return normalizeJsonContainer(value);
     if (variable.type === "number" && typeof value === "number") {
       let v = value;
       if (variable.min !== undefined) v = Math.max(variable.min, v);
@@ -753,6 +764,12 @@ export class GameStateManager {
       metadata: { ...(state?.metadata ?? {}) },
       ruleState: this.cloneRuleState(state?.ruleState),
     };
+
+    for (const [id, variable] of this.variables) {
+      if (variable.type === "json") {
+        normalized.variables[id] = normalizeJsonContainer(normalized.variables[id]!);
+      }
+    }
 
     if ("activeCharacterId" in (state ?? {})) {
       normalized.activeCharacterId = state?.activeCharacterId;

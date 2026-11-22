@@ -7,7 +7,7 @@ import {
 } from "react";
 import { compileTSX } from "@/lib/tsx/tsx-compiler";
 import { useAssetFont } from "@/lib/asset-font";
-import { resolveAssetRefs, resolveAssetUrl } from "@/lib/asset-url";
+import { assetOriginalPath, resolveAssetRefs, resolveAssetUrl } from "@/lib/asset-url";
 import { codeRevision, createCodeDiagnostic } from "@/lib/tsx/diagnostics";
 import { StudioCodeDiagnostic, StudioCodeBoundary } from "./code-diagnostic";
 
@@ -22,12 +22,19 @@ export interface PreviewEntry {
   folderId?: string;
   audience?: "ai" | "player" | "both";
   portrait?: string | null;
+  /** A live character beside the chat (`@rig:` / `@asset:` ref). */
+  portraitLive?: string | null;
 }
 
 export interface YuminaAPI {
   /** Preview implementations reject asynchronously so cards can use their
    *  normal AI-failure fallback without a real request or credit charge. */
   ai?: { complete: (options: unknown) => Promise<string> };
+  /** The card's own high-score boards (the sandbox's api.leaderboard); the canvas preview answers with a sample. */
+  leaderboard?: {
+    submit: (board: string, score: number, opts?: { details?: unknown; order?: "desc" | "asc" }) => Promise<unknown>;
+    get: (board: string, opts?: { range?: "top" | "around" | "friends"; limit?: number }) => Promise<unknown>;
+  };
   mode?: "session" | "guest-preview";
   capabilities?: {
     canSendMessage: boolean;
@@ -35,7 +42,7 @@ export interface YuminaAPI {
     canUseSessionApis: boolean;
     requiresAuth: boolean;
   };
-  sendMessage: (text: string, attachments?: import("@yumina/shared").ChatImageInput[]) => void;
+  sendMessage: (text: string, attachments?: import("@yumina/shared").ChatImageInput[], options?: { note?: string }) => void;
   setVariable: (id: string, value: number | string | boolean | Record<string, unknown> | unknown[], options?: { scope?: string; targetUserId?: string }) => void;
   executeAction: (actionId: string) => void;
   executeActionAndWait?: (actionId: string) => Promise<{ applied: true; variables: Record<string, unknown>; firedIds: string[] }>;
@@ -85,6 +92,14 @@ export interface YuminaAPI {
   /** 现场 (see sandbox-context). Previews have no AI call to send it with. */
   setScene?: (scene: Record<string, unknown> | string | null, options?: { events?: Array<{ name: string; when?: string }> }) => void;
   onStoryEvent?: (cb: (event: { id: string; name: string }) => void) => () => void;
+  /** An asset's raw bytes (see sandbox-context): what a card loads its character model from. */
+  fetchAsset?: (ref: string) => Promise<{ ok: boolean; bytes?: ArrayBuffer; contentType?: string; error?: string }>;
+  /** Browser-local cache (see sandbox-context). Previews keep it in memory. */
+  storage?: {
+    get: (key: string) => Promise<string | null>;
+    set: (key: string, value: string) => Promise<void>;
+    remove: (key: string) => Promise<void>;
+  };
 }
 
 const defaultAPI: YuminaAPI = {
@@ -113,6 +128,11 @@ const defaultAPI: YuminaAPI = {
   setAudioVolume: () => {},
   getAudioVolume: () => 1,
   switchGreeting: () => {},
+  storage: {
+    get: async () => null,
+    set: async () => {},
+    remove: async () => {},
+  },
 };
 
 const YuminaContext = createContext<YuminaAPI>(defaultAPI);
@@ -220,7 +240,7 @@ export function hardenImages(root: ParentNode, tracked: TrackedListener[]): void
     const src = img.getAttribute("src");
     if (src && src.startsWith("@asset:") && !img.dataset.yuminaAssetResolved) {
       img.dataset.yuminaAssetResolved = "1";
-      resolveAssetUrl(src).then((resolved) => {
+      resolveAssetUrl(src, { original: true }).then((resolved) => {
         if (resolved !== src) img.src = resolved;
       });
     }
@@ -247,7 +267,7 @@ export async function resolveStyleAssetRefs(root: ParentNode): Promise<void> {
   for (const styleEl of styleTags) {
     const cssText = styleEl.textContent ?? "";
     if (!cssText.includes("@asset:")) continue;
-    const resolved = await resolveAssetRefs(cssText);
+    const resolved = await resolveAssetRefs(cssText, { original: true });
     if (resolved !== cssText) {
       styleEl.textContent = resolved;
     }
@@ -257,7 +277,7 @@ export async function resolveStyleAssetRefs(root: ParentNode): Promise<void> {
   for (const el of styledElements) {
     const styleAttr = el.getAttribute("style") ?? "";
     if (!styleAttr.includes("@asset:")) continue;
-    const resolved = await resolveAssetRefs(styleAttr);
+    const resolved = await resolveAssetRefs(styleAttr, { original: true });
     if (resolved !== styleAttr) {
       el.setAttribute("style", resolved);
     }
@@ -402,7 +422,7 @@ export function CustomComponentRenderer({
       resolveAssetUrl: (ref: string) => {
         if (!ref) return ref;
         if (ref.startsWith("http://") || ref.startsWith("https://")) return ref;
-        if (ref.startsWith("@asset:")) return `/cdn/${ref.slice(7)}`;
+        if (ref.startsWith("@asset:")) return assetOriginalPath(ref.slice(7));
         return ref;
       },
     }),

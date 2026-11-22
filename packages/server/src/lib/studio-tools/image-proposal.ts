@@ -1,4 +1,4 @@
-import { IMAGE_ASPECTS, PLATFORM_STYLES, SMART_IMAGE_ASPECTS, SMART_IMAGE_MODEL, SMART_IMAGE_MODEL_IDS, closestAspect,
+import { IMAGE_ASPECTS, PLATFORM_STYLES, canonicalSmartImageModelId, SMART_IMAGE_ASPECTS, SMART_IMAGE_MODEL, SMART_IMAGE_MODEL_IDS, closestAspect,
   getPlatformStyle, getSmartImageModel, platformStylePrice, platformStyleRecipe,
   resolveSmartImageAspect, resolveSmartImageResolution, type ImageAspectId } from "@yumina/shared";
 import { eq } from "drizzle-orm";
@@ -98,9 +98,10 @@ export function normalizeImageProposal(raw: unknown, options: NormalizeImageOpti
   // Resolve the model first: everything else is narrowed against IT, not against
   // the union the schema advertises. A model rejects a ratio it does not know,
   // and the creator would only find out after confirming the card.
-  const model = typeof r.model === "string" && (SMART_IMAGE_MODEL_IDS as readonly string[]).includes(r.model)
-    && getSmartImageModel(r.model)
-    ? r.model
+  // A replaced model's id (an older recipe, an outside AI that read an older list) is read as its replacement's.
+  const named = typeof r.model === "string" ? canonicalSmartImageModelId(r.model) : undefined;
+  const model = named && (SMART_IMAGE_MODEL_IDS as readonly string[]).includes(named) && getSmartImageModel(named)
+    ? named
     : SMART_IMAGE_MODEL;
   const aspect = resolveSmartImageAspect(model,
     typeof r.aspectRatio === "string" ? r.aspectRatio : undefined);

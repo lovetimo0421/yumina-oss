@@ -2,6 +2,10 @@ import { getSmartImageCapabilities, SMART_IMAGE_MODEL, SMART_IMAGE_MODELS,
   SMART_IMAGE_ASPECTS, SMART_IMAGE_RESOLUTIONS, MAX_IMAGE_BATCH_ITEMS, IMAGE_ASPECTS,
   platformStylePrice, TTS_VOICES, type PlatformStyleInfo } from "@yumina/shared";
 import type { ToolDefinition } from "../llm/types.js";
+import { UPDATE_PLAN_TOOL } from "./plan.js";
+import { SCREENSHOT_UI, isScreenshotEnabled } from "./screenshot-tool.js";
+import { GET_MEDIA_JOB_DEFINITION, LIST_MEDIA_TOOLS_DEFINITION, runMediaToolDefinition } from "./media-tool-defs.js";
+import { TRANSLATE_CARD_DEFINITION } from "./translate-card-def.js";
 import { smartModelAvailable } from "../generation/smart-availability.js";
 
 /** The assistant picks its own model, so the schema advertises the union across
@@ -144,7 +148,49 @@ export function withCustomImageTool(tools: ToolDefinition[], customStyles: reado
 
 // ── Read Tools (auto-execute, no approval) ──
 
+/** Make one of the creator's images the card's cover (run by lib/outside-ai-media.ts runSetCover). */
+export const SET_COVER_TOOL: ToolDefinition = {
+  type: "function",
+  function: {
+    name: "set_cover",
+    description: "Make one of the creator's images (an @asset ref or asset id, e.g. from generate_image) the card's cover. Auto-executes. Only for a card that is not published yet; a published card's cover is changed by the creator in the editor, because it goes through review.",
+    parameters: {
+      type: "object",
+      properties: { asset: { type: "string", description: "`@asset:<id>` or the asset id." } },
+      required: ["asset"],
+    },
+  },
+};
+
+/** The creator's own voices and the voice plaza (run by lib/tts/assistant-voices.ts listVoicesForAssistant). */
+export const LIST_VOICES_TOOL: ToolDefinition = {
+  type: "function",
+  function: {
+    name: "list_voices",
+    description:
+      "List voices a character or the narrator can be read in, beyond the curated catalog in write_entry.voice: `mine` are the creator's own voices (designed, cloned, or kept from the voice plaza) and `plaza` are voices people shared, most used first. Each has the id to put in write_entry.voice or update_settings.narratorVoice, a name, what it sounds like, and the language it suits. Call it when the creator asks for one of their own voices, a voice from the plaza, or a voice the catalog has no fit for; pass `query` to search the plaza by words (e.g. 'gentle', '御姐', 'old man'). Auto-executes.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Words to search plaza voices by name or description. Omit for the most used." },
+      },
+    },
+  },
+};
+
 export const READ_TOOLS: ToolDefinition[] = [
+  SET_COVER_TOOL,
+  // Eyes and hands on the player's screen, for when a look is worth it (never a routine step).
+  ...(isScreenshotEnabled() ? [SCREENSHOT_UI] : []),
+  LIST_VOICES_TOOL,
+  {
+    type: "function",
+    function: {
+      name: "list_loras",
+      description: "The creator's LoRAs that story illustrations can be drawn with (Anima family): id, name, status, trained words. Bind one to a character with write_entry imageLora (role 'character'), or to the whole card's art style with update_settings illustrationLora. Only 'ready' ones take effect; the creator imports new ones in the editor (Civitai link or .safetensors), not you.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
   {
     type: "function",
     function: {
@@ -157,6 +203,16 @@ export const READ_TOOLS: ToolDefinition[] = [
         offset: { type: "integer", minimum: 0 },
         limit: { type: "integer", minimum: 1, maximum: 100 },
       } },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "view_asset",
+      description: "Look at pictures from the creator's library or this card's own files, by @asset ref (from the creator's message, the card's fields, or list_assets). Use it when what a picture shows matters: does a background suit the interface's colours, which portrait is which character, what is on a scene image. The pictures arrive right after the tool results. Up to 4 per call and 8 per request; each one adds roughly 1-2K input tokens to every later step, so look only when it matters. Pictures the creator referenced in their message are already shown to you. It shows the file, not the card's rendered screen.",
+      parameters: { type: "object", properties: {
+        assets: { type: "array", items: { type: "string" }, minItems: 1, maxItems: 4, description: "@asset:<id> refs (or bare asset ids)." },
+      }, required: ["assets"] },
     },
   },
   {
@@ -216,13 +272,13 @@ export const READ_TOOLS: ToolDefinition[] = [
     function: {
       name: "load_skill",
       description:
-        "Load detailed domain knowledge for a specific topic. Call this BEFORE writing audio tracks, lore-heavy content, or editing the visual interface document (edit_ui_doc) — these domains have specific conventions not covered by tool definitions alone. Core skills (entries, variables, tsx, front-ui, world-design, rules) are already in your context.",
+        "Load detailed domain knowledge for a specific topic. Call this BEFORE writing audio tracks, lore-heavy content, a multiplayer setup or rules file, or editing the visual interface document (edit_ui_doc) — these domains have specific conventions not covered by tool definitions alone. Core skills (entries, variables, tsx, front-ui, world-design, rules) are already in your context.",
       parameters: {
         type: "object",
         properties: {
           name: {
             type: "string",
-            description: 'Skill name: "audio" (audio tracks), "lore" (advanced worldbuilding: codeification, layered faction systems, multiplayer canon) or "ui-doc" (visual interface document: part shapes + worked examples for edit_ui_doc). Core skills (entries, variables, tsx, front-ui, world-design, rules) are already loaded — do not reload them.',
+            description: 'Skill name: "audio" (audio tracks), "lore" (advanced worldbuilding: codeification, layered faction systems), "multiplayer" (联机: friends playing one card together, story rooms and rules files) or "ui-doc" (visual interface document: part shapes + worked examples for edit_ui_doc). Core skills (entries, variables, tsx, front-ui, world-design, rules) are already loaded — do not reload them.',
           },
         },
         required: ["name"],
@@ -292,6 +348,22 @@ export const READ_TOOLS: ToolDefinition[] = [
   {
     type: "function",
     function: {
+      name: "check_rules",
+      description:
+        "Play the card's multiplayer rules file (settings.multiplayer.rulesFile, or `file`) against itself — free, no model call, nothing saved. Runs it in the same sandbox the game server uses, for `games` random tables (default 200, at most 500, about 20 seconds at most): random seat counts within the card's range, some seats AI, every move from timeout() or a random legal() move, now and then a junk move apply() should refuse. Returns a summary line plus: games finished/played, the longest game, errors (function, first message, phase, how often), junk moves rejected, the rules' own moves apply() refused, possible leaks (one seat's view showing another seat's hidden data: whose, to whom, which key), and the largest view / legal / aiPrompt sizes against the AI-seat limits. Run it after every change to a rules file and before turning rules mode on; fix every error and leak, then run it again. It cannot judge whether the game is fun or what the AI seats will choose.",
+      parameters: {
+        type: "object",
+        properties: {
+          file: { type: "string", description: "The rules file among the interface files, e.g. \"rules.js\". Default: settings.multiplayer.rulesFile." },
+          games: { type: "number", description: "How many games to play, 1-500 (default 200)." },
+          seed: { type: "number", description: "Optional: the same seed replays the same games." },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "search_source",
       description:
         "Search the source texts the creator attached to this card (e.g. the novel a fan-work is based on — listed under \"Source texts\" in your context). Literal search; several space-separated words must all appear close together (\"贝尔 艾丝 告白\" finds that scene). Returns matches with chapter index/title, character offset and a snippet. Use it for canon facts: names as this translation writes them, terms, places, who said what, when something happened. Then read_source the chapter for the full passage. Auto-executes.",
@@ -325,7 +397,50 @@ export const READ_TOOLS: ToolDefinition[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "web_search",
+      description:
+        "Search the web. Use it for facts you would otherwise guess: an existing work's characters, names as the fandom writes them, ages, relationships, places, terms, plot order, a game's mechanics; or how something is usually done. Prefer search_source when the creator attached the book. One search per question; search in the work's own language for the best wikis (Chinese: 萌娘百科/B站wiki; Japanese titles in Japanese). Each search costs the creator about 8 mushies from their Yumina balance. Returns up to 8 results with title, url and a short excerpt; read_web_page reads one in full. Auto-executes.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "What to look up, as you would type it into a search engine (\"葬送的芙莉莲 芙莉莲 年龄 身高\")." },
+          max_results: { type: "number", description: "Results to return, default 6, max 8." },
+          domains: { type: "array", items: { type: "string" }, description: "Optional: only search these sites, e.g. [\"zh.moegirl.org.cn\"]." },
+        },
+        required: ["query"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "read_web_page",
+      description:
+        "Read a web page as plain text. Only addresses already in this conversation can be read: ones the creator wrote, ones a web_search returned, or links a page you read listed (list_links). At most 12000 characters per call; the result says how to read on. Some sites refuse servers (Baidu Baike and others): then use the search excerpt or another result. Free. Auto-executes.",
+      parameters: {
+        type: "object",
+        properties: {
+          url: { type: "string", description: "The page's full address, exactly as it appeared." },
+          offset: { type: "number", description: "Characters into the page's text to start at (or, with list_links, links to skip)." },
+          length: { type: "number", description: "Characters to return, default and max 12000." },
+          list_links: { type: "boolean", description: "Return the links in the page's content (text + url) instead of its text, to follow one." },
+        },
+        required: ["url"],
+      },
+    },
+  },
+  UPDATE_PLAN_TOOL,
+  LIST_MEDIA_TOOLS_DEFINITION,
+  GET_MEDIA_JOB_DEFINITION,
+  TRANSLATE_CARD_DEFINITION,
 ];
+
+/** The two tools that reach the internet: left out when web access is off
+ *  (STUDIO_WEB=off for everyone, or the creator's own switch). */
+export const WEB_TOOL_NAMES = new Set(["web_search", "read_web_page"]);
 
 // ── Write Tools (collected, validated atomically, approval classified) ──
 
@@ -343,7 +458,9 @@ export const WRITE_TOOLS: ToolDefinition[] = [
           name: { type: "string" },
           content: { type: "string", description: "Entry text sent to the LLM. Supports {{char}}, {{user}}, {{variableId}} macros." },
           portrait: { type: "string", description: "Character portrait @asset reference (role 'character' only). Empty string removes the portrait." },
-          voice: { type: "string", description: `Voice this character's dialogue is read aloud in when the player turns on voice readout (role 'character' only; the player's own voice pick yields to it). A fish.audio voice id, 32 lowercase hex. Curated: ${VOICE_CATALOG_LINES}. Match the character's gender/age/temperament and the card's language; set it only when the creator asks for voices or is setting up readout. Empty string removes it (the AI then casts one from the player's pool).` },
+          portraitLive: { type: "string", description: "A live character (动态立绘) standing beside the chat (role 'character' only): \"@rig:<id>\" from make_live_character or the creator's live characters. No interface code needed: the card's chat shows her and the platform has the AI name her face at the start of each reply, so her expression follows the story. Empty string removes it. A card with its own interface shows her with <RigCharacter> instead (load_skill('tsx'))." },
+          imageLora: { type: "object", description: "Story-illustration LoRA: { modelId (from list_loras), weight? (0.1-1.5; default 0.9 for a character, 0.8 for the art style), trigger? (words that call it up; default its first trained word) }. modelId \"\" removes it.", properties: { modelId: { type: "string" }, weight: { type: "number" }, trigger: { type: "string" } }, required: ["modelId"] },
+          voice: { type: "string", description: `Voice this character's dialogue is read aloud in when the player turns on voice readout (role 'character' only; the player's own voice pick yields to it). A fish.audio voice id, 32 lowercase hex. Curated: ${VOICE_CATALOG_LINES}. For the creator's own voices or the voice plaza, call list_voices. Match the character's gender/age/temperament and the card's language; set it only when the creator asks for voices or is setting up readout. Empty string removes it (the AI then casts one from the player's pool).` },
           role: { type: "string", enum: ["system", "character", "personality", "scenario", "lore", "plot", "style", "example", "greeting", "custom"], description: "'character' makes the entry a character: only then do portrait and voice apply (the editor's 「这是一个角色」 switch). Use it for every cast member's main entry." },
           section: { type: "string", enum: ["system-presets", "examples", "chat-history", "post-history"] },
           keywords: { type: "array", items: { type: "string" }, description: "Trigger words for chat-history entries." },
@@ -643,7 +760,7 @@ export const WRITE_TOOLS: ToolDefinition[] = [
     function: {
       name: "update_settings",
       description:
-        "Update the card's name and one-line description, world-level generation settings, and player identity. AI-call settings follow the PLAYER by default: the story AI uses the player's own Yumina model, reply length and sampling. The card's temperature/topP/topK/minP/frequencyPenalty/presencePenalty only apply when samplingPolicy is \"author\" (and are clamped to safe ranges); the card's maxTokens never overrides the player's reply length; the model always stays the player's (recommendedModel is only a suggestion). Leave sampling alone unless the creator explicitly wants a fixed style for this card — never set it just to \"tune\" a card. Out-of-range numbers are clamped and reported.",
+        "Update the card's name and one-line description, world-level generation settings, player identity, and multiplayer (联机: whether friends can play it together). AI-call settings follow the PLAYER by default: the story AI uses the player's own Yumina model, reply length and sampling. The card's temperature/topP/topK/minP/frequencyPenalty/presencePenalty only apply when samplingPolicy is \"author\" (and are clamped to safe ranges); the card's maxTokens never overrides the player's reply length; the model always stays the player's (recommendedModel is only a suggestion). Leave sampling alone unless the creator explicitly wants a fixed style for this card — never set it just to \"tune\" a card. Out-of-range numbers are clamped and reported.",
       parameters: {
         type: "object",
         properties: {
@@ -659,6 +776,7 @@ export const WRITE_TOOLS: ToolDefinition[] = [
           recommendedModel: { type: "string", description: "The model the creator suggests for this card, shown to players as a suggestion — never forced. Must be an exact model id from Yumina's catalog (an unknown id is rejected). \"\" removes it." },
           playerName: { type: "string" },
           speakerBubbles: { type: "boolean", description: "The default chat splits one reply into a bubble per speaker when lines open with a character's name ('沈霏：…'). For group scenes / idol simulators." },
+          composeAssist: { type: "boolean", description: "帮我写 in the player's input box (on by default): the AI writes the player's next move or expands what they typed, on the player's chosen model. Set false only when the player's own wording is the game (riddles, passwords, typed choices)." },
           replyRules: {
             type: "array",
             items: { type: "object" },
@@ -685,6 +803,7 @@ export const WRITE_TOOLS: ToolDefinition[] = [
             description:
               "Lore injection budget as a percent of maxContext (5–100, default 100 = no extra limit). Lower it (e.g. 25) to bound lore as a fraction of the window; never near 0, which drops every keyword entry. The effective ceiling is min(lorebookBudgetCap, lorebookBudgetPercent% of maxContext).",
           },
+          illustrationLora: { type: "object", description: "Story-illustration LoRA: { modelId (from list_loras), weight? (0.1-1.5; default 0.9 for a character, 0.8 for the art style), trigger? (words that call it up; default its first trained word) }. modelId \"\" removes it.", properties: { modelId: { type: "string" }, weight: { type: "number" }, trigger: { type: "string" } }, required: ["modelId"] },
           narratorVoice: { type: "string", description: "Voice readout: the fish.audio voice id (32 hex, same catalog as write_entry.voice) narration is read in; a speaking character with no voice of its own falls to it too. Empty string removes it." },
           voiceInputMode: { type: "string", enum: ["confirm", "auto"], description: "Hold-to-talk voice input on release: 'confirm' (default) fills the input box for the player to review, 'auto' sends it as spoken. The player can override." },
           continuity: {
@@ -702,6 +821,32 @@ export const WRITE_TOOLS: ToolDefinition[] = [
                   once: { type: "boolean", description: "true = an AI-picked track plays once, then the default playlist resumes. Default false (loops until switched)." },
                   duck: { type: "boolean", description: "Lower BGM while an AI-picked SFX plays. Default true." },
                 },
+              },
+            },
+          },
+          multiplayer: {
+            type: "object",
+            description: "联机: whether friends can play this card together. Off by default; a card shows no multiplayer entry anywhere until it is on. Only the keys you pass change; null turns it off and keeps the rest. Load the multiplayer skill before setting it up. mode \"story\" (一起讲故事): friends share one session, each round's actions merge into one turn and the card's AI narrates it. mode \"rules\" (按规则对局): the card's rules file runs the game on the server and the card's interface is the table; the file must already be an interface file (write it, run check_rules, then set rulesFile here).",
+            properties: {
+              enabled: { type: "boolean", description: "true = friends can join; false = off. Defaults to true on a first setup." },
+              mode: { type: "string", enum: ["story", "rules"] },
+              minSeats: { type: "number", description: "Fewest people at a table, 2-12 (default 2)." },
+              maxSeats: { type: "number", description: "Most people at a table, 2-12 (default 6)." },
+              roles: {
+                type: "array",
+                description: "Story mode, optional: the parts a joiner can pick. Replaces the whole list. entryId links a character entry of this card; note is one line the joiner sees. [] removes them.",
+                items: {
+                  type: "object",
+                  properties: { id: { type: "string" }, name: { type: "string" }, entryId: { type: "string" }, note: { type: "string" } },
+                  required: ["name"],
+                },
+              },
+              rolesRequired: { type: "boolean", description: "Story mode: a joiner must take a free role (default false). Needs roles." },
+              rulesFile: { type: "string", description: "Rules mode: the rules file's path among the interface files, e.g. \"rules.js\"." },
+              ai: {
+                type: "object",
+                description: "Rules mode: seats the host fills with AI. names = what they are called; model = an exact catalog model id (default: a cheap one). The host pays for AI moves.",
+                properties: { names: { type: "array", items: { type: "string" } }, model: { type: "string" } },
               },
             },
           },
@@ -968,6 +1113,27 @@ const CONTROL_TOOLS: ToolDefinition[] = [
   {
     type: "function",
     function: {
+      name: "make_live_character",
+      description:
+        "Turn one picture of a character (one the creator attached in this chat, or an image in their library) into a live character: it breathes, blinks, follows the pointer, talks with mouth shapes, shows expressions (happy, shy, surprised, angry, sleepy, heart eyes) and reacts when touched, with hair that sways. Best with one character, front-facing, upper body or full figure, on a plain background. The first call does not run it: the platform shows the creator the time and cost; when they start it, call make_live_character again with the same picture and it runs (about half an hour; progress shows in the panel). Call it alone. It returns the character as an @rig ref: put it on her character entry (write_entry portraitLive) and the card's chat shows her with her face following each reply, no interface code needed; a card with its own interface uses <RigCharacter pack='@rig:…'> instead. When you tell the creator about it, say what it makes; don't write this tool's name.",
+      parameters: {
+        type: "object",
+        properties: {
+          picture: { type: "string", description: "\"attached\" for the picture the creator attached to their message in this chat (the latest one), or an @asset:<id> ref of an image in their library. Never stand in a different picture from the library for one they attached." },
+          name: { type: "string", description: "The character's name, for the file." },
+          plan: {
+            type: "array",
+            items: { type: "string" },
+            description: "2-4 short lines for the creator, in the creator's language: which picture, what they will get, where it will show in the card.",
+          },
+        },
+        required: ["picture", "plan"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "propose_job",
       description:
         "Before a BIG piece of work, say how you will do it and let the creator start it. Big means building something across several parts of the card (a new opening flow, a character roster, a system with variables + behaviors + interface, a whole new card). When what you build is something a player will feel, end the plan with playing it yourself (the playtest tool) and fixing what you find. NOT for a small edit (rewrite one entry, add one variable, change a colour): just do those. Call it alone, with 3-7 short plan lines in the creator's language, written for the creator (what they will get, not tool names). The platform adds the time and cost and shows Start; when the creator starts it you will get the go-ahead and should then do the whole job without stopping to ask.",
@@ -1046,6 +1212,8 @@ const CONTROL_TOOLS: ToolDefinition[] = [
       },
     },
   },
+  // The workbench's media tools: a card the creator presses Run on (agent.ts, /agent/run-media-tool).
+  runMediaToolDefinition("studio"),
 ];
 
 // ── Combined & Sets ──

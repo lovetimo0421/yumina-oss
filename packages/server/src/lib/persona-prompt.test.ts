@@ -56,4 +56,38 @@ describe("buildPersonaSystemMessage", () => {
     ]);
     assert.doesNotMatch(messages.map((message) => message.content).join("\n"), /persona/i);
   });
+
+  it("skips details the card already wrote with {{persona}} but keeps the name line", () => {
+    const backstory = "Grew up in the harbor district and ran the night ferry for ten years.";
+    const messages: PersonaPromptMessage[] = [
+      { role: "system", content: `World rules.
+Name: Alex
+Appearance: silver hair
+Backstory: ${backstory}` },
+      { role: "user", content: "Continue." },
+    ];
+    appendPersonaSystemMessage(messages, {
+      name: "Alex",
+      appearance: "silver hair",
+      personality: "reserved",
+      backstory,
+      entries: [{ title: "Scar", content: "left hand" }],
+    });
+    const added = messages[messages.length - 1]!.content;
+    assert.ok(added.includes("User's roleplay name: Alex"));
+    assert.ok(added.includes("Personality: reserved"));
+    assert.ok(added.includes("Scar: left hand"));
+    assert.doesNotMatch(added, /Appearance:|Backstory:/);
+  });
+
+  it("does not dedupe against chat history or short coincidental words", () => {
+    const messages: PersonaPromptMessage[] = [
+      { role: "system", content: "The tavern is reserved tonight." },
+      { role: "user", content: "Appearance: silver hair" },
+    ];
+    appendPersonaSystemMessage(messages, { name: "Alex", appearance: "silver hair", personality: "reserved" });
+    const added = messages[messages.length - 1]!.content;
+    assert.ok(added.includes("Appearance: silver hair"));
+    assert.ok(added.includes("Personality: reserved"));
+  });
 });

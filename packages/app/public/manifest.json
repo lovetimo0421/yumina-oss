@@ -1,12 +1,12 @@
 {
   "name": "Yumina",
   "short_name": "Yumina",
-  "description": "Open-source world engine and community turning entertainment interactive.",
+  "description": "Play and create AI driven games, visual novels, anime characters and simulators. Built on open-source AI game engine. Free to play.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "display_override": ["fullscreen", "standalone"],
-  "orientation": "portrait",
+  "orientation": "any",
   "background_color": "#0B0F19",
   "theme_color": "#0B0F19",
   "icons": [

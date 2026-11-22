@@ -14,7 +14,7 @@
  *   comma) a directive operation word.
  *
  * Kept, always: tags the platform consumes (`[image:]`, `[video:]`,
- * `[audio:]`, `[speaker:]`, `[bg:]`), anything a card's reply rule matches,
+ * `[audio:]`, `[speaker:]`, `[bg:]`, `[face:]`), anything a card's reply rule matches,
  * spans with no `key:` at all, and card display lines like `[Day 3: Morning]`
  * or `[时间：清晨]` whose key is not a variable and which carry no operation.
  * Brackets inside a prose line are never touched here.
@@ -35,7 +35,7 @@ export const PLACEHOLDER_KEYS: ReadonlySet<string> = new Set([
 ]);
 
 /** Bracket tags the platform itself reads. Never bookkeeping. */
-export const PLATFORM_BRACKET_TAGS: ReadonlySet<string> = new Set(["image", "video", "audio", "speaker", "bg"]);
+export const PLATFORM_BRACKET_TAGS: ReadonlySet<string> = new Set(["image", "video", "audio", "speaker", "bg", "face"]);
 
 export interface BracketLineContext {
   /** Variable ids of this world. Without them only the placeholder and

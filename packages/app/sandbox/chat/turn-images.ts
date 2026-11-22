@@ -10,6 +10,9 @@ export interface TurnImageSettings {
   unlimited?: boolean;
   /** Whether a fine (full-schedule) redraw is offered. */
   fine?: boolean;
+  /** How this player's pictures are drawn, and the choices offered (one: no picker). */
+  style?: string;
+  styles?: string[];
 }
 
 // One fetch per sandbox; every message's action row and the composer menu
@@ -41,8 +44,16 @@ export function useTurnImageSettings(api: SandboxedYuminaAPI) {
     return ok;
   };
 
+  const setStyle = async (style: string) => {
+    const previous = cached;
+    if (previous) publish({ ...previous, style });
+    const ok = await api.setTurnImageStyle(style);
+    if (!ok && previous) publish(previous);
+    return ok;
+  };
+
   // The free count goes down with every picture: re-read when the menu opens.
   const refresh = () => { void api.getTurnImageSettings().then((s) => { if (s) publish(s); }, () => {}); };
 
-  return { settings, setAuto, refresh };
+  return { settings, setAuto, setStyle, refresh };
 }

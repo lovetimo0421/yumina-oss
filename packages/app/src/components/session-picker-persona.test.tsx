@@ -32,7 +32,6 @@ for (const mode of ["single", "language", "versions"] as const) {
       "@/lib/languages": { LANGUAGE_SHORT: {}, variantRowLabels: () => new Map() },
       "@/components/session-modal-styles": {},
       "@/features/chat/world-persona-menu": { WorldPersonaIconMenu: () => null },
-      "@/components/version-picker-modal": { soleCurrentLanguageVariant: () => mode === "language" ? variants[0] : null },
     };
     const require = createRequire(import.meta.url);
     const module = { exports: {} as { SessionPickerModal: ComponentType<SessionPickerModalProps> } };
@@ -47,8 +46,19 @@ for (const mode of ["single", "language", "versions"] as const) {
         open: true, onClose() {}, onSelectSession() {}, onCreateSession: (id) => created.push(id),
         world: { id: "world", name: "World", languageGroupId: "group" }, variants: variants as SessionPickerModalProps["variants"],
       })));
-      // A sole same-language version starts on the first click; only multilingual variants open the picker.
-      if (mode === "versions") await act(async () => button().click());
+      // A card with versions (in any language) opens the picker first; the reader's own language is preselected.
+      if (mode !== "single") await act(async () => button().click());
+      if (mode === "language") {
+        // The list opens on the reader's language; the globe adds the others (owner, 2026-11-05).
+        const text = () => dom.window.document.body.textContent ?? "";
+        const globe = () => Array.from(dom.window.document.querySelectorAll("button"))
+          .find((el) => /header\.show(All|Current)Language/.test(el.getAttribute("aria-label") ?? ""))!;
+        assert.doesNotMatch(text(), /Second/);
+        await act(async () => globe().click());
+        assert.match(text(), /Second/);
+        await act(async () => globe().click());
+        assert.doesNotMatch(text(), /Second/);
+      }
       await act(async () => {
         store.setState({ savingSelection: true });
         button().click(); // Handler sees live store before disabled renders.
